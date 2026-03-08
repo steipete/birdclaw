@@ -184,6 +184,8 @@ Flags:
 - supports `--limit`
 - supports `--kind mentions|dms|mixed`
 - supports replied/unreplied filters
+- supports `--score` to refresh stored OpenAI scores before listing
+- supports `--min-score` and `--hide-low-signal`
 
 ### `serve`
 

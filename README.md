@@ -5,6 +5,7 @@ Local-first X workspace. Multi-account. SQLite-backed. TanStack Start web UI. CL
 ## Current slice
 
 - home timeline view
+- AI inbox view for mixed mentions + DMs
 - mentions/replies view
 - DM workspace with:
   - sender bio always visible
@@ -32,6 +33,7 @@ pnpm dev
 pnpm cli init
 pnpm cli auth status
 pnpm cli archive find --json
+pnpm cli inbox --score --limit 5 --json
 pnpm cli search tweets "local-first" --json
 pnpm cli search dms "layout" --min-followers 1000 --min-influence-score 120 --sort influence --json
 pnpm cli dms list --unreplied --min-followers 500 --min-influence-score 90 --sort influence --json
