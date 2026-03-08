@@ -67,6 +67,13 @@ export interface TweetActionsTable {
 	created_at: string;
 }
 
+export interface BlocksTable {
+	account_id: string;
+	profile_id: string;
+	source: string;
+	created_at: string;
+}
+
 export interface AiScoresTable {
 	entity_kind: string;
 	entity_id: string;
@@ -84,6 +91,7 @@ export interface BirdclawDatabase {
 	dm_conversations: DmConversationsTable;
 	dm_messages: DmMessagesTable;
 	tweet_actions: TweetActionsTable;
+	blocks: BlocksTable;
 	ai_scores: AiScoresTable;
 }
 
@@ -158,6 +166,14 @@ const SCHEMA_SQL = `
     created_at text not null
   );
 
+  create table if not exists blocks (
+    account_id text not null,
+    profile_id text not null,
+    source text not null,
+    created_at text not null,
+    primary key (account_id, profile_id)
+  );
+
   create table if not exists ai_scores (
     entity_kind text not null,
     entity_id text not null,
@@ -184,6 +200,7 @@ const SCHEMA_SQL = `
   create index if not exists idx_dm_conversations_account on dm_conversations(account_id, last_message_at desc);
   create index if not exists idx_dm_messages_conversation on dm_messages(conversation_id, created_at asc);
   create index if not exists idx_profiles_followers on profiles(followers_count desc);
+  create index if not exists idx_blocks_account_created on blocks(account_id, created_at desc);
   create index if not exists idx_ai_scores_updated on ai_scores(updated_at desc);
 `;
 

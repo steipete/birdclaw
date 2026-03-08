@@ -140,6 +140,10 @@ a {
   max-width: 420px;
 }
 
+.hero-controls-blocks {
+  max-width: 560px;
+}
+
 .text-field {
   width: min(360px, 100%);
   padding: 12px 14px;
@@ -314,6 +318,20 @@ a {
   color: white;
   background: var(--ink);
   cursor: pointer;
+}
+
+.action-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.block-card p {
+  margin: 10px 0 0;
+}
+
+.error-copy {
+  margin: 0 0 16px;
+  color: var(--alert);
 }
 
 .dm-grid {

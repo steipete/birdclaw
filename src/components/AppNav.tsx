@@ -5,6 +5,7 @@ const links = [
 	{ to: "/", label: "Home" },
 	{ to: "/mentions", label: "Mentions" },
 	{ to: "/dms", label: "DMs" },
+	{ to: "/blocks", label: "Blocks" },
 ] as const;
 
 export function AppNav() {

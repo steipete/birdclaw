@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { addBlock, removeBlock } from "#/lib/blocks";
 import { scoreInbox } from "#/lib/inbox";
 import { createDmReply, createPost, createTweetReply } from "#/lib/queries";
 import type { InboxKind } from "#/lib/types";
@@ -31,6 +32,16 @@ export const Route = createFileRoute("/api/action")({
 						kind: ((body.scoreKind as InboxKind) || "mixed") as InboxKind,
 						limit: body.limit ? Number(body.limit) : 8,
 					});
+				} else if (body.kind === "blockProfile") {
+					result = await addBlock(
+						body.accountId || "acct_primary",
+						body.query || "",
+					);
+				} else if (body.kind === "unblockProfile") {
+					result = await removeBlock(
+						body.accountId || "acct_primary",
+						body.query || "",
+					);
 				} else {
 					return new Response(
 						JSON.stringify({ ok: false, message: "Unknown action kind" }),

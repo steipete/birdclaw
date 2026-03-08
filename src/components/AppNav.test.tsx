@@ -32,6 +32,7 @@ describe("AppNav", () => {
 		expect(screen.getByRole("link", { name: "Inbox" })).toHaveClass(
 			"nav-link-active",
 		);
+		expect(screen.getByRole("link", { name: "Blocks" })).toBeInTheDocument();
 		expect(screen.getByText("Quiet signal for X.")).toBeInTheDocument();
 	});
 });

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { findArchives } from "#/lib/archive-finder";
 import { importArchive } from "#/lib/archive-import";
+import { addBlock, listBlocks, removeBlock } from "#/lib/blocks";
 import { ensureBirdclawDirs, getBirdclawPaths } from "#/lib/config";
 import { listInboxItems, scoreInbox } from "#/lib/inbox";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
@@ -198,6 +199,40 @@ program
 			limit: Number(options.limit),
 		});
 		print(items, program.opts().json ?? false);
+	});
+
+const blocksCommand = program
+	.command("blocks")
+	.description("Maintain the local blocklist");
+
+blocksCommand
+	.command("list")
+	.option("--account <accountId>", "Account id")
+	.option("--search <query>", "Filter blocked profiles")
+	.option("--limit <n>", "Limit results", "50")
+	.action((options) => {
+		const items = listBlocks({
+			account: options.account,
+			search: options.search,
+			limit: Number(options.limit),
+		});
+		print(items, program.opts().json ?? false);
+	});
+
+blocksCommand
+	.command("add <query>")
+	.option("--account <accountId>", "Account id", "acct_primary")
+	.action(async (query, options) => {
+		const result = await addBlock(options.account, query);
+		print(result, program.opts().json ?? false);
+	});
+
+blocksCommand
+	.command("remove <query>")
+	.option("--account <accountId>", "Account id", "acct_primary")
+	.action(async (query, options) => {
+		const result = await removeBlock(options.account, query);
+		print(result, program.opts().json ?? false);
 	});
 
 const composeCommand = program

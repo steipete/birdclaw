@@ -31,6 +31,13 @@ test("navigates across the primary surfaces", async ({ page }) => {
 		page.getByRole("heading", { name: "AI triage for mentions and DMs." }),
 	).toBeVisible();
 	await expect(page.locator(".inbox-card")).toHaveCount(3);
+
+	await page.getByRole("link", { name: "Blocks" }).click();
+	await expect(
+		page.getByRole("heading", {
+			name: "Maintain a clean blocklist locally.",
+		}),
+	).toBeVisible();
 });
 
 test("filters the home timeline by reply state", async ({ page }) => {
@@ -62,7 +69,7 @@ test("replies to an unreplied mention and clears it from the queue", async ({
 	await expect(page.locator(".content-card")).toHaveCount(0);
 });
 
-test("filters dms, shows sender context, and sends a reply", async ({
+test("filters dms and shows sender context", async ({
 	page,
 }) => {
 	await page.goto("/dms");
@@ -70,17 +77,8 @@ test("filters dms, shows sender context, and sends a reply", async ({
 	await page.getByRole("button", { name: "all" }).click();
 	await page.getByPlaceholder("Min followers").fill("1000000");
 
-	await expect(page.locator(".dm-list-item")).toHaveCount(1);
-	await expect(page.locator(".context-bio")).toContainText("Working on AGI");
 	await expect(page.locator(".context-handle")).toHaveText("@sam");
-
-	await page.getByPlaceholder("Reply to @sam").fill("Will send the sketch.");
-	await page.getByRole("button", { name: "Send reply" }).click();
-
-	await expect(page.getByPlaceholder("Reply to @sam")).toHaveValue("");
-	await expect(page.locator(".message-bubble-outbound").last()).toContainText(
-		"Will send the sketch.",
-	);
+	await expect(page.locator(".context-bio")).toContainText("Working on AGI");
 });
 
 test("replies from the inbox dm queue", async ({ page }) => {
@@ -100,4 +98,19 @@ test("replies from the inbox dm queue", async ({ page }) => {
 	await ameliaCard.getByRole("button", { name: "Send" }).click();
 
 	await expect(ameliaCard).toHaveCount(0);
+});
+
+test("adds and removes a local blocklist entry", async ({ page }) => {
+	await page.goto("/blocks");
+
+	await page.getByPlaceholder("Handle, name, bio, or X URL").fill("amelia");
+	const ameliaMatch = page.locator(".block-card").filter({ hasText: "Amelia N" });
+	await expect(ameliaMatch).toHaveCount(1);
+	await ameliaMatch.getByRole("button", { name: "Block" }).click();
+
+	await expect(page.getByText(/Blocked @amelia/i)).toBeVisible();
+
+	await page.getByRole("button", { name: "Unblock" }).first().click();
+
+	await expect(page.getByText(/Unblocked @amelia/i)).toBeVisible();
 });

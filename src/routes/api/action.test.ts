@@ -1,10 +1,17 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const addBlockMock = vi.fn();
 const createPostMock = vi.fn();
 const createTweetReplyMock = vi.fn();
 const createDmReplyMock = vi.fn();
+const removeBlockMock = vi.fn();
 const scoreInboxMock = vi.fn();
+
+vi.mock("#/lib/blocks", () => ({
+	addBlock: (...args: unknown[]) => addBlockMock(...args),
+	removeBlock: (...args: unknown[]) => removeBlockMock(...args),
+}));
 
 vi.mock("#/lib/queries", () => ({
 	createPost: (...args: unknown[]) => createPostMock(...args),
@@ -20,9 +27,11 @@ import { Route } from "./action";
 
 describe("api action route", () => {
 	beforeEach(() => {
+		addBlockMock.mockReset();
 		createPostMock.mockReset();
 		createTweetReplyMock.mockReset();
 		createDmReplyMock.mockReset();
+		removeBlockMock.mockReset();
 		scoreInboxMock.mockReset();
 	});
 
@@ -105,6 +114,35 @@ describe("api action route", () => {
 		expect(response.status).toBe(200);
 	});
 
+	it("dispatches blocklist actions", async () => {
+		addBlockMock.mockResolvedValue({ ok: true, action: "block" });
+		removeBlockMock.mockResolvedValue({ ok: true, action: "unblock" });
+
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
+				body: JSON.stringify({
+					kind: "blockProfile",
+					accountId: "acct_primary",
+					query: "@sam",
+				}),
+			}),
+		});
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
+				body: JSON.stringify({
+					kind: "unblockProfile",
+					accountId: "acct_primary",
+					query: "@sam",
+				}),
+			}),
+		});
+
+		expect(addBlockMock).toHaveBeenCalledWith("acct_primary", "@sam");
+		expect(removeBlockMock).toHaveBeenCalledWith("acct_primary", "@sam");
+	});
+
 	it("rejects unknown actions", async () => {
 		const response = await Route.options.server.handlers.POST({
 			request: new Request("http://localhost/api/action", {
@@ -166,5 +204,26 @@ describe("api action route", () => {
 		});
 
 		expect(scoreInboxMock).toHaveBeenCalledWith({ kind: "mixed", limit: 8 });
+	});
+
+	it("uses fallback values when block payload fields are missing", async () => {
+		addBlockMock.mockResolvedValue({ ok: true });
+		removeBlockMock.mockResolvedValue({ ok: true });
+
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
+				body: JSON.stringify({ kind: "blockProfile" }),
+			}),
+		});
+		await Route.options.server.handlers.POST({
+			request: new Request("http://localhost/api/action", {
+				method: "POST",
+				body: JSON.stringify({ kind: "unblockProfile" }),
+			}),
+		});
+
+		expect(addBlockMock).toHaveBeenCalledWith("acct_primary", "");
+		expect(removeBlockMock).toHaveBeenCalledWith("acct_primary", "");
 	});
 });

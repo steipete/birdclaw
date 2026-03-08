@@ -22,6 +22,25 @@ export interface ProfileRecord {
 	createdAt: string;
 }
 
+export interface BlockItem {
+	accountId: string;
+	accountHandle: string;
+	source: string;
+	blockedAt: string;
+	profile: ProfileRecord;
+}
+
+export interface BlockSearchItem {
+	profile: ProfileRecord;
+	isBlocked: boolean;
+	blockedAt?: string;
+}
+
+export interface BlockListResponse {
+	items: BlockItem[];
+	matches: BlockSearchItem[];
+}
+
 export interface TimelineItem {
 	id: string;
 	accountId: string;

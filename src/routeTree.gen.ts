@@ -12,10 +12,12 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as MentionsRouteImport } from './routes/mentions'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as DmsRouteImport } from './routes/dms'
+import { Route as BlocksRouteImport } from './routes/blocks'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiStatusRouteImport } from './routes/api/status'
 import { Route as ApiQueryRouteImport } from './routes/api/query'
 import { Route as ApiInboxRouteImport } from './routes/api/inbox'
+import { Route as ApiBlocksRouteImport } from './routes/api/blocks'
 import { Route as ApiActionRouteImport } from './routes/api/action'
 
 const MentionsRoute = MentionsRouteImport.update({
@@ -31,6 +33,11 @@ const InboxRoute = InboxRouteImport.update({
 const DmsRoute = DmsRouteImport.update({
   id: '/dms',
   path: '/dms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlocksRoute = BlocksRouteImport.update({
+  id: '/blocks',
+  path: '/blocks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -53,6 +60,11 @@ const ApiInboxRoute = ApiInboxRouteImport.update({
   path: '/api/inbox',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBlocksRoute = ApiBlocksRouteImport.update({
+  id: '/api/blocks',
+  path: '/api/blocks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiActionRoute = ApiActionRouteImport.update({
   id: '/api/action',
   path: '/api/action',
@@ -61,20 +73,24 @@ const ApiActionRoute = ApiActionRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/blocks': typeof BlocksRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
   '/mentions': typeof MentionsRoute
   '/api/action': typeof ApiActionRoute
+  '/api/blocks': typeof ApiBlocksRoute
   '/api/inbox': typeof ApiInboxRoute
   '/api/query': typeof ApiQueryRoute
   '/api/status': typeof ApiStatusRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/blocks': typeof BlocksRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
   '/mentions': typeof MentionsRoute
   '/api/action': typeof ApiActionRoute
+  '/api/blocks': typeof ApiBlocksRoute
   '/api/inbox': typeof ApiInboxRoute
   '/api/query': typeof ApiQueryRoute
   '/api/status': typeof ApiStatusRoute
@@ -82,10 +98,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/blocks': typeof BlocksRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
   '/mentions': typeof MentionsRoute
   '/api/action': typeof ApiActionRoute
+  '/api/blocks': typeof ApiBlocksRoute
   '/api/inbox': typeof ApiInboxRoute
   '/api/query': typeof ApiQueryRoute
   '/api/status': typeof ApiStatusRoute
@@ -94,30 +112,36 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/blocks'
     | '/dms'
     | '/inbox'
     | '/mentions'
     | '/api/action'
+    | '/api/blocks'
     | '/api/inbox'
     | '/api/query'
     | '/api/status'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/blocks'
     | '/dms'
     | '/inbox'
     | '/mentions'
     | '/api/action'
+    | '/api/blocks'
     | '/api/inbox'
     | '/api/query'
     | '/api/status'
   id:
     | '__root__'
     | '/'
+    | '/blocks'
     | '/dms'
     | '/inbox'
     | '/mentions'
     | '/api/action'
+    | '/api/blocks'
     | '/api/inbox'
     | '/api/query'
     | '/api/status'
@@ -125,10 +149,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BlocksRoute: typeof BlocksRoute
   DmsRoute: typeof DmsRoute
   InboxRoute: typeof InboxRoute
   MentionsRoute: typeof MentionsRoute
   ApiActionRoute: typeof ApiActionRoute
+  ApiBlocksRoute: typeof ApiBlocksRoute
   ApiInboxRoute: typeof ApiInboxRoute
   ApiQueryRoute: typeof ApiQueryRoute
   ApiStatusRoute: typeof ApiStatusRoute
@@ -155,6 +181,13 @@ declare module '@tanstack/react-router' {
       path: '/dms'
       fullPath: '/dms'
       preLoaderRoute: typeof DmsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blocks': {
+      id: '/blocks'
+      path: '/blocks'
+      fullPath: '/blocks'
+      preLoaderRoute: typeof BlocksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -185,6 +218,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiInboxRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/blocks': {
+      id: '/api/blocks'
+      path: '/api/blocks'
+      fullPath: '/api/blocks'
+      preLoaderRoute: typeof ApiBlocksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/action': {
       id: '/api/action'
       path: '/api/action'
@@ -197,10 +237,12 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BlocksRoute: BlocksRoute,
   DmsRoute: DmsRoute,
   InboxRoute: InboxRoute,
   MentionsRoute: MentionsRoute,
   ApiActionRoute: ApiActionRoute,
+  ApiBlocksRoute: ApiBlocksRoute,
   ApiInboxRoute: ApiInboxRoute,
   ApiQueryRoute: ApiQueryRoute,
   ApiStatusRoute: ApiStatusRoute,

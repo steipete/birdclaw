@@ -6,6 +6,8 @@ const getBirdclawPathsMock = vi.fn();
 const getQueryEnvelopeMock = vi.fn();
 const findArchivesMock = vi.fn();
 const importArchiveMock = vi.fn();
+const addBlockMock = vi.fn();
+const listBlocksMock = vi.fn();
 const listInboxItemsMock = vi.fn();
 const scoreInboxMock = vi.fn();
 const listTimelineItemsMock = vi.fn();
@@ -14,6 +16,7 @@ const hydrateProfilesFromXMock = vi.fn();
 const createPostMock = vi.fn();
 const createTweetReplyMock = vi.fn();
 const createDmReplyMock = vi.fn();
+const removeBlockMock = vi.fn();
 const spawnMock = vi.fn();
 const execFileAsyncMock = vi.fn();
 const execFileMock = vi.fn();
@@ -38,6 +41,12 @@ vi.mock("#/lib/archive-finder", () => ({
 
 vi.mock("#/lib/archive-import", () => ({
 	importArchive: (...args: unknown[]) => importArchiveMock(...args),
+}));
+
+vi.mock("#/lib/blocks", () => ({
+	addBlock: (...args: unknown[]) => addBlockMock(...args),
+	listBlocks: (...args: unknown[]) => listBlocksMock(...args),
+	removeBlock: (...args: unknown[]) => removeBlockMock(...args),
 }));
 
 vi.mock("#/lib/inbox", () => ({
@@ -77,6 +86,8 @@ describe("cli", () => {
 		getQueryEnvelopeMock.mockReset();
 		findArchivesMock.mockReset();
 		importArchiveMock.mockReset();
+		addBlockMock.mockReset();
+		listBlocksMock.mockReset();
 		listInboxItemsMock.mockReset();
 		scoreInboxMock.mockReset();
 		listTimelineItemsMock.mockReset();
@@ -85,6 +96,7 @@ describe("cli", () => {
 		createPostMock.mockReset();
 		createTweetReplyMock.mockReset();
 		createDmReplyMock.mockReset();
+		removeBlockMock.mockReset();
 		spawnMock.mockReset();
 		execFileAsyncMock.mockReset();
 
@@ -109,6 +121,8 @@ describe("cli", () => {
 			ok: true,
 			archivePath: "/tmp/twitter.zip",
 		});
+		addBlockMock.mockResolvedValue({ ok: true, action: "block" });
+		listBlocksMock.mockReturnValue([{ accountId: "acct_primary" }]);
 		listInboxItemsMock.mockReturnValue([{ id: "dm:1" }]);
 		scoreInboxMock.mockResolvedValue({ ok: true });
 		listTimelineItemsMock.mockReturnValue([{ id: "tweet_1" }]);
@@ -123,6 +137,7 @@ describe("cli", () => {
 			replyId: "tweet_reply",
 		});
 		createDmReplyMock.mockResolvedValue({ ok: true, messageId: "msg_new" });
+		removeBlockMock.mockResolvedValue({ ok: true, action: "unblock" });
 		execFileAsyncMock.mockRejectedValue(new Error("missing"));
 		spawnMock.mockReturnValue({
 			on: (_event: string, handler: (code: number) => void) => handler(0),
@@ -361,6 +376,47 @@ describe("cli", () => {
 			"tweet_2",
 			"Reply text",
 		);
+	});
+
+	it("dispatches blocklist commands", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"blocks",
+			"list",
+			"--account",
+			"acct_studio",
+			"--search",
+			"sam",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"blocks",
+			"add",
+			"@sam",
+			"--account",
+			"acct_studio",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"blocks",
+			"remove",
+			"@sam",
+			"--account",
+			"acct_studio",
+		]);
+
+		expect(listBlocksMock).toHaveBeenCalledWith({
+			account: "acct_studio",
+			search: "sam",
+			limit: 50,
+		});
+		expect(addBlockMock).toHaveBeenCalledWith("acct_studio", "@sam");
+		expect(removeBlockMock).toHaveBeenCalledWith("acct_studio", "@sam");
 	});
 
 	it("dispatches compose and inbox commands", async () => {
