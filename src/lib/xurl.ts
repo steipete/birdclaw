@@ -6,7 +6,7 @@ const execFileAsync = promisify(execFile);
 
 async function hasXurl(): Promise<boolean> {
 	try {
-		await execFileAsync("xurl", ["--version"]);
+		await execFileAsync("xurl", ["version"]);
 		return true;
 	} catch {
 		return false;
@@ -54,6 +54,34 @@ async function runShortcut(
 			output: error instanceof Error ? error.message : "xurl execution failed",
 		};
 	}
+}
+
+async function runJsonCommand(args: string[]) {
+	const { stdout } = await execFileAsync("xurl", args);
+	return JSON.parse(stdout) as Record<string, unknown>;
+}
+
+export async function lookupUsersByIds(ids: string[]) {
+	if (ids.length === 0) {
+		return [];
+	}
+
+	const query = new URLSearchParams({
+		ids: ids.join(","),
+		"user.fields":
+			"description,public_metrics,profile_image_url,created_at,verified",
+	});
+	const payload = await runJsonCommand([`/2/users?${query.toString()}`]);
+	const data = payload.data;
+	return Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+}
+
+export async function lookupAuthenticatedUser() {
+	const payload = await runJsonCommand(["whoami"]);
+	const data = payload.data;
+	return data && typeof data === "object"
+		? (data as Record<string, unknown>)
+		: null;
 }
 
 export async function postViaXurl(text: string) {

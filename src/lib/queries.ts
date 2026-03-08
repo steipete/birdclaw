@@ -540,6 +540,12 @@ export async function createDmReply(conversationId: string, text: string) {
 	if (!conversation) {
 		throw new Error("Conversation not found");
 	}
+	const authorProfileId = getLocalAuthorProfileId(
+		conversation.conversation.accountId,
+	);
+	if (!authorProfileId) {
+		throw new Error("No local author profile for account");
+	}
 
 	const now = new Date().toISOString();
 	const outboundId = `msg_${randomUUID()}`;
@@ -550,7 +556,7 @@ export async function createDmReply(conversationId: string, text: string) {
       id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
     ) values (?, ?, ?, ?, ?, 'outbound', 1, 0)
     `,
-	).run(outboundId, conversationId, "profile_me", text, now);
+	).run(outboundId, conversationId, authorProfileId, text, now);
 	db.prepare("insert into dm_fts (message_id, text) values (?, ?)").run(
 		outboundId,
 		text,

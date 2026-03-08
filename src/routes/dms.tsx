@@ -35,6 +35,7 @@ function DmsRoute() {
 	}, []);
 
 	useEffect(() => {
+		const controller = new AbortController();
 		const url = new URL("/api/query", window.location.origin);
 		url.searchParams.set("resource", "dms");
 		url.searchParams.set("replyFilter", replyFilter);
@@ -49,7 +50,7 @@ function DmsRoute() {
 			url.searchParams.set("search", search.trim());
 		}
 
-		fetch(url)
+		fetch(url, { signal: controller.signal })
 			.then((response) => response.json())
 			.then((data: QueryResponse) => {
 				const conversations = data.items as DmConversationItem[];
@@ -65,7 +66,17 @@ function DmsRoute() {
 						: nextSelected;
 				});
 				setMessages(data.selectedConversation?.messages ?? []);
+			})
+			.catch((error: unknown) => {
+				if (error instanceof DOMException && error.name === "AbortError") {
+					return;
+				}
+				throw error;
 			});
+
+		return () => {
+			controller.abort();
+		};
 	}, [
 		minFollowers,
 		minInfluenceScore,
@@ -85,21 +96,72 @@ function DmsRoute() {
 	}, [meta]);
 
 	async function replyToConversation(conversationId: string) {
-		if (!replyDraft.trim()) return;
+		const text = replyDraft.trim();
+		if (!text || !selectedConversation) return;
 
-		await fetch("/api/action", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				kind: "replyDm",
-				conversationId,
-				text: replyDraft,
-			}),
-		});
+		const now = new Date().toISOString();
+		const accountRecord = meta?.accounts.find(
+			(account) => account.id === selectedConversation.accountId,
+		);
+		const senderHandle = (
+			accountRecord?.handle ?? selectedConversation.accountHandle
+		).replace(/^@/, "");
+		const optimisticMessage: DmMessageItem = {
+			id: `optimistic-${now}`,
+			conversationId,
+			text,
+			createdAt: now,
+			direction: "outbound",
+			isReplied: true,
+			mediaCount: 0,
+			sender: {
+				id: `local-${selectedConversation.accountId}`,
+				handle: senderHandle,
+				displayName: accountRecord?.name ?? senderHandle,
+				bio: "",
+				followersCount: 0,
+				avatarHue: 18,
+				createdAt: now,
+			},
+		};
+		const previousMessages = messages;
+		const previousItems = items;
 
 		setReplyDraft("");
-		setSelectedConversationId(conversationId);
-		setRefreshTick((value) => value + 1);
+		setMessages((current) => [...current, optimisticMessage]);
+		setItems((current) =>
+			current.map((item) =>
+				item.id === conversationId
+					? {
+							...item,
+							lastMessageAt: now,
+							lastMessagePreview: text,
+							needsReply: false,
+							unreadCount: 0,
+						}
+					: item,
+			),
+		);
+
+		try {
+			await fetch("/api/action", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					kind: "replyDm",
+					conversationId,
+					text,
+				}),
+			});
+
+			setSelectedConversationId(conversationId);
+			setRefreshTick((value) => value + 1);
+		} catch (error) {
+			setReplyDraft(text);
+			setMessages(previousMessages);
+			setItems(previousItems);
+			throw error;
+		}
 	}
 
 	return (
