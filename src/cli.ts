@@ -12,6 +12,7 @@ import { exportMentionItems } from "#/lib/mentions-export";
 import { exportMentionsViaCachedXurl } from "#/lib/mentions-live";
 import { addMute, listMutes, removeMute } from "#/lib/mutes";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
+import { inspectProfileReplies } from "#/lib/profile-replies";
 import {
 	createDmReply,
 	createPost,
@@ -207,6 +208,21 @@ mentionsCommand
 			limit,
 		});
 		print({ resource: "mentions", count: items.length, items }, true);
+	});
+
+const profilesCommand = program
+	.command("profiles")
+	.description("Inspect live profile context for moderation and triage");
+
+profilesCommand
+	.command("replies <query>")
+	.description("Inspect recent authored replies for one profile")
+	.option("--limit <n>", "Limit replies", "12")
+	.action(async (query, options) => {
+		const result = await inspectProfileReplies(query, {
+			limit: Number(options.limit),
+		});
+		print(result, program.opts().json ?? false);
 	});
 
 program

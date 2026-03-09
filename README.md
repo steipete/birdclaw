@@ -44,6 +44,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - AI-ranked inbox for mentions + DMs
 - OpenAI scoring hook for low-signal filtering
 - cached live mentions export in `xurl`-compatible JSON
+- live profile-reply inspection for borderline AI/slop triage
 
 ### Actions
 
@@ -213,6 +214,18 @@ Notes:
 
 - block/unblock tries `xurl` first
 - if X rejects `xurl` OAuth2 block writes, birdclaw falls back to the X web cookie session (`auth_token` + `ct0`) when available
+
+### Profile reply scan
+
+```bash
+pnpm cli profiles replies @jpctan --limit 12 --json
+```
+
+Notes:
+
+- for the "unsure if AI" case
+- scans recent authored tweets, excludes retweets, keeps replies
+- useful for spotting repeated generic praise, abstraction soup, or cross-thread templated cadence
 
 ### Mutes
 

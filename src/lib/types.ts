@@ -258,6 +258,46 @@ export interface XurlMentionData {
 	edit_history_tweet_ids?: string[];
 }
 
+export interface XurlReferencedTweet {
+	type: string;
+	id: string;
+}
+
+export interface XurlUserTweet {
+	id: string;
+	text: string;
+	created_at: string;
+	conversation_id?: string;
+	referenced_tweets?: XurlReferencedTweet[];
+	public_metrics?: XurlPublicMetrics;
+	edit_history_tweet_ids?: string[];
+}
+
+export interface ProfileReplyItem {
+	id: string;
+	text: string;
+	createdAt: string;
+	conversationId?: string;
+	replyToTweetId?: string;
+	likeCount: number;
+	replyCount: number;
+	retweetCount: number;
+	quoteCount: number;
+	bookmarkCount: number;
+	impressionCount: number;
+}
+
+export interface ProfileRepliesResponse {
+	profile: ProfileRecord;
+	externalUserId: string;
+	items: ProfileReplyItem[];
+	meta: {
+		scannedCount: number;
+		returnedCount: number;
+		nextToken: string | null;
+	};
+}
+
 export interface XurlMentionsResponse {
 	data: XurlMentionData[];
 	includes?: {

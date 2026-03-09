@@ -1,6 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { TransportStatus, XurlMentionsResponse } from "./types";
+import type {
+	TransportStatus,
+	XurlMentionsResponse,
+	XurlUserTweet,
+} from "./types";
 
 const execFileAsync = promisify(execFile);
 const TRANSPORT_STATUS_TTL_MS = 5 * 60_000;
@@ -297,6 +301,46 @@ export async function listBlockedUsers(
 	]);
 	const data = Array.isArray(payload.data)
 		? (payload.data as Array<Record<string, unknown>>)
+		: [];
+	const meta =
+		payload.meta && typeof payload.meta === "object"
+			? (payload.meta as Record<string, unknown>)
+			: null;
+
+	return {
+		items: data,
+		nextToken:
+			typeof meta?.next_token === "string" ? String(meta.next_token) : null,
+	};
+}
+
+export async function listUserTweets(
+	userId: string,
+	{
+		maxResults,
+		paginationToken,
+		excludeRetweets = true,
+	}: {
+		maxResults: number;
+		paginationToken?: string;
+		excludeRetweets?: boolean;
+	},
+) {
+	const query = new URLSearchParams({
+		max_results: String(maxResults),
+		"tweet.fields":
+			"created_at,conversation_id,public_metrics,referenced_tweets",
+	});
+	if (excludeRetweets) {
+		query.set("exclude", "retweets");
+	}
+	if (paginationToken) {
+		query.set("pagination_token", paginationToken);
+	}
+
+	const payload = await runJsonCommand([`/2/users/${userId}/tweets?${query}`]);
+	const data = Array.isArray(payload.data)
+		? (payload.data as XurlUserTweet[])
 		: [];
 	const meta =
 		payload.meta && typeof payload.meta === "object"

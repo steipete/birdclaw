@@ -188,6 +188,64 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("lists recent user tweets for profile inspection", async () => {
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				data: [
+					{
+						id: "tweet_1",
+						text: "@sam hi",
+						created_at: "2026-03-09T00:00:00.000Z",
+					},
+				],
+				meta: { next_token: "next" },
+			}),
+			stderr: "",
+		});
+		const { listUserTweets } = await import("./xurl");
+
+		await expect(
+			listUserTweets("42", {
+				maxResults: 12,
+				excludeRetweets: true,
+			}),
+		).resolves.toEqual({
+			items: [
+				{
+					id: "tweet_1",
+					text: "@sam hi",
+					created_at: "2026-03-09T00:00:00.000Z",
+				},
+			],
+			nextToken: "next",
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"/2/users/42/tweets?max_results=12&tweet.fields=created_at%2Cconversation_id%2Cpublic_metrics%2Creferenced_tweets&exclude=retweets",
+		]);
+	});
+
+	it("passes pagination tokens for user tweet scans and can keep retweets", async () => {
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({ data: null, meta: null }),
+			stderr: "",
+		});
+		const { listUserTweets } = await import("./xurl");
+
+		await expect(
+			listUserTweets("42", {
+				maxResults: 50,
+				paginationToken: "next-page",
+				excludeRetweets: false,
+			}),
+		).resolves.toEqual({
+			items: [],
+			nextToken: null,
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"/2/users/42/tweets?max_results=50&tweet.fields=created_at%2Cconversation_id%2Cpublic_metrics%2Creferenced_tweets&pagination_token=next-page",
+		]);
+	});
+
 	it("passes pagination tokens and tolerates empty block payloads", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({ data: null, meta: null }),

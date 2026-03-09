@@ -205,6 +205,22 @@ Notes:
 - `--refresh` bypasses the cache and fetches live mentions immediately
 - query and reply-state filters still work in `xurl` mode, but the filtered response is rebuilt from the local canonical store after sync
 
+### `profiles replies <handle-or-id>`
+
+- inspect a profile's recent authored replies when one mention feels borderline
+- moderation-first: scans the live authored tweet timeline, excludes retweets, keeps reply tweets only
+- good for spotting templated AI cadence across unrelated conversations
+- supports `--json`
+
+Flags:
+- `--limit <n>`
+
+Examples:
+
+```bash
+birdclaw profiles replies @jpctan --limit 12 --json
+```
+
 ### `dms list`
 
 - list DM conversations or events without requiring a full-text query

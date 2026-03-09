@@ -17,6 +17,7 @@ const scoreInboxMock = vi.fn();
 const listTimelineItemsMock = vi.fn();
 const listDmConversationsMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
+const inspectProfileRepliesMock = vi.fn();
 const createPostMock = vi.fn();
 const createTweetReplyMock = vi.fn();
 const createDmReplyMock = vi.fn();
@@ -79,6 +80,11 @@ vi.mock("#/lib/profile-hydration", () => ({
 		hydrateProfilesFromXMock(...args),
 }));
 
+vi.mock("#/lib/profile-replies", () => ({
+	inspectProfileReplies: (...args: unknown[]) =>
+		inspectProfileRepliesMock(...args),
+}));
+
 vi.mock("#/lib/queries", () => ({
 	getQueryEnvelope: () => getQueryEnvelopeMock(),
 	listTimelineItems: (...args: unknown[]) => listTimelineItemsMock(...args),
@@ -117,6 +123,7 @@ describe("cli", () => {
 		listTimelineItemsMock.mockReset();
 		listDmConversationsMock.mockReset();
 		hydrateProfilesFromXMock.mockReset();
+		inspectProfileRepliesMock.mockReset();
 		createPostMock.mockReset();
 		createTweetReplyMock.mockReset();
 		createDmReplyMock.mockReset();
@@ -169,6 +176,12 @@ describe("cli", () => {
 		hydrateProfilesFromXMock.mockResolvedValue({
 			ok: true,
 			hydratedProfiles: 1,
+		});
+		inspectProfileRepliesMock.mockResolvedValue({
+			profile: { handle: "sam" },
+			externalUserId: "42",
+			items: [],
+			meta: { scannedCount: 0, returnedCount: 0, nextToken: null },
 		});
 		createPostMock.mockResolvedValue({ ok: true, tweetId: "tweet_new" });
 		createTweetReplyMock.mockResolvedValue({
@@ -577,6 +590,24 @@ describe("cli", () => {
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"result_count": 1'),
 		);
+	});
+
+	it("inspects recent profile replies", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"profiles",
+			"replies",
+			"@sam",
+			"--limit",
+			"7",
+		]);
+
+		expect(inspectProfileRepliesMock).toHaveBeenCalledWith("@sam", {
+			limit: 7,
+		});
 	});
 
 	it("dispatches compose and inbox commands", async () => {
