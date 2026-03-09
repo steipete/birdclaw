@@ -129,6 +129,36 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("lists mentions via the xurl shortcut", async () => {
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				data: [{ id: "tweet_1", author_id: "42", text: "hello" }],
+				includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+				meta: { result_count: 1 },
+			}),
+			stderr: "",
+		});
+		const { listMentionsViaXurl } = await import("./xurl");
+
+		await expect(
+			listMentionsViaXurl({
+				maxResults: 5,
+				username: "steipete",
+			}),
+		).resolves.toEqual({
+			data: [{ id: "tweet_1", author_id: "42", text: "hello" }],
+			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+			meta: { result_count: 1 },
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"mentions",
+			"-n",
+			"5",
+			"--username",
+			"steipete",
+		]);
+	});
+
 	it("returns null when whoami payload is not an object", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({ data: "not-an-object" }),

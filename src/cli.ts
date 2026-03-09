@@ -9,6 +9,7 @@ import { addBlock, listBlocks, removeBlock } from "#/lib/blocks";
 import { ensureBirdclawDirs, getBirdclawPaths } from "#/lib/config";
 import { listInboxItems, scoreInbox } from "#/lib/inbox";
 import { exportMentionItems } from "#/lib/mentions-export";
+import { exportMentionsViaCachedXurl } from "#/lib/mentions-live";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
 import {
 	createDmReply,
@@ -172,20 +173,37 @@ mentionsCommand
 	.command("export [query]")
 	.description("Return mention tweets with plain-text and markdown renderings")
 	.option("--account <accountId>", "Account id")
+	.option("--mode <mode>", "birdclaw or xurl", "birdclaw")
 	.option("--replied", "Only replied items")
 	.option("--unreplied", "Only unreplied items")
+	.option("--refresh", "Refresh the live xurl cache before returning")
+	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 	.option("--limit <n>", "Limit results", "20")
-	.action((query, options) => {
+	.action(async (query, options) => {
 		const replyFilter = options.replied
 			? "replied"
 			: options.unreplied
 				? "unreplied"
 				: "all";
+		const limit = Number(options.limit);
+		if (options.mode === "xurl") {
+			const payload = await exportMentionsViaCachedXurl({
+				account: options.account,
+				search: query,
+				replyFilter,
+				limit,
+				refresh: Boolean(options.refresh),
+				cacheTtlMs: Number(options.cacheTtl) * 1000,
+			});
+			print(payload, true);
+			return;
+		}
+
 		const items = exportMentionItems({
 			account: options.account,
 			search: query,
 			replyFilter,
-			limit: Number(options.limit),
+			limit,
 		});
 		print({ resource: "mentions", count: items.length, items }, true);
 	});

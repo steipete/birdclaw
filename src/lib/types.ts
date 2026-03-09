@@ -226,3 +226,42 @@ export interface InboxResponse {
 		heuristic: number;
 	};
 }
+
+export interface XurlPublicMetrics {
+	retweet_count?: number;
+	reply_count?: number;
+	like_count?: number;
+	quote_count?: number;
+	bookmark_count?: number;
+	impression_count?: number;
+	followers_count?: number;
+}
+
+export interface XurlMentionUser {
+	id: string;
+	name: string;
+	username: string;
+	description?: string;
+	profile_image_url?: string;
+	public_metrics?: XurlPublicMetrics;
+	created_at?: string;
+}
+
+export interface XurlMentionData {
+	id: string;
+	author_id: string;
+	text: string;
+	created_at: string;
+	conversation_id?: string;
+	entities?: Record<string, unknown>;
+	public_metrics?: XurlPublicMetrics;
+	edit_history_tweet_ids?: string[];
+}
+
+export interface XurlMentionsResponse {
+	data: XurlMentionData[];
+	includes?: {
+		users?: XurlMentionUser[];
+	};
+	meta?: Record<string, unknown>;
+}

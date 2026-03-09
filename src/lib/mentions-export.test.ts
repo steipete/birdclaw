@@ -105,4 +105,118 @@ describe("mention export", () => {
 			}),
 		]);
 	});
+
+	it("serializes local mention items into xurl-compatible payloads", async () => {
+		listTimelineItemsMock.mockReturnValueOnce([
+			{
+				id: "tweet_live_1",
+				accountId: "acct_primary",
+				accountHandle: "@steipete",
+				kind: "mentions",
+				text: "Hello @sam https://t.co/demo",
+				createdAt: "2026-03-09T00:00:00.000Z",
+				isReplied: true,
+				likeCount: 7,
+				mediaCount: 0,
+				bookmarked: true,
+				liked: false,
+				author: {
+					id: "profile_user_42",
+					handle: "sam",
+					displayName: "Sam Altman",
+					bio: "",
+					followersCount: 1,
+					avatarHue: 1,
+					createdAt: "2026-03-09T00:00:00.000Z",
+				},
+				entities: {
+					mentions: [
+						{
+							username: "sam",
+							id: "profile_user_42",
+							start: 6,
+							end: 10,
+						},
+					],
+					urls: [
+						{
+							url: "https://t.co/demo",
+							expandedUrl: "https://example.com/demo",
+							displayUrl: "example.com/demo",
+							start: 11,
+							end: 28,
+						},
+					],
+				},
+				media: [],
+				replyToTweet: null,
+				quotedTweet: null,
+			},
+		]);
+		const { serializeMentionItemsAsXurlCompatible } = await import(
+			"./mentions-export"
+		);
+		const { listTimelineItems } = await import("./queries");
+
+		const payload = serializeMentionItemsAsXurlCompatible(
+			listTimelineItems({
+				resource: "mentions",
+				limit: 1,
+			}),
+		);
+
+		expect(payload).toEqual({
+			data: [
+				{
+					id: "tweet_live_1",
+					author_id: "42",
+					text: "Hello @sam https://t.co/demo",
+					created_at: "2026-03-09T00:00:00.000Z",
+					conversation_id: "tweet_live_1",
+					entities: {
+						mentions: [
+							{
+								start: 6,
+								end: 10,
+								username: "sam",
+								id: "42",
+							},
+						],
+						urls: [
+							{
+								start: 11,
+								end: 28,
+								url: "https://t.co/demo",
+								expanded_url: "https://example.com/demo",
+								display_url: "example.com/demo",
+							},
+						],
+					},
+					public_metrics: {
+						retweet_count: 0,
+						reply_count: 1,
+						like_count: 7,
+						quote_count: 0,
+						bookmark_count: 1,
+						impression_count: 0,
+					},
+					edit_history_tweet_ids: ["tweet_live_1"],
+				},
+			],
+			includes: {
+				users: [
+					{
+						id: "42",
+						name: "Sam Altman",
+						username: "sam",
+					},
+				],
+			},
+			meta: {
+				result_count: 1,
+				newest_id: "tweet_live_1",
+				oldest_id: "tweet_live_1",
+			},
+		});
+	});
 });

@@ -8,6 +8,7 @@ const findArchivesMock = vi.fn();
 const importArchiveMock = vi.fn();
 const addBlockMock = vi.fn();
 const exportMentionItemsMock = vi.fn();
+const exportMentionsViaCachedXurlMock = vi.fn();
 const listBlocksMock = vi.fn();
 const listInboxItemsMock = vi.fn();
 const scoreInboxMock = vi.fn();
@@ -59,6 +60,11 @@ vi.mock("#/lib/mentions-export", () => ({
 	exportMentionItems: (...args: unknown[]) => exportMentionItemsMock(...args),
 }));
 
+vi.mock("#/lib/mentions-live", () => ({
+	exportMentionsViaCachedXurl: (...args: unknown[]) =>
+		exportMentionsViaCachedXurlMock(...args),
+}));
+
 vi.mock("#/lib/profile-hydration", () => ({
 	hydrateProfilesFromX: (...args: unknown[]) =>
 		hydrateProfilesFromXMock(...args),
@@ -93,6 +99,7 @@ describe("cli", () => {
 		importArchiveMock.mockReset();
 		addBlockMock.mockReset();
 		exportMentionItemsMock.mockReset();
+		exportMentionsViaCachedXurlMock.mockReset();
 		listBlocksMock.mockReset();
 		listInboxItemsMock.mockReset();
 		scoreInboxMock.mockReset();
@@ -135,6 +142,11 @@ describe("cli", () => {
 				markdown: "markdown",
 			},
 		]);
+		exportMentionsViaCachedXurlMock.mockResolvedValue({
+			data: [{ id: "tweet_live_1" }],
+			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+			meta: { result_count: 1 },
+		});
 		listBlocksMock.mockReturnValue([{ accountId: "acct_primary" }]);
 		listInboxItemsMock.mockReturnValue([{ id: "dm:1" }]);
 		scoreInboxMock.mockResolvedValue({ ok: true });
@@ -460,6 +472,38 @@ describe("cli", () => {
 		);
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"markdown": "markdown"'),
+		);
+	});
+
+	it("exports mentions in cached xurl mode", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"mentions",
+			"export",
+			"--mode",
+			"xurl",
+			"--account",
+			"acct_primary",
+			"--refresh",
+			"--cache-ttl",
+			"45",
+			"--limit",
+			"5",
+		]);
+
+		expect(exportMentionsViaCachedXurlMock).toHaveBeenCalledWith({
+			account: "acct_primary",
+			search: undefined,
+			replyFilter: "all",
+			limit: 5,
+			refresh: true,
+			cacheTtlMs: 45_000,
+		});
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"result_count": 1'),
 		);
 	});
 

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { TransportStatus } from "./types";
+import type { TransportStatus, XurlMentionsResponse } from "./types";
 
 const execFileAsync = promisify(execFile);
 const TRANSPORT_STATUS_TTL_MS = 5 * 60_000;
@@ -226,6 +226,34 @@ export async function lookupAuthenticatedUser() {
 	return data && typeof data === "object"
 		? (data as Record<string, unknown>)
 		: null;
+}
+
+export async function listMentionsViaXurl({
+	maxResults,
+	username,
+}: {
+	maxResults: number;
+	username?: string;
+}): Promise<XurlMentionsResponse> {
+	const args = ["mentions", "-n", String(maxResults)];
+	if (username) {
+		args.push("--username", username);
+	}
+
+	const payload = await runJsonCommand(args);
+	return {
+		data: Array.isArray(payload.data)
+			? (payload.data as XurlMentionsResponse["data"])
+			: [],
+		includes:
+			payload.includes && typeof payload.includes === "object"
+				? (payload.includes as XurlMentionsResponse["includes"])
+				: undefined,
+		meta:
+			payload.meta && typeof payload.meta === "object"
+				? (payload.meta as XurlMentionsResponse["meta"])
+				: undefined,
+	};
 }
 
 export async function listBlockedUsers(

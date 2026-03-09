@@ -1,12 +1,13 @@
 import type Database from "better-sqlite3";
-import { normalizeAvatarUrl } from "./avatar-cache";
 import { getNativeDb } from "./db";
 import type {
 	BlockItem,
 	BlockListResponse,
 	BlockSearchItem,
 	ProfileRecord,
+	XurlMentionUser,
 } from "./types";
+import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
 import {
 	blockUserViaXurl,
 	listBlockedUsers,
@@ -71,142 +72,6 @@ function getAccountHandle(db: Database.Database, accountId: string) {
 	return row?.handle.replace(/^@/, "") ?? "";
 }
 
-function getExternalIdFromProfileId(profileId: string) {
-	if (profileId.startsWith("profile_user_")) {
-		return profileId.replace(/^profile_user_/, "");
-	}
-	return null;
-}
-
-function randomAvatarHue(input: string) {
-	return (
-		input
-			.split("")
-			.reduce((sum, character) => sum + character.charCodeAt(0), 0) % 360
-	);
-}
-
-function upsertProfileFromUser(
-	db: Database.Database,
-	user: Record<string, unknown>,
-) {
-	const id = String(user.id ?? "");
-	if (!id) {
-		throw new Error("Resolved user is missing an id");
-	}
-
-	const username = String(user.username ?? "").replace(/^@/, "");
-	if (!username) {
-		throw new Error("Resolved user is missing a username");
-	}
-
-	const profileId = `profile_user_${id}`;
-	const displayName = String(user.name ?? username);
-	const metrics =
-		user.public_metrics && typeof user.public_metrics === "object"
-			? (user.public_metrics as Record<string, unknown>)
-			: null;
-	const followersCount = Number(metrics?.followers_count ?? 0);
-	const bio = String(user.description ?? "");
-	const avatarUrl = normalizeAvatarUrl(user.profile_image_url);
-	const createdAt = new Date().toISOString();
-
-	const existingRow = db
-		.prepare(
-			`
-      select id
-      from profiles
-      where id = ? or handle = ?
-      limit 1
-      `,
-		)
-		.get(profileId, username) as { id: string } | undefined;
-
-	if (existingRow) {
-		return updateExistingProfileFromUser(db, existingRow.id, user);
-	}
-
-	db.prepare(
-		`
-    insert into profiles (
-      id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
-    ) values (?, ?, ?, ?, ?, ?, ?, ?)
-    on conflict(id) do update set
-      handle = excluded.handle,
-      display_name = excluded.display_name,
-      bio = excluded.bio,
-      followers_count = excluded.followers_count,
-      avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url)
-    `,
-	).run(
-		profileId,
-		username,
-		displayName,
-		bio,
-		followersCount,
-		randomAvatarHue(username),
-		avatarUrl,
-		createdAt,
-	);
-
-	return {
-		profile: {
-			id: profileId,
-			handle: username,
-			displayName,
-			bio,
-			followersCount,
-			avatarHue: randomAvatarHue(username),
-			avatarUrl: avatarUrl ?? undefined,
-			createdAt,
-		},
-		externalUserId: id,
-	} satisfies ResolvedProfile;
-}
-
-function updateExistingProfileFromUser(
-	db: Database.Database,
-	profileId: string,
-	user: Record<string, unknown>,
-): ResolvedProfile {
-	const username = String(user.username ?? "").replace(/^@/, "");
-	const displayName = String(user.name ?? username);
-	const metrics =
-		user.public_metrics && typeof user.public_metrics === "object"
-			? (user.public_metrics as Record<string, unknown>)
-			: null;
-	const followersCount = Number(metrics?.followers_count ?? 0);
-	const bio = String(user.description ?? "");
-	const avatarUrl = normalizeAvatarUrl(user.profile_image_url);
-
-	db.prepare(
-		`
-    update profiles
-    set handle = ?,
-        display_name = ?,
-        bio = ?,
-        followers_count = ?,
-        avatar_url = coalesce(?, avatar_url)
-    where id = ?
-    `,
-	).run(username, displayName, bio, followersCount, avatarUrl, profileId);
-
-	const row = db
-		.prepare(
-			`
-      select id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at
-      from profiles
-      where id = ?
-      `,
-		)
-		.get(profileId) as Record<string, unknown>;
-
-	return {
-		profile: toProfile(row),
-		externalUserId: String(user.id ?? ""),
-	};
-}
-
 function resolveLocalProfile(
 	db: Database.Database,
 	normalizedQuery: string,
@@ -231,7 +96,7 @@ function resolveLocalProfile(
 	const profile = toProfile(row);
 	return {
 		profile,
-		externalUserId: getExternalIdFromProfileId(profile.id),
+		externalUserId: getExternalUserId(profile.id),
 	};
 }
 
@@ -275,18 +140,18 @@ async function resolveProfile(query: string): Promise<ResolvedProfile> {
 	}
 
 	if (local) {
-		return updateExistingProfileFromUser(db, local.profile.id, user);
+		return upsertProfileFromXUser(db, user as XurlMentionUser);
 	}
 
 	const username = String(user.username ?? "").replace(/^@/, "");
 	if (username) {
 		const localByHandle = resolveLocalProfile(db, username);
 		if (localByHandle) {
-			return updateExistingProfileFromUser(db, localByHandle.profile.id, user);
+			return upsertProfileFromXUser(db, user as XurlMentionUser);
 		}
 	}
 
-	return upsertProfileFromUser(db, user);
+	return upsertProfileFromXUser(db, user as XurlMentionUser);
 }
 
 async function getAuthenticatedUserId() {
@@ -618,7 +483,7 @@ export async function syncBlocks(accountId: string) {
 			const page = await listBlockedUsers(sourceUserId, nextToken ?? undefined);
 			const mergeRemotePage = db.transaction(() => {
 				for (const user of page.items) {
-					const resolved = upsertProfileFromUser(db, user);
+					const resolved = upsertProfileFromXUser(db, user as XurlMentionUser);
 					remoteProfileIds.push(resolved.profile.id);
 					upsertRemoteBlock(
 						db,

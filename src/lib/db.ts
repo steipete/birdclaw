@@ -88,6 +88,12 @@ export interface AiScoresTable {
 	updated_at: string;
 }
 
+export interface SyncCacheTable {
+	cache_key: string;
+	value_json: string;
+	updated_at: string;
+}
+
 export interface BirdclawDatabase {
 	accounts: AccountsTable;
 	profiles: ProfilesTable;
@@ -97,6 +103,7 @@ export interface BirdclawDatabase {
 	tweet_actions: TweetActionsTable;
 	blocks: BlocksTable;
 	ai_scores: AiScoresTable;
+	sync_cache: SyncCacheTable;
 }
 
 let nativeDb: BetterSqlite3.Database | undefined;
@@ -104,6 +111,7 @@ let kyselyDb: Kysely<BirdclawDatabase> | undefined;
 
 const BASE_SCHEMA_SQL = `
   pragma journal_mode = wal;
+  pragma busy_timeout = 5000;
   pragma foreign_keys = on;
 
   create table if not exists accounts (
@@ -193,6 +201,12 @@ const BASE_SCHEMA_SQL = `
     primary key (entity_kind, entity_id)
   );
 
+  create table if not exists sync_cache (
+    cache_key text primary key,
+    value_json text not null,
+    updated_at text not null
+  );
+
   create virtual table if not exists tweets_fts using fts5(
     tweet_id unindexed,
     text
@@ -213,6 +227,7 @@ const INDEX_SQL = `
   create index if not exists idx_profiles_followers on profiles(followers_count desc);
   create index if not exists idx_blocks_account_created on blocks(account_id, created_at desc);
   create index if not exists idx_ai_scores_updated on ai_scores(updated_at desc);
+  create index if not exists idx_sync_cache_updated on sync_cache(updated_at desc);
 `;
 
 function getColumnNames(

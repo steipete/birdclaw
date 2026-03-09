@@ -72,5 +72,17 @@ describe("database init", () => {
 		expect(quotedIndex).toEqual([
 			expect.objectContaining({ name: "quoted_tweet_id" }),
 		]);
+
+		const syncCacheColumnNames = db
+			.prepare("pragma table_info(sync_cache)")
+			.all() as Array<{ name: string }>;
+		expect(syncCacheColumnNames.map((column) => column.name)).toEqual(
+			expect.arrayContaining(["cache_key", "value_json", "updated_at"]),
+		);
+
+		const busyTimeout = db.pragma("busy_timeout", {
+			simple: true,
+		}) as number;
+		expect(busyTimeout).toBe(5000);
 	});
 });
