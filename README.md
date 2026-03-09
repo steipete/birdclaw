@@ -51,6 +51,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - reply to tweets
 - reply to DMs
 - add / remove local blocks
+- add / remove local mutes
 - sync remote blocks through `xurl` when available
 
 ### Safety
@@ -204,6 +205,16 @@ pnpm cli inbox --score --hide-low-signal --limit 8 --json
 pnpm cli blocks list --account acct_primary --json
 pnpm cli blocks add @amelia --account acct_primary --json
 pnpm cli blocks remove @amelia --account acct_primary --json
+pnpm cli ban @amelia --account acct_primary --json
+pnpm cli unban @amelia --account acct_primary --json
+```
+
+### Mutes
+
+```bash
+pnpm cli mutes list --account acct_primary --json
+pnpm cli mute @amelia --account acct_primary --json
+pnpm cli unmute @amelia --account acct_primary --json
 ```
 
 ### Compose / reply

@@ -72,6 +72,8 @@ interface BirdTransport {
   reply(input: ReplyInput): Promise<PostResult>;
   blockProfile(input: ProfileActionInput): Promise<ActionResult>;
   unblockProfile(input: ProfileActionInput): Promise<ActionResult>;
+  muteProfile(input: ProfileActionInput): Promise<ActionResult>;
+  unmuteProfile(input: ProfileActionInput): Promise<ActionResult>;
 }
 ```
 
@@ -106,6 +108,9 @@ SQLite only. Kysely schema in code, migrations checked into repo.
 - `blocks`
   - account-scoped local blocklist
   - canonical local state for blocklist UI and CLI
+- `mutes`
+  - account-scoped local mutelist
+  - canonical local state for CLI moderation actions
   - live transport result layered on top, not required for local bookkeeping
 - `tweets`
   - canonical tweet rows
@@ -156,7 +161,7 @@ Day-1 search modes:
 - DM sender follower-count filters
 - DM sender derived influence-score filters
 - replied / unreplied filters for mentions and DMs
-- local blocklist maintenance via handle, id, or URL-derived profile match
+- local block/mute maintenance via handle, id, or URL-derived profile match
 
 No vector search required for MVP.
 

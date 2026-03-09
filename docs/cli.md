@@ -71,9 +71,14 @@ birdclaw search tweets <query>
 birdclaw search dms <query>
 birdclaw mentions export [query]
 birdclaw dms list
+birdclaw mute <handle-or-id>
+birdclaw unmute <handle-or-id>
+birdclaw mutes list
 birdclaw blocks list
 birdclaw blocks add <handle-or-id>
 birdclaw blocks remove <handle-or-id>
+birdclaw ban <handle-or-id>
+birdclaw unban <handle-or-id>
 birdclaw show tweet <id>
 birdclaw show thread <id>
 birdclaw show dm <conversation-id>
@@ -252,6 +257,43 @@ Flags:
 
 - remove a local block entry for one account
 - attempts live unblock transport via `xurl` when resolvable
+
+Flags:
+- `--account <account-id>`
+
+### `ban <handle-or-id>` / `unban <handle-or-id>`
+
+- shorthand aliases for `blocks add` and `blocks remove`
+- useful when you want one obvious moderation verb from the CLI
+
+Flags:
+- `--account <account-id>`
+
+### `mutes list`
+
+- list current local muted profiles
+- account-scoped
+- supports `--json`
+
+Flags:
+- `--account <account-id>`
+- `--search <query>`
+- `--limit <n>`
+
+### `mute <handle-or-id>`
+
+- add a local mute entry for one account
+- accepts handle, `@handle`, X URL, local profile id, or numeric X user id
+- attempts live mute transport via `xurl` when resolvable
+- still records the local mute if live transport is unavailable
+
+Flags:
+- `--account <account-id>`
+
+### `unmute <handle-or-id>`
+
+- remove a local mute entry for one account
+- attempts live unmute transport via `xurl` when resolvable
 
 Flags:
 - `--account <account-id>`
