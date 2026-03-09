@@ -82,6 +82,50 @@ describe("x profile sync helpers", () => {
 		);
 	});
 
+	it("preserves an existing avatar when a later payload omits one", () => {
+		const db = makeTempHome();
+
+		const first = upsertProfileFromXUser(db, {
+			id: "42",
+			username: "sam",
+			name: "Sam Altman",
+			profile_image_url:
+				"https://pbs.twimg.com/profile_images/42/demo_normal.jpg",
+		});
+		const second = upsertProfileFromXUser(db, {
+			id: "42",
+			username: "sam",
+			name: "Sam Updated",
+		});
+
+		expect(first.profile.avatarUrl).toContain("demo.jpg");
+		expect(second.profile).toEqual(
+			expect.objectContaining({
+				id: "profile_sam",
+				displayName: "Sam Updated",
+				avatarUrl: first.profile.avatarUrl,
+			}),
+		);
+	});
+
+	it("falls back to username when x user payload omits a display name", () => {
+		const db = makeTempHome();
+
+		const profile = upsertProfileFromXUser(db, {
+			id: "1234",
+			username: "nameless",
+			name: "",
+		});
+
+		expect(profile.profile).toEqual(
+			expect.objectContaining({
+				id: "profile_user_1234",
+				handle: "nameless",
+				displayName: "nameless",
+			}),
+		);
+	});
+
 	it("creates stub profiles once and reuses them", () => {
 		const db = makeTempHome();
 

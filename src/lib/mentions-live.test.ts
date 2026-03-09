@@ -114,6 +114,65 @@ describe("cached live mentions", () => {
 				}),
 			]),
 		);
+		expect(mentions[0]?.entities.mentions).toEqual([
+			expect.objectContaining({
+				username: "sam",
+				id: "42",
+			}),
+		]);
+	});
+
+	it("creates stub authors and counts media urls when includes are missing", async () => {
+		makeTempHome();
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "tweet_live_stub",
+					author_id: "999",
+					text: "stub author mention",
+					created_at: "2026-03-09T02:00:00.000Z",
+					entities: {
+						urls: [
+							{
+								url: "https://t.co/demo",
+								expanded_url: "https://example.com/demo",
+								display_url: "example.com/demo",
+								start: 0,
+								end: 19,
+								media_key: "3_123",
+							},
+						],
+					},
+				},
+			],
+			meta: {
+				result_count: 1,
+			},
+		});
+		const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+
+		await exportMentionsViaCachedXurl({
+			account: "acct_primary",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(
+			listTimelineItems({
+				resource: "mentions",
+				search: "stub",
+				limit: 5,
+			}),
+		).toEqual([
+			expect.objectContaining({
+				id: "tweet_live_stub",
+				mediaCount: 1,
+				author: expect.objectContaining({
+					id: "profile_user_999",
+					handle: "user_999",
+				}),
+			}),
+		]);
 	});
 
 	it("reuses fresh cache without spending another xurl call", async () => {
@@ -283,5 +342,25 @@ describe("cached live mentions", () => {
 				limit: 4,
 			}),
 		).rejects.toThrow("xurl mode requires --limit between 5 and 100");
+	});
+
+	it("throws for unknown accounts and refresh failures without cache fallback", async () => {
+		makeTempHome();
+		listMentionsViaXurlMock.mockRejectedValueOnce(new Error("transport down"));
+		const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+
+		await expect(
+			exportMentionsViaCachedXurl({
+				account: "acct_missing",
+				limit: 5,
+			}),
+		).rejects.toThrow("Unknown account: acct_missing");
+		await expect(
+			exportMentionsViaCachedXurl({
+				account: "acct_primary",
+				limit: 5,
+				refresh: true,
+			}),
+		).rejects.toThrow("transport down");
 	});
 });
