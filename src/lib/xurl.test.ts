@@ -385,6 +385,22 @@ describe("xurl transport wrapper", () => {
 		});
 	});
 
+	it("includes stdout and stderr details for mutation failures", async () => {
+		const error = Object.assign(new Error("Command failed: xurl"), {
+			stdout:
+				'{"title":"Forbidden","detail":"You are not permitted to use OAuth2 on this endpoint"}',
+			stderr: "verbose trace",
+		});
+		execFileAsyncMock.mockRejectedValue(error);
+		const { blockUserViaXurl } = await import("./xurl");
+
+		await expect(blockUserViaXurl("1", "2")).resolves.toEqual({
+			ok: false,
+			output:
+				'Command failed: xurl\n{"title":"Forbidden","detail":"You are not permitted to use OAuth2 on this endpoint"}\nverbose trace',
+		});
+	});
+
 	it("uses ok as the default mutation output", async () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: "", stderr: "" })

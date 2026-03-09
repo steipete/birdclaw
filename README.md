@@ -209,6 +209,11 @@ pnpm cli ban @amelia --account acct_primary --json
 pnpm cli unban @amelia --account acct_primary --json
 ```
 
+Notes:
+
+- block/unblock tries `xurl` first
+- if X rejects `xurl` OAuth2 block writes, birdclaw falls back to the X web cookie session (`auth_token` + `ct0`) when available
+
 ### Mutes
 
 ```bash

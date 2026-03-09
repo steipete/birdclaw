@@ -15,12 +15,16 @@ import type {
 	XurlMentionUser,
 } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
+import { blockUserViaXWeb, unblockUserViaXWeb } from "./x-web";
 import {
 	blockUserViaXurl,
 	listBlockedUsers,
 	lookupAuthenticatedUser,
 	unblockUserViaXurl,
 } from "./xurl";
+
+const XURL_BLOCK_OAUTH2_FORBIDDEN =
+	"You are not permitted to use OAuth2 on this endpoint";
 
 function remoteBlockSyncDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
@@ -64,6 +68,37 @@ function pruneRemoteBlocks(
       and profile_id not in (${placeholders})
     `,
 	).run(accountId, ...profileIds);
+}
+
+async function maybeUseXWebBlockFallback(
+	action: "block" | "unblock",
+	targetUserId: string | undefined,
+	transport: { ok: boolean; output: string },
+) {
+	if (transport.ok || !targetUserId) {
+		return transport;
+	}
+
+	if (!transport.output.includes(XURL_BLOCK_OAUTH2_FORBIDDEN)) {
+		return transport;
+	}
+
+	const fallback =
+		action === "block"
+			? await blockUserViaXWeb(targetUserId)
+			: await unblockUserViaXWeb(targetUserId);
+
+	if (fallback.ok) {
+		return {
+			ok: true,
+			output: `${fallback.output}; xurl OAuth2 write rejected`,
+		};
+	}
+
+	return {
+		ok: false,
+		output: `${transport.output}; ${fallback.output}`,
+	};
 }
 
 export function listBlocks({
@@ -238,13 +273,18 @@ export async function addBlock(accountId: string, query: string) {
 	).run(resolvedAccountId, resolved.profile.id, blockedAt);
 
 	const sourceUserId = await getAuthenticatedUserId();
-	const transport =
+	const initialTransport =
 		sourceUserId && resolved.externalUserId
 			? await blockUserViaXurl(sourceUserId, resolved.externalUserId)
 			: {
 					ok: false,
 					output: "xurl block transport unavailable for this profile",
 				};
+	const transport = await maybeUseXWebBlockFallback(
+		"block",
+		resolved.externalUserId,
+		initialTransport,
+	);
 
 	return {
 		ok: true,
@@ -267,13 +307,18 @@ export async function removeBlock(accountId: string, query: string) {
 	);
 
 	const sourceUserId = await getAuthenticatedUserId();
-	const transport =
+	const initialTransport =
 		sourceUserId && resolved.externalUserId
 			? await unblockUserViaXurl(sourceUserId, resolved.externalUserId)
 			: {
 					ok: false,
 					output: "xurl unblock transport unavailable for this profile",
 				};
+	const transport = await maybeUseXWebBlockFallback(
+		"unblock",
+		resolved.externalUserId,
+		initialTransport,
+	);
 
 	return {
 		ok: true,

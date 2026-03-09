@@ -22,6 +22,7 @@
     "cli": "tsx src/cli.ts"
   },
   "dependencies": {
+    "@steipete/sweet-cookie": "^0.2.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-router": "latest",

@@ -248,6 +248,7 @@ Flags:
 - add a local block entry for one account
 - accepts handle, `@handle`, X URL, local profile id, or numeric X user id
 - attempts live block transport via `xurl` when resolvable
+- falls back to the X web cookie session if `xurl` is rejected for OAuth2 block writes
 - still records the local block if live transport is unavailable
 
 Flags:
@@ -257,6 +258,7 @@ Flags:
 
 - remove a local block entry for one account
 - attempts live unblock transport via `xurl` when resolvable
+- falls back to the X web cookie session if `xurl` is rejected for OAuth2 block writes
 
 Flags:
 - `--account <account-id>`

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@steipete/sweet-cookie':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.1(vite@7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0))
@@ -720,6 +723,10 @@ packages:
     resolution: {integrity: sha512-AeGTBg8Wtkh/0s+evyLtP8piQoS4wyqqQaAFs2HJcFMMjYAtUgo+ZPduRXLjPlqKVc2ejeR544oeqpbn8Egn8A==}
     peerDependencies:
       solid-js: ^1.6.12
+
+  '@steipete/sweet-cookie@0.2.0':
+    resolution: {integrity: sha512-R6kkmWZe36gysj0oET8v7ZQ3aZ6GxLU+ssD1BMomy53Au1Ax9LZ4g1pWE5FLgAD9nX6Y5VYjbn9kc5UZpG776Q==}
+    engines: {node: '>=22'}
 
   '@tailwindcss/node@4.2.1':
     resolution: {integrity: sha512-jlx6sLk4EOwO6hHe1oCGm1Q4AN/s0rSrTTPBGPM0/RQ6Uylwq17FuU8IeJJKEjtc6K6O07zsvP+gDO6MMWo7pg==}
@@ -2810,6 +2817,8 @@ snapshots:
   '@solid-primitives/utils@6.4.0(solid-js@1.9.11)':
     dependencies:
       solid-js: 1.9.11
+
+  '@steipete/sweet-cookie@0.2.0': {}
 
   '@tailwindcss/node@4.2.1':
     dependencies:

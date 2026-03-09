@@ -8,11 +8,13 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const mocks = vi.hoisted(() => ({
 	blockUserViaXurl: vi.fn(),
+	blockUserViaXWeb: vi.fn(),
 	listBlockedUsers: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
 	lookupUsersByHandles: vi.fn(),
 	lookupUsersByIds: vi.fn(),
 	unblockUserViaXurl: vi.fn(),
+	unblockUserViaXWeb: vi.fn(),
 }));
 
 vi.mock("./xurl", () => ({
@@ -22,6 +24,11 @@ vi.mock("./xurl", () => ({
 	lookupUsersByHandles: mocks.lookupUsersByHandles,
 	lookupUsersByIds: mocks.lookupUsersByIds,
 	unblockUserViaXurl: mocks.unblockUserViaXurl,
+}));
+
+vi.mock("./x-web", () => ({
+	blockUserViaXWeb: mocks.blockUserViaXWeb,
+	unblockUserViaXWeb: mocks.unblockUserViaXWeb,
 }));
 
 const tempRoots: string[] = [];
@@ -40,11 +47,13 @@ afterEach(() => {
 	delete process.env.BIRDCLAW_HOME;
 	process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 	mocks.blockUserViaXurl.mockReset();
+	mocks.blockUserViaXWeb.mockReset();
 	mocks.listBlockedUsers.mockReset();
 	mocks.lookupAuthenticatedUser.mockReset();
 	mocks.lookupUsersByHandles.mockReset();
 	mocks.lookupUsersByIds.mockReset();
 	mocks.unblockUserViaXurl.mockReset();
+	mocks.unblockUserViaXWeb.mockReset();
 
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
@@ -57,9 +66,17 @@ describe("blocklist", () => {
 		mocks.lookupAuthenticatedUser.mockResolvedValue({ id: "1" });
 		mocks.listBlockedUsers.mockResolvedValue({ items: [], nextToken: null });
 		mocks.blockUserViaXurl.mockResolvedValue({ ok: true, output: "blocked" });
+		mocks.blockUserViaXWeb.mockResolvedValue({
+			ok: true,
+			output: "x-web block ok via browser",
+		});
 		mocks.unblockUserViaXurl.mockResolvedValue({
 			ok: true,
 			output: "unblocked",
+		});
+		mocks.unblockUserViaXWeb.mockResolvedValue({
+			ok: true,
+			output: "x-web unblock ok via browser",
 		});
 		mocks.lookupUsersByHandles.mockResolvedValue([
 			{
@@ -144,6 +161,43 @@ describe("blocklist", () => {
 			output: "remote blocks unavailable",
 		});
 		expect(listBlocks({ account: "acct_primary" })).toHaveLength(1);
+	});
+
+	it("falls back to x-web when xurl rejects block writes for oauth2", async () => {
+		setupTempHome();
+		mocks.blockUserViaXurl.mockResolvedValue({
+			ok: false,
+			output:
+				"Command failed: xurl ... You are not permitted to use OAuth2 on this endpoint",
+		});
+		const { addBlock } = await import("./blocks");
+
+		const result = await addBlock("acct_primary", "amelia");
+
+		expect(mocks.blockUserViaXWeb).toHaveBeenCalledWith("7");
+		expect(result.transport).toEqual({
+			ok: true,
+			output: "x-web block ok via browser; xurl OAuth2 write rejected",
+		});
+	});
+
+	it("falls back to x-web when xurl rejects unblock writes for oauth2", async () => {
+		setupTempHome();
+		mocks.unblockUserViaXurl.mockResolvedValue({
+			ok: false,
+			output:
+				"Command failed: xurl ... You are not permitted to use OAuth2 on this endpoint",
+		});
+		const { addBlock, removeBlock } = await import("./blocks");
+
+		await addBlock("acct_primary", "amelia");
+		const result = await removeBlock("acct_primary", "amelia");
+
+		expect(mocks.unblockUserViaXWeb).toHaveBeenCalledWith("7");
+		expect(result.transport).toEqual({
+			ok: true,
+			output: "x-web unblock ok via browser; xurl OAuth2 write rejected",
+		});
 	});
 
 	it("rejects blocking the current account", async () => {

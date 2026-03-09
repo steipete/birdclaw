@@ -28,6 +28,30 @@ function stripAnsi(value: string) {
 	return value.replace(new RegExp("\\u001b\\[[0-9;]*m", "g"), "");
 }
 
+function formatExecError(error: unknown, fallback: string) {
+	if (!(error instanceof Error)) {
+		return fallback;
+	}
+
+	const parts = [error.message];
+	if (
+		"stdout" in error &&
+		typeof error.stdout === "string" &&
+		error.stdout.trim().length > 0
+	) {
+		parts.push(stripAnsi(error.stdout).trim());
+	}
+	if (
+		"stderr" in error &&
+		typeof error.stderr === "string" &&
+		error.stderr.trim().length > 0
+	) {
+		parts.push(stripAnsi(error.stderr).trim());
+	}
+
+	return parts.join("\n");
+}
+
 function parseErrorPayload(error: unknown) {
 	const stdout =
 		typeof error === "object" &&
@@ -151,7 +175,7 @@ async function runShortcut(
 	} catch (error) {
 		return {
 			ok: false,
-			output: error instanceof Error ? error.message : "xurl execution failed",
+			output: formatExecError(error, "xurl execution failed"),
 		};
 	}
 }
@@ -185,7 +209,7 @@ async function runMutationCommand(args: string[]) {
 	} catch (error) {
 		return {
 			ok: false,
-			output: error instanceof Error ? error.message : "xurl execution failed",
+			output: formatExecError(error, "xurl execution failed"),
 		};
 	}
 }
