@@ -58,7 +58,8 @@ describe("DmWorkspace", () => {
 		);
 
 		expect(screen.getAllByText("Sam Altman").length).toBeGreaterThan(1);
-		expect(screen.getAllByText("Working on AGI").length).toBeGreaterThan(1);
+		expect(screen.getByText("Working on AGI")).toBeInTheDocument();
+		expect(screen.queryByText("sender context")).not.toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 		expect(onReplySend).toHaveBeenCalledWith("dm_1");
 		fireEvent.change(screen.getByPlaceholderText("Reply to @sam"), {
@@ -127,6 +128,7 @@ describe("DmWorkspace", () => {
 		expect(screen.getByText("clear")).toBeInTheDocument();
 		expect(screen.getByText("Thread clear")).toBeInTheDocument();
 		expect(screen.getByText("Replied")).toBeInTheDocument();
+		expect(screen.getByText("@steipete")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Send reply" })).toBeDisabled();
 		expect(screen.getByText("done")).toBeInTheDocument();
 	});

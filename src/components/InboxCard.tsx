@@ -4,7 +4,6 @@ import type { InboxItem } from "#/lib/types";
 import {
 	actionButtonClass,
 	actionRowClass,
-	bioLineClass,
 	bodyCopyClass,
 	cardFooterClass,
 	cardHeaderClass,
@@ -63,7 +62,6 @@ export function InboxCard({
 								{formatCompactNumber(item.participant.followersCount)} followers
 							</span>
 						</div>
-						<p className={bioLineClass}>{item.participant.bio}</p>
 					</div>
 				</div>
 				<div className={metaStackClass}>

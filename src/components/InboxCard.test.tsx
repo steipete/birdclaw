@@ -65,6 +65,7 @@ describe("InboxCard", () => {
 		);
 
 		expect(screen.getByText("Worth answering")).toBeInTheDocument();
+		expect(screen.queryByText(/^bio$/)).not.toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 		expect(onReplyToggle).toHaveBeenCalled();
 	});

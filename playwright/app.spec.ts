@@ -114,6 +114,7 @@ test("filters dms and shows sender context", async ({
 
 	await expect(page.locator(".context-handle")).toHaveText("@sam");
 	await expect(page.locator(".context-bio")).toContainText("Working on AGI");
+	await expect(page.getByText("sender context")).toHaveCount(0);
 });
 
 test("replies from the inbox dm queue", async ({ page }) => {

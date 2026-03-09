@@ -97,7 +97,7 @@ const item = {
 describe("TimelineCard", () => {
 	it("renders tweet metadata and replies", () => {
 		const onReply = vi.fn();
-		render(<TimelineCard item={item} onReply={onReply} />);
+		const { container } = render(<TimelineCard item={item} onReply={onReply} />);
 
 		expect(screen.getByText(/Ship with/)).toBeInTheDocument();
 		expect(screen.getAllByText("@sam")[0]).toBeInTheDocument();
@@ -105,7 +105,7 @@ describe("TimelineCard", () => {
 		expect(screen.getAllByText("Quoted tweet")[1]).toBeInTheDocument();
 		expect(screen.getByAltText("Demo image")).toBeInTheDocument();
 		expect(screen.getByText("Demo link")).toBeInTheDocument();
-		expect(screen.getAllByText("bio")[0]).toBeInTheDocument();
+		expect(container.querySelectorAll("header p")).toHaveLength(0);
 		fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 		expect(onReply).toHaveBeenCalledWith("tweet_1");
 	});
@@ -131,5 +131,43 @@ describe("TimelineCard", () => {
 		expect(screen.getByText("replied")).toBeInTheDocument();
 		expect(screen.getByText("not bookmarked")).toBeInTheDocument();
 		expect(screen.getByText("0 media")).toBeInTheDocument();
+	});
+
+	it("filters quoted tweet urls and falls back to display urls in previews", () => {
+		render(
+			<TimelineCard
+				item={{
+					...item,
+					id: "tweet_3",
+					entities: {
+						urls: [
+							{
+								url: "https://t.co/quote",
+								expandedUrl: "https://x.com/ava/status/tweet_q",
+								displayUrl: "x.com/ava/status/tweet_q",
+								start: 0,
+								end: 10,
+							},
+							{
+								url: "https://t.co/kept",
+								expandedUrl: "https://example.com/kept",
+								displayUrl: "example.com/kept",
+								start: 11,
+								end: 20,
+							},
+						],
+					},
+					replyToTweet: null,
+					media: [],
+					mediaCount: 0,
+				}}
+				onReply={vi.fn()}
+			/>,
+		);
+
+		expect(
+			screen.getByRole("link", { name: "example.com/kept" }),
+		).toBeInTheDocument();
+		expect(screen.getAllByText("example.com/kept").length).toBeGreaterThan(1);
 	});
 });

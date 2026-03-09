@@ -11,17 +11,18 @@ import {
 	actionButtonClass,
 	cx,
 	eyebrowClass,
+	feedPageClass,
 	heroControlsClass,
 	heroCopyClass,
 	heroShellClass,
 	heroTitleClass,
+	inboxLaneClass,
 	navLinkActiveClass,
 	navLinkClass,
 	pageWrapClass,
 	segmentActiveClass,
 	segmentClass,
 	segmentedClass,
-	stackGridClass,
 	textFieldClass,
 	textFieldShortClass,
 	timestampClass,
@@ -122,74 +123,76 @@ function InboxRoute() {
 
 	return (
 		<main className={pageWrapClass}>
-			<section className={heroShellClass}>
-				<div>
-					<p className={eyebrowClass}>inbox</p>
-					<h2 className={heroTitleClass}>AI triage for mentions and DMs.</h2>
-					<p className={heroCopyClass}>{subtitle}</p>
-				</div>
-				<div className={heroControlsClass}>
-					<div className={segmentedClass}>
-						{(["mixed", "mentions", "dms"] as const).map((value) => (
-							<button
-								key={value}
-								className={cx(
-									segmentClass,
-									value === kind && segmentActiveClass,
-								)}
-								onClick={() => setKind(value)}
-								type="button"
-							>
-								{value}
-							</button>
-						))}
+			<div className={feedPageClass}>
+				<section className={heroShellClass}>
+					<div>
+						<p className={eyebrowClass}>inbox</p>
+						<h2 className={heroTitleClass}>AI triage for mentions and DMs.</h2>
+						<p className={heroCopyClass}>{subtitle}</p>
 					</div>
-					<input
-						className={cx(textFieldClass, textFieldShortClass)}
-						inputMode="numeric"
-						onChange={(event) => setMinScore(event.target.value)}
-						placeholder="Min AI score"
-						value={minScore}
-					/>
-					<button
-						className={cx(navLinkClass, hideLowSignal && navLinkActiveClass)}
-						onClick={() => setHideLowSignal((value) => !value)}
-						type="button"
-					>
-						{hideLowSignal ? "Hide low-signal" : "Show all"}
-					</button>
-					<button
-						className={actionButtonClass}
-						disabled={isScoring}
-						onClick={() => void scoreNow()}
-						type="button"
-					>
-						{isScoring ? "Scoring..." : "Score with OpenAI"}
-					</button>
-				</div>
-			</section>
+					<div className={heroControlsClass}>
+						<div className={segmentedClass}>
+							{(["mixed", "mentions", "dms"] as const).map((value) => (
+								<button
+									key={value}
+									className={cx(
+										segmentClass,
+										value === kind && segmentActiveClass,
+									)}
+									onClick={() => setKind(value)}
+									type="button"
+								>
+									{value}
+								</button>
+							))}
+						</div>
+						<input
+							className={cx(textFieldClass, textFieldShortClass)}
+							inputMode="numeric"
+							onChange={(event) => setMinScore(event.target.value)}
+							placeholder="Min AI score"
+							value={minScore}
+						/>
+						<button
+							className={cx(navLinkClass, hideLowSignal && navLinkActiveClass)}
+							onClick={() => setHideLowSignal((value) => !value)}
+							type="button"
+						>
+							{hideLowSignal ? "Hide low-signal" : "Show all"}
+						</button>
+						<button
+							className={actionButtonClass}
+							disabled={isScoring}
+							onClick={() => void scoreNow()}
+							type="button"
+						>
+							{isScoring ? "Scoring..." : "Score with OpenAI"}
+						</button>
+					</div>
+				</section>
 
-			<section className={stackGridClass}>
-				{items.map((item) => (
-					<InboxCard
-						key={item.id}
-						isReplying={activeReplyId === item.id}
-						item={item}
-						onReplyChange={setReplyDraft}
-						onReplySend={() => void sendReply(item)}
-						onReplyToggle={() => {
-							if (activeReplyId === item.id) {
-								setActiveReplyId(null);
+				<section className={inboxLaneClass}>
+					{items.map((item) => (
+						<InboxCard
+							key={item.id}
+							isReplying={activeReplyId === item.id}
+							item={item}
+							onReplyChange={setReplyDraft}
+							onReplySend={() => void sendReply(item)}
+							onReplyToggle={() => {
+								if (activeReplyId === item.id) {
+									setActiveReplyId(null);
+									setReplyDraft("");
+									return;
+								}
+								setActiveReplyId(item.id);
 								setReplyDraft("");
-								return;
-							}
-							setActiveReplyId(item.id);
-							setReplyDraft("");
-						}}
-						replyDraft={activeReplyId === item.id ? replyDraft : ""}
-					/>
-				))}
-			</section>
+							}}
+							replyDraft={activeReplyId === item.id ? replyDraft : ""}
+						/>
+					))}
+				</section>
+			</div>
 			{isSendingReply ? (
 				<p className={timestampClass}>Sending reply...</p>
 			) : null}

@@ -7,13 +7,11 @@ import {
 	composerShellClass,
 	contextBioClass,
 	contextHandleClass,
-	contextRailClass,
 	contextStatRowClass,
 	contextStatsClass,
 	contextStatTermClass,
 	contextStatValueClass,
 	cx,
-	dmBioPreviewClass,
 	dmGridClass,
 	dmListClass,
 	dmListCopyClass,
@@ -34,6 +32,8 @@ import {
 	pillClass,
 	pillSoftClass,
 	threadBioClass,
+	threadDetailColumnClass,
+	threadDetailHeaderClass,
 	threadHeaderClass,
 	threadShellClass,
 	threadSubtitleClass,
@@ -41,11 +41,6 @@ import {
 	timestampClass,
 } from "#/lib/ui";
 import { AvatarChip } from "./AvatarChip";
-
-function clampBio(value: string, limit = 120) {
-	if (value.length <= limit) return value;
-	return `${value.slice(0, limit).trimEnd()}...`;
-}
 
 function MessageBubble({ message }: { message: DmMessageItem }) {
 	return (
@@ -89,8 +84,8 @@ export function DmWorkspace({
 	onReplySend: (conversationId: string) => void;
 }) {
 	const participant = selectedConversation?.participant ?? null;
-	const heroLabel = participant
-		? `${formatCompactNumber(participant.followersCount)} followers · score ${selectedConversation?.influenceScore ?? 0} · ${selectedConversation?.influenceLabel}`
+	const subtitle = selectedConversation
+		? `${selectedConversation.needsReply ? "Reply owed" : "Thread clear"} · last message ${formatShortTimestamp(selectedConversation.lastMessageAt)}`
 		: "No conversation selected";
 
 	return (
@@ -116,9 +111,6 @@ export function DmWorkspace({
 									<strong>{conversation.participant.displayName}</strong>
 									<span>@{conversation.participant.handle}</span>
 								</div>
-								<p className={cx(dmPreviewTextClass, dmBioPreviewClass)}>
-									{clampBio(conversation.participant.bio, 84)}
-								</p>
 								<p className={dmPreviewTextClass}>
 									{conversation.lastMessagePreview}
 								</p>
@@ -153,16 +145,67 @@ export function DmWorkspace({
 								<h2 className={threadTitleClass}>
 									{selectedConversation.participant.displayName}
 								</h2>
-								<p className={threadSubtitleClass}>{heroLabel}</p>
-								<p className={threadBioClass}>{participant?.bio}</p>
+								<p className={threadSubtitleClass}>{subtitle}</p>
+								<p className={threadBioClass}>
+									{selectedConversation.lastMessagePreview}
+								</p>
 							</div>
-							<button
-								className={actionButtonClass}
-								onClick={() => onReplySend(selectedConversation.id)}
-								type="button"
-							>
-								Reply
-							</button>
+							<div className={threadDetailColumnClass}>
+								<div className={threadDetailHeaderClass}>
+									<AvatarChip
+										avatarUrl={participant?.avatarUrl}
+										hue={participant?.avatarHue ?? 18}
+										name={participant?.displayName ?? "Unknown"}
+										profileId={participant?.id ?? undefined}
+										size="large"
+									/>
+									<div>
+										<strong>{participant?.displayName}</strong>
+										<p className={cx("context-handle", contextHandleClass)}>
+											@{participant?.handle}
+										</p>
+									</div>
+								</div>
+								<p className={cx("context-bio", contextBioClass)}>
+									{participant?.bio}
+								</p>
+								<dl className={contextStatsClass}>
+									<div className={contextStatRowClass}>
+										<dt className={contextStatTermClass}>Followers</dt>
+										<dd className={contextStatValueClass}>
+											{formatCompactNumber(participant?.followersCount ?? 0)}
+										</dd>
+									</div>
+									<div className={contextStatRowClass}>
+										<dt className={contextStatTermClass}>Influence</dt>
+										<dd className={contextStatValueClass}>
+											{selectedConversation.influenceScore} ·{" "}
+											{selectedConversation.influenceLabel}
+										</dd>
+									</div>
+									<div className={contextStatRowClass}>
+										<dt className={contextStatTermClass}>Reply state</dt>
+										<dd className={contextStatValueClass}>
+											{selectedConversation.needsReply
+												? "Needs reply"
+												: "Replied"}
+										</dd>
+									</div>
+									<div className={contextStatRowClass}>
+										<dt className={contextStatTermClass}>Account</dt>
+										<dd className={contextStatValueClass}>
+											{selectedConversation.accountHandle}
+										</dd>
+									</div>
+								</dl>
+								<button
+									className={actionButtonClass}
+									onClick={() => onReplySend(selectedConversation.id)}
+									type="button"
+								>
+									Reply
+								</button>
+							</div>
 						</header>
 						<div className={messageStackClass}>
 							{selectedMessages.map((message) => (
@@ -198,62 +241,6 @@ export function DmWorkspace({
 					<div className={emptyStateClass}>No DM selected.</div>
 				)}
 			</div>
-
-			<aside className={contextRailClass}>
-				{participant ? (
-					<>
-						<p className={eyebrowClass}>sender context</p>
-						<AvatarChip
-							avatarUrl={participant.avatarUrl}
-							hue={participant.avatarHue}
-							name={participant.displayName}
-							profileId={participant.id}
-							size="large"
-						/>
-						<h3 className={threadTitleClass}>{participant.displayName}</h3>
-						<p className={cx("context-handle", contextHandleClass)}>
-							@{participant.handle}
-						</p>
-						<p className={cx("context-bio", contextBioClass)}>
-							{participant.bio}
-						</p>
-						<dl className={contextStatsClass}>
-							<div className={contextStatRowClass}>
-								<dt className={contextStatTermClass}>Followers</dt>
-								<dd className={contextStatValueClass}>
-									{formatCompactNumber(participant.followersCount)}
-								</dd>
-							</div>
-							<div className={contextStatRowClass}>
-								<dt className={contextStatTermClass}>Influence</dt>
-								<dd className={contextStatValueClass}>
-									{selectedConversation?.influenceScore} ·{" "}
-									{selectedConversation?.influenceLabel}
-								</dd>
-							</div>
-							<div className={contextStatRowClass}>
-								<dt className={contextStatTermClass}>Reply state</dt>
-								<dd className={contextStatValueClass}>
-									{selectedConversation?.needsReply ? "Needs reply" : "Replied"}
-								</dd>
-							</div>
-							<div className={contextStatRowClass}>
-								<dt className={contextStatTermClass}>Last message</dt>
-								<dd className={contextStatValueClass}>
-									{formatShortTimestamp(
-										selectedConversation?.lastMessageAt ??
-											participant.createdAt,
-									)}
-								</dd>
-							</div>
-						</dl>
-					</>
-				) : (
-					<div className={emptyStateClass}>
-						Select a conversation to see the sender bio.
-					</div>
-				)}
-			</aside>
 		</section>
 	);
 }

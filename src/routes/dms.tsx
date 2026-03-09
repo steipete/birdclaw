@@ -10,6 +10,7 @@ import type {
 } from "#/lib/types";
 import {
 	cx,
+	dmPageClass,
 	eyebrowClass,
 	heroControlsClass,
 	heroControlsDmClass,
@@ -183,77 +184,79 @@ function DmsRoute() {
 
 	return (
 		<main className={pageWrapClass}>
-			<section className={cx(heroShellClass, heroShellDmClass)}>
-				<div>
-					<p className={eyebrowClass}>direct messages</p>
-					<h2 className={heroTitleClass}>
-						Influence, bio, and reply state. No hunting.
-					</h2>
-					<p className={heroCopyClass}>{subtitle}</p>
-				</div>
-				<div className={cx(heroControlsClass, heroControlsDmClass)}>
-					<input
-						className={cx(textFieldClass, textFieldWideClass)}
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder="Search DMs"
-						value={search}
-					/>
-					<input
-						className={cx(textFieldClass, textFieldShortClass)}
-						inputMode="numeric"
-						onChange={(event) => setMinFollowers(event.target.value)}
-						placeholder="Min followers"
-						value={minFollowers}
-					/>
-					<input
-						className={cx(textFieldClass, textFieldShortClass)}
-						inputMode="numeric"
-						onChange={(event) => setMinInfluenceScore(event.target.value)}
-						placeholder="Min score"
-						value={minInfluenceScore}
-					/>
-					<div className={segmentedClass}>
-						{(["recent", "influence"] as const).map((value) => (
-							<button
-								key={value}
-								className={cx(
-									segmentClass,
-									value === sort && segmentActiveClass,
-								)}
-								onClick={() => setSort(value)}
-								type="button"
-							>
-								{value}
-							</button>
-						))}
+			<div className={dmPageClass}>
+				<section className={cx(heroShellClass, heroShellDmClass)}>
+					<div>
+						<p className={eyebrowClass}>direct messages</p>
+						<h2 className={heroTitleClass}>
+							Influence, bio, and reply state. No hunting.
+						</h2>
+						<p className={heroCopyClass}>{subtitle}</p>
 					</div>
-					<div className={segmentedClass}>
-						{(["all", "replied", "unreplied"] as const).map((value) => (
-							<button
-								key={value}
-								className={cx(
-									segmentClass,
-									value === replyFilter && segmentActiveClass,
-								)}
-								onClick={() => setReplyFilter(value)}
-								type="button"
-							>
-								{value}
-							</button>
-						))}
+					<div className={cx(heroControlsClass, heroControlsDmClass)}>
+						<input
+							className={cx(textFieldClass, textFieldWideClass)}
+							onChange={(event) => setSearch(event.target.value)}
+							placeholder="Search DMs"
+							value={search}
+						/>
+						<input
+							className={cx(textFieldClass, textFieldShortClass)}
+							inputMode="numeric"
+							onChange={(event) => setMinFollowers(event.target.value)}
+							placeholder="Min followers"
+							value={minFollowers}
+						/>
+						<input
+							className={cx(textFieldClass, textFieldShortClass)}
+							inputMode="numeric"
+							onChange={(event) => setMinInfluenceScore(event.target.value)}
+							placeholder="Min score"
+							value={minInfluenceScore}
+						/>
+						<div className={segmentedClass}>
+							{(["recent", "influence"] as const).map((value) => (
+								<button
+									key={value}
+									className={cx(
+										segmentClass,
+										value === sort && segmentActiveClass,
+									)}
+									onClick={() => setSort(value)}
+									type="button"
+								>
+									{value}
+								</button>
+							))}
+						</div>
+						<div className={segmentedClass}>
+							{(["all", "replied", "unreplied"] as const).map((value) => (
+								<button
+									key={value}
+									className={cx(
+										segmentClass,
+										value === replyFilter && segmentActiveClass,
+									)}
+									onClick={() => setReplyFilter(value)}
+									type="button"
+								>
+									{value}
+								</button>
+							))}
+						</div>
 					</div>
-				</div>
-			</section>
+				</section>
 
-			<DmWorkspace
-				conversations={items}
-				onReplyDraftChange={setReplyDraft}
-				onReplySend={replyToConversation}
-				onSelectConversation={setSelectedConversationId}
-				replyDraft={replyDraft}
-				selectedConversation={selectedConversation}
-				selectedMessages={messages}
-			/>
+				<DmWorkspace
+					conversations={items}
+					onReplyDraftChange={setReplyDraft}
+					onReplySend={replyToConversation}
+					onSelectConversation={setSelectedConversationId}
+					replyDraft={replyDraft}
+					selectedConversation={selectedConversation}
+					selectedMessages={messages}
+				/>
+			</div>
 		</main>
 	);
 }

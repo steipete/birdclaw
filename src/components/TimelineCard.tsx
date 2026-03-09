@@ -2,7 +2,6 @@ import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
 import type { TimelineItem } from "#/lib/types";
 import {
 	actionButtonClass,
-	bioLineClass,
 	cardFooterClass,
 	cardHeaderClass,
 	contentCardClass,
@@ -60,7 +59,6 @@ export function TimelineCard({
 								</span>
 							</div>
 						</ProfilePreview>
-						<p className={bioLineClass}>{item.author.bio}</p>
 					</div>
 				</div>
 				<div className={metaStackClass}>

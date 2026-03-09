@@ -10,6 +10,7 @@ import type {
 import {
 	cx,
 	eyebrowClass,
+	feedPageClass,
 	heroControlsClass,
 	heroCopyClass,
 	heroShellClass,
@@ -18,9 +19,9 @@ import {
 	segmentActiveClass,
 	segmentClass,
 	segmentedClass,
-	stackGridClass,
 	textFieldClass,
 	textFieldWideClass,
+	timelineLaneClass,
 } from "#/lib/ui";
 
 export const Route = createFileRoute("/")({
@@ -79,44 +80,46 @@ function HomeRoute() {
 
 	return (
 		<main className={pageWrapClass}>
-			<section className={heroShellClass}>
-				<div>
-					<p className={eyebrowClass}>home timeline</p>
-					<h2 className={heroTitleClass}>
-						Read first. Act only where signal survives.
-					</h2>
-					<p className={heroCopyClass}>{subtitle}</p>
-				</div>
-				<div className={heroControlsClass}>
-					<input
-						className={cx(textFieldClass, textFieldWideClass)}
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder="Search local timeline"
-						value={search}
-					/>
-					<div className={segmentedClass}>
-						{(["all", "replied", "unreplied"] as const).map((value) => (
-							<button
-								key={value}
-								className={cx(
-									segmentClass,
-									value === replyFilter && segmentActiveClass,
-								)}
-								onClick={() => setReplyFilter(value)}
-								type="button"
-							>
-								{value}
-							</button>
-						))}
+			<div className={feedPageClass}>
+				<section className={heroShellClass}>
+					<div>
+						<p className={eyebrowClass}>home timeline</p>
+						<h2 className={heroTitleClass}>
+							Read first. Act only where signal survives.
+						</h2>
+						<p className={heroCopyClass}>{subtitle}</p>
 					</div>
-				</div>
-			</section>
+					<div className={heroControlsClass}>
+						<input
+							className={cx(textFieldClass, textFieldWideClass)}
+							onChange={(event) => setSearch(event.target.value)}
+							placeholder="Search local timeline"
+							value={search}
+						/>
+						<div className={segmentedClass}>
+							{(["all", "replied", "unreplied"] as const).map((value) => (
+								<button
+									key={value}
+									className={cx(
+										segmentClass,
+										value === replyFilter && segmentActiveClass,
+									)}
+									onClick={() => setReplyFilter(value)}
+									type="button"
+								>
+									{value}
+								</button>
+							))}
+						</div>
+					</div>
+				</section>
 
-			<section className={stackGridClass}>
-				{items.map((item) => (
-					<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
-				))}
-			</section>
+				<section className={timelineLaneClass}>
+					{items.map((item) => (
+						<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
+					))}
+				</section>
+			</div>
 		</main>
 	);
 }

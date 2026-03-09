@@ -6,9 +6,17 @@ export const bodyClass =
 	"min-h-screen bg-[var(--bg)] font-sans text-[var(--ink)] antialiased transition-[background,color] duration-200";
 
 export const siteShellClass =
-	"mx-auto w-[min(1380px,calc(100vw-32px))] pb-12 pt-[18px] max-[760px]:w-[min(100vw-20px,100%)]";
+	"mx-auto w-[min(1120px,calc(100vw-32px))] pb-12 pt-[18px] max-[760px]:w-[min(100vw-20px,100%)]";
 
 export const pageWrapClass = "pt-6";
+
+export const feedPageClass = "mx-auto grid w-full max-w-[960px] gap-6";
+
+export const timelineLaneClass = "mx-auto grid w-full max-w-[680px] gap-4";
+
+export const inboxLaneClass = "mx-auto grid w-full max-w-[760px] gap-4";
+
+export const dmPageClass = "mx-auto grid w-full max-w-[1040px] gap-6";
 
 export const eyebrowClass =
 	"m-0 mb-2 text-[11px] uppercase tracking-[0.24em] text-[var(--ink-soft)]";
@@ -36,7 +44,7 @@ export const heroTitleClass =
 	"m-0 max-w-[12ch] font-display text-[clamp(2.2rem,4vw,4.4rem)] leading-[0.95]";
 
 export const heroCopyClass =
-	"hero-copy mt-3.5 max-w-[52ch] text-base text-[var(--ink-soft)]";
+	"hero-copy mt-3.5 max-w-[46ch] text-base text-[var(--ink-soft)]";
 
 export const heroControlsClass =
 	"flex flex-wrap justify-end gap-3 max-[760px]:w-full max-[760px]:justify-start";
@@ -85,8 +93,6 @@ export const metaRowClass =
 
 export const mutedDotClass =
 	"muted-dot inline-block size-1 rounded-full bg-[var(--line-strong)]";
-
-export const bioLineClass = "mt-1.5 text-[var(--ink-soft)]";
 
 export const metaStackClass = "flex flex-col items-end gap-2";
 
@@ -145,7 +151,7 @@ export const embeddedTweetCopyClass =
 	"embedded-tweet-copy m-0 text-[0.98rem] leading-[1.55]";
 
 export const dmGridClass =
-	"grid items-start gap-4 min-[1120px]:grid-cols-[minmax(280px,340px)_minmax(420px,1fr)_minmax(240px,300px)]";
+	"grid items-start gap-4 min-[980px]:grid-cols-[minmax(280px,320px)_minmax(0,1fr)] min-[1120px]:gap-5";
 
 export const dmListClass = cx("dm-list", surfaceCardClass, "p-2.5");
 
@@ -160,13 +166,11 @@ export const dmListCopyClass = "dm-list-copy min-w-0";
 export const dmPreviewTextClass =
 	"mt-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-[var(--ink-soft)]";
 
-export const dmBioPreviewClass = "text-[0.86rem]";
-
 export const threadShellClass =
 	"thread-shell min-h-[70vh] rounded-[24px] border border-[var(--line)] bg-[var(--panel)] p-[18px] shadow-[0_24px_60px_var(--shadow)]";
 
 export const threadHeaderClass =
-	"thread-header flex items-start justify-between gap-4 border-b border-[var(--line)] pb-4 max-[760px]:flex-col max-[760px]:items-start";
+	"thread-header grid gap-5 border-b border-[var(--line)] pb-4 min-[860px]:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]";
 
 export const threadTitleClass = "m-0 font-display text-[2rem]";
 
@@ -174,6 +178,11 @@ export const threadSubtitleClass = "mt-1.5 text-[var(--ink-soft)]";
 
 export const threadBioClass =
 	"mt-2.5 max-w-[48ch] text-[var(--ink-soft)] leading-[1.55]";
+
+export const threadDetailColumnClass =
+	"grid gap-3 rounded-[20px] border border-[var(--line)] bg-[color:color-mix(in_srgb,var(--panel-strong)_82%,transparent)] p-4";
+
+export const threadDetailHeaderClass = "flex items-center gap-3";
 
 export const messageStackClass = "flex flex-col gap-3.5 py-5 pb-[18px]";
 
@@ -189,12 +198,6 @@ export const messageBubbleClass =
 
 export const messageBubbleOutboundClass =
 	"rounded-bl-[18px] rounded-br-[6px] bg-[var(--accent-soft)]";
-
-export const contextRailClass = cx(
-	"context-rail",
-	surfaceCardClass,
-	"sticky top-[18px] p-[18px] min-[1120px]:sticky max-[1120px]:static",
-);
 
 export const contextHandleClass = "mt-1.5 text-[var(--ink-soft)]";
 
