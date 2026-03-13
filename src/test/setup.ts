@@ -1,12 +1,8 @@
-import "@testing-library/jest-dom/vitest";
-
 process.env.BIRDCLAW_DISABLE_LIVE_WRITES ??= "1";
 
-if (
-	typeof window !== "undefined" &&
-	(typeof window.localStorage?.getItem !== "function" ||
-		typeof window.localStorage?.setItem !== "function" ||
-		typeof window.localStorage?.clear !== "function")
+function installMemoryStorage(
+	target: object,
+	key: "localStorage" | "sessionStorage",
 ) {
 	const store = new Map<string, string>();
 	const memoryStorage = {
@@ -30,8 +26,18 @@ if (
 		},
 	};
 
-	Object.defineProperty(window, "localStorage", {
+	Object.defineProperty(target, key, {
 		configurable: true,
 		value: memoryStorage,
 	});
 }
+
+installMemoryStorage(globalThis, "localStorage");
+installMemoryStorage(globalThis, "sessionStorage");
+
+if (typeof window !== "undefined") {
+	installMemoryStorage(window, "localStorage");
+	installMemoryStorage(window, "sessionStorage");
+}
+
+await import("@testing-library/jest-dom/vitest");

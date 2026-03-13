@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Verify forced `xurl` mute/block writes through `bird status` before mutating local sqlite.
 - Cache authenticated `xurl whoami` lookups so repeated moderation writes do less redundant auth work.
 - Strip inherited `--localstorage-file` from the Playwright web-server env to avoid noisy cross-repo test warnings.
+- Override Node 25 native web storage in jsdom test setup so Vitest runs stop emitting `--localstorage-file` warnings.
 
 ### Docs
 
