@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { withSanitizedNodeOptions } from "./sanitize-node-options.mjs";
 
 const cwd = process.cwd();
 const home = process.env.BIRDCLAW_HOME || path.join(cwd, ".playwright-home");
@@ -15,7 +16,7 @@ const child = spawn(
 		cwd,
 		stdio: "inherit",
 		env: {
-			...process.env,
+			...withSanitizedNodeOptions(process.env),
 			BIRDCLAW_HOME: home,
 			BIRDCLAW_DISABLE_LIVE_WRITES: "1",
 		},
