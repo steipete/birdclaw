@@ -441,7 +441,7 @@ async function exportMentionsViaCachedLiveSource({
 					accountId: resolvedAccount.accountId,
 					search,
 					replyFilter,
-						limit: fetchAll ? cached.value.data.length : limit,
+					limit: fetchAll ? cached.value.data.length : limit,
 				});
 			}
 			return cached.value;
