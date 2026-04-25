@@ -287,7 +287,7 @@ function mergeMentionPayloads(
 		data: tweets,
 		includes: users.length > 0 ? { users } : undefined,
 		meta: {
-			...(lastMeta ?? {}),
+			...lastMeta,
 			result_count: tweets.length,
 			page_count: pages.length,
 			next_token:

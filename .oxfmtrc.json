@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "useTabs": true,
+  "tabWidth": 2,
+  "printWidth": 80,
+  "singleQuote": false,
+  "jsxSingleQuote": false,
+  "quoteProps": "as-needed",
+  "trailingComma": "all",
+  "semi": true,
+  "arrowParens": "always",
+  "bracketSameLine": false,
+  "bracketSpacing": true,
+  "ignorePatterns": [
+    "**/coverage/**/*",
+    "**/dist/**/*",
+    "**/test-results/**/*",
+    "**/playwright-report/**/*",
+    "**/src/routeTree.gen.ts",
+    "**/src/styles.css"
+  ]
+}

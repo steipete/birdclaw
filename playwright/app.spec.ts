@@ -64,16 +64,16 @@ test("expands timeline cards with media, quote context, and profile hover", asyn
 	});
 	await expect(surveyCard.getByAltText("Pricing survey chart")).toBeVisible();
 	await expect(
-		surveyCard.getByRole("link", { name: "example.com/developer-platform-pricing" }),
+		surveyCard.getByRole("link", {
+			name: "example.com/developer-platform-pricing",
+		}),
 	).toBeVisible();
 	await surveyCard.locator(".profile-preview-trigger").first().hover();
 	await expect(
-		surveyCard
-			.locator(".profile-preview-card .profile-preview-bio")
-			.filter({
-				hasText:
-					"Reports on infrastructure, AI policy, and the business of software.",
-			}),
+		surveyCard.locator(".profile-preview-card .profile-preview-bio").filter({
+			hasText:
+				"Reports on infrastructure, AI policy, and the business of software.",
+		}),
 	).toBeVisible();
 
 	const quoteCard = page.locator(".content-card").filter({
@@ -104,9 +104,7 @@ test("replies to an unreplied mention and clears it from the queue", async ({
 	await expect(page.locator(".content-card")).toHaveCount(0);
 });
 
-test("filters dms and shows sender context", async ({
-	page,
-}) => {
+test("filters dms and shows sender context", async ({ page }) => {
 	await page.goto("/dms");
 
 	await page.getByRole("button", { name: "all" }).click();

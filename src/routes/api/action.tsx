@@ -37,25 +37,33 @@ export const Route = createFileRoute("/api/action")({
 					result = await addBlock(
 						body.accountId || "acct_primary",
 						body.query || "",
-						{ transport: body.transport },
+						{
+							transport: body.transport,
+						},
 					);
 				} else if (body.kind === "unblockProfile") {
 					result = await removeBlock(
 						body.accountId || "acct_primary",
 						body.query || "",
-						{ transport: body.transport },
+						{
+							transport: body.transport,
+						},
 					);
 				} else if (body.kind === "muteProfile") {
 					result = await addMute(
 						body.accountId || "acct_primary",
 						body.query || "",
-						{ transport: body.transport },
+						{
+							transport: body.transport,
+						},
 					);
 				} else if (body.kind === "unmuteProfile") {
 					result = await removeMute(
 						body.accountId || "acct_primary",
 						body.query || "",
-						{ transport: body.transport },
+						{
+							transport: body.transport,
+						},
 					);
 				} else if (body.kind === "syncBlocks") {
 					result = await syncBlocks(body.accountId || "acct_primary");

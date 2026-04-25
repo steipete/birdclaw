@@ -126,10 +126,7 @@ async function runXWebBlockMutation(
 		if (!response.ok) {
 			return {
 				ok: false,
-				output: `x-web ${action} failed (${response.status}): ${text.slice(
-					0,
-					240,
-				)}`,
+				output: `x-web ${action} failed (${response.status}): ${text.slice(0, 240)}`,
 			};
 		}
 

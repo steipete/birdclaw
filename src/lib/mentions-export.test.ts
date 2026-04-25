@@ -153,9 +153,8 @@ describe("mention export", () => {
 				quotedTweet: null,
 			},
 		]);
-		const { serializeMentionItemsAsXurlCompatible } = await import(
-			"./mentions-export"
-		);
+		const { serializeMentionItemsAsXurlCompatible } =
+			await import("./mentions-export");
 		const { listTimelineItems } = await import("./queries");
 
 		const payload = serializeMentionItemsAsXurlCompatible(

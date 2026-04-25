@@ -106,7 +106,9 @@ describe("profile hydration", () => {
 		};
 		const title = db
 			.prepare("select title from dm_conversations where id = 'dm_1'")
-			.get() as { title: string };
+			.get() as {
+			title: string;
+		};
 
 		expect(result).toMatchObject({
 			hydratedProfiles: 1,

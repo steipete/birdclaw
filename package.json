@@ -16,9 +16,10 @@
     "test": "env -u NODE_OPTIONS node ./scripts/run-vitest.mjs run",
     "coverage": "env -u NODE_OPTIONS node ./scripts/run-vitest.mjs run --coverage",
     "e2e": "playwright test",
-    "format": "biome format",
-    "lint": "biome lint",
-    "check": "biome check",
+    "format": "oxfmt --write src scripts playwright vite.config.ts vitest.config.ts playwright.config.ts",
+    "format:check": "oxfmt --check src scripts playwright vite.config.ts vitest.config.ts playwright.config.ts",
+    "lint": "oxlint --import-plugin --node-plugin --vitest-plugin --deny-warnings -A require-mock-type-parameters -A no-control-regex src scripts playwright vite.config.ts vitest.config.ts playwright.config.ts",
+    "check": "pnpm run format:check && pnpm run lint",
     "cli": "tsx src/cli.ts"
   },
   "dependencies": {
@@ -40,7 +41,6 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.13",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/devtools-vite": "0.6.0",
@@ -54,6 +54,8 @@
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.5",
     "jsdom": "^29.0.2",
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.61.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^8.0.10",

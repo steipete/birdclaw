@@ -89,8 +89,8 @@ Repo: `steipete/birdclaw`
 
 ### Tooling
 
-- formatter: `biome format`
-- linter: `oxlint` type-aware + `biome check`
+- formatter: `oxfmt`
+- linter: `oxlint`
 - tests: `vitest`
 - migrations: checked-in SQL or Kysely migrator
 

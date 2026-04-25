@@ -106,7 +106,9 @@ function buildEmbeddedTweet(
 		author,
 		entities: enrichEntities(
 			parseJsonField<TweetEntities>(row[`${prefix}entities_json`], {}),
-			{ [author.id]: author },
+			{
+				[author.id]: author,
+			},
 		),
 		media: parseJsonField<TweetMediaItem[]>(row[`${prefix}media_json`], []),
 	};

@@ -68,14 +68,18 @@ describe("database init", () => {
 
 		const quotedIndex = db
 			.prepare("pragma index_info(idx_tweets_quoted)")
-			.all() as Array<{ name: string }>;
+			.all() as Array<{
+			name: string;
+		}>;
 		expect(quotedIndex).toEqual([
 			expect.objectContaining({ name: "quoted_tweet_id" }),
 		]);
 
 		const syncCacheColumnNames = db
 			.prepare("pragma table_info(sync_cache)")
-			.all() as Array<{ name: string }>;
+			.all() as Array<{
+			name: string;
+		}>;
 		expect(syncCacheColumnNames.map((column) => column.name)).toEqual(
 			expect.arrayContaining(["cache_key", "value_json", "updated_at"]),
 		);

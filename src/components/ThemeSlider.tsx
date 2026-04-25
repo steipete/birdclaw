@@ -47,9 +47,7 @@ export function ThemeSlider() {
 	);
 	const sliderStyle = useMemo<CSSProperties>(
 		() => ({
-			gridTemplateColumns: `repeat(${String(THEME_OPTIONS.length)}, ${toPx(
-				ACTIVE_ITEM_WIDTH_PX,
-			)})`,
+			gridTemplateColumns: `repeat(${String(THEME_OPTIONS.length)}, ${toPx(ACTIVE_ITEM_WIDTH_PX)})`,
 			columnGap: toPx(GAP_PX),
 			padding: `0 ${toPx(CONTAINER_PADDING_PX)}`,
 			width: toPx(

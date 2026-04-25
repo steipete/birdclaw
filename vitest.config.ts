@@ -12,11 +12,7 @@ export default defineConfig({
 			provider: "v8",
 			reporter: ["text", "json-summary", "html"],
 			include: ["src/**/*.{ts,tsx}"],
-			exclude: [
-				"src/routeTree.gen.ts",
-				"src/styles.css",
-				"src/lib/types.ts",
-			],
+			exclude: ["src/routeTree.gen.ts", "src/styles.css", "src/lib/types.ts"],
 			thresholds: {
 				lines: 80,
 				functions: 80,

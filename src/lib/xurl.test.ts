@@ -94,9 +94,8 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: { id: "1", username: "steipete" } }),
 				stderr: "",
 			});
-		const { lookupAuthenticatedUser, lookupUsersByIds } = await import(
-			"./xurl"
-		);
+		const { lookupAuthenticatedUser, lookupUsersByIds } =
+			await import("./xurl");
 
 		await expect(lookupUsersByIds(["42"])).resolves.toEqual([
 			{ id: "42", username: "sam" },

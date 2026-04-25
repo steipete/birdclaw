@@ -25,7 +25,9 @@ function svgAvatarDataUrl(label: string, hue: number) {
 export function seedDemoData(db: Database.Database) {
 	const accountCount = db
 		.prepare("select count(*) as count from accounts")
-		.get() as { count: number };
+		.get() as {
+		count: number;
+	};
 
 	if (accountCount.count > 0) {
 		return;

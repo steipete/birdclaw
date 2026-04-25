@@ -36,7 +36,7 @@ function getJsonRetryBaseDelayMs() {
 }
 
 function stripAnsi(value: string) {
-	// biome-ignore lint/complexity/useRegexLiterals: ANSI escape parsing needs a constructor to avoid control-char lint failures.
+	// ANSI escape parsing needs a constructor to avoid literal control characters.
 	return value.replace(new RegExp("\\u001b\\[[0-9;]*m", "g"), "");
 }
 

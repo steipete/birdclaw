@@ -82,14 +82,14 @@ html.theme-transition {
 	view-transition-name: theme;
 }
 
-/* biome-ignore lint/correctness/noUnknownTypeSelector: view transition pseudo-element */
+/* View transition pseudo-element. */
 html.theme-transition::view-transition-old(theme) {
 	animation: none;
 	mix-blend-mode: normal;
 	z-index: 1;
 }
 
-/* biome-ignore lint/correctness/noUnknownTypeSelector: view transition pseudo-element */
+/* View transition pseudo-element. */
 html.theme-transition::view-transition-new(theme) {
 	animation: theme-circle-transition 0.45s ease-out forwards;
 	mix-blend-mode: normal;
@@ -97,12 +97,12 @@ html.theme-transition::view-transition-new(theme) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	/* biome-ignore lint/correctness/noUnknownTypeSelector: view transition pseudo-element */
+	/* View transition pseudo-element. */
 	html.theme-transition::view-transition-old(theme) {
 		animation: none !important;
 	}
 
-	/* biome-ignore lint/correctness/noUnknownTypeSelector: view transition pseudo-element */
+	/* View transition pseudo-element. */
 	html.theme-transition::view-transition-new(theme) {
 		animation: none !important;
 	}
