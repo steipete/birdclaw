@@ -387,6 +387,44 @@ describe("cached live mentions", () => {
 		).toEqual(["tweet_live_page_2", "tweet_live_page_1"]);
 	});
 
+	it("treats maxPages as a paged xurl mention scan", async () => {
+		makeTempHome();
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "tweet_live_capped",
+					author_id: "7",
+					text: "capped page",
+					created_at: "2026-03-09T02:01:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "7", username: "amelia", name: "Amelia" }],
+			},
+			meta: {
+				result_count: 1,
+				next_token: "page-2",
+			},
+		});
+		const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+
+		const payload = await exportMentionsViaCachedXurl({
+			account: "acct_primary",
+			limit: 5,
+			maxPages: 1,
+			refresh: true,
+		});
+
+		expect(payload.meta).toEqual(
+			expect.objectContaining({
+				result_count: 1,
+				page_count: 1,
+				next_token: "page-2",
+			}),
+		);
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("returns filtered xurl-compatible payloads from the local cache", async () => {
 		makeTempHome();
 		listMentionsViaXurlMock.mockResolvedValueOnce({

@@ -367,6 +367,7 @@ async function exportMentionsViaCachedLiveSource({
 		assertBirdLimit(limit);
 	}
 	const parsedMaxPages = parseMaxPages(maxPages);
+	const fetchAll = mode === "xurl" && (all || parsedMaxPages !== null);
 
 	const db = getNativeDb();
 	const resolvedAccount = resolveAccount(db, account);
@@ -374,7 +375,7 @@ async function exportMentionsViaCachedLiveSource({
 		mode,
 		accountId: resolvedAccount.accountId,
 		pageSize: limit,
-		all,
+		all: fetchAll,
 		maxPages: parsedMaxPages,
 	});
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
@@ -394,7 +395,7 @@ async function exportMentionsViaCachedLiveSource({
 				accountId: resolvedAccount.accountId,
 				search,
 				replyFilter,
-				limit: all ? cached.value.data.length : limit,
+				limit: fetchAll ? cached.value.data.length : limit,
 			});
 		}
 		return cached.value;
@@ -407,7 +408,7 @@ async function exportMentionsViaCachedLiveSource({
 				: await fetchMentionsViaXurl({
 						resolvedAccount,
 						limit,
-						all,
+						all: fetchAll,
 						parsedMaxPages,
 					});
 		mergeMentionsIntoLocalStore(db, resolvedAccount.accountId, payload);
@@ -423,7 +424,7 @@ async function exportMentionsViaCachedLiveSource({
 				accountId: resolvedAccount.accountId,
 				search,
 				replyFilter,
-				limit: all ? payload.data.length : limit,
+				limit: fetchAll ? payload.data.length : limit,
 			});
 		}
 
@@ -440,7 +441,7 @@ async function exportMentionsViaCachedLiveSource({
 					accountId: resolvedAccount.accountId,
 					search,
 					replyFilter,
-					limit: all ? cached.value.data.length : limit,
+						limit: fetchAll ? cached.value.data.length : limit,
 				});
 			}
 			return cached.value;
