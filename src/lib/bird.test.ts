@@ -92,4 +92,164 @@ describe("bird transport wrapper", () => {
 			}),
 		});
 	});
+
+	it("maps mention fallbacks and empty mention payloads", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify([
+					{
+						id: "tweet_2",
+						text: "fallback author",
+						createdAt: "not a date",
+						media: [],
+					},
+					{
+						id: "tweet_3",
+						text: "username author",
+						createdAt: "2026-01-02T03:04:05.000Z",
+						author: { username: "max" },
+						replyCount: "4",
+						retweetCount: "5",
+						likeCount: "6",
+						media: [
+							{ type: "photo", url: "" },
+							{ type: "photo", url: "https://pbs.twimg.com/media/other.jpg" },
+						],
+					},
+				]),
+			})
+			.mockResolvedValueOnce({ stdout: "[]" });
+
+		const { listMentionsViaBird } = await import("./bird");
+
+		await expect(listMentionsViaBird({ maxResults: 2 })).resolves.toEqual({
+			data: [
+				expect.objectContaining({
+					id: "tweet_2",
+					author_id: "unknown",
+					created_at: "not a date",
+					conversation_id: "tweet_2",
+					entities: undefined,
+					public_metrics: {
+						reply_count: 0,
+						retweet_count: 0,
+						like_count: 0,
+					},
+				}),
+				expect.objectContaining({
+					id: "tweet_3",
+					author_id: "max",
+					conversation_id: "tweet_3",
+					entities: {
+						urls: [
+							{
+								start: 0,
+								end: 0,
+								url: "https://pbs.twimg.com/media/other.jpg",
+								expanded_url: "https://pbs.twimg.com/media/other.jpg",
+								display_url: "https://pbs.twimg.com/media/other.jpg",
+								media_key: "bird_media_0",
+							},
+						],
+					},
+					public_metrics: {
+						reply_count: 4,
+						retweet_count: 5,
+						like_count: 6,
+					},
+				}),
+			],
+			includes: {
+				users: [
+					{ id: "unknown", username: "user_unknown", name: "user_unknown" },
+					{ id: "max", username: "max", name: "max" },
+				],
+			},
+			meta: {
+				result_count: 2,
+				page_count: 1,
+				next_token: null,
+				newest_id: "tweet_2",
+				oldest_id: "tweet_3",
+			},
+		});
+
+		await expect(listMentionsViaBird({ maxResults: 0 })).resolves.toEqual({
+			data: [],
+			includes: undefined,
+			meta: {
+				result_count: 0,
+				page_count: 1,
+				next_token: null,
+			},
+		});
+	});
+
+	it("rejects unexpected mention json", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		execFileAsyncMock.mockResolvedValue({ stdout: "{}" });
+
+		const { listMentionsViaBird } = await import("./bird");
+
+		await expect(listMentionsViaBird({ maxResults: 10 })).rejects.toThrow(
+			"bird mentions returned unexpected JSON",
+		);
+	});
+
+	it("returns bird direct messages payloads", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		const payload = {
+			success: true,
+			conversations: [
+				{
+					id: "dm_1",
+					participants: [{ id: "42", username: "sam", name: "Sam" }],
+					messages: [{ id: "event_1", text: "hello" }],
+				},
+			],
+			events: [{ id: "event_1", text: "hello" }],
+		};
+		execFileAsyncMock.mockResolvedValue({ stdout: JSON.stringify(payload) });
+
+		const { listDirectMessagesViaBird } = await import("./bird");
+
+		await expect(listDirectMessagesViaBird({ maxResults: 5 })).resolves.toEqual(
+			payload,
+		);
+		expect(execFileAsyncMock).toHaveBeenCalledWith("/tmp/bird", [
+			"dms",
+			"-n",
+			"5",
+			"--json",
+		]);
+	});
+
+	it("rejects unexpected direct messages json", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({
+					success: false,
+					conversations: [],
+					events: [],
+				}),
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({
+					success: true,
+					conversations: {},
+					events: [],
+				}),
+			});
+
+		const { listDirectMessagesViaBird } = await import("./bird");
+
+		await expect(listDirectMessagesViaBird({ maxResults: 5 })).rejects.toThrow(
+			"bird dms returned unexpected JSON",
+		);
+		await expect(listDirectMessagesViaBird({ maxResults: 5 })).rejects.toThrow(
+			"bird dms returned unexpected JSON",
+		);
+	});
 });
