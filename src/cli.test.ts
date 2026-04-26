@@ -287,11 +287,31 @@ describe("cli", () => {
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"stats"'),
 		);
-		expect(spawnMock).toHaveBeenCalledWith("pnpm", ["dev"], {
-			stdio: "inherit",
-			shell: true,
-		});
+		expect(spawnMock).toHaveBeenCalledWith(
+			process.execPath,
+			["node_modules/vite/bin/vite.js", "dev", "--port", "3000"],
+			expect.objectContaining({
+				cwd: expect.stringContaining("birdclaw"),
+				stdio: "inherit",
+			}),
+		);
 		expect(exitMock).toHaveBeenCalledWith(0);
+	});
+
+	it("prints the package version", async () => {
+		const exitMock = vi.spyOn(process, "exit").mockImplementation((() => {
+			return undefined as never;
+		}) as never);
+		const stdoutWriteMock = vi
+			.spyOn(process.stdout, "write")
+			.mockImplementation(() => true);
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "--version"]);
+
+		expect(stdoutWriteMock).toHaveBeenCalledWith("0.1.0\n");
+		expect(exitMock).toHaveBeenCalledWith(0);
+		stdoutWriteMock.mockRestore();
 	});
 
 	it("imports the latest archive when no path is provided", async () => {

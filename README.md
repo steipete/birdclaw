@@ -114,6 +114,14 @@ export BIRDCLAW_HOME=/path/to/custom/root
 
 ## Install
 
+Homebrew:
+
+```bash
+brew install steipete/tap/birdclaw
+```
+
+From source:
+
 ```bash
 fnm use
 pnpm install
@@ -136,24 +144,24 @@ http://localhost:3000
 Initialize local state:
 
 ```bash
-pnpm cli init
-pnpm cli auth status --json
-pnpm cli db stats --json
+birdclaw init
+birdclaw auth status --json
+birdclaw db stats --json
 ```
 
 Find and import an archive:
 
 ```bash
-pnpm cli archive find --json
-pnpm cli import archive --json
-pnpm cli import archive ~/Downloads/twitter-archive-2025.zip --json
-pnpm cli import hydrate-profiles --json
+birdclaw archive find --json
+birdclaw import archive --json
+birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
+birdclaw import hydrate-profiles --json
 ```
 
 Start the app:
 
 ```bash
-pnpm dev
+birdclaw serve
 ```
 
 First moderation pass:

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname } from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { registerModerationCommands } from "#/cli-moderation";
 import { findArchives } from "#/lib/archive-finder";
@@ -32,6 +34,10 @@ import {
 } from "#/lib/queries";
 
 const program = new Command();
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const packageVersion = JSON.parse(
+	readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version?: string };
 
 function print(data: unknown, asJson: boolean) {
 	if (asJson) {
@@ -50,6 +56,7 @@ function resolveActionOptions(options: { transport?: string }) {
 program
 	.name("birdclaw")
 	.description("Local-first X workspace")
+	.version(packageVersion.version ?? "0.0.0")
 	.option("--json", "Emit JSON output");
 
 program
@@ -417,10 +424,14 @@ program
 	.command("serve")
 	.description("Run the local web app")
 	.action(() => {
-		const child = spawn("pnpm", ["dev"], {
-			stdio: "inherit",
-			shell: true,
-		});
+		const child = spawn(
+			process.execPath,
+			["node_modules/vite/bin/vite.js", "dev", "--port", "3000"],
+			{
+				cwd: packageRoot,
+				stdio: "inherit",
+			},
+		);
 		child.on("exit", (code) => {
 			process.exit(code ?? 0);
 		});

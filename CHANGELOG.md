@@ -2,17 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 0.1.0 - 2026-04-27
 
 ### Added
 
-- Start a project changelog.
 - Add X web cookie fallback for block and unblock actions when the X API rejects OAuth2 block writes.
 - Add `profiles replies` so moderation triage can inspect a user's recent reply pattern before blocking.
 - Add `blocks import <path>` for one-shot blocklist application from a file.
 - Add paged `mentions export --mode xurl --all --max-pages <n>` so moderation loops can scan the full retrievable mentions window.
 - Add `actions.transport` config plus shared action transport routing for `bird`, `xurl`, and `auto`.
 - Add transport-aware mute/unmute support to the API action route.
+- Add the first packaged `birdclaw` CLI release.
 
 ### Fixed
 
