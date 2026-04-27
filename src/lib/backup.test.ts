@@ -549,7 +549,7 @@ describe("text backup", () => {
 			expect(
 				execFileSync(
 					"git",
-					["--git-dir", remotePath, "rev-list", "--count", "HEAD"],
+					["--git-dir", remotePath, "rev-list", "--count", "refs/heads/main"],
 					{
 						encoding: "utf8",
 					},
