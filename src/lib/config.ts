@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+	accessSync,
+	constants,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -128,6 +134,28 @@ export function resolveActionsTransport(
 	return "auto";
 }
 
+function findCommandOnPath(command: string) {
+	const pathValue = process.env.PATH;
+	if (!pathValue) {
+		return undefined;
+	}
+
+	for (const directory of pathValue.split(path.delimiter)) {
+		if (!directory) {
+			continue;
+		}
+		const candidate = path.join(directory, command);
+		try {
+			accessSync(candidate, constants.X_OK);
+			return candidate;
+		} catch {
+			continue;
+		}
+	}
+
+	return undefined;
+}
+
 export function getBirdCommand() {
 	const envCommand = process.env.BIRDCLAW_BIRD_COMMAND?.trim();
 	if (envCommand) {
@@ -137,6 +165,11 @@ export function getBirdCommand() {
 	const configuredCommand = getBirdclawConfig().mentions?.birdCommand?.trim();
 	if (configuredCommand) {
 		return configuredCommand;
+	}
+
+	const pathCommand = findCommandOnPath("bird");
+	if (pathCommand) {
+		return pathCommand;
 	}
 
 	return path.join(os.homedir(), "Projects", "bird", "bird");

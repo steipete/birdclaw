@@ -196,6 +196,21 @@ describe("bird transport wrapper", () => {
 		);
 	});
 
+	it("explains how to configure bird when the binary is missing", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/missing/bird";
+		execFileAsyncMock.mockRejectedValue(
+			Object.assign(new Error("spawn /missing/bird ENOENT"), {
+				code: "ENOENT",
+			}),
+		);
+
+		const { listMentionsViaBird } = await import("./bird");
+
+		await expect(listMentionsViaBird({ maxResults: 10 })).rejects.toThrow(
+			"bird CLI not found at /missing/bird",
+		);
+	});
+
 	it("tolerates bird json with raw newlines inside tweet text", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
 		execFileAsyncMock.mockResolvedValue({
