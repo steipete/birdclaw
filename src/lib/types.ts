@@ -171,7 +171,7 @@ export interface TransportStatus {
 }
 
 export type ModerationAction = "block" | "unblock" | "mute" | "unmute";
-export type ModerationTransportKind = "bird" | "xurl";
+export type ModerationTransportKind = "bird" | "xurl" | "x-web";
 
 export interface ModerationActionTransportResult {
 	ok: boolean;

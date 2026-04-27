@@ -9,7 +9,9 @@ import { type ActionsTransport, resolveActionsTransport } from "./config";
 import type {
 	ModerationAction,
 	ModerationActionTransportResult,
+	ModerationTransportKind,
 } from "./types";
+import { blockUserViaXWeb, unblockUserViaXWeb } from "./x-web";
 import {
 	blockUserViaXurl,
 	lookupAuthenticatedUser,
@@ -27,7 +29,7 @@ interface RunActionParams {
 	transport?: string;
 }
 
-function normalizeFailure(transport: "bird" | "xurl", output: string) {
+function normalizeFailure(transport: ModerationTransportKind, output: string) {
 	return `${transport}: ${output}`;
 }
 
@@ -133,6 +135,37 @@ async function runXurlAction(
 	};
 }
 
+async function runXWebAction(
+	action: ModerationAction,
+	targetUserId?: string,
+): Promise<ActionTransportResult> {
+	if (action !== "block" && action !== "unblock") {
+		return {
+			ok: false,
+			output: `x-web does not support ${action}`,
+			transport: "x-web",
+		};
+	}
+
+	if (!targetUserId) {
+		return {
+			ok: false,
+			output: "missing target user id for x-web transport",
+			transport: "x-web",
+		};
+	}
+
+	const result =
+		action === "block"
+			? await blockUserViaXWeb(targetUserId)
+			: await unblockUserViaXWeb(targetUserId);
+
+	return {
+		...result,
+		transport: "x-web",
+	};
+}
+
 export async function runModerationAction({
 	action,
 	query,
@@ -157,6 +190,30 @@ export async function runModerationAction({
 		return {
 			...xurlResult,
 			output: `${xurlResult.output}\nfalling back after ${normalizeFailure("bird", birdResult.output)}`,
+		};
+	}
+
+	if (action === "block" || action === "unblock") {
+		const xWebResult = await runXWebAction(action, targetUserId);
+		if (xWebResult.ok) {
+			return {
+				...xWebResult,
+				output: [
+					xWebResult.output,
+					`falling back after ${normalizeFailure("bird", birdResult.output)}`,
+					`falling back after ${normalizeFailure("xurl", xurlResult.output)}`,
+				].join("\n"),
+			};
+		}
+
+		return {
+			ok: false,
+			output: [
+				normalizeFailure("bird", birdResult.output),
+				normalizeFailure("xurl", xurlResult.output),
+				normalizeFailure("x-web", xWebResult.output),
+			].join("\n"),
+			transport: xWebResult.transport,
 		};
 	}
 

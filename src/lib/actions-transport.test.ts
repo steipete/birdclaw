@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
 	unblockUserViaXurl: vi.fn(),
 	muteUserViaXurl: vi.fn(),
 	unmuteUserViaXurl: vi.fn(),
+	blockUserViaXWeb: vi.fn(),
+	unblockUserViaXWeb: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
 }));
 
@@ -30,6 +32,11 @@ vi.mock("./xurl", () => ({
 	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
 }));
 
+vi.mock("./x-web", () => ({
+	blockUserViaXWeb: mocks.blockUserViaXWeb,
+	unblockUserViaXWeb: mocks.unblockUserViaXWeb,
+}));
+
 describe("actions transport", () => {
 	beforeEach(() => {
 		delete process.env.BIRDCLAW_ACTIONS_TRANSPORT;
@@ -44,6 +51,8 @@ describe("actions transport", () => {
 		mocks.unblockUserViaXurl.mockReset();
 		mocks.muteUserViaXurl.mockReset();
 		mocks.unmuteUserViaXurl.mockReset();
+		mocks.blockUserViaXWeb.mockReset();
+		mocks.unblockUserViaXWeb.mockReset();
 		mocks.lookupAuthenticatedUser.mockReset();
 		mocks.lookupAuthenticatedUser.mockResolvedValue({ id: "1" });
 		mocks.blockUserViaBird.mockResolvedValue({
@@ -81,6 +90,14 @@ describe("actions transport", () => {
 		mocks.unmuteUserViaXurl.mockResolvedValue({
 			ok: true,
 			output: "xurl unmute ok",
+		});
+		mocks.blockUserViaXWeb.mockResolvedValue({
+			ok: true,
+			output: "x-web block ok",
+		});
+		mocks.unblockUserViaXWeb.mockResolvedValue({
+			ok: true,
+			output: "x-web unblock ok",
 		});
 	});
 
@@ -148,5 +165,57 @@ describe("actions transport", () => {
 			transport: "xurl",
 		});
 		expect(mocks.blockUserViaXurl).toHaveBeenCalledWith("1", "7");
+	});
+
+	it("falls back to x-web block when bird and xurl fail in auto mode", async () => {
+		mocks.blockUserViaBird.mockResolvedValue({
+			ok: false,
+			output: "bird unavailable",
+		});
+		mocks.blockUserViaXurl.mockResolvedValue({
+			ok: false,
+			output: "xurl rejected",
+			transport: "xurl",
+		});
+		const { runModerationAction } = await import("./actions-transport");
+		const result = await runModerationAction({
+			action: "block",
+			query: "7",
+			targetUserId: "7",
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			output:
+				"x-web block ok\nfalling back after bird: bird unavailable\nfalling back after xurl: xurl rejected",
+			transport: "x-web",
+		});
+		expect(mocks.blockUserViaXWeb).toHaveBeenCalledWith("7");
+	});
+
+	it("falls back to x-web unblock when bird and xurl fail in auto mode", async () => {
+		mocks.unblockUserViaBird.mockResolvedValue({
+			ok: false,
+			output: "bird unavailable",
+		});
+		mocks.unblockUserViaXurl.mockResolvedValue({
+			ok: false,
+			output: "xurl rejected",
+			transport: "xurl",
+		});
+		const { runModerationAction } = await import("./actions-transport");
+		const result = await runModerationAction({
+			action: "unblock",
+			query: "7",
+			targetUserId: "7",
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			output:
+				"x-web unblock ok\nfalling back after bird: bird unavailable\nfalling back after xurl: xurl rejected",
+			transport: "x-web",
+		});
+		expect(mocks.unblockUserViaXWeb).toHaveBeenCalledWith("7");
 	});
 });
