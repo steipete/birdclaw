@@ -400,6 +400,33 @@ Configure stale-aware backup reads in `~/.birdclaw/config.json`:
 
 Read paths such as CLI search, inbox, API status/query, and web startup pull + merge from Git only when the last backup check is stale. Data-changing commands run a full backup sync afterward when this config is enabled. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable that behavior for one process.
 
+### Scheduled Bookmark Sync
+
+`birdclaw jobs sync-bookmarks` refreshes live bookmarks and appends one JSONL audit entry per run. Each entry includes host, timestamps, duration, before/after bookmark counts, source transport, fetched count, backup sync result, and any error.
+
+```bash
+birdclaw --json jobs sync-bookmarks --mode auto --limit 100 --max-pages 5 --refresh
+tail -n 5 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
+```
+
+After a successful bookmark refresh, the job runs the normal backup auto-sync path. If `~/.birdclaw/config.json` has `backup.autoSync` enabled, the changed local data is merged into the configured Git backup repo, committed, and pushed. The audit entry records that backup result so scheduled runs are inspectable later.
+
+On macOS, install the 3-hour LaunchAgent after choosing the Birdclaw executable path for that machine:
+
+```bash
+birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdclaw
+```
+
+The LaunchAgent writes `~/Library/LaunchAgents/com.steipete.birdclaw.bookmarks-sync.plist`, runs at load, then every 10,800 seconds. It writes the audit log to `~/.birdclaw/audit/bookmarks-sync.jsonl` and stdout/stderr to `~/.birdclaw/logs/bookmarks-sync.*.log`. A lock file prevents overlapping runs and records an `already-running` skip when needed. The default job fetches up to 5 pages every 3 hours; pass `--all` if you want every retrievable page each run.
+
+Useful checks:
+
+```bash
+launchctl print gui/$(id -u)/com.steipete.birdclaw.bookmarks-sync
+launchctl kickstart -k gui/$(id -u)/com.steipete.birdclaw.bookmarks-sync
+tail -n 1 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
+```
+
 ## Typical Workflow
 
 1. import your archive if you have one

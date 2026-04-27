@@ -236,6 +236,38 @@ birdclaw sync bookmarks --mode auto --limit 100 --refresh --json
 birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 ```
 
+### `jobs sync-bookmarks`
+
+- runs a live bookmark refresh with scheduler-friendly defaults
+- appends one JSONL audit entry per run
+- records host, timestamps, duration, before/after bookmark counts, transport source, fetched count, backup sync result, and errors
+- uses `~/.birdclaw/locks/bookmarks-sync.lock` to skip overlapping runs
+- exits non-zero when the sync failed
+
+Default audit log:
+
+```text
+~/.birdclaw/audit/bookmarks-sync.jsonl
+```
+
+Examples:
+
+```bash
+birdclaw --json jobs sync-bookmarks --mode auto --limit 100 --max-pages 5 --refresh
+tail -n 20 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
+```
+
+### `jobs install-bookmarks-launchd`
+
+- writes `~/Library/LaunchAgents/com.steipete.birdclaw.bookmarks-sync.plist`
+- runs `jobs sync-bookmarks` every 3 hours by default
+- uses `launchctl load -w` unless `--no-load` is passed
+- writes launchd stdout/stderr to `~/.birdclaw/logs/bookmarks-sync.*.log`
+
+```bash
+birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdclaw
+```
+
 ### `search tweets <query>`
 
 Flags:
