@@ -463,18 +463,31 @@ export function listDmConversations({
 
 	if (search?.trim()) {
 		searchSnippetCte = `
-      with dm_search as materialized (
+      with ranked_dm_search as materialized (
         select
+          latest_search.id,
           latest_search.conversation_id,
-          snippet(dm_fts, 1, '<mark>', '</mark>', '...', 16) as search_snippet
+          row_number() over (
+            partition by latest_search.conversation_id
+            order by latest_search.created_at desc, latest_search.id desc
+          ) as match_rank
         from dm_messages latest_search
         join dm_fts on dm_fts.message_id = latest_search.id
         where dm_fts.text match ?
+      ),
+      dm_search as materialized (
+        select
+          ranked_dm_search.conversation_id,
+          snippet(dm_fts, 1, '<mark>', '</mark>', '...', 16) as search_snippet
+        from ranked_dm_search
+        join dm_fts on dm_fts.message_id = ranked_dm_search.id
+        where ranked_dm_search.match_rank = 1
+          and dm_fts.text match ?
       )
     `;
 		join += " join dm_search on dm_search.conversation_id = c.id ";
 		searchSnippetSelect = ", dm_search.search_snippet as search_snippet";
-		joinParams.push(search.trim());
+		joinParams.push(search.trim(), search.trim());
 	}
 
 	params.push(limit);
