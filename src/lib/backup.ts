@@ -134,6 +134,21 @@ function sha256(content: string | Buffer) {
 	return createHash("sha256").update(content).digest("hex");
 }
 
+const jsonlKeyOrderCache = new Map<string, string[]>();
+
+function jsonlStringify(row: JsonRecord): string {
+	const keys = Object.keys(row);
+	const signature = keys.join("\0");
+	let sortedKeys = jsonlKeyOrderCache.get(signature);
+	if (!sortedKeys) {
+		sortedKeys = [...keys].sort();
+		jsonlKeyOrderCache.set(signature, sortedKeys);
+	}
+	return `{${sortedKeys
+		.map((key) => `${JSON.stringify(key)}:${JSON.stringify(row[key])}`)
+		.join(",")}}`;
+}
+
 function yearFromTimestamp(value: unknown) {
 	if (typeof value !== "string") {
 		return "unknown";
@@ -356,15 +371,55 @@ async function writeJsonlFile(
 	rows: JsonRecord[],
 ) {
 	const fullPath = path.join(repoPath, relativePath);
-	const content = `${rows.map((row) => canonicalStringify(row)).join("\n")}\n`;
+	const content = `${rows.map((row) => jsonlStringify(row)).join("\n")}\n`;
 	await fs.mkdir(path.dirname(fullPath), { recursive: true });
-	await fs.writeFile(fullPath, content, "utf8");
+	let shouldWrite = true;
+	try {
+		shouldWrite = (await fs.readFile(fullPath, "utf8")) !== content;
+	} catch {
+		shouldWrite = true;
+	}
+	if (shouldWrite) {
+		await fs.writeFile(fullPath, content, "utf8");
+	}
 	return {
 		path: relativePath,
 		rows: rows.length,
 		sha256: sha256(content),
 		bytes: Buffer.byteLength(content),
 	};
+}
+
+async function removeStaleBackupFiles(
+	repoPath: string,
+	expectedPaths: Set<string>,
+	directory = DATA_DIR,
+) {
+	const fullDirectory = path.join(repoPath, directory);
+	let entries: Array<{ name: string; isDirectory: () => boolean }> = [];
+	try {
+		entries = await fs.readdir(fullDirectory, { withFileTypes: true });
+	} catch {
+		return;
+	}
+
+	await Promise.all(
+		entries.map(async (entry) => {
+			const relativePath = path.posix.join(directory, entry.name);
+			const fullPath = path.join(repoPath, relativePath);
+			if (entry.isDirectory()) {
+				await removeStaleBackupFiles(repoPath, expectedPaths, relativePath);
+				const remaining = await fs.readdir(fullPath);
+				if (remaining.length === 0) {
+					await fs.rmdir(fullPath);
+				}
+				return;
+			}
+			if (relativePath.endsWith(".jsonl") && !expectedPaths.has(relativePath)) {
+				await fs.rm(fullPath, { force: true });
+			}
+		}),
+	);
 }
 
 function computeBackupHash(files: BackupFileManifest[]) {
@@ -676,16 +731,20 @@ export async function exportBackup({
 	const resolvedRepoPath = path.resolve(repoPath);
 	await fs.mkdir(resolvedRepoPath, { recursive: true });
 	await ensureBackupReadme(resolvedRepoPath);
-	await fs.rm(path.join(resolvedRepoPath, DATA_DIR), {
-		recursive: true,
-		force: true,
-	});
 
 	const shards = buildShards(db);
-	const files: BackupFileManifest[] = [];
-	for (const [relativePath, rows] of [...shards.entries()].sort()) {
-		files.push(await writeJsonlFile(resolvedRepoPath, relativePath, rows));
-	}
+	const shardEntries = [...shards.entries()].sort(([left], [right]) =>
+		left.localeCompare(right),
+	);
+	const expectedPaths = new Set(
+		shardEntries.map(([relativePath]) => relativePath),
+	);
+	const files = await Promise.all(
+		shardEntries.map(([relativePath, rows]) =>
+			writeJsonlFile(resolvedRepoPath, relativePath, rows),
+		),
+	);
+	await removeStaleBackupFiles(resolvedRepoPath, expectedPaths);
 
 	const counts = computeCounts(files);
 	const manifest: BackupManifest = {
@@ -747,9 +806,16 @@ async function readManifest(repoPath: string): Promise<BackupManifest> {
 async function readJsonlFile(repoPath: string, relativePath: string) {
 	const content = await fs.readFile(path.join(repoPath, relativePath), "utf8");
 	return content
-		.split(/\n/)
-		.filter((line) => line.trim().length > 0)
+		.split("\n")
+		.filter((line) => line.length > 0)
 		.map((line) => JSON.parse(line) as JsonRecord);
+}
+
+async function readJsonlFiles(repoPath: string, relativePaths: string[]) {
+	const nestedRows = await Promise.all(
+		relativePaths.map((relativePath) => readJsonlFile(repoPath, relativePath)),
+	);
+	return nestedRows.flat();
 }
 
 function rowsForManifestPath(
@@ -848,37 +914,35 @@ export async function importBackup({
 		);
 	}
 
-	const readRows = async (predicate: (relativePath: string) => boolean) => {
-		const rows: JsonRecord[] = [];
-		for (const relativePath of rowsForManifestPath(manifest, predicate)) {
-			rows.push(...(await readJsonlFile(resolvedRepoPath, relativePath)));
-		}
-		return rows;
-	};
+	const readRows = (predicate: (relativePath: string) => boolean) =>
+		readJsonlFiles(resolvedRepoPath, rowsForManifestPath(manifest, predicate));
 
-	const accounts = await readRows((file) => file === "data/accounts.jsonl");
-	const profiles = await readRows((file) => file === "data/profiles.jsonl");
-	const tweets = await readRows((file) => file.startsWith("data/tweets/"));
-	const collections = await readRows((file) =>
-		file.startsWith("data/collections/"),
-	);
-	const conversations = await readRows(
-		(file) => file === "data/dms/conversations.jsonl",
-	);
-	const messages = await readRows(
-		(file) =>
-			file.startsWith("data/dms/") && file !== "data/dms/conversations.jsonl",
-	);
-	const blocks = await readRows(
-		(file) => file === "data/moderation/blocks.jsonl",
-	);
-	const mutes = await readRows(
-		(file) => file === "data/moderation/mutes.jsonl",
-	);
-	const actions = await readRows(
-		(file) => file === "data/actions/tweet_actions.jsonl",
-	);
-	const scores = await readRows((file) => file === "data/ai_scores.jsonl");
+	const [
+		accounts,
+		profiles,
+		tweets,
+		collections,
+		conversations,
+		messages,
+		blocks,
+		mutes,
+		actions,
+		scores,
+	] = await Promise.all([
+		readRows((file) => file === "data/accounts.jsonl"),
+		readRows((file) => file === "data/profiles.jsonl"),
+		readRows((file) => file.startsWith("data/tweets/")),
+		readRows((file) => file.startsWith("data/collections/")),
+		readRows((file) => file === "data/dms/conversations.jsonl"),
+		readRows(
+			(file) =>
+				file.startsWith("data/dms/") && file !== "data/dms/conversations.jsonl",
+		),
+		readRows((file) => file === "data/moderation/blocks.jsonl"),
+		readRows((file) => file === "data/moderation/mutes.jsonl"),
+		readRows((file) => file === "data/actions/tweet_actions.jsonl"),
+		readRows((file) => file === "data/ai_scores.jsonl"),
+	]);
 
 	db.transaction(() => {
 		if (mode === "replace") {
@@ -1439,41 +1503,53 @@ export async function validateBackup(
 		};
 	}
 
-	const files: BackupFileManifest[] = [];
-	for (const expected of manifest.files) {
-		try {
-			const content = await fs.readFile(
-				path.join(resolvedRepoPath, expected.path),
-			);
-			const text = content.toString("utf8");
-			const rows = text.split(/\n/).filter((line) => line.trim().length > 0);
-			for (const [index, line] of rows.entries()) {
-				try {
-					JSON.parse(line);
-				} catch (error) {
-					errors.push(
-						`${expected.path}:${index + 1}: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
-					);
+	const results = await Promise.all(
+		manifest.files.map(async (expected) => {
+			const fileErrors: string[] = [];
+			let file: BackupFileManifest | undefined;
+			try {
+				const content = await fs.readFile(
+					path.join(resolvedRepoPath, expected.path),
+				);
+				const text = content.toString("utf8");
+				const rows = text.split("\n").filter((line) => line.length > 0);
+				for (const [index, line] of rows.entries()) {
+					try {
+						JSON.parse(line);
+					} catch (error) {
+						fileErrors.push(
+							`${expected.path}:${index + 1}: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+						);
+					}
 				}
+				file = {
+					path: expected.path,
+					rows: rows.length,
+					sha256: sha256(content),
+					bytes: content.byteLength,
+				};
+			} catch (error) {
+				fileErrors.push(
+					`${expected.path}: ${error instanceof Error ? error.message : String(error)}`,
+				);
 			}
-			files.push({
-				path: expected.path,
-				rows: rows.length,
-				sha256: sha256(content),
-				bytes: content.byteLength,
-			});
-		} catch (error) {
-			errors.push(
-				`${expected.path}: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			return { file, errors: fileErrors };
+		}),
+	);
+
+	const files: BackupFileManifest[] = [];
+	for (const result of results) {
+		errors.push(...result.errors);
+		if (result.file) {
+			files.push(result.file);
 		}
 	}
 
-	for (const file of files) {
-		const expected = manifest.files.find((entry) => entry.path === file.path);
-		if (!expected) {
+	for (const expected of manifest.files) {
+		const file = files.find((entry) => entry.path === expected.path);
+		if (!file) {
 			continue;
 		}
 		if (file.rows !== expected.rows) {

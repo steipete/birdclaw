@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Refresh dependencies, including `jsdom` 29.1.0.
 - Hide reply state and reply actions in saved likes/bookmarks web lanes.
 - Shard backup DMs by year and route unknown tweet dates to `data/tweets/unknown.jsonl` so Git backups stay compact and avoid bogus 1970 files.
+- Speed up archive imports plus JSONL backup export, import, and validation for large local datasets.
 
 ### Fixed
 

@@ -100,6 +100,10 @@ function parseTwitterDate(value: unknown) {
 		: parsed.toISOString();
 }
 
+function compareIsoTimestamp(left: string, right: string) {
+	return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
@@ -639,10 +643,8 @@ export async function importArchive(
 						mediaCount: asArray(messageCreate.mediaUrls).length,
 					} satisfies MessageRow;
 				})
-				.sort(
-					(left, right) =>
-						new Date(left.createdAt).getTime() -
-						new Date(right.createdAt).getTime(),
+				.sort((left, right) =>
+					compareIsoTimestamp(left.createdAt, right.createdAt),
 				);
 
 			if (messageEvents.length === 0) {
@@ -668,8 +670,8 @@ export async function importArchive(
 		}
 	}
 
-	const likeCount = likeEntries.reduce(async (countPromise, entry) => {
-		const count = await countPromise;
+	let likeCount = 0;
+	for (const entry of likeEntries) {
 		const content = await readArchiveEntry(archivePath, entry);
 		const likes = parseArchiveArray(content);
 		for (const like of likes) {
@@ -699,11 +701,11 @@ export async function importArchive(
 				quotedTweetId: null,
 			});
 		}
-		return count + likes.length;
-	}, Promise.resolve(0));
+		likeCount += likes.length;
+	}
 
-	const bookmarkCount = bookmarkEntries.reduce(async (countPromise, entry) => {
-		const count = await countPromise;
+	let bookmarkCount = 0;
+	for (const entry of bookmarkEntries) {
 		const content = await readArchiveEntry(archivePath, entry);
 		const bookmarks = parseArchiveArray(content);
 		for (const bookmark of bookmarks) {
@@ -733,10 +735,8 @@ export async function importArchive(
 				quotedTweetId: null,
 			});
 		}
-		return count + bookmarks.length;
-	}, Promise.resolve(0));
-
-	await Promise.all([likeCount, bookmarkCount]);
+		bookmarkCount += bookmarks.length;
+	}
 
 	if (tweetRows.some((tweet) => tweet.authorProfileId === "profile_unknown")) {
 		profiles.set("profile_unknown", {
@@ -888,8 +888,8 @@ export async function importArchive(
 		},
 		counts: {
 			tweets: authoredTweetCount,
-			likes: await likeCount,
-			bookmarks: await bookmarkCount,
+			likes: likeCount,
+			bookmarks: bookmarkCount,
 			dmConversations: conversations.size,
 			dmMessages: dmMessages.length,
 			profiles: profiles.size,
@@ -904,6 +904,7 @@ export const __test__ = {
 	asRecord,
 	asArray,
 	toInt,
+	compareIsoTimestamp,
 	getTweetMediaCount,
 	extractTweetEntities,
 	extractTweetMedia,
