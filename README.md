@@ -165,10 +165,11 @@ birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 birdclaw import hydrate-profiles --json
 ```
 
-Back up the local SQLite store as canonical JSONL text:
+Back up the local SQLite store as canonical JSONL text. These shards are
+plaintext private data, so only push them to a private repo you control:
 
 ```bash
-birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --json
+birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --allow-plaintext-private-data --json
 ```
 
 Merge the backup into the current `BIRDCLAW_HOME`:
@@ -374,14 +375,16 @@ data/dms/conversations.jsonl
 data/dms/YYYY.jsonl
 data/moderation/blocks.jsonl
 data/moderation/mutes.jsonl
+data/actions/tweet_actions.jsonl
+data/ai_scores.jsonl
 ```
 
 Tweets are sharded by year for human browsing and yearly analysis. Collection-only tweets whose real creation date is unknown go into `data/tweets/unknown.jsonl` instead of pretending they belong to 1970. DMs are sharded by year with `conversation_id` in each row; this keeps Git fast while preserving conversation membership. Likes and bookmarks are stored as collection edges in `data/collections` and mirrored into the timeline rows for current query compatibility.
 
-Use `backup sync` when the target is a private Git repo. It pulls first, merge-imports the remote backup into local SQLite, exports the local union back into text shards, commits, and pushes.
+Use `backup sync` when the target is a private Git repo. It pulls first, merge-imports the remote backup into local SQLite, exports the local union back into text shards, commits, and pushes. Birdclaw refuses to push plaintext backup data unless you pass `--allow-plaintext-private-data` or configure `backup.allowPlaintextPrivateData: true`.
 
 ```bash
-pnpm cli backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --json
+pnpm cli backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --allow-plaintext-private-data --json
 pnpm cli backup validate ~/Projects/backup-birdclaw --json
 ```
 
@@ -393,12 +396,13 @@ Configure stale-aware backup reads in `~/.birdclaw/config.json`:
 		"repoPath": "/Users/steipete/Projects/backup-birdclaw",
 		"remote": "https://github.com/steipete/backup-birdclaw.git",
 		"autoSync": true,
-		"staleAfterSeconds": 900
+		"staleAfterSeconds": 900,
+		"allowPlaintextPrivateData": true
 	}
 }
 ```
 
-Read paths such as CLI search, inbox, API status/query, and web startup pull + merge from Git only when the last backup check is stale. Data-changing commands run a full backup sync afterward when this config is enabled. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable that behavior for one process.
+Read paths such as CLI search, inbox, API status/query, and web startup pull + merge from Git only when the last backup check is stale. Data-changing commands run a full backup sync afterward only when this config is enabled with `allowPlaintextPrivateData`. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable that behavior for one process.
 
 ### Scheduled Bookmark Sync
 

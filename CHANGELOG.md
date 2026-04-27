@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Changed
+
+- Require explicit plaintext-private-data consent before `backup export --push`, `backup sync`, or backup auto-sync pushes Git backup shards.
+
 ## 0.2.1 - 2026-04-27
 
 ### Changed

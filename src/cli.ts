@@ -592,6 +592,10 @@ backupCommand
 	.option("--commit", "Create a git commit in the backup repo")
 	.option("--push", "Push the backup repo after committing")
 	.option(
+		"--allow-plaintext-private-data",
+		"Allow pushing plaintext private backup data after verifying the remote is private",
+	)
+	.option(
 		"--message <message>",
 		"Git commit message",
 		"archive: update birdclaw backup",
@@ -604,6 +608,7 @@ backupCommand
 			push: Boolean(options.push),
 			message: options.message,
 			validate: options.validate,
+			allowPlaintextPrivateData: Boolean(options.allowPlaintextPrivateData),
 		});
 		print(result, true);
 	});
@@ -628,6 +633,10 @@ backupCommand
 	.requiredOption("--repo <path>", "Backup repository/path")
 	.option("--remote <url>", "Git remote to clone/configure")
 	.option(
+		"--allow-plaintext-private-data",
+		"Allow pushing plaintext private backup data after verifying the remote is private",
+	)
+	.option(
 		"--message <message>",
 		"Git commit message",
 		"archive: sync birdclaw backup",
@@ -637,6 +646,7 @@ backupCommand
 			repoPath: options.repo,
 			remote: options.remote,
 			message: options.message,
+			allowPlaintextPrivateData: Boolean(options.allowPlaintextPrivateData),
 		});
 		print(result, true);
 	});

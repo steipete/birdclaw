@@ -6,6 +6,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -57,6 +58,7 @@ function writeBackupConfig(
 		remote?: string;
 		autoSync?: boolean;
 		staleAfterSeconds?: number;
+		allowPlaintextPrivateData?: boolean;
 	},
 ) {
 	writeFileSync(path.join(home, "config.json"), JSON.stringify({ backup }));
@@ -202,6 +204,12 @@ describe("text backup", () => {
 		expect(
 			readFileSync(path.join(repoPath, "data/tweets/2025.jsonl"), "utf8"),
 		).toContain('"bookmarked":1');
+		expect(statSync(path.join(repoPath, "manifest.json")).mode & 0o777).toBe(
+			0o600,
+		);
+		expect(
+			statSync(path.join(repoPath, "data/tweets/2025.jsonl")).mode & 0o777,
+		).toBe(0o600);
 
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
@@ -276,6 +284,7 @@ describe("text backup", () => {
 			repoPath,
 			remote: remotePath,
 			message: "archive: initial backup",
+			allowPlaintextPrivateData: true,
 		});
 
 		expect(first.imported).toBe(false);
@@ -290,6 +299,7 @@ describe("text backup", () => {
 			repoPath: secondRepoPath,
 			remote: remotePath,
 			message: "archive: roundtrip backup",
+			allowPlaintextPrivateData: true,
 		});
 
 		expect(second.imported).toBe(true);
@@ -323,6 +333,21 @@ describe("text backup", () => {
 				{ encoding: "utf8" },
 			).trim(),
 		).toBe("1");
+	}, 20000);
+
+	it("requires explicit consent before pushing plaintext private backups", async () => {
+		const remotePath = path.join(makeTempDir("birdclaw-remote-"), "remote.git");
+		execFileSync("git", ["init", "--bare", remotePath]);
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-consent-src-");
+		seedBackupFixture();
+		const repoPath = makeTempDir("birdclaw-consent-work-");
+
+		await expect(exportBackup({ repoPath, push: true })).rejects.toThrow(
+			"Refusing to push plaintext Birdclaw backup",
+		);
+		await expect(syncBackup({ repoPath, remote: remotePath })).rejects.toThrow(
+			"Refusing to push plaintext Birdclaw backup",
+		);
 	}, 20000);
 
 	it("reports validation errors for missing or corrupt backup files", async () => {
@@ -371,6 +396,7 @@ describe("text backup", () => {
 				repoPath: makeTempDir("birdclaw-auto-push-"),
 				remote: remotePath,
 				message: "archive: auto sync seed",
+				allowPlaintextPrivateData: true,
 			});
 
 			resetDatabaseForTests();
@@ -385,6 +411,7 @@ describe("text backup", () => {
 						remote: remotePath,
 						autoSync: true,
 						staleAfterSeconds: 900,
+						allowPlaintextPrivateData: true,
 					},
 				}),
 			);
@@ -578,6 +605,7 @@ describe("text backup", () => {
 						remote: remotePath,
 						autoSync: true,
 						staleAfterSeconds: 900,
+						allowPlaintextPrivateData: true,
 					},
 				}),
 			);
