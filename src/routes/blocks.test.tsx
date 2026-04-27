@@ -267,4 +267,89 @@ describe("blocks route", () => {
 
 		expect(await screen.findByText("sync nope")).toBeInTheDocument();
 	});
+
+	it("uses fallback labels for sync output and blocked matches", async () => {
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+							transport: { statusText: "xurl available" },
+							accounts: [],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/blocks")) {
+					return new Response(
+						JSON.stringify({
+							items: [],
+							matches: [
+								{
+									profile: {
+										id: "profile_blocked",
+										handle: "blocked",
+										displayName: "Blocked Match",
+										bio: "Already blocked",
+										followersCount: 1200,
+										avatarHue: 22,
+										createdAt: "2026-03-08T12:00:00.000Z",
+									},
+									isBlocked: true,
+								},
+							],
+						}),
+					);
+				}
+				if (url.endsWith("/api/action") && init?.method === "POST") {
+					const body = JSON.parse(String(init.body)) as Record<string, string>;
+					if (body.kind === "syncBlocks") {
+						return new Response(
+							JSON.stringify({
+								ok: true,
+								synced: true,
+								syncedCount: 2,
+								transport: { ok: true },
+							}),
+						);
+					}
+					return new Response(JSON.stringify({ ok: true, transport: {} }));
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<BlocksRoute />);
+
+		expect(
+			await screen.findByText("Synced 2 remote blocks"),
+		).toBeInTheDocument();
+		fireEvent.change(
+			screen.getByPlaceholderText("Handle, name, bio, or X URL"),
+			{
+				target: { value: "blocked" },
+			},
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Unblock" }));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/action",
+				expect.objectContaining({
+					method: "POST",
+					body: JSON.stringify({
+						kind: "unblockProfile",
+						accountId: "acct_primary",
+						query: "profile_blocked",
+					}),
+				}),
+			);
+		});
+		expect(
+			await screen.findByText("Unblocked @profile_blocked · local"),
+		).toBeInTheDocument();
+	});
 });
