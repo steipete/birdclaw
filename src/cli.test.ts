@@ -46,6 +46,7 @@ Object.defineProperty(
 
 vi.mock("#/lib/config", () => ({
 	ensureBirdclawDirs: () => ensureBirdclawDirsMock(),
+	getBirdclawConfig: () => ({}),
 	getBirdclawPaths: () => getBirdclawPathsMock(),
 	resolveMentionsDataSource: (...args: unknown[]) =>
 		resolveMentionsDataSourceMock(...args),
