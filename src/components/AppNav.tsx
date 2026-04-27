@@ -14,6 +14,8 @@ const links = [
 	{ to: "/inbox", label: "Inbox" },
 	{ to: "/", label: "Home" },
 	{ to: "/mentions", label: "Mentions" },
+	{ to: "/likes", label: "Likes" },
+	{ to: "/bookmarks", label: "Bookmarks" },
 	{ to: "/dms", label: "DMs" },
 	{ to: "/blocks", label: "Blocks" },
 ] as const;

@@ -25,6 +25,7 @@ const listTimelineItemsMock = vi.fn();
 const listDmConversationsMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
 const inspectProfileRepliesMock = vi.fn();
+const syncTimelineCollectionMock = vi.fn();
 const createPostMock = vi.fn();
 const createTweetReplyMock = vi.fn();
 const createDmReplyMock = vi.fn();
@@ -117,6 +118,11 @@ vi.mock("#/lib/queries", () => ({
 	createDmReply: (...args: unknown[]) => createDmReplyMock(...args),
 }));
 
+vi.mock("#/lib/timeline-collections-live", () => ({
+	syncTimelineCollection: (...args: unknown[]) =>
+		syncTimelineCollectionMock(...args),
+}));
+
 vi.mock("node:child_process", () => ({
 	execFile: execFileMock,
 	spawn: (...args: unknown[]) => spawnMock(...args),
@@ -154,6 +160,7 @@ describe("cli", () => {
 		listDmConversationsMock.mockReset();
 		hydrateProfilesFromXMock.mockReset();
 		inspectProfileRepliesMock.mockReset();
+		syncTimelineCollectionMock.mockReset();
 		createPostMock.mockReset();
 		createTweetReplyMock.mockReset();
 		createDmReplyMock.mockReset();
@@ -245,6 +252,12 @@ describe("cli", () => {
 			items: [],
 			meta: { scannedCount: 0, returnedCount: 0, nextToken: null },
 		});
+		syncTimelineCollectionMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			kind: "likes",
+			count: 1,
+		});
 		createPostMock.mockResolvedValue({ ok: true, tweetId: "tweet_new" });
 		createTweetReplyMock.mockResolvedValue({
 			ok: true,
@@ -309,7 +322,7 @@ describe("cli", () => {
 
 		await runCli(["node", "birdclaw", "--version"]);
 
-		expect(stdoutWriteMock).toHaveBeenCalledWith("0.1.1\n");
+		expect(stdoutWriteMock).toHaveBeenCalledWith("0.1.2\n");
 		expect(exitMock).toHaveBeenCalledWith(0);
 		stdoutWriteMock.mockRestore();
 	});
@@ -426,6 +439,7 @@ describe("cli", () => {
 			"2021-01-01",
 			"--originals-only",
 			"--hide-low-quality",
+			"--liked",
 			"--limit",
 			"5",
 		]);
@@ -492,6 +506,22 @@ describe("cli", () => {
 		await runCli([
 			"node",
 			"birdclaw",
+			"sync",
+			"bookmarks",
+			"--mode",
+			"bird",
+			"--all",
+			"--max-pages",
+			"3",
+			"--limit",
+			"25",
+			"--refresh",
+			"--cache-ttl",
+			"30",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
 			"dms",
 			"list",
 			"--min-followers",
@@ -511,6 +541,8 @@ describe("cli", () => {
 			until: "2021-01-01",
 			includeReplies: false,
 			qualityFilter: "summary",
+			likedOnly: true,
+			bookmarkedOnly: false,
 			limit: 5,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
@@ -569,6 +601,16 @@ describe("cli", () => {
 			refresh: true,
 			cacheTtlMs: 45_000,
 		});
+		expect(syncTimelineCollectionMock).toHaveBeenCalledWith({
+			kind: "bookmarks",
+			account: undefined,
+			mode: "bird",
+			limit: 25,
+			all: true,
+			maxPages: 3,
+			refresh: true,
+			cacheTtlMs: 30_000,
+		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
 			account: undefined,
 			participant: undefined,
@@ -606,6 +648,8 @@ describe("cli", () => {
 			until: undefined,
 			includeReplies: true,
 			qualityFilter: "all",
+			likedOnly: false,
+			bookmarkedOnly: false,
 			limit: 20,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({

@@ -165,6 +165,30 @@ describe("birdclaw queries", () => {
 		expect(items[0]?.accountId).toBe("acct_studio");
 	});
 
+	it("filters timeline items by liked and bookmarked state across collections", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at,
+        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+        entities_json, media_json, quoted_tweet_id
+      ) values ('tweet_saved_live', 'acct_primary', 'profile_me', 'bookmark', 'saved live item', '2026-03-09T00:00:00.000Z', 0, null, 0, 0, 1, 0, '{}', '[]', null)
+      `,
+		).run();
+
+		const liked = listTimelineItems({ resource: "home", likedOnly: true });
+		const bookmarked = listTimelineItems({
+			resource: "home",
+			bookmarkedOnly: true,
+		});
+
+		expect(liked.every((item) => item.liked)).toBe(true);
+		expect(bookmarked.map((item) => item.id)).toContain("tweet_saved_live");
+		expect(bookmarked.every((item) => item.bookmarked)).toBe(true);
+	});
+
 	it("hides low-quality timeline noise for summary queries", () => {
 		setupTempHome();
 		const db = getNativeDb();

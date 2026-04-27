@@ -34,10 +34,15 @@ function getVisibleUrlCards(item: TimelineItem) {
 export function TimelineCard({
 	item,
 	onReply,
+	showReplyControls = true,
 }: {
 	item: TimelineItem;
 	onReply: (tweetId: string) => void;
+	showReplyControls?: boolean;
 }) {
+	const canReply =
+		showReplyControls && item.kind !== "like" && item.kind !== "bookmark";
+
 	return (
 		<article className={contentCardClass}>
 			<header className={cardHeaderClass}>
@@ -62,14 +67,16 @@ export function TimelineCard({
 					</div>
 				</div>
 				<div className={metaStackClass}>
-					<span
-						className={cx(
-							pillClass,
-							item.isReplied ? pillSoftClass : pillAlertClass,
-						)}
-					>
-						{item.isReplied ? "replied" : "needs reply"}
-					</span>
+					{canReply ? (
+						<span
+							className={cx(
+								pillClass,
+								item.isReplied ? pillSoftClass : pillAlertClass,
+							)}
+						>
+							{item.isReplied ? "replied" : "needs reply"}
+						</span>
+					) : null}
 					<span className={timestampClass}>
 						{formatShortTimestamp(item.createdAt)}
 					</span>
@@ -83,9 +90,9 @@ export function TimelineCard({
 			{item.quotedTweet ? (
 				<EmbeddedTweetCard item={item.quotedTweet} label="Quoted tweet" />
 			) : null}
-			{getVisibleUrlCards(item).map((entry) => (
+			{getVisibleUrlCards(item).map((entry, index) => (
 				<a
-					key={entry.expandedUrl}
+					key={`${entry.expandedUrl}-${String(index)}`}
 					className={linkPreviewCardClass}
 					href={entry.expandedUrl}
 					rel="noreferrer"
@@ -105,13 +112,15 @@ export function TimelineCard({
 					<span>{item.bookmarked ? "bookmarked" : "not bookmarked"}</span>
 					<span>{item.accountHandle}</span>
 				</div>
-				<button
-					className={actionButtonClass}
-					onClick={() => onReply(item.id)}
-					type="button"
-				>
-					Reply
-				</button>
+				{canReply ? (
+					<button
+						className={actionButtonClass}
+						onClick={() => onReply(item.id)}
+						type="button"
+					>
+						Reply
+					</button>
+				) : null}
 			</footer>
 		</article>
 	);

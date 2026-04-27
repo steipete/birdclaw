@@ -1,6 +1,6 @@
-# birdclaw
+# birdclaw 🪶 — Local X memory in SQLite: archives, DMs, likes, bookmarks
 
-`birdclaw` is a local-first X workspace: archive import, cached live reads, focused triage, and reply flows in one local web app + CLI.
+`birdclaw` is a local-first X workspace: archive import, cached live reads, focused triage, and reply flows in one local web app + CLI. Built by [@steipete](https://github.com/steipete/).
 
 Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and rough edges while the core settles.
 
@@ -21,6 +21,8 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - FTS5 search over tweets and DMs
 - archive autodiscovery on macOS
 - archive import for tweets, likes, profiles, and full DMs
+- archive import for bookmark exports when present
+- live likes and bookmarks sync through `xurl` or `bird`
 - profile hydration from live X metadata
 - local avatar cache
 - local media cache root under `~/.birdclaw`
@@ -29,6 +31,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 
 - `Home` timeline
 - `Mentions` queue
+- `Likes` and `Bookmarks` review lanes
 - `DMs` workspace with two-column layout
 - `Inbox` for mixed mention + DM triage
 - `Blocks` for local blocklist maintenance
@@ -44,6 +47,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - AI-ranked inbox for mentions + DMs
 - OpenAI scoring hook for low-signal filtering
 - cached live mentions export in `xurl`-compatible JSON
+- liked/bookmarked tweet filters for archive and live-synced collections
 - live profile-reply inspection for borderline AI/slop triage
 - one-shot blocklist import from a file for batch moderation passes
 
@@ -79,6 +83,7 @@ If you need polished product-grade sync parity today, this is not there yet.
 
 - `Home`: read and reply without fighting the main X timeline
 - `Mentions`: work the reply queue with clean filters
+- `Likes` / `Bookmarks`: revisit saved posts from archive or live sync
 - `DMs`: triage by sender context, follower count, and influence
 - `Inbox`: let heuristics / OpenAI float likely-important items
 - `Blocks`: maintain a local-first account-scoped blocklist
@@ -110,6 +115,7 @@ export BIRDCLAW_HOME=/path/to/custom/root
 - `pnpm`
 - macOS recommended for Spotlight archive discovery
 - `xurl` optional for live reads / writes
+- `bird` optional for cookie-backed likes, bookmarks, mentions, DMs, and write fallback
 - OpenAI API key optional for inbox scoring
 
 ## Install
@@ -180,6 +186,18 @@ pnpm cli blocks import ~/triage/blocklist.txt --account acct_primary --json
 pnpm cli search tweets "local-first" --json
 pnpm cli search tweets "sync engine" --limit 20 --json
 pnpm cli search tweets --since 2020-01-01 --until 2021-01-01 --originals-only --hide-low-quality --limit 500 --json
+pnpm cli search tweets --liked --limit 20 --json
+pnpm cli search tweets --bookmarked --limit 20 --json
+```
+
+### Sync likes and bookmarks
+
+`auto` tries `xurl` first, then falls back to `bird`. Use `bird` directly when the API path is unavailable for the account/token you have locally.
+
+```bash
+pnpm cli sync likes --mode auto --limit 100 --refresh --json
+pnpm cli sync bookmarks --mode auto --limit 100 --refresh --json
+pnpm cli sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 ```
 
 ### Export mentions for agents
@@ -226,6 +244,7 @@ Notes:
 - `actions.transport` accepts `auto`, `bird`, or `xurl`
 - `bird` mode uses your local `bird` CLI and caches its mentions output into birdclaw's canonical store
 - filters still work in `xurl` mode; filtered payloads are rebuilt from the local canonical store after sync
+- `sync likes` and `sync bookmarks` store live results in the same local timeline table, so `search tweets --liked` and `search tweets --bookmarked` work across archive and live data
 
 ### Search and triage DMs
 
@@ -341,8 +360,9 @@ pnpm cli compose dm dm_003 "Send it over."
 Current preference:
 
 - `xurl` first
+- `bird` fallback for surfaces where cookie-backed reads work better
 
-Without `xurl`, `birdclaw` still works in local/archive mode.
+Without `xurl` or `bird`, `birdclaw` still works in local/archive mode.
 
 Check transport:
 

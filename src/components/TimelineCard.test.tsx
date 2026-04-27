@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TimelineCard } from "./TimelineCard";
 
@@ -133,6 +133,50 @@ describe("TimelineCard", () => {
 		expect(screen.getByText("replied")).toBeInTheDocument();
 		expect(screen.getByText("not bookmarked")).toBeInTheDocument();
 		expect(screen.getByText("0 media")).toBeInTheDocument();
+	});
+
+	it("does not render reply state or actions for likes and bookmarks", () => {
+		const onReply = vi.fn();
+		const { container, rerender } = render(
+			<TimelineCard
+				item={{
+					...item,
+					kind: "like",
+					isReplied: false,
+					replyToTweet: null,
+					quotedTweet: null,
+				}}
+				onReply={onReply}
+				showReplyControls={false}
+			/>,
+		);
+		const queries = within(container);
+
+		expect(queries.queryByText("needs reply")).not.toBeInTheDocument();
+		expect(queries.queryByText("replied")).not.toBeInTheDocument();
+		expect(
+			queries.queryByRole("button", { name: "Reply" }),
+		).not.toBeInTheDocument();
+
+		rerender(
+			<TimelineCard
+				item={{
+					...item,
+					kind: "bookmark",
+					isReplied: false,
+					replyToTweet: null,
+					quotedTweet: null,
+				}}
+				onReply={onReply}
+				showReplyControls={false}
+			/>,
+		);
+
+		expect(queries.queryByText("needs reply")).not.toBeInTheDocument();
+		expect(
+			queries.queryByRole("button", { name: "Reply" }),
+		).not.toBeInTheDocument();
+		expect(onReply).not.toHaveBeenCalled();
 	});
 
 	it("filters quoted tweet urls and falls back to display urls in previews", () => {

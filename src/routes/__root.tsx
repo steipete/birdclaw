@@ -4,7 +4,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { ReactNode } from "react";
 import { AppNav } from "#/components/AppNav";
 import { ThemeProvider, themeScript } from "#/lib/theme";
-import { bodyClass, siteShellClass } from "#/lib/ui";
+import { bodyClass, pageWrapClass, siteShellClass } from "#/lib/ui";
 
 import appCss from "../styles.css?url";
 
@@ -29,8 +29,13 @@ export const Route = createRootRoute({
 			},
 		],
 	}),
+	notFoundComponent: NotFoundView,
 	shellComponent: RootDocument,
 });
+
+function NotFoundView() {
+	return <main className={pageWrapClass}>Not Found</main>;
+}
 
 function RootDocument({ children }: { children: ReactNode }) {
 	return (

@@ -217,6 +217,8 @@ export function listTimelineItems({
 	until,
 	includeReplies = true,
 	qualityFilter = "all",
+	likedOnly = false,
+	bookmarkedOnly = false,
 	limit = 18,
 }: TimelineQuery): TimelineItem[] {
 	const db = getNativeDb();
@@ -224,6 +226,11 @@ export function listTimelineItems({
 	const params: Array<string | number> = [kind];
 	let join = "";
 	let where = "where t.kind = ?";
+
+	if (likedOnly || bookmarkedOnly) {
+		params.length = 0;
+		where = "where 1 = 1";
+	}
 
 	if (account && account !== "all") {
 		where += " and a.id = ?";
@@ -254,6 +261,14 @@ export function listTimelineItems({
 		join += " join tweets_fts fts on fts.tweet_id = t.id ";
 		where += " and fts.text match ?";
 		params.push(search.trim());
+	}
+
+	if (likedOnly) {
+		where += " and t.liked = 1";
+	}
+
+	if (bookmarkedOnly) {
+		where += " and t.bookmarked = 1";
 	}
 
 	params.push(limit);

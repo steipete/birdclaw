@@ -98,7 +98,13 @@ function makeArchive() {
 	writeFileSync(
 		path.join(archiveDir, "like.js"),
 		`window.YTD.like.part0 = [
-  { "like": { "tweetId": "5", "likedAt": "2025-06-03T20:00:00.000Z" } }
+  { "like": { "tweetId": "5", "fullText": "liked archive item", "likedAt": "2025-06-03T20:00:00.000Z" } }
+]`,
+	);
+	writeFileSync(
+		path.join(archiveDir, "bookmark.js"),
+		`window.YTD.bookmark.part0 = [
+  { "bookmark": { "tweetId": "6", "fullText": "saved archive item", "bookmarkedAt": "2025-06-03T21:00:00.000Z" } }
 ]`,
 	);
 	writeFileSync(
@@ -294,6 +300,11 @@ describe("archive import", () => {
 		const db = getNativeDb();
 		const envelope = await getQueryEnvelope();
 		const tweets = listTimelineItems({ resource: "home", limit: 10 });
+		const liked = listTimelineItems({ resource: "home", likedOnly: true });
+		const bookmarked = listTimelineItems({
+			resource: "home",
+			bookmarkedOnly: true,
+		});
 		const dms = listDmConversations({ limit: 10 });
 		const archivedTweet = tweets.find((item) => item.id === "100");
 		const dmMessageCount = (
@@ -304,6 +315,7 @@ describe("archive import", () => {
 
 		expect(result.counts.tweets).toBe(2);
 		expect(result.counts.likes).toBe(1);
+		expect(result.counts.bookmarks).toBe(1);
 		expect(envelope.stats.home).toBe(2);
 		expect(envelope.stats.dms).toBe(1);
 		expect(tweets.map((item) => item.text)).toEqual([
@@ -321,6 +333,8 @@ describe("archive import", () => {
 		expect(archivedTweet?.media[0]?.altText).toBe("Archive chart");
 		expect(archivedTweet?.quotedTweet?.id).toBe("101");
 		expect(archivedTweet?.quotedTweet?.text).toBe("Longer archive note");
+		expect(liked.map((item) => item.text)).toEqual(["liked archive item"]);
+		expect(bookmarked.map((item) => item.text)).toEqual(["saved archive item"]);
 	}, 30000);
 
 	it("covers parsing helpers and fallback normalizers", () => {

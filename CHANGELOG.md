@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.2 - Unreleased
+
+### Added
+
+- Add live likes and bookmarks sync through `xurl`/`bird`, local search filters, archive import support, and dedicated Likes/Bookmarks web views.
+
+### Changed
+
+- Update the README tagline and package description for local X memory across archives, DMs, likes, bookmarks, and moderation.
+- Refresh dependencies, including `jsdom` 29.1.0.
+- Hide reply state and reply actions in saved likes/bookmarks web lanes.
+
 ## 0.1.1 - 2026-04-27
 
 ### Added

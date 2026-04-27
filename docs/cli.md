@@ -136,12 +136,26 @@ Default:
 - update canonical tables
 - refresh cursors
 - refresh FTS incrementally
+- `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`
 
 Common flags:
 - `--since <cursor-or-id>`
 - `--limit <n>`
 - `--transport <kind>`
 - `--dry-run`
+- `--mode auto|xurl|bird`
+- `--all`
+- `--max-pages <n>`
+- `--refresh`
+- `--cache-ttl <seconds>`
+
+Examples:
+
+```bash
+birdclaw sync likes --mode auto --limit 100 --refresh --json
+birdclaw sync bookmarks --mode auto --limit 100 --refresh --json
+birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
+```
 
 ### `search tweets <query>`
 
@@ -154,6 +168,13 @@ Flags:
 - `--liked`
 - `--bookmarked`
 - `--limit <n>`
+
+Examples:
+
+```bash
+birdclaw search tweets --liked --limit 20 --json
+birdclaw search tweets --bookmarked --limit 20 --json
+```
 
 ### `search dms <query>`
 

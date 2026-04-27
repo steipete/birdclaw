@@ -225,6 +225,67 @@ describe("bird transport wrapper", () => {
 		]);
 	});
 
+	it("maps bird likes and bookmarks json into xurl-compatible payloads", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify([
+					{
+						id: "liked_1",
+						text: "liked from bird",
+						createdAt: "2026-04-26T13:43:34.000Z",
+						authorId: "42",
+						author: { username: "sam", name: "Sam" },
+					},
+				]),
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify([
+					{
+						id: "bookmark_1",
+						text: "saved from bird",
+						createdAt: "2026-04-26T13:43:34.000Z",
+						authorId: "43",
+						author: { username: "amelia", name: "Amelia" },
+					},
+				]),
+			});
+		const { listBookmarkedTweetsViaBird, listLikedTweetsViaBird } =
+			await import("./bird");
+
+		await expect(listLikedTweetsViaBird({ maxResults: 5 })).resolves.toEqual({
+			data: [expect.objectContaining({ id: "liked_1", author_id: "42" })],
+			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+			meta: expect.objectContaining({ result_count: 1 }),
+		});
+		await expect(
+			listBookmarkedTweetsViaBird({
+				maxResults: 7,
+				all: true,
+				maxPages: 2,
+			}),
+		).resolves.toEqual({
+			data: [expect.objectContaining({ id: "bookmark_1", author_id: "43" })],
+			includes: { users: [{ id: "43", username: "amelia", name: "Amelia" }] },
+			meta: expect.objectContaining({ result_count: 1 }),
+		});
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "/tmp/bird", [
+			"likes",
+			"-n",
+			"5",
+			"--json",
+		]);
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "/tmp/bird", [
+			"bookmarks",
+			"-n",
+			"7",
+			"--json",
+			"--all",
+			"--max-pages",
+			"2",
+		]);
+	});
+
 	it("rejects unexpected direct messages json", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
 		execFileAsyncMock

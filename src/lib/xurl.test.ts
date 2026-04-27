@@ -275,6 +275,58 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("lists liked and bookmarked tweets through raw X endpoints", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [{ id: "25401953" }] }),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({
+					data: [{ id: "liked_1", author_id: "42", text: "liked" }],
+					includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+					meta: { result_count: 1 },
+				}),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({
+					data: [{ id: "bookmark_1", author_id: "43", text: "saved" }],
+					meta: { next_token: "next" },
+				}),
+				stderr: "",
+			});
+		const { listBookmarkedTweetsViaXurl, listLikedTweetsViaXurl } =
+			await import("./xurl");
+
+		await expect(
+			listLikedTweetsViaXurl({
+				maxResults: 5,
+				username: "steipete",
+			}),
+		).resolves.toEqual({
+			data: [{ id: "liked_1", author_id: "42", text: "liked" }],
+			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+			meta: { result_count: 1 },
+		});
+		await expect(
+			listBookmarkedTweetsViaXurl({
+				maxResults: 100,
+				userId: "25401953",
+				paginationToken: "next",
+			}),
+		).resolves.toEqual({
+			data: [{ id: "bookmark_1", author_id: "43", text: "saved" }],
+			meta: { next_token: "next" },
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"/2/users/25401953/liked_tweets?max_results=5&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=description%2Cpublic_metrics%2Cprofile_image_url%2Ccreated_at%2Cverified",
+		]);
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"/2/users/25401953/bookmarks?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=description%2Cpublic_metrics%2Cprofile_image_url%2Ccreated_at%2Cverified&pagination_token=next",
+		]);
+	});
+
 	it("passes pagination tokens for user tweet scans and can keep retweets", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({ data: null, meta: null }),

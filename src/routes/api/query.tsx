@@ -48,6 +48,8 @@ export const Route = createFileRoute("/api/query")({
 					qualityFilter: parseQualityFilter(
 						url.searchParams.get("qualityFilter"),
 					),
+					likedOnly: url.searchParams.get("liked") === "true",
+					bookmarkedOnly: url.searchParams.get("bookmarked") === "true",
 					limit: parseNumber(url.searchParams.get("limit")) ?? undefined,
 				};
 

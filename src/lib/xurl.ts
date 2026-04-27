@@ -357,6 +357,89 @@ export async function listMentionsViaXurl({
 	};
 }
 
+async function listTimelineCollectionViaXurl({
+	collection,
+	maxResults,
+	username,
+	userId,
+	paginationToken,
+}: {
+	collection: "liked_tweets" | "bookmarks";
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+}): Promise<XurlMentionsResponse> {
+	let resolvedUserId = userId;
+	if (!resolvedUserId) {
+		if (username) {
+			const [user] = await lookupUsersByHandles([username]);
+			if (!user?.id) {
+				throw new Error(`Could not resolve X user id for @${username}`);
+			}
+			resolvedUserId = String(user.id);
+		} else {
+			const user = await lookupAuthenticatedUser();
+			if (!user?.id) {
+				throw new Error("Could not resolve authenticated X user id");
+			}
+			resolvedUserId = String(user.id);
+		}
+	}
+
+	const query = new URLSearchParams({
+		max_results: String(maxResults),
+		expansions: "author_id",
+		"tweet.fields": "created_at,conversation_id,entities,public_metrics",
+		"user.fields":
+			"description,public_metrics,profile_image_url,created_at,verified",
+	});
+	if (paginationToken) {
+		query.set("pagination_token", paginationToken);
+	}
+
+	const payload = await runJsonCommand([
+		`/2/users/${resolvedUserId}/${collection}?${query.toString()}`,
+	]);
+	return {
+		data: Array.isArray(payload.data)
+			? (payload.data as XurlMentionsResponse["data"])
+			: [],
+		includes:
+			payload.includes && typeof payload.includes === "object"
+				? (payload.includes as XurlMentionsResponse["includes"])
+				: undefined,
+		meta:
+			payload.meta && typeof payload.meta === "object"
+				? (payload.meta as XurlMentionsResponse["meta"])
+				: undefined,
+	};
+}
+
+export async function listLikedTweetsViaXurl(options: {
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+}): Promise<XurlMentionsResponse> {
+	return listTimelineCollectionViaXurl({
+		...options,
+		collection: "liked_tweets",
+	});
+}
+
+export async function listBookmarkedTweetsViaXurl(options: {
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+}): Promise<XurlMentionsResponse> {
+	return listTimelineCollectionViaXurl({
+		...options,
+		collection: "bookmarks",
+	});
+}
+
 export async function listBlockedUsers(
 	userId: string,
 	paginationToken?: string,

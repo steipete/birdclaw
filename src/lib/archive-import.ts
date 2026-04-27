@@ -25,6 +25,7 @@ interface ImportedArchiveSummary {
 	counts: {
 		tweets: number;
 		likes: number;
+		bookmarks: number;
 		dmConversations: number;
 		dmMessages: number;
 		profiles: number;
@@ -211,6 +212,39 @@ function extractTweetMedia(tweet: Record<string, unknown>) {
 		});
 }
 
+function extractCollectionTweet(
+	wrapper: ArchiveRecord,
+	key: "like" | "bookmark",
+) {
+	const entry = asRecord(wrapper[key]) ?? asRecord(wrapper.tweet);
+	if (!entry) return null;
+
+	const id = String(
+		entry.tweetId ?? entry.tweet_id ?? entry.id_str ?? entry.id ?? "",
+	);
+	if (!id) return null;
+
+	return {
+		id,
+		text: String(
+			entry.fullText ??
+				entry.full_text ??
+				entry.text ??
+				entry.expandedUrl ??
+				entry.expanded_url ??
+				"",
+		),
+		createdAt: parseTwitterDate(
+			entry.likedAt ??
+				entry.bookmarkedAt ??
+				entry.createdAt ??
+				entry.created_at ??
+				new Date(0).toISOString(),
+		),
+		likeCount: toInt(entry.favorite_count ?? entry.like_count),
+	};
+}
+
 function buildAccountPayload(
 	accountRecord: Record<string, unknown> | null,
 	profileRecord: Record<string, unknown> | null,
@@ -276,6 +310,10 @@ export async function importArchive(
 		entries,
 		/(?:^|\/)data\/(?:like|likes)(?:-part\d+)?\.js$/i,
 	);
+	const bookmarkEntries = getMatchingEntries(
+		entries,
+		/(?:^|\/)data\/(?:bookmark|bookmarks)(?:-part\d+)?\.js$/i,
+	);
 	const dmEntries = getMatchingEntries(
 		entries,
 		/(?:^|\/)data\/direct-messages(?:-group)?(?:-part\d+)?\.js$/i,
@@ -303,16 +341,33 @@ export async function importArchive(
 	>();
 	const tweetRows: Array<{
 		id: string;
+		kind: "home" | "like" | "bookmark";
+		authorProfileId: string;
 		text: string;
 		createdAt: string;
 		isReplied: number;
 		replyToId: string | null;
 		likeCount: number;
 		mediaCount: number;
+		bookmarked: number;
+		liked: number;
 		entitiesJson: string;
 		mediaJson: string;
 		quotedTweetId: string | null;
 	}> = [];
+	const tweetRowsById = new Map<string, (typeof tweetRows)[number]>();
+
+	function addTweetRow(row: (typeof tweetRows)[number]) {
+		const existing = tweetRowsById.get(row.id);
+		if (existing) {
+			existing.bookmarked = Math.max(existing.bookmarked, row.bookmarked);
+			existing.liked = Math.max(existing.liked, row.liked);
+			if (!existing.text && row.text) existing.text = row.text;
+			return;
+		}
+		tweetRows.push(row);
+		tweetRowsById.set(row.id, row);
+	}
 
 	for (const entry of tweetEntries) {
 		const content = await readArchiveEntry(archivePath, entry);
@@ -342,8 +397,10 @@ export async function importArchive(
 				});
 			}
 
-			tweetRows.push({
+			addTweetRow({
 				id: String(tweet.id_str ?? tweet.id),
+				kind: "home",
+				authorProfileId: "profile_me",
 				text: String(tweet.full_text ?? tweet.text ?? ""),
 				createdAt: parseTwitterDate(tweet.created_at),
 				isReplied: tweet.in_reply_to_status_id_str ? 1 : 0,
@@ -352,6 +409,8 @@ export async function importArchive(
 					: null,
 				likeCount: toInt(tweet.favorite_count),
 				mediaCount: getTweetMediaCount(tweet),
+				bookmarked: 0,
+				liked: 0,
 				entitiesJson: JSON.stringify(extractTweetEntities(tweet)),
 				mediaJson: JSON.stringify(extractTweetMedia(tweet)),
 				quotedTweetId: tweet.quoted_status_id_str
@@ -367,20 +426,25 @@ export async function importArchive(
 			const noteTweet = asRecord(wrapper.noteTweet);
 			if (!noteTweet) continue;
 			const core = asRecord(noteTweet.core);
-			tweetRows.push({
+			addTweetRow({
 				id: String(noteTweet.noteTweetId ?? noteTweet.id ?? randomUUID()),
+				kind: "home",
+				authorProfileId: "profile_me",
 				text: String(core?.text ?? ""),
 				createdAt: parseTwitterDate(noteTweet.createdAt),
 				isReplied: 0,
 				replyToId: null,
 				likeCount: 0,
 				mediaCount: 0,
+				bookmarked: 0,
+				liked: 0,
 				entitiesJson: "{}",
 				mediaJson: "[]",
 				quotedTweetId: null,
 			});
 		}
 	}
+	const authoredTweetCount = tweetRows.length;
 
 	type MessageRow = {
 		id: string;
@@ -599,8 +663,70 @@ export async function importArchive(
 	const likeCount = likeEntries.reduce(async (countPromise, entry) => {
 		const count = await countPromise;
 		const content = await readArchiveEntry(archivePath, entry);
-		return count + parseArchiveArray(content).length;
+		const likes = parseArchiveArray(content);
+		for (const like of likes) {
+			const tweet = extractCollectionTweet(like, "like");
+			if (!tweet) continue;
+			addTweetRow({
+				id: tweet.id,
+				kind: "like",
+				authorProfileId: "profile_unknown",
+				text: tweet.text,
+				createdAt: tweet.createdAt,
+				isReplied: 0,
+				replyToId: null,
+				likeCount: tweet.likeCount,
+				mediaCount: 0,
+				bookmarked: 0,
+				liked: 1,
+				entitiesJson: "{}",
+				mediaJson: "[]",
+				quotedTweetId: null,
+			});
+		}
+		return count + likes.length;
 	}, Promise.resolve(0));
+
+	const bookmarkCount = bookmarkEntries.reduce(async (countPromise, entry) => {
+		const count = await countPromise;
+		const content = await readArchiveEntry(archivePath, entry);
+		const bookmarks = parseArchiveArray(content);
+		for (const bookmark of bookmarks) {
+			const tweet = extractCollectionTweet(bookmark, "bookmark");
+			if (!tweet) continue;
+			addTweetRow({
+				id: tweet.id,
+				kind: "bookmark",
+				authorProfileId: "profile_unknown",
+				text: tweet.text,
+				createdAt: tweet.createdAt,
+				isReplied: 0,
+				replyToId: null,
+				likeCount: tweet.likeCount,
+				mediaCount: 0,
+				bookmarked: 1,
+				liked: 0,
+				entitiesJson: "{}",
+				mediaJson: "[]",
+				quotedTweetId: null,
+			});
+		}
+		return count + bookmarks.length;
+	}, Promise.resolve(0));
+
+	await Promise.all([likeCount, bookmarkCount]);
+
+	if (tweetRows.some((tweet) => tweet.authorProfileId === "profile_unknown")) {
+		profiles.set("profile_unknown", {
+			id: "profile_unknown",
+			handle: "unknown",
+			displayName: "Unknown",
+			bio: "Imported from archive collection metadata",
+			followersCount: 0,
+			avatarHue: 210,
+			createdAt: accountPayload.createdAt,
+		});
+	}
 
 	clearImportedData();
 
@@ -617,7 +743,7 @@ export async function importArchive(
     insert into tweets (
       id, account_id, author_profile_id, kind, text, created_at, is_replied,
       reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, 'home', ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 	const insertTweetFts = db.prepare(
 		"insert into tweets_fts (tweet_id, text) values (?, ?)",
@@ -662,13 +788,16 @@ export async function importArchive(
 			insertTweet.run(
 				tweet.id,
 				"acct_primary",
-				"profile_me",
+				tweet.authorProfileId,
+				tweet.kind,
 				tweet.text,
 				tweet.createdAt,
 				tweet.isReplied,
 				tweet.replyToId,
 				tweet.likeCount,
 				tweet.mediaCount,
+				tweet.bookmarked,
+				tweet.liked,
 				tweet.entitiesJson,
 				tweet.mediaJson,
 				tweet.quotedTweetId,
@@ -712,8 +841,9 @@ export async function importArchive(
 			displayName: accountPayload.displayName,
 		},
 		counts: {
-			tweets: tweetRows.length,
+			tweets: authoredTweetCount,
 			likes: await likeCount,
+			bookmarks: await bookmarkCount,
 			dmConversations: conversations.size,
 			dmMessages: dmMessages.length,
 			profiles: profiles.size,

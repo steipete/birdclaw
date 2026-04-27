@@ -32,6 +32,10 @@ import {
 	listDmConversations,
 	listTimelineItems,
 } from "#/lib/queries";
+import {
+	syncTimelineCollection,
+	type TimelineCollectionMode,
+} from "#/lib/timeline-collections-live";
 
 const program = new Command();
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -139,6 +143,8 @@ searchCommand
 	.option("--until <date>", "Include tweets created before this date")
 	.option("--originals-only", "Exclude authored replies that start with @")
 	.option("--hide-low-quality", "Hide RTs, tiny replies, and link-only noise")
+	.option("--liked", "Only liked tweets")
+	.option("--bookmarked", "Only bookmarked tweets")
 	.option("--limit <n>", "Limit results", "20")
 	.action((query, options) => {
 		const replyFilter = options.replied
@@ -154,6 +160,8 @@ searchCommand
 			until: options.until,
 			includeReplies: !options.originalsOnly,
 			qualityFilter: options.hideLowQuality ? "summary" : "all",
+			likedOnly: Boolean(options.liked),
+			bookmarkedOnly: Boolean(options.bookmarked),
 			limit: Number(options.limit),
 		});
 		print(items, program.opts().json ?? false);
@@ -279,6 +287,36 @@ profilesCommand
 	});
 
 const dmsCommand = program.command("dms").description("Direct messages");
+
+const syncCommand = program
+	.command("sync")
+	.description("Refresh live X collections into the local store");
+
+for (const kind of ["likes", "bookmarks"] as const) {
+	syncCommand
+		.command(kind)
+		.description(`Refresh live ${kind} through xurl or bird`)
+		.option("--account <accountId>", "Account id")
+		.option("--mode <mode>", "auto, xurl, or bird", "auto")
+		.option("--limit <n>", "Per-page/result limit", "20")
+		.option("--all", "Fetch every retrievable page")
+		.option("--max-pages <n>", "Stop after N pages when using --all")
+		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
+		.option("--refresh", "Bypass live-cache freshness window")
+		.action(async (options) => {
+			const result = await syncTimelineCollection({
+				kind,
+				account: options.account,
+				mode: options.mode as TimelineCollectionMode,
+				limit: Number(options.limit),
+				all: Boolean(options.all) || options.maxPages !== undefined,
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+				refresh: Boolean(options.refresh),
+				cacheTtlMs: Number(options.cacheTtl) * 1000,
+			});
+			print(result, true);
+		});
+}
 
 dmsCommand
 	.command("list")

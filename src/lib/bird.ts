@@ -9,17 +9,17 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-interface BirdMentionMedia {
+interface BirdTweetMedia {
 	type?: string;
 	url?: string;
 }
 
-interface BirdMentionAuthor {
+interface BirdTweetAuthor {
 	username?: string;
 	name?: string;
 }
 
-interface BirdMentionItem {
+interface BirdTweetItem {
 	id: string;
 	text: string;
 	createdAt: string;
@@ -28,9 +28,9 @@ interface BirdMentionItem {
 	likeCount?: number;
 	conversationId?: string;
 	inReplyToStatusId?: string;
-	author?: BirdMentionAuthor;
+	author?: BirdTweetAuthor;
 	authorId?: string;
-	media?: BirdMentionMedia[];
+	media?: BirdTweetMedia[];
 }
 
 export interface BirdDmUser {
@@ -73,7 +73,7 @@ function toIsoTimestamp(value: string) {
 	return parsed.toISOString();
 }
 
-function toMediaEntities(media: BirdMentionMedia[] | undefined) {
+function toMediaEntities(media: BirdTweetMedia[] | undefined) {
 	if (!Array.isArray(media) || media.length === 0) {
 		return undefined;
 	}
@@ -92,7 +92,7 @@ function toMediaEntities(media: BirdMentionMedia[] | undefined) {
 	};
 }
 
-function normalizeBirdMentions(items: BirdMentionItem[]): XurlMentionsResponse {
+function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 	const users = new Map<string, XurlMentionUser>();
 	const data = items.map((item): XurlMentionData => {
 		const authorId = String(
@@ -153,7 +153,69 @@ export async function listMentionsViaBird({
 		throw new Error("bird mentions returned unexpected JSON");
 	}
 
-	return normalizeBirdMentions(payload as BirdMentionItem[]);
+	return normalizeBirdTweets(payload as BirdTweetItem[]);
+}
+
+async function listTweetsViaBirdCommand({
+	command,
+	maxResults,
+	all,
+	maxPages,
+}: {
+	command: "likes" | "bookmarks";
+	maxResults: number;
+	all?: boolean;
+	maxPages?: number;
+}): Promise<XurlMentionsResponse> {
+	const birdCommand = getBirdCommand();
+	const args = [command, "-n", String(maxResults), "--json"];
+	if (all) {
+		args.push("--all");
+	}
+	if (maxPages !== undefined) {
+		args.push("--max-pages", String(maxPages));
+	}
+	const { stdout } = await execFileAsync(birdCommand, args);
+	const payload = JSON.parse(stdout) as unknown;
+	if (!Array.isArray(payload)) {
+		throw new Error(`bird ${command} returned unexpected JSON`);
+	}
+
+	return normalizeBirdTweets(payload as BirdTweetItem[]);
+}
+
+export async function listLikedTweetsViaBird({
+	maxResults,
+	all,
+	maxPages,
+}: {
+	maxResults: number;
+	all?: boolean;
+	maxPages?: number;
+}): Promise<XurlMentionsResponse> {
+	return listTweetsViaBirdCommand({
+		command: "likes",
+		maxResults,
+		all,
+		maxPages,
+	});
+}
+
+export async function listBookmarkedTweetsViaBird({
+	maxResults,
+	all,
+	maxPages,
+}: {
+	maxResults: number;
+	all?: boolean;
+	maxPages?: number;
+}): Promise<XurlMentionsResponse> {
+	return listTweetsViaBirdCommand({
+		command: "bookmarks",
+		maxResults,
+		all,
+		maxPages,
+	});
 }
 
 export async function listDirectMessagesViaBird({

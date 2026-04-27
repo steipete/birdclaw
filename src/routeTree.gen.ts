@@ -10,8 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as MentionsRouteImport } from './routes/mentions'
+import { Route as LikesRouteImport } from './routes/likes'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as DmsRouteImport } from './routes/dms'
+import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as BlocksRouteImport } from './routes/blocks'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiStatusRouteImport } from './routes/api/status'
@@ -26,6 +28,11 @@ const MentionsRoute = MentionsRouteImport.update({
   path: '/mentions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LikesRoute = LikesRouteImport.update({
+  id: '/likes',
+  path: '/likes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InboxRoute = InboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
@@ -34,6 +41,11 @@ const InboxRoute = InboxRouteImport.update({
 const DmsRoute = DmsRouteImport.update({
   id: '/dms',
   path: '/dms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BookmarksRoute = BookmarksRouteImport.update({
+  id: '/bookmarks',
+  path: '/bookmarks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BlocksRoute = BlocksRouteImport.update({
@@ -80,8 +92,10 @@ const ApiActionRoute = ApiActionRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/blocks': typeof BlocksRoute
+  '/bookmarks': typeof BookmarksRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
+  '/likes': typeof LikesRoute
   '/mentions': typeof MentionsRoute
   '/api/action': typeof ApiActionRoute
   '/api/avatar': typeof ApiAvatarRoute
@@ -93,8 +107,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/blocks': typeof BlocksRoute
+  '/bookmarks': typeof BookmarksRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
+  '/likes': typeof LikesRoute
   '/mentions': typeof MentionsRoute
   '/api/action': typeof ApiActionRoute
   '/api/avatar': typeof ApiAvatarRoute
@@ -107,8 +123,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/blocks': typeof BlocksRoute
+  '/bookmarks': typeof BookmarksRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
+  '/likes': typeof LikesRoute
   '/mentions': typeof MentionsRoute
   '/api/action': typeof ApiActionRoute
   '/api/avatar': typeof ApiAvatarRoute
@@ -122,8 +140,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/blocks'
+    | '/bookmarks'
     | '/dms'
     | '/inbox'
+    | '/likes'
     | '/mentions'
     | '/api/action'
     | '/api/avatar'
@@ -135,8 +155,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/blocks'
+    | '/bookmarks'
     | '/dms'
     | '/inbox'
+    | '/likes'
     | '/mentions'
     | '/api/action'
     | '/api/avatar'
@@ -148,8 +170,10 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/blocks'
+    | '/bookmarks'
     | '/dms'
     | '/inbox'
+    | '/likes'
     | '/mentions'
     | '/api/action'
     | '/api/avatar'
@@ -162,8 +186,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BlocksRoute: typeof BlocksRoute
+  BookmarksRoute: typeof BookmarksRoute
   DmsRoute: typeof DmsRoute
   InboxRoute: typeof InboxRoute
+  LikesRoute: typeof LikesRoute
   MentionsRoute: typeof MentionsRoute
   ApiActionRoute: typeof ApiActionRoute
   ApiAvatarRoute: typeof ApiAvatarRoute
@@ -182,6 +208,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MentionsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/likes': {
+      id: '/likes'
+      path: '/likes'
+      fullPath: '/likes'
+      preLoaderRoute: typeof LikesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/inbox': {
       id: '/inbox'
       path: '/inbox'
@@ -194,6 +227,13 @@ declare module '@tanstack/react-router' {
       path: '/dms'
       fullPath: '/dms'
       preLoaderRoute: typeof DmsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bookmarks': {
+      id: '/bookmarks'
+      path: '/bookmarks'
+      fullPath: '/bookmarks'
+      preLoaderRoute: typeof BookmarksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/blocks': {
@@ -258,8 +298,10 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BlocksRoute: BlocksRoute,
+  BookmarksRoute: BookmarksRoute,
   DmsRoute: DmsRoute,
   InboxRoute: InboxRoute,
+  LikesRoute: LikesRoute,
   MentionsRoute: MentionsRoute,
   ApiActionRoute: ApiActionRoute,
   ApiAvatarRoute: ApiAvatarRoute,

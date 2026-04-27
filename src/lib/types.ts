@@ -95,7 +95,7 @@ export interface TimelineItem {
 	id: string;
 	accountId: string;
 	accountHandle: string;
-	kind: Exclude<ResourceKind, "dms">;
+	kind: "home" | "mention" | "like" | "bookmark";
 	text: string;
 	createdAt: string;
 	isReplied: boolean;
@@ -144,6 +144,8 @@ export interface TimelineQuery {
 	until?: string;
 	includeReplies?: boolean;
 	qualityFilter?: TimelineQualityFilter;
+	likedOnly?: boolean;
+	bookmarkedOnly?: boolean;
 	limit?: number;
 }
 
