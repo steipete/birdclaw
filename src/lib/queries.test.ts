@@ -250,6 +250,96 @@ describe("birdclaw queries", () => {
 			"tweet_good_media",
 			"tweet_good_short",
 		]);
+
+		const strictItems = listTimelineItems({
+			resource: "home",
+			account: "acct_primary",
+			since: "2026-03-08T13:00:00.000Z",
+			until: "2026-03-08T14:00:00.000Z",
+			includeReplies: false,
+			qualityFilter: "summary",
+			lowQualityThreshold: 5,
+			limit: 20,
+		});
+		const noLikeGateItems = listTimelineItems({
+			resource: "home",
+			account: "acct_primary",
+			since: "2026-03-08T13:00:00.000Z",
+			until: "2026-03-08T14:00:00.000Z",
+			includeReplies: false,
+			qualityFilter: "summary",
+			lowQualityThreshold: 0,
+			limit: 20,
+		});
+
+		expect(strictItems.map((item) => item.id)).toEqual([
+			"tweet_good_media",
+			"tweet_good_short",
+		]);
+		expect(noLikeGateItems.map((item) => item.id)).toEqual([
+			"tweet_good_media",
+			"tweet_good_short",
+			"tweet_low_link",
+		]);
+	});
+
+	it("includes quality reasons only when requested", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const insertTweet = db.prepare(`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at,
+        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+        entities_json, media_json, quoted_tweet_id
+      ) values (?, 'acct_primary', 'profile_me', 'home', ?, ?, 0, null, ?, ?, 0, 0, '{}', '[]', null)
+    `);
+
+		insertTweet.run(
+			"tweet_reason_rt",
+			"RT @someone: borrowed context",
+			"2026-03-08T15:00:00.000Z",
+			120,
+			0,
+		);
+		insertTweet.run(
+			"tweet_reason_media",
+			"https://t.co/screenshot",
+			"2026-03-08T15:01:00.000Z",
+			0,
+			1,
+		);
+		insertTweet.run(
+			"tweet_reason_liked",
+			"short but liked",
+			"2026-03-08T15:02:00.000Z",
+			100,
+			0,
+		);
+
+		const plainItems = listTimelineItems({
+			resource: "home",
+			account: "acct_primary",
+			since: "2026-03-08T15:00:00.000Z",
+			until: "2026-03-08T16:00:00.000Z",
+			qualityFilter: "all",
+			limit: 20,
+		});
+		const items = listTimelineItems({
+			resource: "home",
+			account: "acct_primary",
+			since: "2026-03-08T15:00:00.000Z",
+			until: "2026-03-08T16:00:00.000Z",
+			qualityFilter: "all",
+			includeQualityReason: true,
+			limit: 20,
+		});
+
+		expect(plainItems[0]).not.toHaveProperty("qualityReason");
+		expect(items.map((item) => [item.id, item.qualityReason])).toEqual([
+			["tweet_reason_liked", "keep:high-likes"],
+			["tweet_reason_media", "keep:has-media"],
+			["tweet_reason_rt", "drop:rt"],
+		]);
 	});
 
 	it("hydrates rich tweet entities, media, reply context, and quote context", () => {
