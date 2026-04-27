@@ -293,7 +293,7 @@ pnpm cli unban @amelia --account acct_primary --transport bird --json
 Notes:
 
 - `ban` / `unban` accept `--transport auto|bird|xurl`
-- `auto` tries `bird` first, then falls back to `xurl` when bird fails
+- `auto` tries `bird` first, then falls back to `xurl`, then `x-web` cookie-backed block/unblock when both fail
 - forced `xurl` writes still verify through `bird status` before sqlite changes
 - Twitter still rejects pure OAuth2 block writes, so `auto` is the safe default for block/unblock
 - `blocks import` accepts newline-delimited blocklists with comments and markdown bullets
