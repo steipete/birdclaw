@@ -487,10 +487,10 @@ GitHub Actions runs:
 - `pnpm build`
 - `pnpm e2e`
 
-Workflow: [ci.yml](/Users/steipete/Projects/birdclaw/.github/workflows/ci.yml)
+Workflow: [ci.yml](.github/workflows/ci.yml)
 
 ## Docs
 
-- [spec.md](/Users/steipete/Projects/birdclaw/docs/spec.md)
-- [cli.md](/Users/steipete/Projects/birdclaw/docs/cli.md)
-- [data-architecture.md](/Users/steipete/Projects/birdclaw/docs/data-architecture.md)
+- [spec.md](docs/spec.md)
+- [cli.md](docs/cli.md)
+- [data-architecture.md](docs/data-architecture.md)
