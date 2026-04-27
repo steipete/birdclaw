@@ -63,6 +63,35 @@ function print(data: unknown, asJson: boolean) {
 	console.log(data);
 }
 
+function printError(error: string) {
+	console.error(JSON.stringify({ error }));
+}
+
+function parseNonNegativeIntegerOption(
+	value: string | undefined,
+	option: string,
+) {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const trimmed = value.trim();
+	if (!/^\d+$/.test(trimmed)) {
+		printError(`${option} must be a non-negative integer`);
+		process.exitCode = 1;
+		return undefined;
+	}
+
+	const parsed = Number.parseInt(trimmed, 10);
+	if (!Number.isSafeInteger(parsed)) {
+		printError(`${option} must be a non-negative integer`);
+		process.exitCode = 1;
+		return undefined;
+	}
+
+	return parsed;
+}
+
 function resolveActionOptions(options: { transport?: string }) {
 	return {
 		transport: options.transport as ActionsTransport | undefined,
@@ -171,10 +200,23 @@ searchCommand
 	.option("--until <date>", "Include tweets created before this date")
 	.option("--originals-only", "Exclude authored replies that start with @")
 	.option("--hide-low-quality", "Hide RTs, tiny replies, and link-only noise")
+	.option(
+		"--min-likes <n>",
+		"Override the low-quality like threshold (default 50)",
+	)
+	.option("--quality-reason", "Include qualityReason on each row")
 	.option("--liked", "Only liked tweets")
 	.option("--bookmarked", "Only bookmarked tweets")
 	.option("--limit <n>", "Limit results", "20")
 	.action(async (query, options) => {
+		const minLikes = parseNonNegativeIntegerOption(
+			options.minLikes,
+			"--min-likes",
+		);
+		if (options.minLikes !== undefined && minLikes === undefined) {
+			return;
+		}
+
 		await autoUpdateBeforeRead();
 		const replyFilter = options.replied
 			? "replied"
@@ -189,6 +231,8 @@ searchCommand
 			until: options.until,
 			includeReplies: !options.originalsOnly,
 			qualityFilter: options.hideLowQuality ? "summary" : "all",
+			lowQualityThreshold: minLikes,
+			includeQualityReason: Boolean(options.qualityReason),
 			likedOnly: Boolean(options.liked),
 			bookmarkedOnly: Boolean(options.bookmarked),
 			limit: Number(options.limit),
