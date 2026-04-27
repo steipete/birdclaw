@@ -48,7 +48,7 @@ Repo: `steipete/birdclaw`
 ## Decisions
 
 - language: TypeScript
-- runtime: Node 22+ with pnpm workspace
+- runtime: Node 25.8.1 with pnpm workspace
 - database: SQLite
 - query layer: Kysely
 - search: FTS5 day 1
@@ -81,7 +81,7 @@ Repo: `steipete/birdclaw`
 
 ### Runtime / workspace
 
-- Node.js 22+
+- Node.js 25.8.1
 - pnpm workspace
 - TypeScript `strict: true`
 - ESM only
@@ -186,8 +186,8 @@ Core rule:
 
 ## Docs
 
-- architecture + schema + transport: [data-architecture.md](/Users/steipete/Projects/birdclaw/docs/data-architecture.md)
-- CLI spec: [cli.md](/Users/steipete/Projects/birdclaw/docs/cli.md)
+- architecture + schema + transport: [data-architecture.md](./data-architecture.md)
+- CLI spec: [cli.md](./cli.md)
 
 ## MVP
 
