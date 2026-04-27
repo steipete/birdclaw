@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getBirdCommand } from "./config";
 import type {
+	TweetMediaItem,
 	XurlMentionData,
 	XurlMentionsResponse,
 	XurlMentionUser,
@@ -13,6 +14,10 @@ const BIRD_JSON_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
 interface BirdTweetMedia {
 	type?: string;
 	url?: string;
+	previewUrl?: string;
+	width?: number;
+	height?: number;
+	videoUrl?: string;
 }
 
 interface BirdTweetAuthor {
@@ -32,6 +37,7 @@ interface BirdTweetItem {
 	author?: BirdTweetAuthor;
 	authorId?: string;
 	media?: BirdTweetMedia[];
+	quotedTweet?: BirdTweetItem;
 }
 
 export interface BirdDmUser {
@@ -175,35 +181,89 @@ function toMediaEntities(media: BirdTweetMedia[] | undefined) {
 	};
 }
 
+function toTimelineMediaType(type: string | undefined): TweetMediaItem["type"] {
+	if (type === "photo") return "image";
+	if (type === "video") return "video";
+	if (type === "animated_gif") return "gif";
+	return "unknown";
+}
+
+function toMediaItems(media: BirdTweetMedia[] | undefined) {
+	if (!Array.isArray(media) || media.length === 0) {
+		return undefined;
+	}
+
+	const items = media
+		.filter((item) => typeof item?.url === "string" && item.url.length > 0)
+		.map((item): TweetMediaItem => {
+			const type = toTimelineMediaType(item.type);
+			const sourceUrl = item.url as string;
+			const url =
+				type === "video" &&
+				typeof item.videoUrl === "string" &&
+				item.videoUrl.length > 0
+					? item.videoUrl
+					: sourceUrl;
+			const thumbnailUrl =
+				typeof item.previewUrl === "string" && item.previewUrl.length > 0
+					? item.previewUrl
+					: url !== sourceUrl
+						? sourceUrl
+						: undefined;
+
+			return {
+				url,
+				type,
+				...(thumbnailUrl ? { thumbnailUrl } : {}),
+				...(Number.isFinite(item.width) ? { width: Number(item.width) } : {}),
+				...(Number.isFinite(item.height)
+					? { height: Number(item.height) }
+					: {}),
+			};
+		});
+
+	return items.length > 0 ? items : undefined;
+}
+
+function normalizeBirdTweetItem(
+	item: BirdTweetItem,
+	users: Map<string, XurlMentionUser>,
+): XurlMentionData {
+	const authorId = String(item.authorId ?? item.author?.username ?? "unknown");
+	if (!users.has(authorId)) {
+		users.set(authorId, {
+			id: authorId,
+			username: item.author?.username ?? `user_${authorId}`,
+			name: item.author?.name ?? item.author?.username ?? `user_${authorId}`,
+		});
+	}
+
+	const media = toMediaItems(item.media);
+	const quotedTweet = item.quotedTweet
+		? normalizeBirdTweetItem(item.quotedTweet, users)
+		: undefined;
+
+	return {
+		id: item.id,
+		author_id: authorId,
+		text: item.text,
+		created_at: toIsoTimestamp(item.createdAt),
+		conversation_id: item.conversationId ?? item.id,
+		entities: toMediaEntities(item.media),
+		...(media ? { media } : {}),
+		...(quotedTweet ? { quotedTweet } : {}),
+		public_metrics: {
+			reply_count: Number(item.replyCount ?? 0),
+			retweet_count: Number(item.retweetCount ?? 0),
+			like_count: Number(item.likeCount ?? 0),
+		},
+		edit_history_tweet_ids: [item.id],
+	};
+}
+
 function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 	const users = new Map<string, XurlMentionUser>();
-	const data = items.map((item): XurlMentionData => {
-		const authorId = String(
-			item.authorId ?? item.author?.username ?? "unknown",
-		);
-		if (!users.has(authorId)) {
-			users.set(authorId, {
-				id: authorId,
-				username: item.author?.username ?? `user_${authorId}`,
-				name: item.author?.name ?? item.author?.username ?? `user_${authorId}`,
-			});
-		}
-
-		return {
-			id: item.id,
-			author_id: authorId,
-			text: item.text,
-			created_at: toIsoTimestamp(item.createdAt),
-			conversation_id: item.conversationId ?? item.id,
-			entities: toMediaEntities(item.media),
-			public_metrics: {
-				reply_count: Number(item.replyCount ?? 0),
-				retweet_count: Number(item.retweetCount ?? 0),
-				like_count: Number(item.likeCount ?? 0),
-			},
-			edit_history_tweet_ids: [item.id],
-		};
-	});
+	const data = items.map((item) => normalizeBirdTweetItem(item, users));
 
 	return {
 		data,

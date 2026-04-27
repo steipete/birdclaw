@@ -103,11 +103,53 @@ describe("live timeline collection sync", () => {
 					author_id: "43",
 					text: "bird bookmark item",
 					created_at: "2026-04-26T13:43:34.000Z",
+					entities: {
+						urls: [
+							{
+								start: 0,
+								end: 18,
+								url: "https://t.co/site",
+								expanded_url: "https://example.com/post",
+								display_url: "example.com/post",
+							},
+							{
+								start: 19,
+								end: 23,
+								url: "https://t.co/media",
+								expanded_url: "https://pbs.twimg.com/media/bookmark.jpg",
+								display_url: "pbs.twimg.com/media/bookmark.jpg",
+								media_key: "bird_media_0",
+							},
+						],
+					},
+					media: [
+						{
+							url: "https://pbs.twimg.com/media/bookmark.jpg",
+							type: "image",
+							thumbnailUrl: "https://pbs.twimg.com/media/bookmark.jpg:small",
+						},
+					],
+					quotedTweet: {
+						id: "quoted_1",
+						author_id: "44",
+						text: "quoted context",
+						created_at: "2026-04-26T12:43:34.000Z",
+						public_metrics: { like_count: 3 },
+						media: [
+							{
+								url: "https://pbs.twimg.com/media/quoted.jpg",
+								type: "image",
+							},
+						],
+					},
 					public_metrics: { like_count: 7 },
 				},
 			],
 			includes: {
-				users: [{ id: "43", username: "amelia", name: "Amelia" }],
+				users: [
+					{ id: "43", username: "amelia", name: "Amelia" },
+					{ id: "44", username: "quoted_author", name: "Quoted Author" },
+				],
 			},
 			meta: { result_count: 1 },
 		});
@@ -134,10 +176,38 @@ describe("live timeline collection sync", () => {
 			all: true,
 			maxPages: 2,
 		});
+		expect(syncedBookmark?.entities.urls).toHaveLength(1);
 		expect(syncedBookmark).toMatchObject({
 			bookmarked: true,
 			liked: false,
 			author: { handle: "amelia" },
+			mediaCount: 1,
+			media: [
+				expect.objectContaining({
+					url: "https://pbs.twimg.com/media/bookmark.jpg",
+					type: "image",
+				}),
+			],
+			entities: {
+				urls: [
+					expect.objectContaining({
+						url: "https://t.co/site",
+						expandedUrl: "https://example.com/post",
+						displayUrl: "example.com/post",
+					}),
+				],
+			},
+			quotedTweet: expect.objectContaining({
+				id: "quoted_1",
+				text: "quoted context",
+				author: expect.objectContaining({ handle: "quoted_author" }),
+				media: [
+					expect.objectContaining({
+						url: "https://pbs.twimg.com/media/quoted.jpg",
+						type: "image",
+					}),
+				],
+			}),
 		});
 	});
 });

@@ -3,6 +3,8 @@ import { listBookmarkedTweetsViaBird, listLikedTweetsViaBird } from "./bird";
 import { getNativeDb } from "./db";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type {
+	TweetEntities,
+	TweetMediaItem,
 	XurlMentionData,
 	XurlMentionsResponse,
 	XurlMentionUser,
@@ -88,6 +90,10 @@ function resolveAccount(db: Database.Database, accountId?: string) {
 }
 
 function getMediaCount(tweet: XurlMentionData) {
+	if (Array.isArray(tweet.media) && tweet.media.length > 0) {
+		return tweet.media.length;
+	}
+
 	const urls = Array.isArray(tweet.entities?.urls) ? tweet.entities.urls : [];
 	return urls.filter(
 		(url) =>
@@ -95,6 +101,97 @@ function getMediaCount(tweet: XurlMentionData) {
 			typeof url === "object" &&
 			typeof (url as Record<string, unknown>).media_key === "string",
 	).length;
+}
+
+function toLocalEntities(tweet: XurlMentionData): TweetEntities {
+	const raw = tweet.entities;
+	if (!raw || typeof raw !== "object") {
+		return {};
+	}
+
+	const entities = raw as Record<string, unknown>;
+	const rawMentions = Array.isArray(entities.mentions) ? entities.mentions : [];
+	const hasStructuredMedia =
+		Array.isArray(tweet.media) && tweet.media.length > 0;
+	const rawUrls = Array.isArray(entities.urls)
+		? entities.urls.filter((url) => {
+				if (!hasStructuredMedia || !url || typeof url !== "object") {
+					return true;
+				}
+				return typeof (url as Record<string, unknown>).media_key !== "string";
+			})
+		: [];
+
+	return {
+		...(rawMentions.length
+			? {
+					mentions: rawMentions.map((mention) => {
+						const value =
+							mention && typeof mention === "object"
+								? (mention as Record<string, unknown>)
+								: {};
+						return {
+							username: String(value.username ?? ""),
+							id: typeof value.id === "string" ? String(value.id) : undefined,
+							start: Number(value.start ?? 0),
+							end: Number(value.end ?? 0),
+						};
+					}),
+				}
+			: {}),
+		...(rawUrls.length
+			? {
+					urls: rawUrls.map((url) => {
+						const value =
+							url && typeof url === "object"
+								? (url as Record<string, unknown>)
+								: {};
+						return {
+							url: String(value.url ?? ""),
+							expandedUrl: String(
+								value.expandedUrl ?? value.expanded_url ?? value.url ?? "",
+							),
+							displayUrl: String(
+								value.displayUrl ??
+									value.display_url ??
+									value.expanded_url ??
+									value.url ??
+									"",
+							),
+							start: Number(value.start ?? 0),
+							end: Number(value.end ?? 0),
+						};
+					}),
+				}
+			: {}),
+	};
+}
+
+function toLocalMediaItems(tweet: XurlMentionData): TweetMediaItem[] {
+	if (!Array.isArray(tweet.media)) {
+		return [];
+	}
+
+	return tweet.media
+		.filter(
+			(item) => item && typeof item.url === "string" && item.url.length > 0,
+		)
+		.map((item) => ({
+			url: item.url,
+			type:
+				item.type === "image" ||
+				item.type === "video" ||
+				item.type === "gif" ||
+				item.type === "unknown"
+					? item.type
+					: "unknown",
+			...(typeof item.altText === "string" ? { altText: item.altText } : {}),
+			...(Number.isFinite(item.width) ? { width: Number(item.width) } : {}),
+			...(Number.isFinite(item.height) ? { height: Number(item.height) } : {}),
+			...(typeof item.thumbnailUrl === "string" && item.thumbnailUrl.length > 0
+				? { thumbnailUrl: item.thumbnailUrl }
+				: {}),
+		}));
 }
 
 function replaceTweetFts(db: Database.Database, tweetId: string, text: string) {
@@ -162,7 +259,7 @@ function mergeTimelineCollectionIntoLocalStore(
       id, account_id, author_profile_id, kind, text, created_at,
       is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
       entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?, ?, '[]', null)
+    ) values (?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?, ?, ?, ?)
     on conflict(id) do update set
       account_id = excluded.account_id,
       author_profile_id = excluded.author_profile_id,
@@ -175,7 +272,11 @@ function mergeTimelineCollectionIntoLocalStore(
       like_count = excluded.like_count,
       media_count = excluded.media_count,
       entities_json = excluded.entities_json,
-      media_json = excluded.media_json,
+      media_json = case
+        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
+        else tweets.media_json
+      end,
+      quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
       bookmarked = max(tweets.bookmarked, excluded.bookmarked),
       liked = max(tweets.liked, excluded.liked)
     `,
@@ -192,7 +293,15 @@ function mergeTimelineCollectionIntoLocalStore(
 
 	db.transaction(() => {
 		const updatedAt = new Date().toISOString();
-		for (const tweet of payload.data) {
+		const upsertTweetRecord = (
+			tweet: XurlMentionData,
+			bookmarkedValue: number,
+			likedValue: number,
+		) => {
+			if (tweet.quotedTweet && tweet.quotedTweet.id !== tweet.id) {
+				upsertTweetRecord(tweet.quotedTweet, 0, 0);
+			}
+
 			const author =
 				usersById.get(tweet.author_id) ??
 				({
@@ -203,6 +312,7 @@ function mergeTimelineCollectionIntoLocalStore(
 			const profile = usersById.has(tweet.author_id)
 				? upsertProfileFromXUser(db, author)
 				: ensureStubProfileForXUser(db, tweet.author_id);
+			const mediaItems = toLocalMediaItems(tweet);
 			upsertTweet.run(
 				tweet.id,
 				accountId,
@@ -212,10 +322,17 @@ function mergeTimelineCollectionIntoLocalStore(
 				tweet.created_at,
 				Number(tweet.public_metrics?.like_count ?? 0),
 				getMediaCount(tweet),
-				bookmarked,
-				liked,
-				JSON.stringify(tweet.entities ?? {}),
+				bookmarkedValue,
+				likedValue,
+				JSON.stringify(toLocalEntities(tweet)),
+				JSON.stringify(mediaItems),
+				tweet.quotedTweet?.id ?? null,
 			);
+			replaceTweetFts(db, tweet.id, tweet.text);
+		};
+
+		for (const tweet of payload.data) {
+			upsertTweetRecord(tweet, bookmarked, liked);
 			upsertCollection.run(
 				accountId,
 				tweet.id,
@@ -224,7 +341,6 @@ function mergeTimelineCollectionIntoLocalStore(
 				JSON.stringify(tweet),
 				updatedAt,
 			);
-			replaceTweetFts(db, tweet.id, tweet.text);
 		}
 	})();
 }

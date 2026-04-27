@@ -37,8 +37,29 @@ describe("bird transport wrapper", () => {
 						{
 							type: "photo",
 							url: "https://pbs.twimg.com/media/demo.jpg",
+							previewUrl: "https://pbs.twimg.com/media/demo.jpg:small",
+							width: 1200,
+							height: 800,
 						},
 					],
+					quotedTweet: {
+						id: "tweet_quote_1",
+						text: "quoted from bird",
+						createdAt: "Fri Mar 13 01:01:58 +0000 2026",
+						authorId: "43",
+						author: {
+							username: "amelia",
+							name: "Amelia",
+						},
+						media: [
+							{
+								type: "video",
+								url: "https://pbs.twimg.com/media/quote.jpg",
+								previewUrl: "https://pbs.twimg.com/media/quote.jpg:small",
+								videoUrl: "https://video.twimg.com/ext_tw_video/quote.mp4",
+							},
+						],
+					},
 				},
 			]),
 		});
@@ -73,6 +94,27 @@ describe("bird transport wrapper", () => {
 							}),
 						],
 					}),
+					media: [
+						{
+							url: "https://pbs.twimg.com/media/demo.jpg",
+							type: "image",
+							thumbnailUrl: "https://pbs.twimg.com/media/demo.jpg:small",
+							width: 1200,
+							height: 800,
+						},
+					],
+					quotedTweet: expect.objectContaining({
+						id: "tweet_quote_1",
+						author_id: "43",
+						text: "quoted from bird",
+						media: [
+							{
+								url: "https://video.twimg.com/ext_tw_video/quote.mp4",
+								type: "video",
+								thumbnailUrl: "https://pbs.twimg.com/media/quote.jpg:small",
+							},
+						],
+					}),
 				}),
 			],
 			includes: {
@@ -81,6 +123,11 @@ describe("bird transport wrapper", () => {
 						id: "42",
 						username: "sam",
 						name: "Sam",
+					},
+					{
+						id: "43",
+						username: "amelia",
+						name: "Amelia",
 					},
 				],
 			},
@@ -157,6 +204,12 @@ describe("bird transport wrapper", () => {
 						retweet_count: 5,
 						like_count: 6,
 					},
+					media: [
+						{
+							url: "https://pbs.twimg.com/media/other.jpg",
+							type: "image",
+						},
+					],
 				}),
 			],
 			includes: {

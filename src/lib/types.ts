@@ -271,6 +271,8 @@ export interface XurlMentionData {
 	created_at: string;
 	conversation_id?: string;
 	entities?: Record<string, unknown>;
+	media?: TweetMediaItem[];
+	quotedTweet?: XurlMentionData;
 	public_metrics?: XurlPublicMetrics;
 	edit_history_tweet_ids?: string[];
 }
