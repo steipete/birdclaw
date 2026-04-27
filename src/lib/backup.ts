@@ -14,6 +14,10 @@ const MANIFEST_PATH = "manifest.json";
 const DATA_DIR = "data";
 const AUTO_SYNC_CACHE_KEY = "backup:auto-sync";
 const DEFAULT_STALE_AFTER_SECONDS = 15 * 60;
+const PRIVATE_DIR_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
+const PLAINTEXT_PRIVATE_DATA_PUSH_ERROR =
+	"Refusing to push plaintext Birdclaw backup without explicit private-data consent. Backups include tweets, bookmarks, likes, DMs, action bodies, raw payloads, and AI scores. Verify the remote is private, then pass --allow-plaintext-private-data or set backup.allowPlaintextPrivateData=true.";
 
 type JsonValue =
 	| null
@@ -84,6 +88,24 @@ export interface BackupAutoUpdateResult {
 	error?: string;
 }
 
+export interface BackupExportOptions {
+	repoPath: string;
+	db?: Database.Database;
+	commit?: boolean;
+	push?: boolean;
+	message?: string;
+	validate?: boolean;
+	allowPlaintextPrivateData?: boolean;
+}
+
+export interface BackupSyncOptions {
+	repoPath: string;
+	remote?: string;
+	db?: Database.Database;
+	message?: string;
+	allowPlaintextPrivateData?: boolean;
+}
+
 export interface BackupValidationResult {
 	ok: boolean;
 	repoPath: string;
@@ -132,6 +154,38 @@ function toJsonRecord(row: Record<string, unknown>): JsonRecord {
 
 function sha256(content: string | Buffer) {
 	return createHash("sha256").update(content).digest("hex");
+}
+
+async function ensurePrivateDir(dirPath: string) {
+	await fs.mkdir(dirPath, { recursive: true, mode: PRIVATE_DIR_MODE });
+	try {
+		await fs.chmod(dirPath, PRIVATE_DIR_MODE);
+	} catch {
+		// Some filesystems do not support chmod. Creation mode still protects the
+		// normal local/macOS path this feature targets.
+	}
+}
+
+async function writePrivateTextFile(filePath: string, content: string) {
+	await fs.writeFile(filePath, content, {
+		encoding: "utf8",
+		mode: PRIVATE_FILE_MODE,
+	});
+	await chmodPrivateFile(filePath);
+}
+
+async function chmodPrivateFile(filePath: string) {
+	try {
+		await fs.chmod(filePath, PRIVATE_FILE_MODE);
+	} catch {
+		// See ensurePrivateDir.
+	}
+}
+
+function assertCanPushPlaintextPrivateData(allowed: boolean | undefined) {
+	if (!allowed) {
+		throw new Error(PLAINTEXT_PRIVATE_DATA_PUSH_ERROR);
+	}
 }
 
 const jsonlKeyOrderCache = new Map<string, string[]>();
@@ -372,7 +426,7 @@ async function writeJsonlFile(
 ) {
 	const fullPath = path.join(repoPath, relativePath);
 	const content = `${rows.map((row) => jsonlStringify(row)).join("\n")}\n`;
-	await fs.mkdir(path.dirname(fullPath), { recursive: true });
+	await ensurePrivateDir(path.dirname(fullPath));
 	let shouldWrite = true;
 	try {
 		shouldWrite = (await fs.readFile(fullPath, "utf8")) !== content;
@@ -380,7 +434,9 @@ async function writeJsonlFile(
 		shouldWrite = true;
 	}
 	if (shouldWrite) {
-		await fs.writeFile(fullPath, content, "utf8");
+		await writePrivateTextFile(fullPath, content);
+	} else {
+		await chmodPrivateFile(fullPath);
 	}
 	return {
 		path: relativePath,
@@ -459,13 +515,16 @@ function computeCounts(files: BackupFileManifest[]) {
 async function ensureBackupReadme(repoPath: string) {
 	const readmePath = path.join(repoPath, "README.md");
 	if (existsSync(readmePath)) {
+		await chmodPrivateFile(readmePath);
 		return;
 	}
-	await fs.writeFile(
+	await writePrivateTextFile(
 		readmePath,
 		`# Birdclaw Store
 
-Private text backup for Birdclaw data. The committed files are canonical JSONL shards that can rebuild the local SQLite index.
+Private text backup for Birdclaw data. The committed files are plaintext canonical JSONL shards that can rebuild the local SQLite index.
+
+This store can include tweets, bookmarks, likes, DMs, action bodies, raw source payloads, and AI scores. Keep the Git remote private. Birdclaw refuses to push these plaintext shards unless you explicitly allow plaintext private-data backup pushes.
 
 ## Layout
 
@@ -481,13 +540,14 @@ data/dms/conversations.jsonl
 data/dms/YYYY.jsonl
 data/moderation/blocks.jsonl
 data/moderation/mutes.jsonl
+data/actions/tweet_actions.jsonl
+data/ai_scores.jsonl
 \`\`\`
 
 Tweets are sharded by creation year. Collection-only tweets whose creation date is unknown live in \`data/tweets/unknown.jsonl\`. DMs are sharded by year and keep \`conversation_id\` in each row.
 
 Never commit live tokens, browser cookies, raw SQLite WAL/SHM sidecars, or temporary cache files here.
 `,
-		"utf8",
 	);
 }
 
@@ -496,12 +556,13 @@ async function writeManifest(repoPath: string, manifest: BackupManifest) {
 	const content = `${canonicalStringify(manifest as unknown as JsonRecord)}\n`;
 	try {
 		if ((await fs.readFile(manifestPath, "utf8")) === content) {
+			await chmodPrivateFile(manifestPath);
 			return;
 		}
 	} catch {
 		// New backup repo.
 	}
-	await fs.writeFile(manifestPath, content, "utf8");
+	await writePrivateTextFile(manifestPath, content);
 }
 
 async function readPreviousManifest(repoPath: string) {
@@ -643,8 +704,9 @@ async function ensureBackupGitRepo({
 	if (!(await isGitRepo(repoPath))) {
 		if (remote && !existsSync(repoPath)) {
 			await execFileAsync("git", ["clone", remote, repoPath]);
+			await ensurePrivateDir(repoPath);
 		} else {
-			await fs.mkdir(repoPath, { recursive: true });
+			await ensurePrivateDir(repoPath);
 			await execFileAsync("git", ["-C", repoPath, "init"]);
 		}
 	}
@@ -733,16 +795,13 @@ export async function exportBackup({
 	push = false,
 	message = "archive: update birdclaw backup",
 	validate = true,
-}: {
-	repoPath: string;
-	db?: Database.Database;
-	commit?: boolean;
-	push?: boolean;
-	message?: string;
-	validate?: boolean;
-}): Promise<BackupExportResult> {
+	allowPlaintextPrivateData = false,
+}: BackupExportOptions): Promise<BackupExportResult> {
+	if (push) {
+		assertCanPushPlaintextPrivateData(allowPlaintextPrivateData);
+	}
 	const resolvedRepoPath = path.resolve(repoPath);
-	await fs.mkdir(resolvedRepoPath, { recursive: true });
+	await ensurePrivateDir(resolvedRepoPath);
 	await ensureBackupReadme(resolvedRepoPath);
 
 	const shards = buildShards(db);
@@ -1246,12 +1305,9 @@ export async function syncBackup({
 	remote,
 	db = getNativeDb({ seedDemoData: false }),
 	message = "archive: sync birdclaw backup",
-}: {
-	repoPath: string;
-	remote?: string;
-	db?: Database.Database;
-	message?: string;
-}): Promise<BackupSyncResult> {
+	allowPlaintextPrivateData = false,
+}: BackupSyncOptions): Promise<BackupSyncResult> {
+	assertCanPushPlaintextPrivateData(allowPlaintextPrivateData);
 	const resolvedRepoPath = path.resolve(repoPath);
 	await ensureBackupGitRepo({ repoPath: resolvedRepoPath, remote });
 	const pulled = await pullBackupGitRepo(resolvedRepoPath);
@@ -1269,6 +1325,7 @@ export async function syncBackup({
 		commit: true,
 		push: true,
 		message,
+		allowPlaintextPrivateData,
 	});
 
 	return {
@@ -1376,6 +1433,7 @@ function resolveAutoSyncConfig() {
 			path.join(process.env.HOME || ".", "Projects", "backup-birdclaw"),
 		remote,
 		staleAfterSeconds,
+		allowPlaintextPrivateData: backup.allowPlaintextPrivateData === true,
 	};
 }
 
@@ -1473,6 +1531,7 @@ export async function maybeAutoSyncBackup(
 			repoPath: config.repoPath,
 			remote: config.remote,
 			db: database,
+			allowPlaintextPrivateData: config.allowPlaintextPrivateData,
 		});
 		writeAutoSyncState(database, { checkedAt: now, ok: true });
 		return {
