@@ -128,6 +128,17 @@ describe("birdclaw queries", () => {
 
 		expect(filtered.map((item) => item.id)).toEqual(["dm_003"]);
 		expect(filtered[0]?.lastMessagePreview).toContain("context rail");
+		expect(filtered[0]?.searchSnippet).toContain(
+			"<mark>context</mark> <mark>rail</mark>",
+		);
+	});
+
+	it("omits DM search snippets when no query is provided", () => {
+		setupTempHome();
+
+		const items = listDmConversations({ limit: 1 });
+
+		expect(items[0]).not.toHaveProperty("searchSnippet");
 	});
 
 	it("hydrates a selected conversation thread with sender context", () => {
@@ -163,6 +174,15 @@ describe("birdclaw queries", () => {
 
 		expect(items.map((item) => item.id)).toEqual(["tweet_006"]);
 		expect(items[0]?.accountId).toBe("acct_studio");
+		expect(items[0]?.searchSnippet).toContain("<mark>Agents</mark>");
+	});
+
+	it("omits timeline search snippets when no query is provided", () => {
+		setupTempHome();
+
+		const items = listTimelineItems({ resource: "home", limit: 1 });
+
+		expect(items[0]).not.toHaveProperty("searchSnippet");
 	});
 
 	it("filters timeline items by liked and bookmarked state across collections", () => {

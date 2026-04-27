@@ -351,6 +351,23 @@ describe("cli", () => {
 		expect(exitMock).toHaveBeenCalledWith(0);
 	});
 
+	it("prints tweet search snippets in json output", async () => {
+		listTimelineItemsMock.mockReturnValue([
+			{
+				id: "tweet_006",
+				searchSnippet:
+					"<mark>Agents</mark> need retrieval surfaces with small, stable contracts.",
+			},
+		]);
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "--json", "search", "tweets", "agents"]);
+
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"searchSnippet": "<mark>Agents</mark>'),
+		);
+	});
+
 	it("prints the package version", async () => {
 		const exitMock = vi.spyOn(process, "exit").mockImplementation((() => {
 			return undefined as never;
