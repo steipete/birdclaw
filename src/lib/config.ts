@@ -26,6 +26,7 @@ export interface BirdclawConfig {
 		remote?: string;
 		autoSync?: boolean;
 		staleAfterSeconds?: number;
+		allowPlaintextPrivateData?: boolean;
 	};
 }
 

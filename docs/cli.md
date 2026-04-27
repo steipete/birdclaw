@@ -128,9 +128,10 @@ birdclaw debug transport
 - validates the manifest and file hashes by default
 - `--commit` creates a Git commit in the backup repo
 - `--push` implies commit and pushes the backup repo
+- `--allow-plaintext-private-data` is required with `--push`; use it only after verifying the remote is private
 
 ```bash
-birdclaw backup export --repo ~/Projects/birdclaw-store --commit --push
+birdclaw backup export --repo ~/Projects/birdclaw-store --commit --push --allow-plaintext-private-data
 ```
 
 ### `backup sync`
@@ -139,10 +140,10 @@ birdclaw backup export --repo ~/Projects/birdclaw-store --commit --push
 - pulls the backup repo before reading
 - merge-imports remote backup rows into local SQLite
 - exports the local union back into deterministic text shards
-- commits and pushes the backup repo
+- commits and pushes the backup repo only with explicit plaintext-private-data consent
 
 ```bash
-birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --json
+birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --allow-plaintext-private-data --json
 ```
 
 Shard contract:
@@ -152,6 +153,8 @@ Shard contract:
 - collections: `data/collections/likes.jsonl`, `data/collections/bookmarks.jsonl`
 - DMs: `data/dms/conversations.jsonl` plus `data/dms/YYYY.jsonl`
 - moderation: `data/moderation/blocks.jsonl`, `data/moderation/mutes.jsonl`
+- actions: `data/actions/tweet_actions.jsonl`
+- AI scores: `data/ai_scores.jsonl`
 - no SQLite WAL/SHM, FTS shadow tables, or transient live cache rows
 
 Backup auto-sync config lives in `~/.birdclaw/config.json`:
@@ -162,12 +165,13 @@ Backup auto-sync config lives in `~/.birdclaw/config.json`:
 		"repoPath": "/Users/steipete/Projects/backup-birdclaw",
 		"remote": "https://github.com/steipete/backup-birdclaw.git",
 		"autoSync": true,
-		"staleAfterSeconds": 900
+		"staleAfterSeconds": 900,
+		"allowPlaintextPrivateData": true
 	}
 }
 ```
 
-Read commands pull + merge only when the last backup check is stale. Data-changing commands run a full backup sync afterward. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable backup auto-sync for one process.
+Read commands pull + merge only when the last backup check is stale. Data-changing commands run a full backup sync afterward only when `allowPlaintextPrivateData` is enabled. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable backup auto-sync for one process.
 
 ### `backup import`
 
