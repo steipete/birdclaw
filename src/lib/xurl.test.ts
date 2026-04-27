@@ -320,9 +320,13 @@ describe("xurl transport wrapper", () => {
 			meta: { next_token: "next" },
 		});
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"--auth",
+			"oauth2",
 			"/2/users/25401953/liked_tweets?max_results=5&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=description%2Cpublic_metrics%2Cprofile_image_url%2Ccreated_at%2Cverified",
 		]);
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"--auth",
+			"oauth2",
 			"/2/users/25401953/bookmarks?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=description%2Cpublic_metrics%2Cprofile_image_url%2Ccreated_at%2Cverified&pagination_token=next",
 		]);
 	});

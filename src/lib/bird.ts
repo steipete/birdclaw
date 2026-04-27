@@ -8,6 +8,7 @@ import type {
 } from "./types";
 
 const execFileAsync = promisify(execFile);
+const BIRD_JSON_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
 
 interface BirdTweetMedia {
 	type?: string;
@@ -71,6 +72,88 @@ function toIsoTimestamp(value: string) {
 		return value;
 	}
 	return parsed.toISOString();
+}
+
+function escapeJsonStringControlChars(value: string) {
+	let output = "";
+	let inString = false;
+	let escaped = false;
+
+	for (const character of value) {
+		if (!inString) {
+			output += character;
+			if (character === '"') {
+				inString = true;
+			}
+			continue;
+		}
+
+		if (escaped) {
+			output += character;
+			escaped = false;
+			continue;
+		}
+
+		if (character === "\\") {
+			output += character;
+			escaped = true;
+			continue;
+		}
+
+		if (character === '"') {
+			output += character;
+			inString = false;
+			continue;
+		}
+
+		if (character === "\n") {
+			output += "\\n";
+			continue;
+		}
+		if (character === "\r") {
+			output += "\\r";
+			continue;
+		}
+		if (character === "\t") {
+			output += "\\t";
+			continue;
+		}
+		if (character.charCodeAt(0) < 0x20) {
+			output += `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`;
+			continue;
+		}
+
+		output += character;
+	}
+
+	return output;
+}
+
+function parseBirdJson(stdout: string) {
+	try {
+		return JSON.parse(stdout) as unknown;
+	} catch (error) {
+		if (!(error instanceof SyntaxError)) {
+			throw error;
+		}
+		return JSON.parse(escapeJsonStringControlChars(stdout)) as unknown;
+	}
+}
+
+function getBirdTweetItems(payload: unknown, command: string) {
+	if (Array.isArray(payload)) {
+		return payload as BirdTweetItem[];
+	}
+
+	if (
+		payload &&
+		typeof payload === "object" &&
+		Array.isArray((payload as { tweets?: unknown }).tweets)
+	) {
+		return (payload as { tweets: BirdTweetItem[] }).tweets;
+	}
+
+	throw new Error(`bird ${command} returned unexpected JSON`);
 }
 
 function toMediaEntities(media: BirdTweetMedia[] | undefined) {
@@ -142,18 +225,14 @@ export async function listMentionsViaBird({
 	maxResults: number;
 }): Promise<XurlMentionsResponse> {
 	const birdCommand = getBirdCommand();
-	const { stdout } = await execFileAsync(birdCommand, [
-		"mentions",
-		"-n",
-		String(maxResults),
-		"--json",
-	]);
-	const payload = JSON.parse(stdout) as unknown;
-	if (!Array.isArray(payload)) {
-		throw new Error("bird mentions returned unexpected JSON");
-	}
+	const { stdout } = await execFileAsync(
+		birdCommand,
+		["mentions", "-n", String(maxResults), "--json"],
+		{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES },
+	);
+	const payload = parseBirdJson(stdout);
 
-	return normalizeBirdTweets(payload as BirdTweetItem[]);
+	return normalizeBirdTweets(getBirdTweetItems(payload, "mentions"));
 }
 
 async function listTweetsViaBirdCommand({
@@ -175,13 +254,12 @@ async function listTweetsViaBirdCommand({
 	if (maxPages !== undefined) {
 		args.push("--max-pages", String(maxPages));
 	}
-	const { stdout } = await execFileAsync(birdCommand, args);
-	const payload = JSON.parse(stdout) as unknown;
-	if (!Array.isArray(payload)) {
-		throw new Error(`bird ${command} returned unexpected JSON`);
-	}
+	const { stdout } = await execFileAsync(birdCommand, args, {
+		maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES,
+	});
+	const payload = parseBirdJson(stdout);
 
-	return normalizeBirdTweets(payload as BirdTweetItem[]);
+	return normalizeBirdTweets(getBirdTweetItems(payload, command));
 }
 
 export async function listLikedTweetsViaBird({
@@ -224,13 +302,12 @@ export async function listDirectMessagesViaBird({
 	maxResults: number;
 }): Promise<BirdDmsResponse> {
 	const birdCommand = getBirdCommand();
-	const { stdout } = await execFileAsync(birdCommand, [
-		"dms",
-		"-n",
-		String(maxResults),
-		"--json",
-	]);
-	const payload = JSON.parse(stdout) as unknown;
+	const { stdout } = await execFileAsync(
+		birdCommand,
+		["dms", "-n", String(maxResults), "--json"],
+		{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES },
+	);
+	const payload = parseBirdJson(stdout);
 	if (
 		!payload ||
 		typeof payload !== "object" ||

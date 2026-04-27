@@ -8,6 +8,7 @@ export interface AccountRecord {
 	id: string;
 	name: string;
 	handle: string;
+	externalUserId?: string | null;
 	transport: string;
 	isDefault: number;
 	createdAt: string;

@@ -84,6 +84,15 @@ describe("database init", () => {
 			expect.arrayContaining(["cache_key", "value_json", "updated_at"]),
 		);
 
+		const accountColumnNames = db
+			.prepare("pragma table_info(accounts)")
+			.all() as Array<{
+			name: string;
+		}>;
+		expect(accountColumnNames.map((column) => column.name)).toEqual(
+			expect.arrayContaining(["external_user_id"]),
+		);
+
 		const muteColumnNames = db
 			.prepare("pragma table_info(mutes)")
 			.all() as Array<{

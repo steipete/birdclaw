@@ -400,6 +400,8 @@ async function listTimelineCollectionViaXurl({
 	}
 
 	const payload = await runJsonCommand([
+		"--auth",
+		"oauth2",
 		`/2/users/${resolvedUserId}/${collection}?${query.toString()}`,
 	]);
 	return {

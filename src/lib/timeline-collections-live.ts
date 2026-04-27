@@ -53,18 +53,24 @@ function assertXurlLimit(limit: number) {
 function resolveAccount(db: Database.Database, accountId?: string) {
 	const row = accountId
 		? (db
-				.prepare("select id, handle from accounts where id = ?")
-				.get(accountId) as { id: string; handle: string } | undefined)
+				.prepare(
+					"select id, handle, external_user_id from accounts where id = ?",
+				)
+				.get(accountId) as
+				| { id: string; handle: string; external_user_id: string | null }
+				| undefined)
 		: (db
 				.prepare(
 					`
-          select id, handle
+          select id, handle, external_user_id
           from accounts
           order by is_default desc, created_at asc
           limit 1
           `,
 				)
-				.get() as { id: string; handle: string } | undefined);
+				.get() as
+				| { id: string; handle: string; external_user_id: string | null }
+				| undefined);
 
 	if (!row) {
 		throw new Error(`Unknown account: ${accountId ?? "default"}`);
@@ -73,6 +79,11 @@ function resolveAccount(db: Database.Database, accountId?: string) {
 	return {
 		accountId: row.id,
 		username: row.handle.replace(/^@/, ""),
+		externalUserId:
+			typeof row.external_user_id === "string" &&
+			row.external_user_id.length > 0
+				? row.external_user_id
+				: undefined,
 	};
 }
 
@@ -202,19 +213,25 @@ function mergeTimelineCollectionIntoLocalStore(
 async function fetchXurlCollection({
 	kind,
 	username,
+	userId,
 	limit,
 	all,
 	maxPages,
 }: {
 	kind: TimelineCollectionKind;
 	username: string;
+	userId?: string;
 	limit: number;
 	all: boolean;
 	maxPages: number | null;
 }) {
-	const [accountUser] = await lookupUsersByHandles([username]);
-	if (!accountUser?.id) {
-		throw new Error(`Could not resolve X user id for @${username}`);
+	let resolvedUserId = userId;
+	if (!resolvedUserId) {
+		const [accountUser] = await lookupUsersByHandles([username]);
+		if (!accountUser?.id) {
+			throw new Error(`Could not resolve X user id for @${username}`);
+		}
+		resolvedUserId = String(accountUser.id);
 	}
 
 	const pages: XurlMentionsResponse[] = [];
@@ -226,13 +243,13 @@ async function fetchXurlCollection({
 				? await listLikedTweetsViaXurl({
 						maxResults: limit,
 						username,
-						userId: String(accountUser.id),
+						userId: resolvedUserId,
 						paginationToken: nextToken,
 					})
 				: await listBookmarkedTweetsViaXurl({
 						maxResults: limit,
 						username,
-						userId: String(accountUser.id),
+						userId: resolvedUserId,
 						paginationToken: nextToken,
 					});
 		pages.push(payload);
@@ -330,6 +347,7 @@ export async function syncTimelineCollection({
 			payload = await fetchXurlCollection({
 				kind,
 				username: resolvedAccount.username,
+				userId: resolvedAccount.externalUserId,
 				limit,
 				all,
 				maxPages: parsedMaxPages,

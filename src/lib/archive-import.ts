@@ -732,8 +732,8 @@ export async function importArchive(
 
 	const db = getNativeDb();
 	const insertAccount = db.prepare(`
-    insert into accounts (id, name, handle, transport, is_default, created_at)
-    values (?, ?, ?, ?, 1, ?)
+    insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+    values (?, ?, ?, ?, ?, 1, ?)
   `);
 	const insertProfile = db.prepare(`
     insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at)
@@ -767,6 +767,7 @@ export async function importArchive(
 			"acct_primary",
 			accountPayload.displayName,
 			`@${accountPayload.username}`,
+			accountPayload.accountId,
 			"archive",
 			accountPayload.createdAt,
 		);

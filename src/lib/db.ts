@@ -7,6 +7,7 @@ export interface AccountsTable {
 	id: string;
 	name: string;
 	handle: string;
+	external_user_id: string | null;
 	transport: string;
 	is_default: number;
 	created_at: string;
@@ -126,6 +127,7 @@ const BASE_SCHEMA_SQL = `
     id text primary key,
     name text not null,
     handle text not null unique,
+    external_user_id text,
     transport text not null,
     is_default integer not null default 0,
     created_at text not null
@@ -281,6 +283,13 @@ function ensureProfileAvatarColumns(db: BetterSqlite3.Database) {
 	}
 }
 
+function ensureAccountExternalUserIdColumn(db: BetterSqlite3.Database) {
+	const columnNames = getColumnNames(db, "accounts");
+	if (!columnNames.has("external_user_id")) {
+		db.exec("alter table accounts add column external_user_id text");
+	}
+}
+
 function ensureSchemaIndexes(db: BetterSqlite3.Database) {
 	db.exec(INDEX_SQL);
 }
@@ -292,6 +301,7 @@ function initDatabase() {
 		const { dbPath } = getBirdclawPaths();
 		nativeDb = new BetterSqlite3(dbPath);
 		nativeDb.exec(BASE_SCHEMA_SQL);
+		ensureAccountExternalUserIdColumn(nativeDb);
 		ensureTweetMetadataColumns(nativeDb);
 		ensureProfileAvatarColumns(nativeDb);
 		ensureSchemaIndexes(nativeDb);

@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
 - Refresh dependencies, including `jsdom` 29.1.0.
 - Hide reply state and reply actions in saved likes/bookmarks web lanes.
 
+### Fixed
+
+- Fix live bookmark sync to use stored X user ids, force OAuth2 for `xurl` collection reads, and tolerate large/current `bird` bookmark payloads.
+
 ## 0.1.1 - 2026-04-27
 
 ### Added

@@ -51,7 +51,6 @@ afterEach(() => {
 describe("live timeline collection sync", () => {
 	it("syncs liked tweets from xurl into local search filters", async () => {
 		setupTempHome();
-		mocks.lookupUsersByHandles.mockResolvedValue([{ id: "25401953" }]);
 		mocks.listLikedTweetsViaXurl.mockResolvedValue({
 			data: [
 				{
@@ -80,6 +79,10 @@ describe("live timeline collection sync", () => {
 		const syncedLiked = liked.find((item) => item.id === "liked_1");
 
 		expect(result).toMatchObject({ ok: true, source: "xurl", count: 1 });
+		expect(mocks.lookupUsersByHandles).not.toHaveBeenCalled();
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: "25401953" }),
+		);
 		expect(syncedLiked).toMatchObject({
 			liked: true,
 			bookmarked: false,

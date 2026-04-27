@@ -199,6 +199,7 @@ export async function getQueryEnvelope(): Promise<QueryEnvelope> {
 			id: row.id,
 			name: row.name,
 			handle: row.handle,
+			externalUserId: row.external_user_id,
 			transport: row.transport,
 			isDefault: row.is_default,
 			createdAt: row.created_at,

@@ -34,8 +34,8 @@ export function seedDemoData(db: Database.Database) {
 	}
 
 	const insertAccount = db.prepare(`
-    insert into accounts (id, name, handle, transport, is_default, created_at)
-    values (@id, @name, @handle, @transport, @isDefault, @createdAt)
+    insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+    values (@id, @name, @handle, @externalUserId, @transport, @isDefault, @createdAt)
   `);
 
 	const insertProfile = db.prepare(`
@@ -81,6 +81,7 @@ export function seedDemoData(db: Database.Database) {
 			id: "acct_primary",
 			name: "Peter",
 			handle: "@steipete",
+			externalUserId: "25401953",
 			transport: "xurl",
 			isDefault: 1,
 			createdAt: now.toISOString(),
@@ -89,6 +90,7 @@ export function seedDemoData(db: Database.Database) {
 			id: "acct_studio",
 			name: "Studio",
 			handle: "@birdclaw_lab",
+			externalUserId: null,
 			transport: "xurl",
 			isDefault: 0,
 			createdAt: now.toISOString(),
