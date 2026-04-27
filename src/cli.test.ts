@@ -31,6 +31,8 @@ const createTweetReplyMock = vi.fn();
 const createDmReplyMock = vi.fn();
 const removeBlockMock = vi.fn();
 const removeMuteMock = vi.fn();
+const maybeAutoUpdateBackupMock = vi.fn();
+const maybeAutoSyncBackupMock = vi.fn();
 const spawnMock = vi.fn();
 const execFileAsyncMock = vi.fn();
 const execFileMock = vi.fn();
@@ -59,6 +61,15 @@ vi.mock("#/lib/archive-finder", () => ({
 vi.mock("#/lib/archive-import", () => ({
 	importArchive: (...args: unknown[]) => importArchiveMock(...args),
 }));
+
+vi.mock("#/lib/backup", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("#/lib/backup")>();
+	return {
+		...actual,
+		maybeAutoUpdateBackup: () => maybeAutoUpdateBackupMock(),
+		maybeAutoSyncBackup: () => maybeAutoSyncBackupMock(),
+	};
+});
 
 vi.mock("#/lib/blocklist", () => ({
 	importBlocklist: (...args: unknown[]) => importBlocklistMock(...args),
@@ -167,6 +178,8 @@ describe("cli", () => {
 		createDmReplyMock.mockReset();
 		removeBlockMock.mockReset();
 		removeMuteMock.mockReset();
+		maybeAutoUpdateBackupMock.mockReset();
+		maybeAutoSyncBackupMock.mockReset();
 		spawnMock.mockReset();
 		execFileAsyncMock.mockReset();
 
@@ -267,6 +280,16 @@ describe("cli", () => {
 		createDmReplyMock.mockResolvedValue({ ok: true, messageId: "msg_new" });
 		removeBlockMock.mockResolvedValue({ ok: true, action: "unblock" });
 		removeMuteMock.mockResolvedValue({ ok: true, action: "unmute" });
+		maybeAutoUpdateBackupMock.mockResolvedValue({
+			ok: true,
+			enabled: false,
+			skipped: true,
+		});
+		maybeAutoSyncBackupMock.mockResolvedValue({
+			ok: true,
+			enabled: false,
+			skipped: true,
+		});
 		execFileAsyncMock.mockRejectedValue(new Error("missing"));
 		spawnMock.mockReturnValue({
 			on: (_event: string, handler: (code: number) => void) => handler(0),
@@ -408,6 +431,45 @@ describe("cli", () => {
 
 		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip");
 		expect(findArchivesMock).not.toHaveBeenCalled();
+	});
+
+	it("reports backup auto-sync failures without hiding command output", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		maybeAutoUpdateBackupMock.mockResolvedValue({
+			ok: false,
+			enabled: true,
+			skipped: false,
+			error: "pull failed",
+		});
+		maybeAutoSyncBackupMock.mockResolvedValue({
+			ok: false,
+			enabled: true,
+			skipped: false,
+			error: "push failed",
+		});
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "search", "tweets", "local"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"import",
+			"archive",
+			"/tmp/x.zip",
+		]);
+
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			"birdclaw backup auto-sync failed: pull failed",
+		);
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			"birdclaw backup sync failed: push failed",
+		);
+		expect(listTimelineItemsMock).toHaveBeenCalled();
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/x.zip");
+		consoleErrorMock.mockRestore();
 	});
 
 	it("hydrates archive profiles and errors when no archive exists", async () => {

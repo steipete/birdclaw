@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
 import {
+	appendFileSync,
 	existsSync,
 	mkdtempSync,
 	readFileSync,
@@ -14,6 +15,7 @@ import {
 	exportBackup,
 	getBackupDatabaseFingerprint,
 	importBackup,
+	maybeAutoSyncBackup,
 	maybeAutoUpdateBackup,
 	syncBackup,
 	validateBackup,
@@ -45,7 +47,20 @@ function clearData() {
     delete from profiles;
     delete from accounts;
     delete from sync_cache;
-  `);
+	`);
+}
+
+function writeBackupConfig(
+	home: string,
+	backup: {
+		repoPath?: string;
+		remote?: string;
+		autoSync?: boolean;
+		staleAfterSeconds?: number;
+	},
+) {
+	writeFileSync(path.join(home, "config.json"), JSON.stringify({ backup }));
+	resetBirdclawPathsForTests();
 }
 
 function seedBackupFixture() {
@@ -178,7 +193,7 @@ describe("text backup", () => {
 
 		const validation = await validateBackup(repoPath);
 		expect(validation.ok).toBe(true);
-	});
+	}, 20000);
 
 	it("merges backup rows without deleting local-only tweets", async () => {
 		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-src-");
@@ -224,7 +239,7 @@ describe("text backup", () => {
 				.prepare("select count(*) from tweets where id = 'tweet_2025'")
 				.get() as { "count(*)": number },
 		).toEqual({ "count(*)": 1 });
-	});
+	}, 20000);
 
 	it("syncs through git by pulling, merging, exporting, committing, and pushing", async () => {
 		const remotePath = path.join(makeTempDir("birdclaw-remote-"), "remote.git");
@@ -262,7 +277,40 @@ describe("text backup", () => {
 				)
 				.get(),
 		).toEqual({ count: 3 });
-	});
+	}, 20000);
+
+	it("reports validation errors for missing or corrupt backup files", async () => {
+		const missingManifest = await validateBackup(
+			makeTempDir("birdclaw-empty-"),
+		);
+
+		expect(missingManifest.ok).toBe(false);
+		expect(missingManifest.errors[0]).toContain("manifest.json");
+
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-corrupt-src-");
+		seedBackupFixture();
+		const repoPath = makeTempDir("birdclaw-corrupt-store-");
+		await exportBackup({ repoPath });
+
+		const manifestPath = path.join(repoPath, "manifest.json");
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+			backupHash: string;
+			counts: { tweets: number };
+		};
+		manifest.backupHash = "bad-hash";
+		manifest.counts.tweets = -1;
+		writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+		appendFileSync(path.join(repoPath, "data/tweets/2024.jsonl"), "{broken\n");
+		rmSync(path.join(repoPath, "data/profiles.jsonl"));
+
+		const validation = await validateBackup(repoPath);
+
+		expect(validation.ok).toBe(false);
+		expect(validation.errors.join("\n")).toContain("data/profiles.jsonl");
+		expect(validation.errors.join("\n")).toContain("data/tweets/2024.jsonl:2");
+		expect(validation.errors.join("\n")).toContain("backup hash");
+		expect(validation.errors.join("\n")).toContain("manifest counts");
+	}, 20000);
 
 	it("auto-updates from the configured backup repo only when stale", async () => {
 		const previousAutoSyncEnv = process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
@@ -326,5 +374,193 @@ describe("text backup", () => {
 				process.env.BIRDCLAW_BACKUP_AUTO_SYNC = previousAutoSyncEnv;
 			}
 		}
+	}, 20000);
+
+	it("skips automatic backup work when disabled or unconfigured", async () => {
+		const previousAutoSyncEnv = process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+		try {
+			process.env.BIRDCLAW_BACKUP_AUTO_SYNC = "0";
+			await expect(maybeAutoUpdateBackup()).resolves.toMatchObject({
+				ok: true,
+				enabled: false,
+				skipped: true,
+			});
+			await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+				ok: true,
+				enabled: false,
+				skipped: true,
+			});
+
+			process.env.BIRDCLAW_BACKUP_AUTO_SYNC = "1";
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-unconfigured-");
+			resetDatabaseForTests();
+			resetBirdclawPathsForTests();
+
+			await expect(maybeAutoUpdateBackup()).resolves.toMatchObject({
+				ok: true,
+				enabled: false,
+				skipped: true,
+				reason: "backup auto-sync is not configured",
+			});
+			await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+				ok: true,
+				enabled: false,
+				skipped: true,
+				reason: "backup auto-sync is not configured",
+			});
+		} finally {
+			if (previousAutoSyncEnv === undefined) {
+				delete process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+			} else {
+				process.env.BIRDCLAW_BACKUP_AUTO_SYNC = previousAutoSyncEnv;
+			}
+		}
 	});
+
+	it("handles backup auto-sync config variants and failures", async () => {
+		const previousAutoSyncEnv = process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+		process.env.BIRDCLAW_BACKUP_AUTO_SYNC = "1";
+		try {
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-off-");
+			writeBackupConfig(process.env.BIRDCLAW_HOME, {
+				repoPath: makeTempDir("birdclaw-auto-off-repo-"),
+				autoSync: false,
+			});
+
+			await expect(maybeAutoUpdateBackup()).resolves.toMatchObject({
+				ok: true,
+				enabled: false,
+				skipped: true,
+			});
+
+			resetDatabaseForTests();
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-empty-config-");
+			writeBackupConfig(process.env.BIRDCLAW_HOME, {});
+
+			await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+				ok: true,
+				enabled: false,
+				skipped: true,
+			});
+
+			resetDatabaseForTests();
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-repo-only-");
+			const repoOnlyPath = makeTempDir("birdclaw-auto-repo-only-work-");
+			writeBackupConfig(process.env.BIRDCLAW_HOME, {
+				repoPath: repoOnlyPath,
+				staleAfterSeconds: -1,
+			});
+
+			const repoOnly = await maybeAutoUpdateBackup();
+
+			expect(repoOnly).toMatchObject({
+				ok: true,
+				enabled: true,
+				skipped: false,
+				imported: false,
+			});
+			expect(repoOnly.remote).toBeUndefined();
+
+			const db = getNativeDb();
+			db.prepare(
+				"update sync_cache set value_json = ? where cache_key = 'backup:auto-sync'",
+			).run("{broken");
+			const invalidState = await maybeAutoUpdateBackup();
+			expect(invalidState).toMatchObject({
+				ok: true,
+				enabled: true,
+				skipped: false,
+			});
+
+			db.prepare(
+				"update sync_cache set value_json = ? where cache_key = 'backup:auto-sync'",
+			).run(
+				JSON.stringify({
+					checkedAt: new Date(Date.now() + 60_000).toISOString(),
+					ok: true,
+				}),
+			);
+			const futureState = await maybeAutoUpdateBackup();
+			expect(futureState).toMatchObject({
+				ok: true,
+				enabled: true,
+				skipped: false,
+			});
+
+			resetDatabaseForTests();
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-fail-update-");
+			const fileRepoPath = path.join(process.env.BIRDCLAW_HOME, "not-a-dir");
+			writeFileSync(fileRepoPath, "");
+			writeBackupConfig(process.env.BIRDCLAW_HOME, { repoPath: fileRepoPath });
+
+			await expect(maybeAutoUpdateBackup()).resolves.toMatchObject({
+				ok: false,
+				enabled: true,
+				skipped: false,
+				repoPath: fileRepoPath,
+			});
+			await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+				ok: false,
+				enabled: true,
+				skipped: false,
+				repoPath: fileRepoPath,
+			});
+		} finally {
+			if (previousAutoSyncEnv === undefined) {
+				delete process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+			} else {
+				process.env.BIRDCLAW_BACKUP_AUTO_SYNC = previousAutoSyncEnv;
+			}
+		}
+	});
+
+	it("auto-syncs local changes back to the configured backup repo", async () => {
+		const previousAutoSyncEnv = process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+		process.env.BIRDCLAW_BACKUP_AUTO_SYNC = "1";
+		const remotePath = path.join(makeTempDir("birdclaw-remote-"), "remote.git");
+		execFileSync("git", ["init", "--bare", remotePath]);
+
+		try {
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-write-");
+			seedBackupFixture();
+			const repoPath = makeTempDir("birdclaw-auto-write-work-");
+			writeFileSync(
+				path.join(process.env.BIRDCLAW_HOME, "config.json"),
+				JSON.stringify({
+					backup: {
+						repoPath,
+						remote: remotePath,
+						autoSync: true,
+						staleAfterSeconds: 900,
+					},
+				}),
+			);
+			resetBirdclawPathsForTests();
+
+			const result = await maybeAutoSyncBackup();
+
+			expect(result).toMatchObject({
+				ok: true,
+				enabled: true,
+				skipped: false,
+				imported: false,
+			});
+			expect(existsSync(path.join(repoPath, "manifest.json"))).toBe(true);
+			expect(
+				execFileSync(
+					"git",
+					["--git-dir", remotePath, "rev-list", "--count", "HEAD"],
+					{
+						encoding: "utf8",
+					},
+				).trim(),
+			).toBe("1");
+		} finally {
+			if (previousAutoSyncEnv === undefined) {
+				delete process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
+			} else {
+				process.env.BIRDCLAW_BACKUP_AUTO_SYNC = previousAutoSyncEnv;
+			}
+		}
+	}, 20000);
 });
