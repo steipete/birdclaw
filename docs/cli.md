@@ -1,6 +1,7 @@
 # CLI Spec
 
 Designed with `create-cli` defaults:
+
 - humans first
 - scriptable
 - stable `--json`
@@ -40,9 +41,11 @@ birdclaw [global flags] <subcommand> [args]
 Flags > env > project config > user config
 
 User config:
+
 - `~/.birdclaw/config.json`
 
 Project config:
+
 - `./.birdclawrc.json5`
 
 ## Env vars
@@ -91,6 +94,10 @@ birdclaw compose post
 birdclaw compose reply <tweet-id>
 birdclaw db stats
 birdclaw db vacuum
+birdclaw backup export --repo <path>
+birdclaw backup sync --repo <path> --remote <url>
+birdclaw backup import <path>
+birdclaw backup validate <path>
 birdclaw debug transport
 ```
 
@@ -114,6 +121,59 @@ birdclaw debug transport
 - set preferred transport for profile
 - allowed: `auto`, `xurl`, `bird`, `official`, `xweb`
 
+### `backup export`
+
+- writes Git-friendly canonical JSONL text shards
+- removes and rewrites the `data/` directory in the backup repo
+- validates the manifest and file hashes by default
+- `--commit` creates a Git commit in the backup repo
+- `--push` implies commit and pushes the backup repo
+
+```bash
+birdclaw backup export --repo ~/Projects/birdclaw-store --commit --push
+```
+
+### `backup sync`
+
+- clones/configures the backup Git repo when needed
+- pulls the backup repo before reading
+- merge-imports remote backup rows into local SQLite
+- exports the local union back into deterministic text shards
+- commits and pushes the backup repo
+
+```bash
+birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --json
+```
+
+Shard contract:
+
+- tweets: `data/tweets/YYYY.jsonl`
+- collections: `data/collections/likes.jsonl`, `data/collections/bookmarks.jsonl`
+- DMs: `data/dms/conversations.jsonl` plus `data/dms/<conversation-id>/YYYY.jsonl`
+- moderation: `data/moderation/blocks.jsonl`, `data/moderation/mutes.jsonl`
+- no SQLite WAL/SHM, FTS shadow tables, or transient live cache rows
+
+### `backup import`
+
+- validates the backup first unless `--no-validate` is passed
+- merge-imports by default so local-only rows are not deleted
+- `--replace` restores exactly from backup and deletes local portable rows first
+- rebuilds tweet and DM FTS from the JSONL text
+
+```bash
+birdclaw backup import ~/Projects/birdclaw-store --json
+```
+
+### `backup validate`
+
+- checks `manifest.json`
+- checks every listed shard hash, byte count, row count, and JSONL parseability
+- exits non-zero on validation failure
+
+```bash
+birdclaw backup validate ~/Projects/birdclaw-store --json
+```
+
 ### `import archive <path>`
 
 - validate archive
@@ -122,12 +182,14 @@ birdclaw debug transport
 - idempotent
 
 Flags:
+
 - `--select <kinds>`
 - `--dm-mode metadata|full`
 - `--dry-run`
 - `--force`
 
 Default:
+
 - DMs import in `full` mode
 
 ### `sync *`
@@ -139,6 +201,7 @@ Default:
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`
 
 Common flags:
+
 - `--since <cursor-or-id>`
 - `--limit <n>`
 - `--transport <kind>`
@@ -160,6 +223,7 @@ birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --
 ### `search tweets <query>`
 
 Flags:
+
 - `--author <handle-or-id>`
 - `--since <date>`
 - `--until <date>`
@@ -179,6 +243,7 @@ birdclaw search tweets --bookmarked --limit 20 --json
 ### `search dms <query>`
 
 Flags:
+
 - `--conversation <id>`
 - `--participant <handle-or-id>`
 - `--min-followers <n>`
@@ -205,6 +270,7 @@ Flags:
   - author and reply-state metadata
 
 Flags:
+
 - `--account <account-id>`
 - `--mode birdclaw|xurl|bird`
 - `--replied`
@@ -227,6 +293,7 @@ birdclaw mentions export --mode xurl --refresh --all --max-pages 9 --limit 100
 ```
 
 Notes:
+
 - `--mode xurl` mirrors the `xurl mentions` response shape: `data`, `includes.users`, `meta`
 - `--mode bird` shells out to your local `bird` CLI, normalizes the JSON to that same `xurl`-compatible shape, then caches it in SQLite
 - payload is cached in local SQLite and reused until the cache TTL expires
@@ -245,6 +312,7 @@ Notes:
 - supports `--json`
 
 Flags:
+
 - `--limit <n>`
 
 Examples:
@@ -260,6 +328,7 @@ birdclaw profiles replies @jpctan --limit 12 --json
 - optionally refreshes live DMs through `bird` before listing
 
 Flags:
+
 - `--refresh`
 - `--cache-ttl <seconds>`
 - `--participant <handle-or-id>`
@@ -280,6 +349,7 @@ Flags:
 - supports `--json`
 
 Flags:
+
 - `--account <account-id>`
 - `--limit <n>`
 - `--refresh`
@@ -302,6 +372,7 @@ Flags:
 - supports `--json`
 
 Flags:
+
 - `--account <account-id>`
 - `--search <query>`
 - `--limit <n>`
@@ -315,6 +386,7 @@ Flags:
 - still records the local block if live transport is unavailable
 
 Flags:
+
 - `--account <account-id>`
 
 ### `blocks import <path>`
@@ -326,6 +398,7 @@ Flags:
 - returns per-entry success/failure in `--json`
 
 Flags:
+
 - `--account <account-id>`
 
 ### `blocks remove <handle-or-id>`
@@ -335,6 +408,7 @@ Flags:
 - falls back to the X web cookie session if `xurl` is rejected for OAuth2 block writes
 
 Flags:
+
 - `--account <account-id>`
 
 ### `ban <handle-or-id>` / `unban <handle-or-id>`
@@ -343,6 +417,7 @@ Flags:
 - useful when you want one obvious moderation verb from the CLI
 
 Flags:
+
 - `--account <account-id>`
 
 ### `mutes list`
@@ -352,6 +427,7 @@ Flags:
 - supports `--json`
 
 Flags:
+
 - `--account <account-id>`
 - `--search <query>`
 - `--limit <n>`
@@ -365,6 +441,7 @@ Flags:
 - still records the local mute if live transport is unavailable
 
 Flags:
+
 - `--account <account-id>`
 
 ### `unmute <handle-or-id>`
@@ -373,6 +450,7 @@ Flags:
 - `--transport auto` tries `bird` first, then `xurl`
 
 Flags:
+
 - `--account <account-id>`
 
 ### `serve`
@@ -382,6 +460,7 @@ Flags:
 - stdout prints URL in plain mode
 
 Flags:
+
 - `--host <host>`
 - `--port <port>`
 - `--open`
@@ -410,11 +489,13 @@ Flags:
 ## I/O contract
 
 stdout:
+
 - primary data
 - URLs
 - JSON output
 
 stderr:
+
 - progress
 - warnings
 - diagnostics

@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add live likes and bookmarks sync through `xurl`/`bird`, local search filters, archive import support, and dedicated Likes/Bookmarks web views.
+- Add Git-friendly JSONL backup sync, export, import, and validation commands for rebuilding or merging the local SQLite store from text shards.
 
 ### Changed
 

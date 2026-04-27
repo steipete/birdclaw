@@ -148,6 +148,7 @@ function mergeTimelineCollectionIntoLocalStore(
 	accountId: string,
 	kind: TimelineCollectionKind,
 	payload: XurlMentionsResponse,
+	source: "xurl" | "bird",
 ) {
 	const usersById = new Map(
 		(payload.includes?.users ?? []).map((user) => [user.id, user]),
@@ -179,8 +180,18 @@ function mergeTimelineCollectionIntoLocalStore(
       liked = max(tweets.liked, excluded.liked)
     `,
 	);
+	const upsertCollection = db.prepare(`
+    insert into tweet_collections (
+      account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+    ) values (?, ?, ?, null, ?, ?, ?)
+    on conflict(account_id, tweet_id, kind) do update set
+      source = excluded.source,
+      raw_json = excluded.raw_json,
+      updated_at = excluded.updated_at
+  `);
 
 	db.transaction(() => {
+		const updatedAt = new Date().toISOString();
 		for (const tweet of payload.data) {
 			const author =
 				usersById.get(tweet.author_id) ??
@@ -204,6 +215,14 @@ function mergeTimelineCollectionIntoLocalStore(
 				bookmarked,
 				liked,
 				JSON.stringify(tweet.entities ?? {}),
+			);
+			upsertCollection.run(
+				accountId,
+				tweet.id,
+				kind,
+				source,
+				JSON.stringify(tweet),
+				updatedAt,
 			);
 			replaceTweetFts(db, tweet.id, tweet.text);
 		}
@@ -372,6 +391,7 @@ export async function syncTimelineCollection({
 		resolvedAccount.accountId,
 		kind,
 		payload,
+		source,
 	);
 	writeSyncCache(cacheKey, payload, db);
 

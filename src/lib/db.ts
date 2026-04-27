@@ -42,6 +42,16 @@ export interface TweetsTable {
 	quoted_tweet_id: string | null;
 }
 
+export interface TweetCollectionsTable {
+	account_id: string;
+	tweet_id: string;
+	kind: "likes" | "bookmarks";
+	collected_at: string | null;
+	source: string;
+	raw_json: string;
+	updated_at: string;
+}
+
 export interface DmConversationsTable {
 	id: string;
 	account_id: string;
@@ -106,6 +116,7 @@ export interface BirdclawDatabase {
 	accounts: AccountsTable;
 	profiles: ProfilesTable;
 	tweets: TweetsTable;
+	tweet_collections: TweetCollectionsTable;
 	dm_conversations: DmConversationsTable;
 	dm_messages: DmMessagesTable;
 	tweet_actions: TweetActionsTable;
@@ -160,6 +171,17 @@ const BASE_SCHEMA_SQL = `
     entities_json text not null default '{}',
     media_json text not null default '[]',
     quoted_tweet_id text
+  );
+
+  create table if not exists tweet_collections (
+    account_id text not null,
+    tweet_id text not null,
+    kind text not null,
+    collected_at text,
+    source text not null,
+    raw_json text not null default '{}',
+    updated_at text not null,
+    primary key (account_id, tweet_id, kind)
   );
 
   create table if not exists dm_conversations (
@@ -240,6 +262,8 @@ const INDEX_SQL = `
   create index if not exists idx_tweets_kind_created on tweets(kind, created_at desc);
   create index if not exists idx_tweets_account_created on tweets(account_id, created_at desc);
   create index if not exists idx_tweets_quoted on tweets(quoted_tweet_id);
+  create index if not exists idx_tweet_collections_kind_account on tweet_collections(kind, account_id, collected_at desc, tweet_id);
+  create index if not exists idx_tweet_collections_tweet on tweet_collections(tweet_id);
   create index if not exists idx_dm_conversations_account on dm_conversations(account_id, last_message_at desc);
   create index if not exists idx_dm_messages_conversation on dm_messages(conversation_id, created_at asc);
   create index if not exists idx_profiles_followers on profiles(followers_count desc);
@@ -290,6 +314,42 @@ function ensureAccountExternalUserIdColumn(db: BetterSqlite3.Database) {
 	}
 }
 
+function ensureTweetCollectionsTable(db: BetterSqlite3.Database) {
+	db.exec(`
+    create table if not exists tweet_collections (
+      account_id text not null,
+      tweet_id text not null,
+      kind text not null,
+      collected_at text,
+      source text not null,
+      raw_json text not null default '{}',
+      updated_at text not null,
+      primary key (account_id, tweet_id, kind)
+    );
+  `);
+}
+
+function backfillTweetCollections(db: BetterSqlite3.Database) {
+	const now = new Date().toISOString();
+	const insert = db.prepare(`
+    insert or ignore into tweet_collections (
+      account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+    )
+    select account_id, id, ?, null, 'legacy', '{}', ?
+    from tweets
+    where
+      case
+        when ? = 'likes' then liked
+        else bookmarked
+      end = 1
+  `);
+
+	db.transaction(() => {
+		insert.run("likes", now, "likes");
+		insert.run("bookmarks", now, "bookmarks");
+	})();
+}
+
 function ensureSchemaIndexes(db: BetterSqlite3.Database) {
 	db.exec(INDEX_SQL);
 }
@@ -304,8 +364,10 @@ function initDatabase() {
 		ensureAccountExternalUserIdColumn(nativeDb);
 		ensureTweetMetadataColumns(nativeDb);
 		ensureProfileAvatarColumns(nativeDb);
+		ensureTweetCollectionsTable(nativeDb);
 		ensureSchemaIndexes(nativeDb);
 		seedDemoData(nativeDb);
+		backfillTweetCollections(nativeDb);
 	}
 
 	if (!kyselyDb) {

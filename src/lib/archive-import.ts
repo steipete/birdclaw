@@ -282,6 +282,7 @@ function clearImportedData() {
 	db.exec(`
     delete from ai_scores;
     delete from tweet_actions;
+    delete from tweet_collections;
     delete from dm_fts;
     delete from tweets_fts;
     delete from dm_messages;
@@ -354,6 +355,13 @@ export async function importArchive(
 		entitiesJson: string;
 		mediaJson: string;
 		quotedTweetId: string | null;
+	}> = [];
+	const collectionRows: Array<{
+		tweetId: string;
+		kind: "likes" | "bookmarks";
+		collectedAt: string | null;
+		source: string;
+		rawJson: string;
 	}> = [];
 	const tweetRowsById = new Map<string, (typeof tweetRows)[number]>();
 
@@ -667,6 +675,13 @@ export async function importArchive(
 		for (const like of likes) {
 			const tweet = extractCollectionTweet(like, "like");
 			if (!tweet) continue;
+			collectionRows.push({
+				tweetId: tweet.id,
+				kind: "likes",
+				collectedAt: tweet.createdAt,
+				source: "archive",
+				rawJson: JSON.stringify(like),
+			});
 			addTweetRow({
 				id: tweet.id,
 				kind: "like",
@@ -694,6 +709,13 @@ export async function importArchive(
 		for (const bookmark of bookmarks) {
 			const tweet = extractCollectionTweet(bookmark, "bookmark");
 			if (!tweet) continue;
+			collectionRows.push({
+				tweetId: tweet.id,
+				kind: "bookmarks",
+				collectedAt: tweet.createdAt,
+				source: "archive",
+				rawJson: JSON.stringify(bookmark),
+			});
 			addTweetRow({
 				id: tweet.id,
 				kind: "bookmark",
@@ -748,6 +770,16 @@ export async function importArchive(
 	const insertTweetFts = db.prepare(
 		"insert into tweets_fts (tweet_id, text) values (?, ?)",
 	);
+	const insertCollection = db.prepare(`
+    insert into tweet_collections (
+      account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+    ) values (?, ?, ?, ?, ?, ?, ?)
+    on conflict(account_id, tweet_id, kind) do update set
+      collected_at = coalesce(excluded.collected_at, tweet_collections.collected_at),
+      source = excluded.source,
+      raw_json = excluded.raw_json,
+      updated_at = excluded.updated_at
+  `);
 	const insertConversation = db.prepare(`
     insert into dm_conversations (
       id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
@@ -804,6 +836,19 @@ export async function importArchive(
 				tweet.quotedTweetId,
 			);
 			insertTweetFts.run(tweet.id, tweet.text);
+		}
+
+		const importedAt = new Date().toISOString();
+		for (const collection of collectionRows) {
+			insertCollection.run(
+				"acct_primary",
+				collection.tweetId,
+				collection.kind,
+				collection.collectedAt,
+				collection.source,
+				collection.rawJson,
+				importedAt,
+			);
 		}
 
 		for (const conversation of conversations.values()) {

@@ -23,6 +23,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - archive import for tweets, likes, profiles, and full DMs
 - archive import for bookmark exports when present
 - live likes and bookmarks sync through `xurl` or `bird`
+- Git-friendly text backups with yearly tweet shards and per-conversation DM shards
 - profile hydration from live X metadata
 - local avatar cache
 - local media cache root under `~/.birdclaw`
@@ -164,6 +165,18 @@ birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 birdclaw import hydrate-profiles --json
 ```
 
+Back up the local SQLite store as canonical JSONL text:
+
+```bash
+birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --json
+```
+
+Merge the backup into the current `BIRDCLAW_HOME`:
+
+```bash
+birdclaw backup import ~/Projects/backup-birdclaw --json
+```
+
 Start the app:
 
 ```bash
@@ -223,13 +236,13 @@ Home config lives in `~/.birdclaw/config.json`. Example:
 
 ```json
 {
-  "actions": {
-    "transport": "auto"
-  },
-  "mentions": {
-    "dataSource": "bird",
-    "birdCommand": "/Users/steipete/Projects/bird/bird"
-  }
+	"actions": {
+		"transport": "auto"
+	},
+	"mentions": {
+		"dataSource": "bird",
+		"birdCommand": "/Users/steipete/Projects/bird/bird"
+	}
 }
 ```
 
@@ -341,6 +354,34 @@ Notes:
 pnpm cli compose post "Ship local software."
 pnpm cli compose reply tweet_004 "On it."
 pnpm cli compose dm dm_003 "Send it over."
+```
+
+### Text Backup
+
+`birdclaw backup export` writes deterministic JSONL shards that can rebuild the local SQLite index without committing SQLite WAL/SHM files, FTS shadow tables, or transient live caches.
+
+Layout:
+
+```text
+manifest.json
+data/accounts.jsonl
+data/profiles.jsonl
+data/tweets/YYYY.jsonl
+data/collections/likes.jsonl
+data/collections/bookmarks.jsonl
+data/dms/conversations.jsonl
+data/dms/<conversation-id>/YYYY.jsonl
+data/moderation/blocks.jsonl
+data/moderation/mutes.jsonl
+```
+
+Tweets are sharded by year for human browsing and yearly analysis. DMs are sharded by conversation and year so private threads stay inspectable without one giant file. Likes and bookmarks are stored as collection edges in `data/collections` and mirrored into the timeline rows for current query compatibility.
+
+Use `backup sync` when the target is a private Git repo. It pulls first, merge-imports the remote backup into local SQLite, exports the local union back into text shards, commits, and pushes.
+
+```bash
+pnpm cli backup sync --repo ~/Projects/backup-birdclaw --remote https://github.com/steipete/backup-birdclaw.git --json
+pnpm cli backup validate ~/Projects/backup-birdclaw --json
 ```
 
 ## Typical Workflow

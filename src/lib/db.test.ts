@@ -84,6 +84,23 @@ describe("database init", () => {
 			expect.arrayContaining(["cache_key", "value_json", "updated_at"]),
 		);
 
+		const collectionColumnNames = db
+			.prepare("pragma table_info(tweet_collections)")
+			.all() as Array<{
+			name: string;
+		}>;
+		expect(collectionColumnNames.map((column) => column.name)).toEqual(
+			expect.arrayContaining([
+				"account_id",
+				"tweet_id",
+				"kind",
+				"collected_at",
+				"source",
+				"raw_json",
+				"updated_at",
+			]),
+		);
+
 		const accountColumnNames = db
 			.prepare("pragma table_info(accounts)")
 			.all() as Array<{
