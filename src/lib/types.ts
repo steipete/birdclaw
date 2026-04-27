@@ -98,6 +98,7 @@ export interface TimelineItem {
 	accountHandle: string;
 	kind: "home" | "mention" | "like" | "bookmark";
 	text: string;
+	searchSnippet?: string;
 	createdAt: string;
 	isReplied: boolean;
 	likeCount: number;
@@ -127,6 +128,7 @@ export interface DmConversationItem {
 	accountId: string;
 	accountHandle: string;
 	title: string;
+	searchSnippet?: string;
 	lastMessageAt: string;
 	lastMessagePreview: string;
 	unreadCount: number;
