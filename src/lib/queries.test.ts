@@ -128,6 +128,60 @@ describe("birdclaw queries", () => {
 
 		expect(filtered.map((item) => item.id)).toEqual(["dm_003"]);
 		expect(filtered[0]?.lastMessagePreview).toContain("context rail");
+		expect(filtered[0]?.searchSnippet).toContain(
+			"<mark>context</mark> <mark>rail</mark>",
+		);
+	});
+
+	it("uses the latest matching DM message as the search snippet", () => {
+		setupTempHome();
+		const db = getNativeDb();
+
+		const messages = [
+			{
+				id: "msg_dm_search_older",
+				text: "older needleword snippet should not win",
+				createdAt: "2026-03-08T09:00:00.000Z",
+			},
+			{
+				id: "msg_dm_search_latest",
+				text: "latest needleword snippet should win",
+				createdAt: "2026-03-08T10:00:00.000Z",
+			},
+		];
+
+		for (const message of messages) {
+			db.prepare(
+				`
+        insert into dm_messages (
+          id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
+        ) values (?, 'dm_003', 'profile_me', ?, ?, 'outbound', 1, 0)
+        `,
+			).run(message.id, message.text, message.createdAt);
+			db.prepare("insert into dm_fts (message_id, text) values (?, ?)").run(
+				message.id,
+				message.text,
+			);
+		}
+
+		db.prepare(
+			"update dm_conversations set last_message_at = ? where id = 'dm_003'",
+		).run(messages[1].createdAt);
+
+		const filtered = listDmConversations({ search: "needleword" });
+
+		expect(filtered.map((item) => item.id)).toEqual(["dm_003"]);
+		expect(filtered[0]?.searchSnippet).toContain(
+			"latest <mark>needleword</mark> snippet should win",
+		);
+	});
+
+	it("omits DM search snippets when no query is provided", () => {
+		setupTempHome();
+
+		const items = listDmConversations({ limit: 1 });
+
+		expect(items[0]).not.toHaveProperty("searchSnippet");
 	});
 
 	it("hydrates a selected conversation thread with sender context", () => {
@@ -163,6 +217,15 @@ describe("birdclaw queries", () => {
 
 		expect(items.map((item) => item.id)).toEqual(["tweet_006"]);
 		expect(items[0]?.accountId).toBe("acct_studio");
+		expect(items[0]?.searchSnippet).toContain("<mark>Agents</mark>");
+	});
+
+	it("omits timeline search snippets when no query is provided", () => {
+		setupTempHome();
+
+		const items = listTimelineItems({ resource: "home", limit: 1 });
+
+		expect(items[0]).not.toHaveProperty("searchSnippet");
 	});
 
 	it("filters timeline items by liked and bookmarked state across collections", () => {

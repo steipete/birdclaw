@@ -227,6 +227,7 @@ export function listTimelineItems({
 	const params: Array<string | number> = [kind];
 	let join = "";
 	let where = "where t.kind = ?";
+	let searchSnippetSelect = "";
 
 	if (likedOnly || bookmarkedOnly) {
 		params.length = 0;
@@ -259,8 +260,10 @@ export function listTimelineItems({
 	}
 
 	if (search?.trim()) {
-		join += " join tweets_fts fts on fts.tweet_id = t.id ";
-		where += " and fts.text match ?";
+		join += " join tweets_fts on tweets_fts.tweet_id = t.id ";
+		where += " and tweets_fts.text match ?";
+		searchSnippetSelect =
+			", snippet(tweets_fts, 1, '<mark>', '</mark>', '...', 16) as search_snippet";
 		params.push(search.trim());
 	}
 
@@ -326,6 +329,7 @@ export function listTimelineItems({
         qp.avatar_hue as quoted_avatar_hue,
         qp.avatar_url as quoted_avatar_url,
         qp.created_at as quoted_profile_created_at
+        ${searchSnippetSelect}
       from tweets t
       join accounts a on a.id = t.account_id
       join profiles p on p.id = t.author_profile_id
@@ -393,6 +397,9 @@ export function listTimelineItems({
 			accountHandle: String(row.account_handle),
 			kind: row.kind as TimelineItem["kind"],
 			text: String(row.text),
+			...(typeof row.search_snippet === "string"
+				? { searchSnippet: row.search_snippet }
+				: {}),
 			createdAt: String(row.created_at),
 			isReplied: Boolean(row.is_replied),
 			likeCount: Number(row.like_count),
@@ -422,8 +429,11 @@ export function listDmConversations({
 }: DmQuery): DmConversationItem[] {
 	const db = getNativeDb();
 	const params: Array<string | number> = [];
+	const joinParams: Array<string | number> = [];
+	let searchSnippetCte = "";
 	let join = "";
 	let where = "where 1 = 1";
+	let searchSnippetSelect = "";
 
 	if (account && account !== "all") {
 		where += " and a.id = ?";
@@ -452,11 +462,32 @@ export function listDmConversations({
 	}
 
 	if (search?.trim()) {
-		join +=
-			" join dm_messages latest_search on latest_search.conversation_id = c.id ";
-		join += " join dm_fts dmfts on dmfts.message_id = latest_search.id ";
-		where += " and dmfts.text match ?";
-		params.push(search.trim());
+		searchSnippetCte = `
+      with ranked_dm_search as materialized (
+        select
+          latest_search.id,
+          latest_search.conversation_id,
+          row_number() over (
+            partition by latest_search.conversation_id
+            order by latest_search.created_at desc, latest_search.id desc
+          ) as match_rank
+        from dm_messages latest_search
+        join dm_fts on dm_fts.message_id = latest_search.id
+        where dm_fts.text match ?
+      ),
+      dm_search as materialized (
+        select
+          ranked_dm_search.conversation_id,
+          snippet(dm_fts, 1, '<mark>', '</mark>', '...', 16) as search_snippet
+        from ranked_dm_search
+        join dm_fts on dm_fts.message_id = ranked_dm_search.id
+        where ranked_dm_search.match_rank = 1
+          and dm_fts.text match ?
+      )
+    `;
+		join += " join dm_search on dm_search.conversation_id = c.id ";
+		searchSnippetSelect = ", dm_search.search_snippet as search_snippet";
+		joinParams.push(search.trim(), search.trim());
 	}
 
 	params.push(limit);
@@ -464,6 +495,7 @@ export function listDmConversations({
 	const rows = db
 		.prepare(
 			`
+      ${searchSnippetCte}
       select
         c.id,
         c.account_id,
@@ -487,6 +519,7 @@ export function listDmConversations({
           order by latest_message.created_at desc
           limit 1
         ) as last_message_preview
+        ${searchSnippetSelect}
       from dm_conversations c
       join accounts a on a.id = c.account_id
       join profiles p on p.id = c.participant_profile_id
@@ -497,7 +530,7 @@ export function listDmConversations({
       limit ?
       `,
 		)
-		.all(...params) as Array<Record<string, unknown>>;
+		.all(...joinParams, ...params) as Array<Record<string, unknown>>;
 
 	const items = rows.map((row) => {
 		const followersCount = Number(row.followers_count);
@@ -507,6 +540,9 @@ export function listDmConversations({
 			accountId: String(row.account_id),
 			accountHandle: String(row.account_handle),
 			title: String(row.title),
+			...(typeof row.search_snippet === "string"
+				? { searchSnippet: row.search_snippet }
+				: {}),
 			lastMessageAt: String(row.last_message_at),
 			lastMessagePreview: String(row.last_message_preview ?? ""),
 			unreadCount: Number(row.unread_count),
