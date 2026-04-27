@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,9 +14,11 @@ import {
 } from "./config";
 
 const tempRoots: string[] = [];
+const originalPath = process.env.PATH;
 
 afterEach(() => {
 	resetBirdclawPathsForTests();
+	process.env.PATH = originalPath;
 	delete process.env.BIRDCLAW_HOME;
 	delete process.env.BIRDCLAW_CONFIG;
 	delete process.env.BIRDCLAW_ACTIONS_TRANSPORT;
@@ -81,6 +83,17 @@ describe("config", () => {
 		expect(resolveMentionsDataSource()).toBe("bird");
 		expect(resolveActionsTransport()).toBe("xurl");
 		expect(getBirdCommand()).toBe("/tmp/custom-bird");
+	});
+
+	it("resolves bird from PATH before falling back to the local dev path", () => {
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-config-"));
+		tempRoots.push(tempRoot);
+		const birdPath = path.join(tempRoot, "bird");
+		writeFileSync(birdPath, "#!/bin/sh\n");
+		chmodSync(birdPath, 0o755);
+		process.env.PATH = tempRoot;
+
+		expect(getBirdCommand()).toBe(birdPath);
 	});
 
 	it("lets env override config for the datasource", () => {
