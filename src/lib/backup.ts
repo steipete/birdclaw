@@ -492,11 +492,24 @@ Never commit live tokens, browser cookies, raw SQLite WAL/SHM sidecars, or tempo
 }
 
 async function writeManifest(repoPath: string, manifest: BackupManifest) {
-	await fs.writeFile(
-		path.join(repoPath, MANIFEST_PATH),
-		`${canonicalStringify(manifest as unknown as JsonRecord)}\n`,
-		"utf8",
-	);
+	const manifestPath = path.join(repoPath, MANIFEST_PATH);
+	const content = `${canonicalStringify(manifest as unknown as JsonRecord)}\n`;
+	try {
+		if ((await fs.readFile(manifestPath, "utf8")) === content) {
+			return;
+		}
+	} catch {
+		// New backup repo.
+	}
+	await fs.writeFile(manifestPath, content, "utf8");
+}
+
+async function readPreviousManifest(repoPath: string) {
+	try {
+		return await readManifest(repoPath);
+	} catch {
+		return undefined;
+	}
 }
 
 async function maybeCommitAndPush({
@@ -715,7 +728,7 @@ async function pullBackupGitRepo(repoPath: string) {
 
 export async function exportBackup({
 	repoPath,
-	db = getNativeDb(),
+	db = getNativeDb({ seedDemoData: false }),
 	commit = false,
 	push = false,
 	message = "archive: update birdclaw backup",
@@ -747,13 +760,18 @@ export async function exportBackup({
 	await removeStaleBackupFiles(resolvedRepoPath, expectedPaths);
 
 	const counts = computeCounts(files);
+	const backupHash = computeBackupHash(files);
+	const previousManifest = await readPreviousManifest(resolvedRepoPath);
 	const manifest: BackupManifest = {
 		app: "birdclaw",
 		schemaVersion: BACKUP_SCHEMA_VERSION,
-		generatedAt: new Date().toISOString(),
+		generatedAt:
+			previousManifest?.backupHash === backupHash
+				? previousManifest.generatedAt
+				: new Date().toISOString(),
 		counts,
 		files,
-		backupHash: computeBackupHash(files),
+		backupHash,
 	};
 	await writeManifest(resolvedRepoPath, manifest);
 
@@ -894,7 +912,7 @@ function clearBackupImportData(db: Database.Database) {
 
 export async function importBackup({
 	repoPath,
-	db = getNativeDb(),
+	db = getNativeDb({ seedDemoData: false }),
 	validate = true,
 	mode = "merge",
 }: {
@@ -1226,7 +1244,7 @@ export async function importBackup({
 export async function syncBackup({
 	repoPath,
 	remote,
-	db = getNativeDb(),
+	db = getNativeDb({ seedDemoData: false }),
 	message = "archive: sync birdclaw backup",
 }: {
 	repoPath: string;
@@ -1267,7 +1285,7 @@ export async function syncBackup({
 export async function updateBackupFromGit({
 	repoPath,
 	remote,
-	db = getNativeDb(),
+	db = getNativeDb({ seedDemoData: false }),
 }: {
 	repoPath: string;
 	remote?: string;
@@ -1382,7 +1400,7 @@ export async function maybeAutoUpdateBackup(
 		};
 	}
 
-	const database = db ?? getNativeDb();
+	const database = db ?? getNativeDb({ seedDemoData: false });
 	const state = readAutoSyncState(database);
 	const checkedAt = state?.checkedAt ? new Date(state.checkedAt).getTime() : 0;
 	const ageMs = Date.now() - checkedAt;
@@ -1448,7 +1466,7 @@ export async function maybeAutoSyncBackup(
 			reason: "backup auto-sync is not configured",
 		};
 	}
-	const database = db ?? getNativeDb();
+	const database = db ?? getNativeDb({ seedDemoData: false });
 	const now = new Date().toISOString();
 	try {
 		const result = await syncBackup({
@@ -1583,7 +1601,7 @@ export async function validateBackup(
 }
 
 export function getBackupDatabaseFingerprint(
-	db = getNativeDb(),
+	db = getNativeDb({ seedDemoData: false }),
 ): BackupDatabaseFingerprint {
 	const counts: Record<string, number> = {};
 	const hash = createHash("sha256");

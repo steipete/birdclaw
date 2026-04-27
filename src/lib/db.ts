@@ -129,6 +129,10 @@ export interface BirdclawDatabase {
 let nativeDb: BetterSqlite3.Database | undefined;
 let kyselyDb: Kysely<BirdclawDatabase> | undefined;
 
+export interface InitDatabaseOptions {
+	seedDemoData?: boolean;
+}
+
 const BASE_SCHEMA_SQL = `
   pragma journal_mode = wal;
   pragma busy_timeout = 5000;
@@ -354,7 +358,7 @@ function ensureSchemaIndexes(db: BetterSqlite3.Database) {
 	db.exec(INDEX_SQL);
 }
 
-function initDatabase() {
+function initDatabase(options: InitDatabaseOptions = {}) {
 	ensureBirdclawDirs();
 
 	if (!nativeDb) {
@@ -366,7 +370,9 @@ function initDatabase() {
 		ensureProfileAvatarColumns(nativeDb);
 		ensureTweetCollectionsTable(nativeDb);
 		ensureSchemaIndexes(nativeDb);
-		seedDemoData(nativeDb);
+		if (options.seedDemoData !== false) {
+			seedDemoData(nativeDb);
+		}
 		backfillTweetCollections(nativeDb);
 	}
 
@@ -379,8 +385,8 @@ function initDatabase() {
 	}
 }
 
-export function getNativeDb() {
-	initDatabase();
+export function getNativeDb(options: InitDatabaseOptions = {}) {
+	initDatabase(options);
 	return nativeDb as BetterSqlite3.Database;
 }
 

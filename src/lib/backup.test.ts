@@ -133,6 +133,29 @@ function seedBackupFixture() {
   `);
 }
 
+function expectNoDemoSeedRows() {
+	const db = getNativeDb({ seedDemoData: false });
+	expect(
+		db
+			.prepare(
+				"select count(*) as count from accounts where id = 'acct_studio'",
+			)
+			.get(),
+	).toEqual({ count: 0 });
+	expect(
+		db
+			.prepare("select count(*) as count from tweets where id like 'tweet_00%'")
+			.get(),
+	).toEqual({ count: 0 });
+	expect(
+		db
+			.prepare(
+				"select count(*) as count from dm_conversations where id glob 'dm_00*'",
+			)
+			.get(),
+	).toEqual({ count: 0 });
+}
+
 afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
@@ -262,21 +285,44 @@ describe("text backup", () => {
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-sync-dst-");
+		const secondRepoPath = makeTempDir("birdclaw-sync-other-");
 		const second = await syncBackup({
-			repoPath: makeTempDir("birdclaw-sync-other-"),
+			repoPath: secondRepoPath,
 			remote: remotePath,
 			message: "archive: roundtrip backup",
 		});
 
 		expect(second.imported).toBe(true);
 		expect(second.importResult?.validation?.ok).toBe(true);
+		expect(second.exportResult.git?.committed).toBe(false);
+		expect(second.exportResult.manifest.counts).toMatchObject({
+			accounts: 1,
+			profiles: 2,
+			tweets: 3,
+			collections_bookmarks: 1,
+			collections_likes: 2,
+			dm_conversations: 1,
+			dm_messages: 2,
+			blocks: 1,
+			mutes: 1,
+			tweet_actions: 1,
+			ai_scores: 1,
+		});
+		expectNoDemoSeedRows();
 		expect(
-			getNativeDb()
+			getNativeDb({ seedDemoData: false })
 				.prepare(
 					"select count(*) as count from tweets where id in ('tweet_2024', 'tweet_2025', 'tweet_unknown_date')",
 				)
 				.get(),
 		).toEqual({ count: 3 });
+		expect(
+			execFileSync(
+				"git",
+				["--git-dir", remotePath, "rev-list", "--count", "refs/heads/main"],
+				{ encoding: "utf8" },
+			).trim(),
+		).toBe("1");
 	}, 20000);
 
 	it("reports validation errors for missing or corrupt backup files", async () => {
