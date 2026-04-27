@@ -147,6 +147,7 @@ async function loadCli() {
 
 describe("cli", () => {
 	beforeEach(() => {
+		process.exitCode = undefined;
 		consoleLogMock.mockClear();
 		ensureBirdclawDirsMock.mockReset();
 		getBirdclawPathsMock.mockReset();
@@ -502,6 +503,9 @@ describe("cli", () => {
 			"2021-01-01",
 			"--originals-only",
 			"--hide-low-quality",
+			"--min-likes",
+			"200",
+			"--quality-reason",
 			"--liked",
 			"--limit",
 			"5",
@@ -604,6 +608,8 @@ describe("cli", () => {
 			until: "2021-01-01",
 			includeReplies: false,
 			qualityFilter: "summary",
+			lowQualityThreshold: 200,
+			includeQualityReason: true,
 			likedOnly: true,
 			bookmarkedOnly: false,
 			limit: 5,
@@ -711,6 +717,8 @@ describe("cli", () => {
 			until: undefined,
 			includeReplies: true,
 			qualityFilter: "all",
+			lowQualityThreshold: undefined,
+			includeQualityReason: false,
 			likedOnly: false,
 			bookmarkedOnly: false,
 			limit: 20,
@@ -739,6 +747,52 @@ describe("cli", () => {
 			"tweet_2",
 			"Reply text",
 		);
+	});
+
+	it("prints quality reasons for tweet search when requested", async () => {
+		listTimelineItemsMock.mockReturnValue([
+			{ id: "tweet_1", qualityReason: "keep:high-likes" },
+		]);
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"search",
+			"tweets",
+			"local",
+			"--quality-reason",
+		]);
+
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"qualityReason": "keep:high-likes"'),
+		);
+	});
+
+	it("rejects invalid min-likes values as json errors", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"tweets",
+			"local",
+			"--min-likes",
+			"2.5",
+		]);
+
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			JSON.stringify({ error: "--min-likes must be a non-negative integer" }),
+		);
+		expect(process.exitCode).toBe(1);
+		expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+		expect(listTimelineItemsMock).not.toHaveBeenCalled();
+		consoleErrorMock.mockRestore();
 	});
 
 	it("dispatches blocklist commands", async () => {

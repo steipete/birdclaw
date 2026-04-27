@@ -109,6 +109,7 @@ export interface TimelineItem {
 	media: TweetMediaItem[];
 	replyToTweet?: EmbeddedTweet | null;
 	quotedTweet?: EmbeddedTweet | null;
+	qualityReason?: string | null;
 }
 
 export interface DmMessageItem {
@@ -145,6 +146,8 @@ export interface TimelineQuery {
 	until?: string;
 	includeReplies?: boolean;
 	qualityFilter?: TimelineQualityFilter;
+	lowQualityThreshold?: number;
+	includeQualityReason?: boolean;
 	likedOnly?: boolean;
 	bookmarkedOnly?: boolean;
 	limit?: number;

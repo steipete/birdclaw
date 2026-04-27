@@ -125,16 +125,28 @@ function buildReplyClause(replyFilter: ReplyFilter) {
 	return "";
 }
 
-function buildTimelineQualityClause(qualityFilter: TimelineQualityFilter) {
+function normalizeLowQualityThreshold(threshold: number | undefined) {
+	const value = threshold ?? 50;
+	if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+		throw new Error("lowQualityThreshold must be a non-negative integer");
+	}
+	return value;
+}
+
+function buildTimelineQualityClause(
+	qualityFilter: TimelineQualityFilter,
+	lowQualityThreshold: number,
+) {
 	if (qualityFilter === "all") {
-		return "";
+		return { sql: "", params: [] };
 	}
 
-	return `
+	return {
+		sql: `
     and not (
       t.text like 'RT @%'
       or (
-        t.like_count < 50
+        t.like_count < ?
         and (
           (
             length(trim(replace(t.text, 'https://t.co/', ''))) < 16
@@ -152,7 +164,48 @@ function buildTimelineQualityClause(qualityFilter: TimelineQualityFilter) {
         )
       )
     )
-  `;
+  `,
+		params: [lowQualityThreshold],
+	};
+}
+
+function getTimelineQualityReason(
+	row: Record<string, unknown>,
+	lowQualityThreshold: number,
+) {
+	const text = String(row.text);
+	const trimmed = text.trim();
+	const strippedShortUrlText = text.replaceAll("https://t.co/", "").trim();
+	const likeCount = Number(row.like_count);
+	const mediaCount = Number(row.media_count);
+
+	if (text.startsWith("RT @")) {
+		return "drop:rt";
+	}
+
+	if (likeCount < lowQualityThreshold) {
+		if (text.startsWith("@") && trimmed.length < 60) {
+			return "drop:short-reply";
+		}
+		if (
+			text.includes("https://t.co/") &&
+			mediaCount === 0 &&
+			strippedShortUrlText.length < 45
+		) {
+			return "drop:short-link-only";
+		}
+		if (strippedShortUrlText.length < 16 && mediaCount === 0) {
+			return "drop:short-text";
+		}
+	}
+
+	if (mediaCount > 0) {
+		return "keep:has-media";
+	}
+	if (likeCount >= lowQualityThreshold) {
+		return "keep:high-likes";
+	}
+	return "keep:long-text";
 }
 
 export async function getQueryEnvelope(): Promise<QueryEnvelope> {
@@ -218,6 +271,8 @@ export function listTimelineItems({
 	until,
 	includeReplies = true,
 	qualityFilter = "all",
+	lowQualityThreshold,
+	includeQualityReason = false,
 	likedOnly = false,
 	bookmarkedOnly = false,
 	limit = 18,
@@ -225,6 +280,8 @@ export function listTimelineItems({
 	const db = getNativeDb();
 	const kind = resource === "mentions" ? "mention" : resource;
 	const params: Array<string | number> = [kind];
+	const normalizedLowQualityThreshold =
+		normalizeLowQualityThreshold(lowQualityThreshold);
 	let join = "";
 	let where = "where t.kind = ?";
 
@@ -242,7 +299,12 @@ export function listTimelineItems({
 		"is_replied",
 		"t.is_replied",
 	);
-	where += buildTimelineQualityClause(qualityFilter);
+	const qualityClause = buildTimelineQualityClause(
+		qualityFilter,
+		normalizedLowQualityThreshold,
+	);
+	where += qualityClause.sql;
+	params.push(...qualityClause.params);
 
 	if (!includeReplies) {
 		where += " and t.text not like '@%'";
@@ -387,7 +449,7 @@ export function listTimelineItems({
 					: {}),
 			},
 		);
-		return {
+		const item = {
 			id: String(row.id),
 			accountId: String(row.account_id),
 			accountHandle: String(row.account_handle),
@@ -405,6 +467,15 @@ export function listTimelineItems({
 			replyToTweet: buildEmbeddedTweet(row, "reply_"),
 			quotedTweet: buildEmbeddedTweet(row, "quoted_"),
 		};
+		return includeQualityReason
+			? {
+					...item,
+					qualityReason: getTimelineQualityReason(
+						row,
+						normalizedLowQualityThreshold,
+					),
+				}
+			: item;
 	});
 }
 
