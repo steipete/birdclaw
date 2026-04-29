@@ -88,7 +88,7 @@
 		"vitest": "^4.1.5"
 	},
 	"engines": {
-		"node": ">=25.8.1 <26"
+		"node": ">=24 <26"
 	},
 	"packageManager": "pnpm@10.31.0",
 	"pnpm": {
