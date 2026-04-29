@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
-import { registerModerationCommands } from "#/cli-moderation";
+import { registerModerationCommands } from "#/cli-moderation.ts";
 import { findArchives } from "#/lib/archive-finder";
 import { importArchive } from "#/lib/archive-import";
 import {
