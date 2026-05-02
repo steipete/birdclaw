@@ -290,6 +290,18 @@ export interface XurlUserTweet {
 	edit_history_tweet_ids?: string[];
 }
 
+export interface XurlTweetData {
+	id: string;
+	author_id: string;
+	text: string;
+	created_at: string;
+	conversation_id?: string;
+	entities?: Record<string, unknown>;
+	referenced_tweets?: XurlReferencedTweet[];
+	public_metrics?: XurlPublicMetrics;
+	edit_history_tweet_ids?: string[];
+}
+
 export interface ProfileReplyItem {
 	id: string;
 	text: string;
@@ -317,6 +329,14 @@ export interface ProfileRepliesResponse {
 
 export interface XurlMentionsResponse {
 	data: XurlMentionData[];
+	includes?: {
+		users?: XurlMentionUser[];
+	};
+	meta?: Record<string, unknown>;
+}
+
+export interface XurlTweetsResponse {
+	data: XurlTweetData[];
 	includes?: {
 		users?: XurlMentionUser[];
 	};
