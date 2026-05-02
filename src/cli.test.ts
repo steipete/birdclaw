@@ -25,6 +25,7 @@ const listTimelineItemsMock = vi.fn();
 const listDmConversationsMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
 const inspectProfileRepliesMock = vi.fn();
+const runResearchModeMock = vi.fn();
 const syncTimelineCollectionMock = vi.fn();
 const createPostMock = vi.fn();
 const createTweetReplyMock = vi.fn();
@@ -121,6 +122,10 @@ vi.mock("#/lib/profile-replies", () => ({
 		inspectProfileRepliesMock(...args),
 }));
 
+vi.mock("#/lib/research", () => ({
+	runResearchMode: (...args: unknown[]) => runResearchModeMock(...args),
+}));
+
 vi.mock("#/lib/queries", () => ({
 	getQueryEnvelope: () => getQueryEnvelopeMock(),
 	listTimelineItems: (...args: unknown[]) => listTimelineItemsMock(...args),
@@ -173,6 +178,7 @@ describe("cli", () => {
 		listDmConversationsMock.mockReset();
 		hydrateProfilesFromXMock.mockReset();
 		inspectProfileRepliesMock.mockReset();
+		runResearchModeMock.mockReset();
 		syncTimelineCollectionMock.mockReset();
 		createPostMock.mockReset();
 		createTweetReplyMock.mockReset();
@@ -266,6 +272,15 @@ describe("cli", () => {
 			externalUserId: "42",
 			items: [],
 			meta: { scannedCount: 0, returnedCount: 0, nextToken: null },
+		});
+		runResearchModeMock.mockResolvedValue({
+			query: undefined,
+			account: undefined,
+			generatedAt: "2026-05-02T00:00:00.000Z",
+			seedCount: 1,
+			threadCount: 1,
+			items: [],
+			markdown: "# Birdclaw Research\n",
 		});
 		syncTimelineCollectionMock.mockResolvedValue({
 			ok: true,
@@ -513,6 +528,18 @@ describe("cli", () => {
 		await runCli([
 			"node",
 			"birdclaw",
+			"research",
+			"codex",
+			"--account",
+			"acct_primary",
+			"--limit",
+			"4",
+			"--thread-depth",
+			"6",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
 			"search",
 			"dms",
 			"sam",
@@ -613,6 +640,13 @@ describe("cli", () => {
 			likedOnly: true,
 			bookmarkedOnly: false,
 			limit: 5,
+		});
+		expect(runResearchModeMock).toHaveBeenCalledWith({
+			account: "acct_primary",
+			query: "codex",
+			limit: 4,
+			maxThreadDepth: 6,
+			outPath: undefined,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
 			search: "sam",
@@ -1055,6 +1089,23 @@ describe("cli", () => {
 		});
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"result_count": 1'),
+		);
+	});
+
+	it("prints research briefs as markdown by default", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "research", "codex"]);
+
+		expect(runResearchModeMock).toHaveBeenCalledWith({
+			account: undefined,
+			query: "codex",
+			limit: 20,
+			maxThreadDepth: 10,
+			outPath: undefined,
+		});
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining("# Birdclaw Research"),
 		);
 	});
 

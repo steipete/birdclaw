@@ -36,6 +36,7 @@ import {
 } from "#/lib/mentions-live";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
 import { inspectProfileReplies } from "#/lib/profile-replies";
+import { runResearchMode } from "#/lib/research";
 import {
 	createDmReply,
 	createPost,
@@ -278,6 +279,28 @@ searchCommand
 			limit: Number(options.limit),
 		});
 		print(items, program.opts().json ?? false);
+	});
+
+program
+	.command("research [query]")
+	.description("Build a markdown research brief from bookmarked threads")
+	.option("--account <accountId>", "Account id")
+	.option("--limit <n>", "Seed bookmark limit", "20")
+	.option("--thread-depth <n>", "Maximum ancestor walk depth", "10")
+	.option("--out <path>", "Write the markdown brief to a file")
+	.action(async (query, options) => {
+		await autoUpdateBeforeRead();
+		const report = await runResearchMode({
+			account: options.account,
+			query,
+			limit: Number(options.limit),
+			maxThreadDepth: Number(options.threadDepth),
+			outPath: options.out,
+		});
+		print(
+			program.opts().json ? report : report.markdown,
+			program.opts().json ?? false,
+		);
 	});
 
 const mentionsCommand = program

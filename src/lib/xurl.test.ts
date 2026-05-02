@@ -275,6 +275,47 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("looks up tweets by id through the raw tweet endpoint", async () => {
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				data: [
+					{
+						id: "tweet_1",
+						author_id: "42",
+						text: "hello",
+						created_at: "2026-03-09T00:00:00.000Z",
+						referenced_tweets: [{ type: "replied_to", id: "tweet_root" }],
+					},
+				],
+				includes: {
+					users: [{ id: "42", username: "sam", name: "Sam" }],
+				},
+				meta: { result_count: 1 },
+			}),
+			stderr: "",
+		});
+		const { lookupTweetsByIds } = await import("./xurl");
+
+		await expect(lookupTweetsByIds(["tweet_1"])).resolves.toEqual({
+			data: [
+				{
+					id: "tweet_1",
+					author_id: "42",
+					text: "hello",
+					created_at: "2026-03-09T00:00:00.000Z",
+					referenced_tweets: [{ type: "replied_to", id: "tweet_root" }],
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam" }],
+			},
+			meta: { result_count: 1 },
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"/2/tweets?ids=tweet_1&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=description%2Cpublic_metrics%2Cprofile_image_url%2Ccreated_at%2Cverified",
+		]);
+	});
+
 	it("lists liked and bookmarked tweets through raw Twitter endpoints", async () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({
