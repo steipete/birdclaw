@@ -4,6 +4,7 @@ import type {
 	TransportStatus,
 	XurlMentionsResponse,
 	XurlMentionUser,
+	XurlTweetsResponse,
 	XurlUserTweet,
 } from "./types";
 
@@ -510,6 +511,38 @@ export async function listUserTweets(
 		items: data,
 		nextToken:
 			typeof meta?.next_token === "string" ? String(meta.next_token) : null,
+	};
+}
+
+export async function lookupTweetsByIds(
+	ids: string[],
+): Promise<XurlTweetsResponse> {
+	if (ids.length === 0) {
+		return { data: [] };
+	}
+
+	const query = new URLSearchParams({
+		ids: ids.join(","),
+		expansions: "author_id",
+		"tweet.fields":
+			"created_at,conversation_id,entities,public_metrics,referenced_tweets",
+		"user.fields":
+			"description,public_metrics,profile_image_url,created_at,verified",
+	});
+
+	const payload = await runJsonCommand([`/2/tweets?${query.toString()}`]);
+	return {
+		data: Array.isArray(payload.data)
+			? (payload.data as XurlTweetsResponse["data"])
+			: [],
+		includes:
+			payload.includes && typeof payload.includes === "object"
+				? (payload.includes as XurlTweetsResponse["includes"])
+				: undefined,
+		meta:
+			payload.meta && typeof payload.meta === "object"
+				? (payload.meta as XurlTweetsResponse["meta"])
+				: undefined,
 	};
 }
 

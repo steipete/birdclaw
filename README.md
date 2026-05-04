@@ -259,6 +259,15 @@ Notes:
 - filters still work in `xurl` mode; filtered payloads are rebuilt from the local canonical store after sync
 - `sync likes` and `sync bookmarks` store live results in the same local timeline table, so `search tweets --liked` and `search tweets --bookmarked` work across archive and live data
 
+### Research bookmarks and threads
+
+`birdclaw research` turns bookmarked tweets into a markdown brief with local thread expansion, live ancestor lookup when needed, and extracted links/handles:
+
+```bash
+birdclaw research "codex" --limit 20 --thread-depth 10 --json
+birdclaw research --account acct_primary --out ~/research/codex.md
+```
+
 ### Search and triage DMs
 
 ```bash
