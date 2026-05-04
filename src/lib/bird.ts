@@ -10,6 +10,32 @@ import type {
 const execFileAsync = promisify(execFile);
 const BIRD_JSON_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
 
+function formatBirdCommandError(error: unknown, birdCommand: string) {
+	if (
+		error instanceof Error &&
+		"code" in error &&
+		(error as { code?: unknown }).code === "ENOENT"
+	) {
+		return new Error(
+			`bird CLI not found at ${birdCommand}. Install @steipete/bird or set BIRDCLAW_BIRD_COMMAND / mentions.birdCommand to a valid bird binary.`,
+		);
+	}
+
+	return error;
+}
+
+async function runBirdJsonCommand(args: string[]) {
+	const birdCommand = getBirdCommand();
+	try {
+		const { stdout } = await execFileAsync(birdCommand, args, {
+			maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES,
+		});
+		return stdout;
+	} catch (error) {
+		throw formatBirdCommandError(error, birdCommand);
+	}
+}
+
 interface BirdTweetMedia {
 	type?: string;
 	url?: string;
@@ -224,12 +250,12 @@ export async function listMentionsViaBird({
 }: {
 	maxResults: number;
 }): Promise<XurlMentionsResponse> {
-	const birdCommand = getBirdCommand();
-	const { stdout } = await execFileAsync(
-		birdCommand,
-		["mentions", "-n", String(maxResults), "--json"],
-		{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES },
-	);
+	const stdout = await runBirdJsonCommand([
+		"mentions",
+		"-n",
+		String(maxResults),
+		"--json",
+	]);
 	const payload = parseBirdJson(stdout);
 
 	return normalizeBirdTweets(getBirdTweetItems(payload, "mentions"));
@@ -246,7 +272,6 @@ async function listTweetsViaBirdCommand({
 	all?: boolean;
 	maxPages?: number;
 }): Promise<XurlMentionsResponse> {
-	const birdCommand = getBirdCommand();
 	const args = [command, "-n", String(maxResults), "--json"];
 	if (all) {
 		args.push("--all");
@@ -254,9 +279,7 @@ async function listTweetsViaBirdCommand({
 	if (maxPages !== undefined) {
 		args.push("--max-pages", String(maxPages));
 	}
-	const { stdout } = await execFileAsync(birdCommand, args, {
-		maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES,
-	});
+	const stdout = await runBirdJsonCommand(args);
 	const payload = parseBirdJson(stdout);
 
 	return normalizeBirdTweets(getBirdTweetItems(payload, command));
@@ -301,12 +324,12 @@ export async function listDirectMessagesViaBird({
 }: {
 	maxResults: number;
 }): Promise<BirdDmsResponse> {
-	const birdCommand = getBirdCommand();
-	const { stdout } = await execFileAsync(
-		birdCommand,
-		["dms", "-n", String(maxResults), "--json"],
-		{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES },
-	);
+	const stdout = await runBirdJsonCommand([
+		"dms",
+		"-n",
+		String(maxResults),
+		"--json",
+	]);
 	const payload = parseBirdJson(stdout);
 	if (
 		!payload ||
