@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Stabilize the presenter timestamp test across local time zones. Thanks @pejmanjohn.
+
 ## 0.2.1 - 2026-04-27
 
 ### Changed
