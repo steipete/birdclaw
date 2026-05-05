@@ -80,6 +80,7 @@
 		"@types/node": "^25.6.0",
 		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
+		"@typescript/native-preview": "7.0.0-dev.20260505.1",
 		"@vitest/coverage-v8": "^4.1.5",
 		"jsdom": "^29.1.1",
 		"oxfmt": "^0.47.0",
