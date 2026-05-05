@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Stabilize the presenter timestamp test across local time zones. Thanks @pejmanjohn.
 - Replace maintainer-local documentation links with repo-relative links and align the setup docs with the Node version file. Thanks @stainlu.
 - Resolve the `bird` transport from `PATH` before falling back to the local development checkout. Thanks @vyctorbrzezowski.
+- Use the existing Twitter web cookie fallback as the final `auto` transport for block and unblock actions. Thanks @pejmanjohn.
 
 ## 0.2.1 - 2026-04-27
 
