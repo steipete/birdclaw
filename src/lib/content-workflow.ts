@@ -1,6 +1,7 @@
 import type { AnalyticsResponse } from "./types";
 import {
 	VANTA_CT_ENGAGEMENT_PLAYBOOK,
+	buildVantaAccountTraining,
 	buildVantaContentPlan,
 	buildVantaVoiceBridgePairs,
 	VANTA_FORBIDDEN_CONTENT_CLAIMS,
@@ -374,14 +375,22 @@ export function buildProjectContentWorkflow(analytics: AnalyticsResponse) {
 			algorithmFit: algorithmFitForProjectNote(analytics),
 		},
 	];
+	const voiceBridgePairs = buildVantaVoiceBridgePairs({
+		personalPostDrafts,
+		postDrafts,
+	});
+	const training = buildVantaAccountTraining({
+		analytics,
+		engagementTargets: plan.engagementTargets,
+		personalPostDrafts,
+		postDrafts,
+	});
 	return {
 		...plan,
 		personalPostDrafts,
 		engagementPlaybook: VANTA_CT_ENGAGEMENT_PLAYBOOK,
 		postDrafts,
-		voiceBridgePairs: buildVantaVoiceBridgePairs({
-			personalPostDrafts,
-			postDrafts,
-		}),
+		training,
+		voiceBridgePairs,
 	};
 }

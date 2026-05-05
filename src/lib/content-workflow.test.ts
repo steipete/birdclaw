@@ -223,6 +223,32 @@ describe("buildProjectContentWorkflow", () => {
 		expect(workflow.engagementPlaybook.engagementRubric).toContain(
 			"Every post needs a visible tension, not just a topic.",
 		);
+		expect(workflow.training.accounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					handle: "@williamclay",
+					accountRole: "personal_scout",
+					topDraftIds: expect.arrayContaining([
+						"personal-draft-agent-permissions",
+					]),
+					goodTweetDefinition: expect.stringContaining("mechanism"),
+				}),
+				expect.objectContaining({
+					handle: "@vantaprivacy",
+					accountRole: "project_publisher",
+					topDraftIds: expect.arrayContaining([
+						"vanta-draft-agent-payment-metadata",
+					]),
+					goodTweetDefinition: expect.stringContaining("counterparty"),
+				}),
+			]),
+		);
+		expect(
+			workflow.training.accounts[0].algorithmPasses.length,
+		).toBeGreaterThan(4);
+		expect(
+			workflow.training.accounts[1].algorithmPasses.length,
+		).toBeGreaterThan(4);
 		expect(workflow.postDrafts[0]?.text).toContain("private settlement");
 		expect(workflow.postDrafts[0]?.sourceSignal).toContain("@williamclay");
 		expect(workflow.postDrafts.every((draft) => draft.approvedToPost)).toBe(

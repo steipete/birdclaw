@@ -317,6 +317,109 @@ describe("Vanta content workflow", () => {
 		);
 	});
 
+	it("trains both accounts through algorithm-aware good-tweet passes", () => {
+		const plan = buildVantaContentPlan(analytics);
+
+		expect(plan.training).toEqual(
+			expect.objectContaining({
+				source: expect.stringContaining("X public recommendation"),
+				algorithmPrinciples: expect.arrayContaining([
+					expect.stringContaining("candidate"),
+					expect.stringContaining("engagement probabilities"),
+					expect.stringContaining("negative"),
+				]),
+				limits: expect.arrayContaining([
+					expect.stringContaining("Local Birdclaw sample"),
+				]),
+			}),
+		);
+		expect(plan.training.accounts).toHaveLength(2);
+
+		const personalTraining = plan.training.accounts.find(
+			(account) => account.handle === "@williamclay",
+		);
+		const projectTraining = plan.training.accounts.find(
+			(account) => account.handle === "@vantaprivacy",
+		);
+
+		expect(personalTraining).toEqual(
+			expect.objectContaining({
+				accountRole: "personal_scout",
+				goodTweetDefinition: expect.stringContaining("mechanism"),
+				northStar: expect.stringContaining("scout"),
+				goodTweetRules: expect.arrayContaining([
+					expect.stringContaining("normal reader"),
+					expect.stringContaining("replyable"),
+				]),
+				antiPatterns: expect.arrayContaining([
+					expect.stringContaining("forced Vanta"),
+				]),
+				drills: expect.arrayContaining([expect.stringContaining("rewrite")]),
+				algorithmPasses: expect.arrayContaining([
+					expect.objectContaining({
+						label: "Candidate source fit",
+						algorithmMechanic: expect.stringContaining("in-network"),
+						accountRule: expect.stringContaining("@williamclay"),
+					}),
+					expect.objectContaining({
+						label: "Negative-signal filter",
+						accountRule: expect.stringContaining("shock bait"),
+					}),
+				]),
+				scorecard: expect.arrayContaining([
+					expect.objectContaining({
+						label: "Normal-human hook",
+						score: expect.any(Number),
+					}),
+				]),
+				exampleTransformations: expect.arrayContaining([
+					expect.objectContaining({
+						before: expect.stringContaining("agent wallets"),
+						after: expect.stringContaining("blast radius"),
+					}),
+				]),
+			}),
+		);
+		expect(projectTraining).toEqual(
+			expect.objectContaining({
+				accountRole: "project_publisher",
+				goodTweetDefinition: expect.stringContaining("counterparty"),
+				northStar: expect.stringContaining("receipt"),
+				goodTweetRules: expect.arrayContaining([
+					expect.stringContaining("what happened"),
+					expect.stringContaining("what stays private"),
+				]),
+				antiPatterns: expect.arrayContaining([
+					expect.stringContaining("anonymous"),
+				]),
+				drills: expect.arrayContaining([expect.stringContaining("receipt")]),
+				algorithmPasses: expect.arrayContaining([
+					expect.objectContaining({
+						label: "Engagement-probability fit",
+						algorithmMechanic: expect.stringContaining("favorite"),
+						accountRule: expect.stringContaining("receipt"),
+					}),
+					expect.objectContaining({
+						label: "Artifact and dwell fit",
+						accountRule: expect.stringContaining("artifact"),
+					}),
+				]),
+				scorecard: expect.arrayContaining([
+					expect.objectContaining({
+						label: "Proof boundary",
+						score: expect.any(Number),
+					}),
+				]),
+				exampleTransformations: expect.arrayContaining([
+					expect.objectContaining({
+						before: expect.stringContaining("private payments"),
+						after: expect.stringContaining("receipt"),
+					}),
+				]),
+			}),
+		);
+	});
+
 	it("keeps every draft inside Vanta voice guardrails", () => {
 		const plan = buildVantaContentPlan(analytics);
 		const text = [

@@ -72,6 +72,133 @@ function createOverLimitReplyFetchMock() {
 	});
 }
 
+function createTrainingFixture() {
+	return {
+		source:
+			"X public recommendation architecture mapped onto local Birdclaw signal.",
+		algorithmPrinciples: [
+			"candidate source fit",
+			"engagement probabilities",
+			"negative feedback filters",
+		],
+		limits: ["Local Birdclaw sample is directional and manual-review-first."],
+		accounts: [
+			{
+				handle: "@williamclay",
+				accountRole: "personal_scout",
+				title: "@williamclay training",
+				northStar: "Scout mechanisms before project translation.",
+				goodTweetDefinition:
+					"A good personal tweet makes a normal reader see the mechanism before Vanta appears.",
+				algorithmPasses: [
+					{
+						id: "personal-candidate",
+						label: "Candidate source fit",
+						score: 84,
+						status: "strong",
+						algorithmMechanic:
+							"In-network and topic-similar candidates need a legible hook.",
+						accountRule:
+							"@williamclay should name the mechanism under the timeline object.",
+						evidence: "Personal scout draft with agent-wallet blast radius.",
+						drill:
+							"Rewrite one vague AI take as a concrete permission boundary.",
+					},
+					{
+						id: "personal-negative",
+						label: "Negative-signal filter",
+						score: 79,
+						status: "watch",
+						algorithmMechanic:
+							"Mutes, blocks, reports, and not-interested feedback push posts down.",
+						accountRule:
+							"Remove shock bait, quote-pile-ons, and forced Vanta jumps.",
+						evidence: "No shock-bait checklist.",
+						drill: "Cut one moralizing sentence.",
+					},
+				],
+				goodTweetRules: [
+					"Make the normal reader understand the mechanism.",
+					"Leave one replyable edge.",
+				],
+				antiPatterns: ["Forced Vanta translation in a personal post."],
+				drills: ["Rewrite a broad AI take into a permission-boundary take."],
+				scorecard: [
+					{
+						label: "Normal-human hook",
+						score: 86,
+						target: "Readable before niche context.",
+						evidence: "Blast radius draft.",
+					},
+				],
+				exampleTransformations: [
+					{
+						before: "agent wallets are risky",
+						after:
+							"the agent wallet problem is not intelligence. it is blast radius.",
+						why: "Specific mechanism, shorter hook, replyable edge.",
+					},
+				],
+				topDraftIds: ["personal_1"],
+				sourceBoundaries: ["Manual posting only."],
+			},
+			{
+				handle: "@vantaprivacy",
+				accountRole: "project_publisher",
+				title: "@vantaprivacy training",
+				northStar: "Publish proof-backed receipt and boundary language.",
+				goodTweetDefinition:
+					"A good project tweet is useful to a counterparty: what happened, what can be checked, what stays private.",
+				algorithmPasses: [
+					{
+						id: "project-engagement",
+						label: "Engagement-probability fit",
+						score: 88,
+						status: "strong",
+						algorithmMechanic:
+							"Predicted favorite, reply, repost, click, share, and dwell shape rank.",
+						accountRule:
+							"Make the receipt, artifact, or proof boundary save-worthy.",
+						evidence: "Receipt thesis and merchant target.",
+						drill: "Add the exact receipt field before copy.",
+					},
+					{
+						id: "project-artifact",
+						label: "Artifact and dwell fit",
+						score: 81,
+						status: "needs_artifact",
+						algorithmMechanic:
+							"Inspectability can earn clicks, dwell, bookmarks, and shares.",
+						accountRule: "Pair claims with an artifact before copying.",
+						evidence: "receipt screenshot gate.",
+						drill: "Turn the claim into a marked-up receipt.",
+					},
+				],
+				goodTweetRules: ["Say what happened.", "Say what stays private."],
+				antiPatterns: ["anonymous or fully private claims."],
+				drills: ["Rewrite a privacy claim as a receipt field map."],
+				scorecard: [
+					{
+						label: "Proof boundary",
+						score: 90,
+						target: "Can prove / stays local / beta limit.",
+						evidence: "Proof Boundary Matrix.",
+					},
+				],
+				exampleTransformations: [
+					{
+						before: "private payments for merchants",
+						after: "private settlement needs one public surface: the receipt.",
+						why: "Counterparty usefulness replaces abstract privacy.",
+					},
+				],
+				topDraftIds: ["draft_1"],
+				sourceBoundaries: ["No unsafe privacy claims."],
+			},
+		],
+	};
+}
+
 describe("content route", () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
@@ -268,6 +395,7 @@ describe("content route", () => {
 										"Reply only after source review; use the question as the proof-boundary prompt.",
 								},
 							],
+							training: createTrainingFixture(),
 							safetyNote:
 								"Manual review required before any public post or reply.",
 							safetyNotes: [
@@ -470,6 +598,22 @@ describe("content route", () => {
 		expect(
 			screen.getByText("@williamclay showed 4 personal Privacy signals."),
 		).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /Training/ }));
+		expect(screen.getByText("What good tweets are")).toBeInTheDocument();
+		expect(screen.getByText("@williamclay training")).toBeInTheDocument();
+		expect(screen.getByText("@vantaprivacy training")).toBeInTheDocument();
+		expect(screen.getAllByText("Candidate source fit").length).toBeGreaterThan(
+			0,
+		);
+		expect(
+			screen.getAllByText("Engagement-probability fit").length,
+		).toBeGreaterThan(0);
+		expect(
+			screen.getAllByText("Negative-signal filter").length,
+		).toBeGreaterThan(0);
+		expect(screen.getAllByText("Proof boundary").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Training drills").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Anti-patterns").length).toBeGreaterThan(0);
 		fireEvent.click(screen.getByRole("button", { name: /Review/ }));
 		expect(screen.getByText("40-loop digest")).toBeInTheDocument();
 		expect(

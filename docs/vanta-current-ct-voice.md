@@ -390,3 +390,28 @@ Broad collaboration and followback mentions should not outrank specific receipt,
 - when every API becomes a checkout, the missing UI is policy: amount, route, purpose, expiry, revocation, receipt.
 - merchant privacy is usually metadata privacy. the payment can be visible while the invoice id, customer context, payout reason, and internal note stay out of the broadcast.
 - launch culture is mostly a stress test for whether the explanation can survive the chart.
+
+## May 5 Account Training Loop
+
+Read-only study source: local Birdclaw content workflow, full-blast scout outputs from prior subagents, and public X recommendation architecture references. No X write actions were taken.
+
+Source bounds: the training loop is deterministic and local. It maps public recommendation mechanics into a teaching rubric, not a claim to live private X ranking weights.
+
+### Good-Tweet Definition Split
+
+`@williamclay` good tweet: a normal reader sees the mechanism under the timeline object before Vanta appears. The post should have one replyable edge, concrete nouns, and no forced project translation.
+
+`@vantaprivacy` good tweet: a counterparty can tell what happened, what can be checked, what stays private, and what remains beta. The post should prefer receipts, field maps, proof boundaries, and merchant/operator usefulness over abstract privacy claims.
+
+### Training Passes
+
+Each account now runs through the same high-level passes with different account rules:
+
+- candidate source fit
+- engagement-probability fit
+- social proof fit
+- negative-signal filter
+- voice correctness
+- artifact and dwell fit
+
+Dashboard implication: the `/content` Training tab should teach why a draft can travel, what makes it useful to normal humans, what to remove before copy, and what artifact would make the post save-worthy.

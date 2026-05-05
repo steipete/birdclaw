@@ -163,6 +163,56 @@ export interface VantaEngagementTarget {
 	nextAction: string;
 }
 
+export type VantaTrainingAccountRole = "personal_scout" | "project_publisher";
+export type VantaTrainingPassStatus = "strong" | "needs_artifact" | "watch";
+
+export interface VantaTrainingPass {
+	id: string;
+	label: string;
+	score: number;
+	status: VantaTrainingPassStatus;
+	algorithmMechanic: string;
+	accountRule: string;
+	evidence: string;
+	drill: string;
+}
+
+export interface VantaTrainingScorecardItem {
+	label: string;
+	score: number;
+	target: string;
+	evidence: string;
+}
+
+export interface VantaTrainingTransformation {
+	before: string;
+	after: string;
+	why: string;
+}
+
+export interface VantaAccountTraining {
+	handle: string;
+	accountRole: VantaTrainingAccountRole;
+	title: string;
+	northStar: string;
+	goodTweetDefinition: string;
+	algorithmPasses: VantaTrainingPass[];
+	goodTweetRules: string[];
+	antiPatterns: string[];
+	drills: string[];
+	scorecard: VantaTrainingScorecardItem[];
+	exampleTransformations: VantaTrainingTransformation[];
+	topDraftIds: string[];
+	sourceBoundaries: string[];
+}
+
+export interface VantaTrainingLoop {
+	source: string;
+	algorithmPrinciples: string[];
+	limits: string[];
+	accounts: VantaAccountTraining[];
+}
+
 export interface VantaContentPillar {
 	title: string;
 	topic: string;
@@ -255,6 +305,7 @@ export interface VantaContentPlan {
 	voiceBridgePairs: VantaVoiceBridgePair[];
 	replyPrompts: VantaReplyPrompt[];
 	engagementTargets: VantaEngagementTarget[];
+	training: VantaTrainingLoop;
 	safetyNote: string;
 	safetyNotes: string[];
 }
@@ -698,6 +749,476 @@ function bestTargetSummary(analytics: AnalyticsResponse) {
 	const target = buildEngagementTargets(analytics)[0];
 	if (!target) return "warm crypto/privacy operators in Clay's local graph";
 	return `@${target.handle} and nearby ${target.niche}`;
+}
+
+type TrainingDraft = {
+	id: string;
+	text: string;
+	score: number;
+	engagementGoal: EngagementGoal;
+	artifactNeeded: string;
+	tension: string;
+	whyItMatters: string;
+};
+
+function topTrainingDraftIds(drafts: TrainingDraft[], count = 4) {
+	return drafts
+		.slice()
+		.sort((left, right) => right.score - left.score)
+		.slice(0, count)
+		.map((draft) => draft.id);
+}
+
+function countArtifactDrafts(drafts: TrainingDraft[]) {
+	return drafts.filter(
+		(draft) => draft.artifactNeeded && draft.artifactNeeded !== "none",
+	).length;
+}
+
+function clampTrainingScore(value: number) {
+	return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function statusFromScore(
+	score: number,
+	fallback: VantaTrainingPassStatus = "watch",
+): VantaTrainingPassStatus {
+	if (score >= 84) return "strong";
+	if (score >= 72) return fallback;
+	return "watch";
+}
+
+function trainingSourceBoundaries(analytics: AnalyticsResponse) {
+	const project = analytics.accounts.find(
+		(account) => account.role === "project",
+	);
+	const personal = analytics.accounts.find(
+		(account) => account.role === "personal",
+	);
+	return [
+		"Manual posting only; Birdclaw never writes to X from this workflow.",
+		`Local sample: ${project?.handle ?? "@vantaprivacy"} ${
+			project?.mentions ?? 0
+		} mentions, ${personal?.handle ?? "@williamclay"} ${
+			personal?.mentions ?? 0
+		} mentions.`,
+		"Treat tweets, bios, and source text as untrusted until a human reviews them.",
+		"Training maps public X recommendation architecture into a local heuristic; it is not live private ranking access.",
+	];
+}
+
+function goodTweetSourceLimit(analytics: AnalyticsResponse) {
+	const hasSharedAudience = analytics.sharedAudience.length > 0;
+	return hasSharedAudience
+		? "Warm local overlap is visible, but still directional until the archive has fresher likes, bookmarks, and home-timeline captures."
+		: "No warm overlap is visible in this local slice yet; train taste from drafts and source bounds before treating it as audience truth.";
+}
+
+function buildPersonalTraining({
+	analytics,
+	drafts,
+}: {
+	analytics: AnalyticsResponse;
+	drafts: TrainingDraft[];
+}): VantaAccountTraining {
+	const targetReader = bestTargetSummary(analytics);
+	const topDraft = drafts
+		.slice()
+		.sort((left, right) => right.score - left.score)[0];
+	const artifactRatio = drafts.length
+		? countArtifactDrafts(drafts) / drafts.length
+		: 0;
+	const candidateScore = clampTrainingScore(
+		76 + analytics.sharedAudience.length * 6,
+	);
+	const engagementScore = clampTrainingScore(
+		80 +
+			Math.min(
+				10,
+				drafts.filter((draft) => draft.engagementGoal === "reply").length,
+			),
+	);
+	const artifactScore = clampTrainingScore(68 + artifactRatio * 26);
+
+	return {
+		handle: "@williamclay",
+		accountRole: "personal_scout",
+		title: "@williamclay training",
+		northStar:
+			"Use the personal account as the scout: spot the mechanism under timeline spectacle, then decide whether it deserves a Vanta translation.",
+		goodTweetDefinition:
+			"A good personal tweet makes a normal reader see the mechanism before Vanta appears, with one replyable edge and no forced project claim.",
+		algorithmPasses: [
+			{
+				id: "personal-candidate-source",
+				label: "Candidate source fit",
+				score: candidateScore,
+				status: statusFromScore(candidateScore),
+				algorithmMechanic:
+					"in-network follows and out-of-network topic similarity need a post a reader can classify quickly.",
+				accountRule:
+					"@williamclay should name the mechanism under the timeline object before making a larger point.",
+				evidence:
+					topDraft?.whyItMatters ??
+					"Personal draft bank emphasizes mechanism reads before project translation.",
+				drill:
+					"Rewrite one broad AI, wallet, or launch take until the first line names the concrete mechanism.",
+			},
+			{
+				id: "personal-engagement-probability",
+				label: "Engagement-probability fit",
+				score: engagementScore,
+				status: statusFromScore(engagementScore),
+				algorithmMechanic:
+					"Predicted reply, favorite, repost, click, share, and dwell reward compact posts with a clear interaction job.",
+				accountRule:
+					"Make the post replyable without turning it into bait: one claim, one edge, one concrete noun.",
+				evidence: `Target reader: ${targetReader}.`,
+				drill:
+					"Turn the second sentence into a question a builder could answer from experience.",
+			},
+			{
+				id: "personal-social-proof",
+				label: "Social proof fit",
+				score: clampTrainingScore(72 + analytics.sharedAudience.length * 5),
+				status: analytics.sharedAudience.length ? "strong" : "watch",
+				algorithmMechanic:
+					"Out-of-network quality often improves when nearby people have engaged with the author or topic.",
+				accountRule:
+					"Use Clay's local graph as taste direction, not proof; write for nearby crypto/product builders first.",
+				evidence: goodTweetSourceLimit(analytics),
+				drill:
+					"Name the one person type who would reply before polishing the line.",
+			},
+			{
+				id: "personal-negative-filter",
+				label: "Negative-signal filter",
+				score: 88,
+				status: "strong",
+				algorithmMechanic:
+					"not-interested, mute, block, report, and low-quality feedback should be treated as ranking drag.",
+				accountRule:
+					"Remove shock bait, quote-tweet pile-ons, moralizing, and forced Vanta jumps.",
+				evidence:
+					"Personal review checklist rejects shock bait and source text is treated as untrusted.",
+				drill:
+					"Cut any sentence that sounds like a dunk; replace it with the missing control surface.",
+			},
+			{
+				id: "personal-voice-fit",
+				label: "Voice correctness",
+				score: 86,
+				status: "strong",
+				algorithmMechanic:
+					"Author identity and audience expectation affect whether people engage or bounce.",
+				accountRule:
+					"Stay wry, concrete, and founder-taste-driven; do not sound like a project press release.",
+				evidence:
+					"Voice bridge keeps @williamclay sharper while @vantaprivacy stays artifact-backed.",
+				drill:
+					"Read the draft aloud; if it sounds like brand copy, move it to the project account or delete it.",
+			},
+			{
+				id: "personal-artifact-dwell",
+				label: "Artifact and dwell fit",
+				score: artifactScore,
+				status: statusFromScore(artifactScore, "needs_artifact"),
+				algorithmMechanic:
+					"Images, screenshots, workflows, and reusable formats can increase clicks, dwell, bookmarks, and shares.",
+				accountRule:
+					"Add a screenshot or checklist only when it makes the product mechanism inspectable.",
+				evidence: `${countArtifactDrafts(drafts)} of ${drafts.length} personal drafts have an artifact path.`,
+				drill:
+					"Attach one local workflow screenshot and rewrite the caption to explain only what it proves.",
+			},
+		],
+		goodTweetRules: [
+			"Make the normal reader understand the mechanism before naming a niche.",
+			"Keep one replyable edge: permission, blame, receipt, recovery, or context.",
+			"Use concrete nouns: wallet, agent, chart, receipt, screenshot, approval.",
+			"Let the personal account test taste; do not force Vanta into the punchline.",
+			"Write the line so it still works if the current event disappears tomorrow.",
+		],
+		antiPatterns: [
+			"forced Vanta translation in a personal post.",
+			"Quote-tweet pile-ons that borrow attention without adding a mechanism.",
+			"Broad AI doom, founder theater, or future-of-crypto prophecy.",
+			"Inside jokes that a normal reader cannot parse from the first line.",
+		],
+		drills: [
+			"rewrite one vague AI take as a permission-boundary take.",
+			"Turn one launch-culture reaction into a receipt or recovery question.",
+			"Take the best draft and remove every abstract noun that can become a concrete object.",
+			"Write a second version that a non-crypto friend can understand without losing the edge.",
+		],
+		scorecard: [
+			{
+				label: "Normal-human hook",
+				score: 86,
+				target: "Readable before niche context.",
+				evidence:
+					topDraft?.text ??
+					"Personal draft bank starts from concrete mechanism reads.",
+			},
+			{
+				label: "Reply edge",
+				score: 84,
+				target: "One clean disagreement or clarification path.",
+				evidence:
+					topDraft?.tension ??
+					"Training emphasizes visible tension before category language.",
+			},
+			{
+				label: "Voice separation",
+				score: 90,
+				target: "Personal scout voice stays distinct from project voice.",
+				evidence:
+					"Voice bridge pairs translate scout reads into project-safe copy.",
+			},
+			{
+				label: "Artifact potential",
+				score: artifactScore,
+				target:
+					"Screenshot or checklist appears only when it improves inspectability.",
+				evidence: `${countArtifactDrafts(drafts)} artifact-ready personal lanes.`,
+			},
+		],
+		exampleTransformations: [
+			{
+				before: "agent wallets are risky",
+				after:
+					"the agent wallet problem is not intelligence. it is blast radius.",
+				why: "It replaces a category warning with a concrete mechanism people can argue about.",
+			},
+			{
+				before: "crypto launches are chaotic",
+				after:
+					"launch culture is mostly a stress test for whether the explanation can survive the chart.",
+				why: "It keeps the current-event energy but makes the product lesson durable.",
+			},
+		],
+		topDraftIds: topTrainingDraftIds(drafts),
+		sourceBoundaries: trainingSourceBoundaries(analytics),
+	};
+}
+
+function buildProjectTraining({
+	analytics,
+	drafts,
+	engagementTargets,
+}: {
+	analytics: AnalyticsResponse;
+	drafts: TrainingDraft[];
+	engagementTargets: VantaEngagementTarget[];
+}): VantaAccountTraining {
+	const artifactCount = countArtifactDrafts(drafts);
+	const targetReader = engagementTargets[0]
+		? `@${engagementTargets[0].handle} and nearby ${engagementTargets[0].niche}`
+		: bestTargetSummary(analytics);
+	const proofScore = clampTrainingScore(82 + Math.min(10, artifactCount));
+	const artifactScore = clampTrainingScore(
+		70 + (drafts.length ? (artifactCount / drafts.length) * 30 : 0),
+	);
+
+	return {
+		handle: "@vantaprivacy",
+		accountRole: "project_publisher",
+		title: "@vantaprivacy training",
+		northStar:
+			"Publish calm project copy that turns attention into receipts, proof boundaries, merchant context, and beta-truth.",
+		goodTweetDefinition:
+			"A good project tweet is useful to a counterparty: what happened, what can be checked, what stays private, and what remains beta.",
+		algorithmPasses: [
+			{
+				id: "project-candidate-source",
+				label: "Candidate source fit",
+				score: 82,
+				status: "watch",
+				algorithmMechanic:
+					"in-network and out-of-network candidate paths need topic relevance plus a reason to survive first-glance filtering.",
+				accountRule:
+					"@vantaprivacy should lead with receipts, merchants, payment context, or proof boundaries instead of abstract privacy.",
+				evidence: `Target reader: ${targetReader}.`,
+				drill:
+					"Rewrite the first line so a merchant operator can tell why it matters without knowing Vanta.",
+			},
+			{
+				id: "project-engagement-probability",
+				label: "Engagement-probability fit",
+				score: 88,
+				status: "strong",
+				algorithmMechanic:
+					"Predicted favorite, reply, repost, click, share, and dwell are stronger when the post has a concrete save or debate job.",
+				accountRule:
+					"Make the receipt, artifact, field map, or proof boundary save-worthy before asking for attention.",
+				evidence: `${artifactCount} of ${drafts.length} project drafts point to an artifact.`,
+				drill:
+					"Add the exact receipt or policy field that would make the post worth bookmarking.",
+			},
+			{
+				id: "project-social-proof",
+				label: "Social proof fit",
+				score: clampTrainingScore(
+					76 + Math.min(12, engagementTargets.length * 3),
+				),
+				status: engagementTargets.length ? "strong" : "watch",
+				algorithmMechanic:
+					"Social proof and nearby graph engagement help an out-of-network project post look safer to rank.",
+				accountRule:
+					"Write for actual engaged people first; make their operational problem obvious.",
+				evidence:
+					engagementTargets[0]?.evidence ??
+					"No warm engaged target in this local slice yet.",
+				drill:
+					"Before copy, name the exact merchant, API builder, wallet team, or operator who would save it.",
+			},
+			{
+				id: "project-negative-filter",
+				label: "Negative-signal filter",
+				score: 92,
+				status: "strong",
+				algorithmMechanic:
+					"Hard filters, muted keywords, reports, blocks, and not-interested feedback should shape copy discipline.",
+				accountRule:
+					"Remove anonymous, untraceable, fully private, readiness, audit, and compliance-safety claims.",
+				evidence:
+					"Vanta forbidden-claims guardrail and review checklist stay attached to every draft.",
+				drill:
+					"Replace any privacy adjective with a field boundary: public, counterparty-visible, private, or beta.",
+			},
+			{
+				id: "project-voice-fit",
+				label: "Voice correctness",
+				score: 87,
+				status: "strong",
+				algorithmMechanic:
+					"Project accounts earn trust when repeated posts match a recognizable job and expectation.",
+				accountRule:
+					"Stay calm, artifact-backed, merchant-first, and explicit about current beta limits.",
+				evidence:
+					"Project drafts emphasize receipts, metadata, policy, recovery, and proof boundaries.",
+				drill:
+					"Delete any hype line; replace it with what can be verified and what stays private.",
+			},
+			{
+				id: "project-artifact-dwell",
+				label: "Artifact and dwell fit",
+				score: artifactScore,
+				status: statusFromScore(artifactScore, "needs_artifact"),
+				algorithmMechanic:
+					"Inspectability can earn clicks, dwell, bookmarks, repost context, and useful replies.",
+				accountRule:
+					"Pair claims with an artifact before copying: receipt, field map, policy screen, or proof-boundary checklist.",
+				evidence: `${artifactCount} artifact lanes visible in the project draft bank.`,
+				drill:
+					"Turn one sentence into a marked-up receipt or field map, then rewrite the caption around that artifact.",
+			},
+		],
+		goodTweetRules: [
+			"Say what happened before saying why it matters.",
+			"Say what can be checked by the counterparty.",
+			"Say what stays private, local, or out of the broadcast.",
+			"Keep the beta limit visible when proof or privacy is mentioned.",
+			"Use merchant/operator nouns before abstract privacy language.",
+		],
+		antiPatterns: [
+			"anonymous, untraceable, fully private, audited, or production-ready claims.",
+			"Generic future-of-crypto privacy positioning.",
+			"We are excited launch copy with no artifact or counterparty use.",
+			"Proof language that does not say who verifies what.",
+		],
+		drills: [
+			"Rewrite a privacy claim as a receipt field map.",
+			"Turn a launch take into what happened / what can be checked / what stays private.",
+			"Add the missing beta limit to the strongest project draft.",
+			"Write the same point for a merchant operator, not a crypto fan.",
+		],
+		scorecard: [
+			{
+				label: "Counterparty usefulness",
+				score: 88,
+				target:
+					"A merchant, wallet team, API builder, or operator knows the next action.",
+				evidence: targetReader,
+			},
+			{
+				label: "Proof boundary",
+				score: proofScore,
+				target: "Can prove / stays private / missing artifact / beta limit.",
+				evidence: "Drafts carry proofBoundary metadata into the UI.",
+			},
+			{
+				label: "Artifact readiness",
+				score: artifactScore,
+				target:
+					"Strong claims have screenshots, receipts, field maps, or checklists.",
+				evidence: `${artifactCount} artifact-backed project drafts.`,
+			},
+			{
+				label: "Claim safety",
+				score: 92,
+				target:
+					"No forbidden readiness, audit, anonymity, or guaranteed-privacy language.",
+				evidence:
+					"Forbidden-claim guardrails and copy gates block unsafe text.",
+			},
+		],
+		exampleTransformations: [
+			{
+				before: "private payments for merchants",
+				after:
+					"private settlement needs one public surface: the receipt. enough to verify, not enough to leak the workflow.",
+				why: "It turns abstract privacy into counterparty-useful proof and a clear boundary.",
+			},
+			{
+				before: "agent payments need privacy",
+				after:
+					"when every API becomes a checkout, the missing UI is policy: amount, route, purpose, expiry, revocation, receipt.",
+				why: "It replaces a broad claim with concrete fields people can save or debate.",
+			},
+		],
+		topDraftIds: topTrainingDraftIds(drafts),
+		sourceBoundaries: trainingSourceBoundaries(analytics),
+	};
+}
+
+export function buildVantaAccountTraining({
+	analytics,
+	engagementTargets,
+	personalPostDrafts,
+	postDrafts,
+}: {
+	analytics: AnalyticsResponse;
+	engagementTargets: VantaEngagementTarget[];
+	personalPostDrafts: TrainingDraft[];
+	postDrafts: TrainingDraft[];
+}): VantaTrainingLoop {
+	return {
+		source:
+			"X public recommendation architecture mapped onto local Birdclaw signal: candidate sourcing, Grok/ML engagement predictions, social proof, filtering, negative feedback, and author diversity.",
+		algorithmPrinciples: [
+			"candidate source fit: in-network and out-of-network posts need a clear relevance path.",
+			"ranking fit: engagement probabilities reward favorite, reply, repost, quote, click, share, dwell, and follow-author likelihood.",
+			"social proof fit: nearby graph engagement can make out-of-network posts safer to surface.",
+			"negative-signal filter: blocks, mutes, reports, not-interested, spam, duplicate, and fatigue signals should shape copy discipline.",
+			"artifact and dwell fit: screenshots, receipts, field maps, and reusable checklists can create inspectability.",
+			"author diversity fit: split personal scout voice from project publisher voice so one account does not crowd out the other.",
+		],
+		limits: [
+			"Local Birdclaw sample is directional, small, and read-only.",
+			"Public X algorithm sources do not expose every live production weight or personalization detail.",
+			"Training improves draft judgment; it does not post, like, reply, or mutate X.",
+			"Vanta copy remains beta-truthful and manual-review-first.",
+		],
+		accounts: [
+			buildPersonalTraining({ analytics, drafts: personalPostDrafts }),
+			buildProjectTraining({
+				analytics,
+				drafts: postDrafts,
+				engagementTargets,
+			}),
+		],
+	};
 }
 
 function rankingSignalForGoal(goal: EngagementGoal) {
@@ -1381,6 +1902,12 @@ export function buildVantaContentPlan(
 	const postDrafts = buildPostDrafts(analytics);
 	const personalPostDrafts = buildPersonalPostDrafts(analytics);
 	const engagementTargets = buildEngagementTargets(analytics);
+	const training = buildVantaAccountTraining({
+		analytics,
+		engagementTargets,
+		personalPostDrafts,
+		postDrafts,
+	});
 	return {
 		manualPostingOnly: true,
 		guardrails: VANTA_CONTENT_GUARDRAILS,
@@ -1395,6 +1922,7 @@ export function buildVantaContentPlan(
 		}),
 		replyPrompts: buildReplyPrompts(analytics),
 		engagementTargets,
+		training,
 		safetyNote:
 			"Manual review required before any public post or reply. Keep Vanta beta, merchant-first, receipt-backed, and counterparty-useful privacy.",
 		safetyNotes: [

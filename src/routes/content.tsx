@@ -24,7 +24,7 @@ type AccountFilter = "all" | "project" | "personal";
 type GoalFilter = "all" | "reply" | "bookmark" | "share" | "proof" | "like";
 type JobFilter = "all" | "artifact" | "copy" | "reply-review";
 type SectionDensity = "scan" | "full";
-type ContentFocus = "review" | "queues" | "voice" | "signals";
+type ContentFocus = "review" | "queues" | "voice" | "signals" | "training";
 
 const UI_LOOP_DIGEST = [
 	"Add a decision brief before evidence: job, voice split, artifact, manual gate.",
@@ -118,6 +118,7 @@ function contentFocusLabel(value: ContentFocus) {
 	if (value === "queues") return "Queues";
 	if (value === "voice") return "Voice bridge";
 	if (value === "signals") return "Signals";
+	if (value === "training") return "Training";
 	return "Review";
 }
 
@@ -692,6 +693,7 @@ function ContentRoute() {
 			queues: filteredActionCount,
 			voice: voicePairs.length,
 			signals: workflow?.pillars.length ?? 0,
+			training: workflow?.training?.accounts.length ?? 0,
 		}),
 		[filteredActionCount, nextMoves.length, voicePairs.length, workflow],
 	);
@@ -906,17 +908,17 @@ function ContentRoute() {
 						className="flex flex-wrap gap-2 border-t border-[var(--line)] pt-3"
 						role="group"
 					>
-						{(["review", "queues", "voice", "signals"] as const).map(
-							(focus) => (
-								<FocusButton
-									active={contentFocus === focus}
-									count={focusCounts[focus]}
-									key={focus}
-									label={contentFocusLabel(focus)}
-									onClick={() => setContentFocus(focus)}
-								/>
-							),
-						)}
+						{(
+							["review", "queues", "voice", "signals", "training"] as const
+						).map((focus) => (
+							<FocusButton
+								active={contentFocus === focus}
+								count={focusCounts[focus]}
+								key={focus}
+								label={contentFocusLabel(focus)}
+								onClick={() => setContentFocus(focus)}
+							/>
+						))}
 					</div>
 				</section>
 
@@ -1382,6 +1384,10 @@ function ContentRoute() {
 							</div>
 						) : null}
 					</section>
+				) : null}
+
+				{contentFocus === "training" ? (
+					<TrainingPanel training={workflow?.training} />
 				) : null}
 
 				{contentFocus === "queues" ? (
@@ -2102,6 +2108,244 @@ function EngagementTargetsPanel({
 				</p>
 			)}
 		</section>
+	);
+}
+
+function TrainingPanel({
+	training,
+}: {
+	training?: ProjectContentWorkflow["training"];
+}) {
+	const accounts = training?.accounts ?? [];
+	return (
+		<section
+			className={cx(surfaceCardClass, "grid gap-5 p-5 scroll-mt-4")}
+			id="training"
+		>
+			<div className="flex items-start justify-between gap-4 max-[760px]:flex-col">
+				<div>
+					<h3 className="m-0 font-display text-[1.55rem]">
+						What good tweets are
+					</h3>
+					<p className={cx(eyebrowClass, "mt-1")}>
+						Training loop for personal and project accounts
+					</p>
+				</div>
+				<p className="m-0 max-w-[50ch] text-sm leading-relaxed text-[var(--ink-soft)]">
+					This trains judgment, not autoposting. Birdclaw maps public X
+					recommendation mechanics into local account-specific rules, then keeps
+					every public action manual.
+				</p>
+			</div>
+			<div className="grid gap-3 min-[900px]:grid-cols-[1fr_1.1fr]">
+				<div className="grid content-start gap-3 rounded-[16px] bg-[color:color-mix(in_srgb,var(--accent-soft)_32%,var(--panel-strong))] p-4 shadow-[inset_0_0_0_1px_var(--line)]">
+					<div>
+						<p className={cx(eyebrowClass, "mb-1")}>Source model</p>
+						<p className="m-0 text-sm leading-relaxed text-[var(--ink)]">
+							{training?.source ??
+								"Training appears after the local content workflow loads."}
+						</p>
+					</div>
+					{training?.algorithmPrinciples?.length ? (
+						<div className="grid gap-2">
+							<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+								Algorithm principles
+							</p>
+							<ul className="m-0 grid gap-2 pl-5 text-[0.9rem] leading-relaxed text-[var(--ink-soft)]">
+								{training.algorithmPrinciples.map((principle) => (
+									<li key={principle}>{principle}</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+					{training?.limits?.length ? (
+						<div className="grid gap-2">
+							<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+								Training limits
+							</p>
+							<ul className="m-0 grid gap-2 pl-5 text-[0.9rem] leading-relaxed text-[var(--ink-soft)]">
+								{training.limits.map((limit) => (
+									<li key={limit}>{limit}</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+				</div>
+				<div className="grid gap-3">
+					{accounts.length ? (
+						accounts.map((account) => (
+							<AccountTrainingCard account={account} key={account.handle} />
+						))
+					) : (
+						<EmptyPanel text="Training will appear once the content workflow loads both account lanes." />
+					)}
+				</div>
+			</div>
+		</section>
+	);
+}
+
+function AccountTrainingCard({
+	account,
+}: {
+	account: ProjectContentWorkflow["training"]["accounts"][number];
+}) {
+	const visiblePasses = account.algorithmPasses.slice(0, 6);
+	const visibleScorecard = account.scorecard.slice(0, 4);
+	const visibleRules = account.goodTweetRules.slice(0, 5);
+	const visibleDrills = account.drills.slice(0, 4);
+	const visibleAntiPatterns = account.antiPatterns.slice(0, 4);
+	const visibleExamples = account.exampleTransformations.slice(0, 2);
+	return (
+		<article className="grid min-w-0 gap-4 rounded-[16px] bg-[var(--panel-strong)] p-4 shadow-[inset_0_0_0_1px_var(--line)]">
+			<div className="flex flex-wrap items-start justify-between gap-3">
+				<div className="min-w-0">
+					<p className={cx(eyebrowClass, "mb-1")}>{account.handle}</p>
+					<h4 className="m-0 font-display text-[1.35rem] leading-tight">
+						{account.title}
+					</h4>
+					<p className="m-0 mt-2 text-sm leading-relaxed text-[var(--ink-soft)]">
+						{account.northStar}
+					</p>
+				</div>
+				<span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-[0.76rem] font-medium text-[var(--accent)]">
+					{account.accountRole.replace(/_/g, " ")}
+				</span>
+			</div>
+			<div className="rounded-[14px] bg-[var(--panel)] p-3 shadow-[inset_0_0_0_1px_var(--line)]">
+				<p className={cx(eyebrowClass, "mb-1")}>Good tweet definition</p>
+				<p className="m-0 text-[0.95rem] leading-relaxed text-[var(--ink)]">
+					{account.goodTweetDefinition}
+				</p>
+			</div>
+			<div className="grid gap-3 min-[980px]:grid-cols-2">
+				<div className="grid gap-2">
+					<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+						Algorithm passes
+					</p>
+					<div className="grid gap-2">
+						{visiblePasses.map((pass) => (
+							<TrainingPassCard pass={pass} key={pass.id} />
+						))}
+					</div>
+				</div>
+				<div className="grid content-start gap-3">
+					<div className="grid gap-2">
+						<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+							Scorecard
+						</p>
+						<div className="grid gap-2">
+							{visibleScorecard.map((item) => (
+								<div
+									className="grid gap-1 rounded-[12px] bg-[var(--panel)] p-3 shadow-[inset_0_0_0_1px_var(--line)]"
+									key={item.label}
+								>
+									<div className="flex flex-wrap items-center justify-between gap-2">
+										<p className="m-0 text-sm font-medium text-[var(--ink)]">
+											{item.label}
+										</p>
+										<span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-[0.76rem] font-medium tabular-nums text-[var(--accent)]">
+											{item.score}
+										</span>
+									</div>
+									<p className="m-0 text-[0.84rem] leading-relaxed text-[var(--ink-soft)]">
+										{item.target}
+									</p>
+									<p className="m-0 break-words text-[0.8rem] leading-relaxed text-[var(--ink-soft)]">
+										{item.evidence}
+									</p>
+								</div>
+							))}
+						</div>
+					</div>
+					<div className="grid gap-2 rounded-[12px] bg-[var(--panel)] p-3 shadow-[inset_0_0_0_1px_var(--line)]">
+						<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+							Training drills
+						</p>
+						<ul className="m-0 grid gap-2 pl-5 text-[0.86rem] leading-relaxed text-[var(--ink-soft)]">
+							{visibleDrills.map((drill) => (
+								<li key={drill}>{drill}</li>
+							))}
+						</ul>
+					</div>
+					<div className="grid gap-2 rounded-[12px] bg-[var(--panel)] p-3 shadow-[inset_0_0_0_1px_var(--line)]">
+						<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+							Anti-patterns
+						</p>
+						<ul className="m-0 grid gap-2 pl-5 text-[0.86rem] leading-relaxed text-[var(--ink-soft)]">
+							{visibleAntiPatterns.map((pattern) => (
+								<li key={pattern}>{pattern}</li>
+							))}
+						</ul>
+					</div>
+				</div>
+			</div>
+			<DetailsPanel defaultOpen summary="Rules and rewrites">
+				<div className="grid gap-3 min-[860px]:grid-cols-2">
+					<div>
+						<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+							Good-tweet rules
+						</p>
+						<ul className="m-0 mt-2 grid gap-2 pl-5 text-[0.86rem] leading-relaxed text-[var(--ink-soft)]">
+							{visibleRules.map((rule) => (
+								<li key={rule}>{rule}</li>
+							))}
+						</ul>
+					</div>
+					<div className="grid gap-2">
+						<p className="m-0 text-sm font-semibold text-[var(--ink)]">
+							Example rewrites
+						</p>
+						{visibleExamples.map((example) => (
+							<div
+								className="grid gap-1 rounded-[12px] bg-[var(--panel)] p-3 shadow-[inset_0_0_0_1px_var(--line)]"
+								key={`${example.before}-${example.after}`}
+							>
+								<p className="m-0 text-[0.82rem] leading-relaxed text-[var(--ink-soft)]">
+									<span className="font-medium text-[var(--ink)]">Before:</span>{" "}
+									{example.before}
+								</p>
+								<p className="m-0 text-[0.82rem] leading-relaxed text-[var(--ink-soft)]">
+									<span className="font-medium text-[var(--ink)]">After:</span>{" "}
+									{example.after}
+								</p>
+								<p className="m-0 text-[0.8rem] leading-relaxed text-[var(--ink-soft)]">
+									{example.why}
+								</p>
+							</div>
+						))}
+					</div>
+				</div>
+			</DetailsPanel>
+		</article>
+	);
+}
+
+function TrainingPassCard({
+	pass,
+}: {
+	pass: ProjectContentWorkflow["training"]["accounts"][number]["algorithmPasses"][number];
+}) {
+	return (
+		<div className="grid gap-2 rounded-[12px] bg-[var(--panel)] p-3 shadow-[inset_0_0_0_1px_var(--line)]">
+			<div className="flex flex-wrap items-start justify-between gap-2">
+				<div>
+					<p className="m-0 text-sm font-medium text-[var(--ink)]">
+						{pass.label}
+					</p>
+					<p className="m-0 mt-1 text-[0.78rem] uppercase tracking-[0.1em] text-[var(--ink-soft)]">
+						{pass.status.replace(/_/g, " ")}
+					</p>
+				</div>
+				<span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-[0.76rem] font-medium tabular-nums text-[var(--accent)]">
+					{pass.score}
+				</span>
+			</div>
+			<InfoBlock label="Mechanic" text={pass.algorithmMechanic} />
+			<InfoBlock label="Account rule" text={pass.accountRule} />
+			<InfoBlock label="Evidence" text={pass.evidence} />
+			<InfoBlock label="Drill" text={pass.drill} />
+		</div>
 	);
 }
 
