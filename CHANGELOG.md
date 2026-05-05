@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Stabilize the presenter timestamp test across local time zones. Thanks @pejmanjohn.
+- Replace maintainer-local documentation links with repo-relative links and align the setup docs with the Node version file. Thanks @stainlu.
 
 ## 0.2.1 - 2026-04-27
 
