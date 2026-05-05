@@ -105,6 +105,12 @@ function replaceTweetFts(db: Database.Database, tweetId: string, text: string) {
 	);
 }
 
+function getReferencedTweetId(tweet: XurlMentionData, type: string) {
+	return (
+		tweet.referenced_tweets?.find((item) => item.type === type)?.id ?? null
+	);
+}
+
 function mergePayloads(pages: XurlMentionsResponse[]): XurlMentionsResponse {
 	const tweets: XurlMentionData[] = [];
 	const seenTweetIds = new Set<string>();
@@ -162,7 +168,7 @@ function mergeTimelineCollectionIntoLocalStore(
       id, account_id, author_profile_id, kind, text, created_at,
       is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
       entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?, ?, '[]', null)
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)
     on conflict(id) do update set
       account_id = excluded.account_id,
       author_profile_id = excluded.author_profile_id,
@@ -176,6 +182,9 @@ function mergeTimelineCollectionIntoLocalStore(
       media_count = excluded.media_count,
       entities_json = excluded.entities_json,
       media_json = excluded.media_json,
+      is_replied = max(tweets.is_replied, excluded.is_replied),
+      reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
+      quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
       bookmarked = max(tweets.bookmarked, excluded.bookmarked),
       liked = max(tweets.liked, excluded.liked)
     `,
@@ -203,6 +212,8 @@ function mergeTimelineCollectionIntoLocalStore(
 			const profile = usersById.has(tweet.author_id)
 				? upsertProfileFromXUser(db, author)
 				: ensureStubProfileForXUser(db, tweet.author_id);
+			const replyToId = getReferencedTweetId(tweet, "replied_to");
+			const quotedTweetId = getReferencedTweetId(tweet, "quoted");
 			upsertTweet.run(
 				tweet.id,
 				accountId,
@@ -210,11 +221,14 @@ function mergeTimelineCollectionIntoLocalStore(
 				tweetKind,
 				tweet.text,
 				tweet.created_at,
+				replyToId ? 1 : 0,
+				replyToId,
 				Number(tweet.public_metrics?.like_count ?? 0),
 				getMediaCount(tweet),
 				bookmarked,
 				liked,
 				JSON.stringify(tweet.entities ?? {}),
+				quotedTweetId,
 			);
 			upsertCollection.run(
 				accountId,

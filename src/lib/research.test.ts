@@ -222,8 +222,8 @@ describe("research mode", () => {
 		expect(report.items[0]?.thread.map((node) => node.id)).toEqual([
 			"tweet_root",
 			"tweet_reply_1",
-			"tweet_reply_3",
 			"tweet_reply_2",
+			"tweet_reply_3",
 		]);
 		expect(report.items[0]?.links).toContain(
 			"https://github.com/steipete/birdclaw",
@@ -232,6 +232,28 @@ describe("research mode", () => {
 		expect(report.markdown).toContain("# Birdclaw Research");
 		expect(report.markdown).toContain("tweet_reply_2");
 		expect(report.markdown).toContain("github.com/steipete/birdclaw");
+		expect(report.markdown.indexOf("Follow-up with details")).toBeLessThan(
+			report.markdown.indexOf("Another branch"),
+		);
+		expect(report.markdown).toContain(
+			"    - [@researchjules](https://x.com/researchjules/status/tweet_reply_2)",
+		);
+	});
+
+	it("honors the thread depth limit when expanding local descendants", async () => {
+		const { runResearchMode } = await import("./research");
+
+		const report = await runResearchMode({
+			account: "acct_research",
+			limit: 5,
+			maxThreadDepth: 1,
+		});
+
+		expect(report.items[0]?.thread.map((node) => node.id)).toEqual([
+			"tweet_root",
+			"tweet_reply_1",
+			"tweet_reply_3",
+		]);
 	});
 
 	it("writes the markdown brief to disk when requested", async () => {

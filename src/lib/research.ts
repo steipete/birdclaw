@@ -237,19 +237,24 @@ function getTweetRowById(tweetId: string): ResearchRow | null {
 	return row ?? null;
 }
 
-function getTweetDescendants(rootTweetId: string): ResearchNode[] {
+function getTweetDescendants(
+	rootTweetId: string,
+	maxThreadDepth: number,
+): ResearchNode[] {
 	const db = getNativeDb();
 	const rows = db
 		.prepare(
 			`
-      with recursive thread(id, depth) as (
-        select id, 0 as depth
+      with recursive thread(id, depth, path) as (
+        select id, 0 as depth, ',' || id || ',' as path
         from tweets
         where id = ?
         union all
-        select child.id, thread.depth + 1
+        select child.id, thread.depth + 1, thread.path || child.id || ','
         from tweets child
         join thread on child.reply_to_id = thread.id
+        where thread.depth < ?
+          and instr(thread.path, ',' || child.id || ',') = 0
       )
       select
         t.id,
@@ -278,10 +283,10 @@ function getTweetDescendants(rootTweetId: string): ResearchNode[] {
       join tweets t on t.id = thread.id
       join accounts a on a.id = t.account_id
       join profiles p on p.id = t.author_profile_id
-      order by thread.depth asc, t.created_at asc, t.id asc
+      order by t.created_at asc, t.id asc
       `,
 		)
-		.all(rootTweetId) as ResearchRow[];
+		.all(rootTweetId, maxThreadDepth) as ResearchRow[];
 
 	return rows.map((row) => toResearchNode(row, "local"));
 }
@@ -367,12 +372,70 @@ function dedupeNodes(nodes: ResearchNode[]) {
 	const output: ResearchNode[] = [];
 	for (const node of nodes) {
 		if (seen.has(node.id)) {
+			const existingIndex = output.findIndex((item) => item.id === node.id);
+			if (
+				existingIndex >= 0 &&
+				output[existingIndex]?.source === "live" &&
+				node.source === "local"
+			) {
+				output[existingIndex] = node;
+			}
 			continue;
 		}
 		seen.add(node.id);
 		output.push(node);
 	}
 	return output;
+}
+
+function compareThreadNodes(a: ResearchNode, b: ResearchNode) {
+	const byCreatedAt = a.createdAt.localeCompare(b.createdAt);
+	return byCreatedAt === 0 ? a.id.localeCompare(b.id) : byCreatedAt;
+}
+
+function orderThreadNodes(rootId: string, nodes: ResearchNode[]) {
+	const byId = new Map(nodes.map((node) => [node.id, node]));
+	const childrenByParentId = new Map<string, ResearchNode[]>();
+
+	for (const node of nodes) {
+		const parentId = node.replyToTweetId;
+		if (!parentId || !byId.has(parentId) || node.id === rootId) {
+			continue;
+		}
+		const siblings = childrenByParentId.get(parentId) ?? [];
+		siblings.push(node);
+		childrenByParentId.set(parentId, siblings);
+	}
+
+	for (const siblings of childrenByParentId.values()) {
+		siblings.sort(compareThreadNodes);
+	}
+
+	const ordered: ResearchNode[] = [];
+	const visited = new Set<string>();
+	const visit = (node: ResearchNode, depth: number) => {
+		if (visited.has(node.id)) {
+			return;
+		}
+		visited.add(node.id);
+		ordered.push({ ...node, threadDepth: depth });
+		for (const child of childrenByParentId.get(node.id) ?? []) {
+			visit(child, depth + 1);
+		}
+	};
+
+	const root = byId.get(rootId);
+	if (root) {
+		visit(root, 0);
+	}
+
+	for (const node of [...nodes].sort(compareThreadNodes)) {
+		if (!visited.has(node.id)) {
+			visit(node, Math.max(0, node.threadDepth));
+		}
+	}
+
+	return ordered;
 }
 
 function collectExternalLinks(nodes: ResearchNode[]) {
@@ -489,8 +552,11 @@ export async function runResearchMode(
 	for (const seed of seeds) {
 		const ancestorChain = await collectAncestorChain(seed.id, maxThreadDepth);
 		const rootId = ancestorChain[0]?.id ?? seed.id;
-		const localThread = getTweetDescendants(rootId);
-		const thread = dedupeNodes([...ancestorChain, ...localThread]);
+		const localThread = getTweetDescendants(rootId, maxThreadDepth);
+		const thread = orderThreadNodes(
+			rootId,
+			dedupeNodes([...ancestorChain, ...localThread]),
+		);
 		const links = collectExternalLinks(thread);
 		const handles = collectHandles(thread);
 		items.push({

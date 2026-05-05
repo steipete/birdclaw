@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add `--min-likes` and `--quality-reason` controls for tweet search quality filtering. Thanks @mvanhorn.
+- Add research mode for turning bookmarked Twitter threads into Markdown briefs. Thanks @anupamchugh.
 
 ### Fixed
 

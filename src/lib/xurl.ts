@@ -392,7 +392,8 @@ async function listTimelineCollectionViaXurl({
 	const query = new URLSearchParams({
 		max_results: String(maxResults),
 		expansions: "author_id",
-		"tweet.fields": "created_at,conversation_id,entities,public_metrics",
+		"tweet.fields":
+			"created_at,conversation_id,entities,public_metrics,referenced_tweets",
 		"user.fields":
 			"description,public_metrics,profile_image_url,created_at,verified",
 	});

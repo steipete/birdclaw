@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
-import { resetDatabaseForTests } from "./db";
+import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./queries";
 
 const mocks = vi.hoisted(() => ({
@@ -59,6 +59,10 @@ describe("live timeline collection sync", () => {
 					text: "xurl liked item",
 					created_at: "2026-04-26T13:43:34.000Z",
 					public_metrics: { like_count: 12 },
+					referenced_tweets: [
+						{ type: "replied_to", id: "root_1" },
+						{ type: "quoted", id: "quote_1" },
+					],
 				},
 			],
 			includes: {
@@ -87,6 +91,17 @@ describe("live timeline collection sync", () => {
 			liked: true,
 			bookmarked: false,
 			author: { handle: "sam" },
+		});
+		expect(
+			getNativeDb()
+				.prepare(
+					"select is_replied, reply_to_id, quoted_tweet_id from tweets where id = ?",
+				)
+				.get("liked_1"),
+		).toMatchObject({
+			is_replied: 1,
+			reply_to_id: "root_1",
+			quoted_tweet_id: "quote_1",
 		});
 	});
 
