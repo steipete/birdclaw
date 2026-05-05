@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Add `--min-likes` and `--quality-reason` controls for tweet search quality filtering. Thanks @mvanhorn.
+
 ### Fixed
 
 - Stabilize the presenter timestamp test across local time zones. Thanks @pejmanjohn.
