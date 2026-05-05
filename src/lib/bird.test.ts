@@ -28,6 +28,7 @@ describe("bird transport wrapper", () => {
 					retweetCount: 2,
 					likeCount: 3,
 					conversationId: "tweet_root_1",
+					inReplyToStatusId: "tweet_parent_1",
 					authorId: "42",
 					author: {
 						username: "sam",
@@ -60,6 +61,7 @@ describe("bird transport wrapper", () => {
 					author_id: "42",
 					text: "hello from bird",
 					conversation_id: "tweet_root_1",
+					referenced_tweets: [{ type: "replied_to", id: "tweet_parent_1" }],
 					public_metrics: expect.objectContaining({
 						reply_count: 1,
 						retweet_count: 2,
@@ -341,6 +343,46 @@ describe("bird transport wrapper", () => {
 			includes: { users: [{ id: "44", username: "jules", name: "Jules" }] },
 			meta: expect.objectContaining({ result_count: 1 }),
 		});
+	});
+
+	it("looks up tweets by id through bird read", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				id: "tweet_1",
+				text: "read from bird",
+				createdAt: "Tue May 05 15:07:12 +0000 2026",
+				authorId: "42",
+				author: { username: "sam", name: "Sam" },
+				conversationId: "tweet_root",
+				inReplyToStatusId: "tweet_root",
+				quotedTweet: { id: "tweet_quote" },
+				likeCount: 9,
+			}),
+		});
+		const { lookupTweetsByIdsViaBird } = await import("./bird");
+
+		await expect(lookupTweetsByIdsViaBird(["tweet_1"])).resolves.toEqual({
+			data: [
+				expect.objectContaining({
+					id: "tweet_1",
+					author_id: "42",
+					text: "read from bird",
+					conversation_id: "tweet_root",
+					referenced_tweets: [
+						{ type: "replied_to", id: "tweet_root" },
+						{ type: "quoted", id: "tweet_quote" },
+					],
+				}),
+			],
+			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+			meta: expect.objectContaining({ result_count: 1 }),
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledWith(
+			"/tmp/bird",
+			["read", "tweet_1", "--json"],
+			expect.objectContaining({ maxBuffer: expect.any(Number) }),
+		);
 	});
 
 	it("rejects unexpected direct messages json", async () => {

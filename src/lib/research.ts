@@ -2,9 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getNativeDb } from "./db";
 import { listTimelineItems } from "./queries";
+import { lookupTweetsByIds } from "./tweet-lookup";
 import { renderTweetMarkdown, renderTweetPlainText } from "./tweet-render";
 import type { TweetEntities, XurlMentionUser } from "./types";
-import { lookupTweetsByIds } from "./xurl";
 
 type ResearchNodeSource = "local" | "live";
 

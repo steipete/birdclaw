@@ -5,6 +5,8 @@ import type {
 	XurlMentionData,
 	XurlMentionsResponse,
 	XurlMentionUser,
+	XurlReferencedTweet,
+	XurlTweetsResponse,
 } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -54,7 +56,9 @@ interface BirdTweetItem {
 	retweetCount?: number;
 	likeCount?: number;
 	conversationId?: string;
-	inReplyToStatusId?: string;
+	inReplyToStatusId?: string | null;
+	quotedStatusId?: string | null;
+	quotedTweet?: { id?: string | null } | null;
 	author?: BirdTweetAuthor;
 	authorId?: string;
 	media?: BirdTweetMedia[];
@@ -182,6 +186,17 @@ function getBirdTweetItems(payload: unknown, command: string) {
 	throw new Error(`bird ${command} returned unexpected JSON`);
 }
 
+function getBirdTweetItem(payload: unknown, command: string) {
+	if (payload && typeof payload === "object") {
+		const record = payload as { id?: unknown };
+		if (typeof record.id === "string" && record.id.length > 0) {
+			return payload as BirdTweetItem;
+		}
+	}
+
+	throw new Error(`bird ${command} returned unexpected JSON`);
+}
+
 function toMediaEntities(media: BirdTweetMedia[] | undefined) {
 	if (!Array.isArray(media) || media.length === 0) {
 		return undefined;
@@ -199,6 +214,25 @@ function toMediaEntities(media: BirdTweetMedia[] | undefined) {
 				media_key: `bird_media_${index}`,
 			})),
 	};
+}
+
+function toReferencedTweets(item: BirdTweetItem) {
+	const references: XurlReferencedTweet[] = [];
+	if (typeof item.inReplyToStatusId === "string" && item.inReplyToStatusId) {
+		references.push({ type: "replied_to", id: item.inReplyToStatusId });
+	}
+
+	const quotedTweetId =
+		typeof item.quotedStatusId === "string" && item.quotedStatusId
+			? item.quotedStatusId
+			: typeof item.quotedTweet?.id === "string" && item.quotedTweet.id
+				? item.quotedTweet.id
+				: null;
+	if (quotedTweetId) {
+		references.push({ type: "quoted", id: quotedTweetId });
+	}
+
+	return references.length > 0 ? references : undefined;
 }
 
 function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
@@ -222,6 +256,7 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 			created_at: toIsoTimestamp(item.createdAt),
 			conversation_id: item.conversationId ?? item.id,
 			entities: toMediaEntities(item.media),
+			referenced_tweets: toReferencedTweets(item),
 			public_metrics: {
 				reply_count: Number(item.replyCount ?? 0),
 				retweet_count: Number(item.retweetCount ?? 0),
@@ -317,6 +352,23 @@ export async function listBookmarkedTweetsViaBird({
 		all,
 		maxPages,
 	});
+}
+
+export async function lookupTweetsByIdsViaBird(
+	ids: string[],
+): Promise<XurlTweetsResponse> {
+	if (ids.length === 0) {
+		return { data: [] };
+	}
+
+	const tweets = await Promise.all(
+		ids.map(async (id) => {
+			const stdout = await runBirdJsonCommand(["read", id, "--json"]);
+			return getBirdTweetItem(parseBirdJson(stdout), "read");
+		}),
+	);
+
+	return normalizeBirdTweets(tweets);
 }
 
 export async function listDirectMessagesViaBird({
