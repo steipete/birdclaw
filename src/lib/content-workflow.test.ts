@@ -111,6 +111,14 @@ describe("buildProjectContentWorkflow", () => {
 		const workflow = buildProjectContentWorkflow(makeAnalytics());
 
 		expect(workflow.manualPostingOnly).toBe(true);
+		expect(workflow.sourceQuality).toEqual(
+			expect.objectContaining({
+				summary: expect.stringContaining("62 local account mentions"),
+				limits: expect.arrayContaining([
+					expect.stringContaining("not a statistical audience model"),
+				]),
+			}),
+		);
 		expect(workflow.bridgeTheme).toBe(
 			"Route @williamclay Solana interest into @vantaprivacy privacy settlement posts.",
 		);

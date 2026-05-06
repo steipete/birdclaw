@@ -94,6 +94,15 @@ describe("Vanta content workflow", () => {
 
 		expect(second).toEqual(first);
 		expect(first.manualPostingOnly).toBe(true);
+		expect(first.sourceQuality).toEqual(
+			expect.objectContaining({
+				summary: expect.stringContaining("30 local account mentions"),
+				limits: expect.arrayContaining([
+					expect.stringContaining("not a statistical audience model"),
+					expect.stringContaining("untrusted source material"),
+				]),
+			}),
+		);
 		expect(first.engagementPlaybook.vantaUse.replyBait).toContain("limits");
 		expect(first.pillars).toEqual([
 			expect.objectContaining({ title: "Counterparty-useful privacy" }),

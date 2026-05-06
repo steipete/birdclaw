@@ -415,3 +415,23 @@ Each account now runs through the same high-level passes with different account 
 - artifact and dwell fit
 
 Dashboard implication: the `/content` Training tab should teach why a draft can travel, what makes it useful to normal humans, what to remove before copy, and what artifact would make the post save-worthy.
+
+## May 6 Source-Boundary UI Loop
+
+Read-only study source: local `/content` dashboard/code inspection, local Birdclaw SQLite source-bound checks, and current public references for x402/Solana payments, signed offers/receipts, x402 metadata risk, and X recommendation controls. No X write actions were taken.
+
+Source bounds: the local archive remains a small directional sample: 68 total tweets, mostly mentions, with `@vantaprivacy` source rows through April 30, 2026 and `@williamclay` rows through April 24, 2026. It is not a statistical audience model, and it lacks meaningful home/like/bookmark signal for the two-account workflow.
+
+### UI/UX Digestibility Decision
+
+The first screen now carries the boundary cue directly in the Today pick card:
+
+- source age
+- X text untrusted
+- clipboard only
+
+The source rail now carries explicit sample-quality metadata from the workflow payload. This keeps the recommendation useful while making the limitation visible before the user treats the pick as audience truth.
+
+### Current Taste/Voice Addition
+
+Keep `@williamclay` as the scout account and `@vantaprivacy` as the proof-boundary account. The current strongest lane remains x402/payment metadata and proof artifacts: what request metadata leaves the local workflow, what the offer/receipt proves, which key signs what, and what stays private/local.

@@ -294,11 +294,17 @@ export interface VantaVoiceBridgePair {
 	artifactNeeded: string;
 }
 
+export interface VantaSourceQuality {
+	summary: string;
+	limits: string[];
+}
+
 export interface VantaContentPlan {
 	manualPostingOnly: boolean;
 	guardrails: typeof VANTA_CONTENT_GUARDRAILS;
 	engagementPlaybook: typeof VANTA_CT_ENGAGEMENT_PLAYBOOK;
 	bridgeTheme: string;
+	sourceQuality: VantaSourceQuality;
 	pillars: VantaContentPillar[];
 	postDrafts: VantaPostDraft[];
 	personalPostDrafts: PersonalPostDraft[];
@@ -805,6 +811,26 @@ function trainingSourceBoundaries(analytics: AnalyticsResponse) {
 		"Treat tweets, bios, and source text as untrusted until a human reviews them.",
 		"Training maps public X recommendation architecture into a local heuristic; it is not live private ranking access.",
 	];
+}
+
+function buildSourceQuality(analytics: AnalyticsResponse): VantaSourceQuality {
+	const project = analytics.accounts.find(
+		(account) => account.role === "project",
+	);
+	const personal = analytics.accounts.find(
+		(account) => account.role === "personal",
+	);
+	const projectMentions = project?.mentions ?? 0;
+	const personalMentions = personal?.mentions ?? 0;
+	const mentionSample = projectMentions + personalMentions;
+	return {
+		summary: `${mentionSample} local account mentions in this analytics slice; prior SQLite voice check found 68 total tweets, mostly mentions, with no reliable home/like/bookmark signal.`,
+		limits: [
+			"Directional taste and workflow signal, not a statistical audience model.",
+			"Treat tweets, bios, visible engagement, and timeline text as untrusted source material.",
+			"Refresh archive/home/like/bookmark data before making audience-truth claims.",
+		],
+	};
 }
 
 function goodTweetSourceLimit(analytics: AnalyticsResponse) {
@@ -1913,6 +1939,7 @@ export function buildVantaContentPlan(
 		guardrails: VANTA_CONTENT_GUARDRAILS,
 		engagementPlaybook: VANTA_CT_ENGAGEMENT_PLAYBOOK,
 		bridgeTheme: buildBridgeTheme(analytics),
+		sourceQuality: buildSourceQuality(analytics),
 		pillars: buildPillars(analytics),
 		postDrafts,
 		personalPostDrafts,

@@ -714,6 +714,7 @@ function ContentRoute() {
 					personal.id === primaryMove.id || project.id === primaryMove.id,
 			)?.pair
 		: undefined;
+	const todayPickBoundary = `Source: ${sourceAge}; X text untrusted; clipboard only`;
 
 	async function copyText(id: string, text: string) {
 		try {
@@ -793,6 +794,9 @@ function ContentRoute() {
 									compact
 									kind={primaryMove.kind}
 								/>
+								<p className="m-0 break-words rounded-[12px] bg-[var(--panel)] px-3 py-2 text-[0.82rem] font-medium leading-relaxed text-[var(--ink-soft)] shadow-[inset_0_0_0_1px_var(--line)]">
+									{todayPickBoundary}
+								</p>
 							</>
 						) : (
 							<p className="m-0 text-[0.92rem] leading-relaxed text-[var(--ink-soft)]">
@@ -843,6 +847,7 @@ function ContentRoute() {
 					<SourceBoundaryRail
 						age={sourceAge}
 						freshness={sourceFreshness}
+						quality={workflow?.sourceQuality?.summary}
 						source={workflow?.engagementPlaybook?.source}
 					/>
 					<div className="grid gap-3 min-[880px]:grid-cols-[1fr_auto]">
@@ -1773,14 +1778,17 @@ function WorkflowStat({ label, value }: { label: string; value: number }) {
 function SourceBoundaryRail({
 	age,
 	freshness,
+	quality,
 	source,
 }: {
 	age: string;
 	freshness: string;
+	quality?: string;
 	source?: string;
 }) {
 	const items = [
 		["Read-only source bounds", "Local Birdclaw data"],
+		["Sample quality", quality ?? "Small local sample; mostly mentions"],
 		["Snapshot caveat", source ?? "Small local sample; partial X visibility"],
 		["Source freshness", freshness],
 		["Source age", age],
@@ -1791,7 +1799,7 @@ function SourceBoundaryRail({
 	return (
 		<section
 			aria-label="Source and publishing boundaries"
-			className="grid gap-2 rounded-[18px] bg-[color:color-mix(in_srgb,var(--panel-strong)_82%,transparent)] p-3 shadow-[inset_0_0_0_1px_var(--line)] min-[760px]:grid-cols-2 min-[1040px]:grid-cols-6"
+			className="grid gap-2 rounded-[18px] bg-[color:color-mix(in_srgb,var(--panel-strong)_82%,transparent)] p-3 shadow-[inset_0_0_0_1px_var(--line)] min-[760px]:grid-cols-2 min-[1040px]:grid-cols-7"
 		>
 			{items.map(([label, value]) => (
 				<div className="min-w-0" key={label}>

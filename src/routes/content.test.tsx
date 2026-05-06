@@ -270,6 +270,13 @@ describe("content route", () => {
 							manualPostingOnly: true,
 							bridgeTheme:
 								"Route @williamclay privacy interest into @vantaprivacy.",
+							sourceQuality: {
+								summary:
+									"7 local account mentions in this analytics slice; prior SQLite voice check found 68 total tweets, mostly mentions, with no reliable home/like/bookmark signal.",
+								limits: [
+									"Directional taste and workflow signal, not a statistical audience model.",
+								],
+							},
 							pillars: [
 								{
 									title: "Counterparty-useful privacy",
@@ -448,6 +455,22 @@ describe("content route", () => {
 			"false",
 		);
 		expect(screen.getByText("Today pick")).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Source: Project 2d; personal 8d; personal source stale; X text untrusted; clipboard only",
+			),
+		).toBeInTheDocument();
+		expect(
+			Boolean(
+				screen
+					.getByText(
+						"Source: Project 2d; personal 8d; personal source stale; X text untrusted; clipboard only",
+					)
+					.compareDocumentPosition(
+						screen.getByText("From live signal to reviewed copy"),
+					) & Node.DOCUMENT_POSITION_FOLLOWING,
+			),
+		).toBe(true);
 		expect(screen.getByText("Best move today")).toBeInTheDocument();
 		expect(screen.getByText("Check before copy")).toBeInTheDocument();
 		expect(screen.getByText("Can prove")).toBeInTheDocument();
@@ -509,6 +532,12 @@ describe("content route", () => {
 		expect(screen.getByText("Copy action only")).toBeInTheDocument();
 		expect(screen.getByText("Read-only source bounds")).toBeInTheDocument();
 		expect(screen.getByText("Local Birdclaw data")).toBeInTheDocument();
+		expect(screen.getByText("Sample quality")).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"7 local account mentions in this analytics slice; prior SQLite voice check found 68 total tweets, mostly mentions, with no reliable home/like/bookmark signal.",
+			),
+		).toBeInTheDocument();
 		expect(screen.getByText("Snapshot caveat")).toBeInTheDocument();
 		expect(
 			screen.getByText("Small local sample; partial X visibility"),
