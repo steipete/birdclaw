@@ -40,6 +40,59 @@ test("navigates across the primary surfaces", async ({ page }) => {
 	).toBeVisible();
 });
 
+test("shows the content dashboard review boundary on desktop and mobile", async ({
+	page,
+}) => {
+	await page.goto("/content");
+
+	await expect(
+		page.getByRole("heading", {
+			name: "What to post next, who it is for, and why it can travel",
+		}),
+	).toBeVisible();
+	await expect(page.getByText("Today pick")).toBeVisible();
+	await expect(
+		page.getByText(/X text untrusted; clipboard only/),
+	).toBeVisible();
+	await expect(page.getByRole("link", { name: "Review/copy" })).toHaveAttribute(
+		"href",
+		"#best-move",
+	);
+	await expect(
+		page.getByRole("heading", { name: "Best move today" }),
+	).toBeVisible();
+	await expect(
+		page.getByLabel("Source and publishing boundaries"),
+	).toContainText("Manual clipboard workflow");
+	await expect(page.getByLabel("Artifact Workbench")).toContainText(
+		"local-only",
+	);
+
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.reload();
+
+	await expect(
+		page.getByRole("heading", {
+			name: "What to post next, who it is for, and why it can travel",
+		}),
+	).toBeVisible();
+	await expect(
+		page.getByText(/X text untrusted; clipboard only/),
+	).toBeVisible();
+
+	await page.getByRole("button", { name: /Queues/ }).click();
+	await expect(
+		page.getByRole("heading", { name: "Project-account drafts" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "Replies worth answering" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "Personal scout drafts" }),
+	).toBeVisible();
+	await expect(page.getByRole("button", { name: /Post/ })).toHaveCount(0);
+});
+
 test("filters the home timeline by reply state", async ({ page }) => {
 	await page.goto("/");
 
