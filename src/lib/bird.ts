@@ -181,6 +181,18 @@ function formatBirdCommandError(error: unknown, birdCommand: string) {
 	return error;
 }
 
+function isUnsupportedBirdOptionError(error: unknown, option: string) {
+	if (!error || typeof error !== "object") {
+		return false;
+	}
+	const text = [
+		error instanceof Error ? error.message : "",
+		"stderr" in error && typeof error.stderr === "string" ? error.stderr : "",
+		"stdout" in error && typeof error.stdout === "string" ? error.stdout : "",
+	].join("\n");
+	return text.includes(option) && /unknown option|error:/i.test(text);
+}
+
 async function runBirdJsonCommand(args: string[], timeoutMs?: number) {
 	const tempDir = mkdtempSync(join(tmpdir(), "birdclaw-bird-"));
 	const stdoutPath = join(tempDir, "stdout.json");
@@ -475,13 +487,26 @@ export async function lookupProfileViaBird(
 		return null;
 	}
 
-	const stdout = await runBirdJsonCommand([
-		"user",
-		target,
-		"--json",
-		"--count",
-		"1",
-	]);
+	let stdout: string;
+	try {
+		stdout = await runBirdJsonCommand([
+			"user",
+			target,
+			"--json",
+			"--profile-only",
+		]);
+	} catch (error) {
+		if (!isUnsupportedBirdOptionError(error, "--profile-only")) {
+			throw error;
+		}
+		stdout = await runBirdJsonCommand([
+			"user",
+			target,
+			"--json",
+			"--count",
+			"1",
+		]);
+	}
 	const payload = parseBirdJson(stdout) as BirdUserOverviewPayload;
 	const user = payload.user;
 	if (!user?.id || !user.username) {

@@ -45,6 +45,33 @@ export interface ProfileAffiliation {
 	isActive: boolean;
 }
 
+export interface ProfileSnapshot {
+	profileId: string;
+	snapshotHash: string;
+	observedAt: string;
+	lastSeenAt: string;
+	source: string;
+	handle: string;
+	displayName: string;
+	bio: string;
+	location: string | null;
+	url: string | null;
+	verifiedType: string | null;
+	followersCount: number;
+	followingCount: number;
+	affiliations: unknown[];
+}
+
+export interface ProfileBioEntity {
+	profileId: string;
+	kind: "handle" | "domain" | "company_phrase";
+	value: string;
+	source: string;
+	firstSeenAt: string;
+	lastSeenAt: string;
+	isActive: boolean;
+}
+
 export interface TweetMentionEntity {
 	username: string;
 	id?: string;
@@ -197,6 +224,7 @@ export interface TimelineQuery {
 
 export interface DmQuery {
 	account?: string;
+	conversationIds?: string[];
 	participant?: string;
 	search?: string;
 	replyFilter?: ReplyFilter;

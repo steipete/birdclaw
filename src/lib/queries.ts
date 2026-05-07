@@ -516,6 +516,7 @@ export function listTimelineItems({
 
 export function listDmConversations({
 	account,
+	conversationIds,
 	participant,
 	search,
 	replyFilter = "all",
@@ -538,6 +539,11 @@ export function listDmConversations({
 	if (account && account !== "all") {
 		where += " and a.id = ?";
 		params.push(account);
+	}
+
+	if (conversationIds && conversationIds.length > 0) {
+		where += ` and c.id in (${conversationIds.map(() => "?").join(",")})`;
+		params.push(...conversationIds);
 	}
 
 	if (participant?.trim()) {

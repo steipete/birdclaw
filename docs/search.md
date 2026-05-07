@@ -90,9 +90,10 @@ Influence is a derived score that starts with follower count and combines verifi
 Use `birdclaw whois <query>` when the task is identity-oriented rather than
 pure search. It ranks candidate DM threads with evidence, optional tweet matches,
 cached profile resolution, first-class profile affiliation metadata, profile
-bio/profile URL signals, and cached URL expansion. In JSON, inspect
-`profileEvidence` for typed reasons such as `affiliation`, `profile_url`, and
-`expanded_url`.
+bio/profile URL signals, profile-change snapshots, extracted bio entities, and
+cached URL expansion. In JSON, inspect `profileEvidence` for typed reasons such
+as `affiliation`, `bio_handle`, `bio_domain`, `profile_history`,
+`profile_url`, and `expanded_url`.
 
 ## Snippets
 

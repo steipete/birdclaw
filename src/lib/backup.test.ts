@@ -44,6 +44,8 @@ function clearData() {
     delete from dm_messages;
     delete from dm_conversations;
     delete from tweets;
+    delete from profile_bio_entities;
+    delete from profile_snapshots;
     delete from profile_affiliations;
     delete from profiles;
     delete from accounts;
@@ -91,6 +93,26 @@ function seedBackupFixture() {
       'fixture', 1, '2025-01-01T00:00:00.000Z', '2025-01-02T00:00:00.000Z',
       '{"label":"Blacksmith"}', '2025-01-02T00:00:00.000Z'
     );
+
+    insert into profile_snapshots (
+      profile_id, snapshot_hash, observed_at, last_seen_at, source, handle,
+      display_name, bio, location, url, verified_type, followers_count,
+      following_count, affiliations_json, raw_json
+    ) values (
+      'profile_friend', 'snapshot_blacksmith', '2025-01-01T00:00:00.000Z',
+      '2025-01-02T00:00:00.000Z', 'fixture', 'friend', 'Friend',
+      'Sends useful DMs', null, 'https://friend.example', null, 50, 0,
+      '[{"organizationName":"Blacksmith"}]', '{}'
+    );
+
+    insert into profile_bio_entities (
+      profile_id, kind, value, source, is_active, first_seen_at, last_seen_at,
+      raw_json
+    ) values
+      ('profile_friend', 'domain', 'friend.example', 'profile_url', 1,
+        '2025-01-01T00:00:00.000Z', '2025-01-02T00:00:00.000Z', '{}'),
+      ('profile_friend', 'company_phrase', 'Blacksmith', 'affiliation', 1,
+        '2025-01-01T00:00:00.000Z', '2025-01-02T00:00:00.000Z', '{}');
 
     insert into tweets (
       id, account_id, author_profile_id, kind, text, created_at, is_replied,
@@ -193,6 +215,8 @@ describe("text backup", () => {
 			accounts: 1,
 			profiles: 2,
 			profile_affiliations: 1,
+			profile_snapshots: 1,
+			profile_bio_entities: 2,
 			tweets: 3,
 			collections_bookmarks: 1,
 			collections_likes: 2,
@@ -313,6 +337,8 @@ describe("text backup", () => {
 			accounts: 1,
 			profiles: 2,
 			profile_affiliations: 1,
+			profile_snapshots: 1,
+			profile_bio_entities: 2,
 			tweets: 3,
 			collections_bookmarks: 1,
 			collections_likes: 2,

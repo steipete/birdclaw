@@ -46,6 +46,35 @@ export interface ProfileAffiliationsTable {
 	updated_at: string;
 }
 
+export interface ProfileSnapshotsTable {
+	profile_id: string;
+	snapshot_hash: string;
+	observed_at: string;
+	last_seen_at: string;
+	source: string;
+	handle: string;
+	display_name: string;
+	bio: string;
+	location: string | null;
+	url: string | null;
+	verified_type: string | null;
+	followers_count: number;
+	following_count: number;
+	affiliations_json: string;
+	raw_json: string;
+}
+
+export interface ProfileBioEntitiesTable {
+	profile_id: string;
+	kind: string;
+	value: string;
+	source: string;
+	is_active: number;
+	first_seen_at: string;
+	last_seen_at: string;
+	raw_json: string;
+}
+
 export interface TweetsTable {
 	id: string;
 	account_id: string;
@@ -138,6 +167,8 @@ export interface BirdclawDatabase {
 	accounts: AccountsTable;
 	profiles: ProfilesTable;
 	profile_affiliations: ProfileAffiliationsTable;
+	profile_snapshots: ProfileSnapshotsTable;
+	profile_bio_entities: ProfileBioEntitiesTable;
 	tweets: TweetsTable;
 	tweet_collections: TweetCollectionsTable;
 	dm_conversations: DmConversationsTable;
@@ -203,6 +234,37 @@ const BASE_SCHEMA_SQL = `
     raw_json text not null default '{}',
     updated_at text not null,
     primary key (subject_profile_id, organization_profile_id)
+  );
+
+  create table if not exists profile_snapshots (
+    profile_id text not null,
+    snapshot_hash text not null,
+    observed_at text not null,
+    last_seen_at text not null,
+    source text not null,
+    handle text not null,
+    display_name text not null,
+    bio text not null,
+    location text,
+    url text,
+    verified_type text,
+    followers_count integer not null default 0,
+    following_count integer not null default 0,
+    affiliations_json text not null default '[]',
+    raw_json text not null default '{}',
+    primary key (profile_id, snapshot_hash)
+  );
+
+  create table if not exists profile_bio_entities (
+    profile_id text not null,
+    kind text not null,
+    value text not null,
+    source text not null,
+    is_active integer not null default 1,
+    first_seen_at text not null,
+    last_seen_at text not null,
+    raw_json text not null default '{}',
+    primary key (profile_id, kind, value)
   );
 
   create table if not exists tweets (
@@ -320,6 +382,9 @@ const INDEX_SQL = `
   create index if not exists idx_profiles_following on profiles(following_count desc);
   create index if not exists idx_profile_affiliations_subject on profile_affiliations(subject_profile_id, is_active, last_seen_at desc);
   create index if not exists idx_profile_affiliations_org on profile_affiliations(organization_profile_id, is_active, last_seen_at desc);
+  create index if not exists idx_profile_snapshots_profile on profile_snapshots(profile_id, last_seen_at desc);
+  create index if not exists idx_profile_bio_entities_profile on profile_bio_entities(profile_id, is_active, last_seen_at desc);
+  create index if not exists idx_profile_bio_entities_value on profile_bio_entities(kind, value, is_active);
   create index if not exists idx_blocks_account_created on blocks(account_id, created_at desc);
   create index if not exists idx_mutes_account_created on mutes(account_id, created_at desc);
   create index if not exists idx_ai_scores_updated on ai_scores(updated_at desc);
@@ -427,6 +492,45 @@ function ensureProfileAffiliationsTable(db: BetterSqlite3.Database) {
   `);
 }
 
+function ensureProfileSnapshotsTable(db: BetterSqlite3.Database) {
+	db.exec(`
+    create table if not exists profile_snapshots (
+      profile_id text not null,
+      snapshot_hash text not null,
+      observed_at text not null,
+      last_seen_at text not null,
+      source text not null,
+      handle text not null,
+      display_name text not null,
+      bio text not null,
+      location text,
+      url text,
+      verified_type text,
+      followers_count integer not null default 0,
+      following_count integer not null default 0,
+      affiliations_json text not null default '[]',
+      raw_json text not null default '{}',
+      primary key (profile_id, snapshot_hash)
+    );
+  `);
+}
+
+function ensureProfileBioEntitiesTable(db: BetterSqlite3.Database) {
+	db.exec(`
+    create table if not exists profile_bio_entities (
+      profile_id text not null,
+      kind text not null,
+      value text not null,
+      source text not null,
+      is_active integer not null default 1,
+      first_seen_at text not null,
+      last_seen_at text not null,
+      raw_json text not null default '{}',
+      primary key (profile_id, kind, value)
+    );
+  `);
+}
+
 function backfillTweetCollections(db: BetterSqlite3.Database) {
 	const now = new Date().toISOString();
 	const insert = db.prepare(`
@@ -464,6 +568,8 @@ function initDatabase(options: InitDatabaseOptions = {}) {
 		ensureProfileAvatarColumns(nativeDb);
 		ensureTweetCollectionsTable(nativeDb);
 		ensureProfileAffiliationsTable(nativeDb);
+		ensureProfileSnapshotsTable(nativeDb);
+		ensureProfileBioEntitiesTable(nativeDb);
 		ensureSchemaIndexes(nativeDb);
 		if (options.seedDemoData !== false) {
 			seedDemoData(nativeDb);

@@ -31,6 +31,8 @@ function resetStore() {
     delete from dm_messages;
     delete from dm_conversations;
     delete from tweets;
+    delete from profile_bio_entities;
+    delete from profile_snapshots;
     delete from profile_affiliations;
     delete from profiles;
     delete from accounts;
@@ -158,6 +160,120 @@ describe("profile resolver", () => {
 		]);
 		expect(mocks.lookupProfileViaBird).toHaveBeenCalledTimes(1);
 		expect(mocks.lookupUsersByIds).toHaveBeenCalledTimes(1);
+	});
+
+	it("hydrates synthetic highlighted-label affiliations into real org profiles", async () => {
+		const db = getNativeDb();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_user_43', 'id43', 'id43', 'Imported from archive user 43', 0, 211, '2009-03-19T22:54:05.000Z')",
+		).run();
+		mocks.lookupProfileViaBird
+			.mockResolvedValueOnce({
+				id: "42",
+				username: "rauchg",
+				name: "Guillermo Rauch",
+				description: "CEO at Vercel",
+				affiliation: {
+					description: "Vercel",
+					url: "https://x.com/vercel",
+					badgeUrl: "https://cdn.example/vercel.png",
+				},
+				public_metrics: { followers_count: 999, following_count: 50 },
+			})
+			.mockResolvedValueOnce({
+				id: "999",
+				username: "vercel",
+				name: "Vercel",
+				description: "The frontend cloud",
+				public_metrics: { followers_count: 1000, following_count: 10 },
+			})
+			.mockResolvedValueOnce({
+				id: "43",
+				username: "othervercel",
+				name: "Other Vercel",
+				description: "Also at Vercel",
+				affiliation: {
+					description: "Vercel",
+					url: "https://x.com/vercel",
+					badgeUrl: "https://cdn.example/vercel.png",
+				},
+				public_metrics: { followers_count: 100, following_count: 50 },
+			});
+		const { resolveProfilesForIds } = await import("./profile-resolver");
+
+		await expect(
+			resolveProfilesForIds(["profile_user_42", "profile_user_43"]),
+		).resolves.toEqual([
+			expect.objectContaining({
+				status: "hit",
+				source: "bird",
+				affiliationHydration: expect.objectContaining({
+					checked: 1,
+					hydrated: 1,
+				}),
+			}),
+			expect.objectContaining({
+				status: "hit",
+				source: "bird",
+				affiliationHydration: expect.objectContaining({
+					checked: 1,
+					hydrated: 1,
+				}),
+			}),
+		]);
+
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("42");
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("vercel");
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("43");
+		expect(
+			mocks.lookupProfileViaBird.mock.calls.filter(
+				([target]) => target === "vercel",
+			),
+		).toHaveLength(1);
+		expect(
+			db
+				.prepare(
+					`
+          select organization_profile_id, organization_name, organization_handle
+          from profile_affiliations
+          where subject_profile_id = 'profile_user_42'
+          `,
+				)
+				.get(),
+		).toEqual({
+			organization_profile_id: "profile_user_999",
+			organization_name: "Vercel",
+			organization_handle: "vercel",
+		});
+		expect(
+			db
+				.prepare(
+					`
+          select organization_profile_id, organization_name, organization_handle
+          from profile_affiliations
+          where subject_profile_id = 'profile_user_43'
+          `,
+				)
+				.get(),
+		).toEqual({
+			organization_profile_id: "profile_user_999",
+			organization_name: "Vercel",
+			organization_handle: "vercel",
+		});
+		expect(
+			db
+				.prepare(
+					`
+          select affiliations_json
+          from profile_snapshots
+          where profile_id = 'profile_user_42'
+            and source = 'affiliation_hydration'
+          `,
+				)
+				.get(),
+		).toEqual({
+			affiliations_json: expect.stringContaining("profile_user_999"),
+		});
 	});
 
 	it("returns local non-placeholder profiles without live lookup", async () => {

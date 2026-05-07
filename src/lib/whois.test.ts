@@ -23,6 +23,8 @@ describe("whois", () => {
       delete from dm_messages;
       delete from dm_conversations;
       delete from tweets;
+      delete from profile_bio_entities;
+      delete from profile_snapshots;
       delete from profile_affiliations;
       delete from profiles;
       delete from accounts;
@@ -40,7 +42,7 @@ describe("whois", () => {
         id, handle, display_name, bio, followers_count, avatar_hue,
         location, url, verified_type, entities_json, created_at
       ) values (
-        'profile_user_42', 'aditya', 'Aditya', 'Blacksmith cofounder', 5000, 210,
+        'profile_user_42', 'aditya', 'Aditya', 'Blacksmith cofounder building @useblacksmith', 5000, 210,
         'San Francisco', 'https://www.blacksmith.sh/team', 'business',
         '{"description":{"urls":[{"url":"https://t.co/bio","expanded_url":"https://www.blacksmith.sh"}]}}',
         '2020-01-01T00:00:00.000Z'
@@ -60,6 +62,15 @@ describe("whois", () => {
         '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z',
         '{"label":"Blacksmith"}', '2026-05-01T00:00:00.000Z'
       )
+      `,
+		).run();
+		db.prepare(
+			`
+      insert into profile_bio_entities (
+        profile_id, kind, value, source, is_active, first_seen_at, last_seen_at, raw_json
+      ) values
+        ('profile_user_42', 'handle', '@useblacksmith', 'bio', 1, '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '{}'),
+        ('profile_user_42', 'domain', 'blacksmith.sh', 'profile_url', 1, '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '{}')
       `,
 		).run();
 		db.prepare(
@@ -217,6 +228,31 @@ describe("whois", () => {
 				source: "local",
 			}),
 		]);
+	});
+
+	it("uses significant terms and bio entities for fuzzy identity queries", async () => {
+		const { runWhois } = await import("./whois");
+
+		const result = await runWhois("blacksmith guy", {
+			resolveProfiles: false,
+			expandUrls: false,
+			context: 1,
+		});
+
+		expect(result.candidates[0]).toMatchObject({
+			conversation: expect.objectContaining({ id: "dm_blacksmith" }),
+			reasons: expect.arrayContaining(["bio entity matches query"]),
+			profileEvidence: expect.arrayContaining([
+				expect.objectContaining({
+					kind: "bio_handle",
+					value: "@useblacksmith",
+				}),
+				expect.objectContaining({
+					kind: "bio_domain",
+					value: "blacksmith.sh",
+				}),
+			]),
+		});
 	});
 
 	it("attaches cached URL expansions and formats identity reports", async () => {

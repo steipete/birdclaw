@@ -153,6 +153,7 @@ Shard contract:
 - unknown tweet dates: `data/tweets/unknown.jsonl`
 - profiles: `data/profiles.jsonl` includes bio, follower/following counts, profile URL, location, verification type, structured URL entities, and raw profile JSON
 - affiliations: `data/profile_affiliations.jsonl` includes X badge/highlighted-label organization edges
+- identity history: `data/profile_snapshots.jsonl` and `data/profile_bio_entities.jsonl` preserve profile-change states and extracted bio identity hints
 - collections: `data/collections/likes.jsonl`, `data/collections/bookmarks.jsonl`
 - DMs: `data/dms/conversations.jsonl` plus `data/dms/YYYY.jsonl`
 - moderation: `data/moderation/blocks.jsonl`, `data/moderation/mutes.jsonl`
@@ -328,8 +329,11 @@ the live transport exposes it.
 
 Find likely people or orgs from local DM and optional tweet evidence.
 Candidates include structured `profileEvidence` entries for profile bio, profile
-URL, bio URLs, location, verified type, first-class affiliations, DM context, and
-expanded URLs.
+URL, bio URLs, location, verified type, first-class affiliations, bio entities,
+profile-history snapshots, DM context, and expanded URLs. `whois` also searches
+significant terms from fuzzy prompts, so `blacksmith guy` can rank a match from
+`@useblacksmith` and `blacksmith.sh` even when the literal phrase was not stored
+in a DM.
 
 Flags:
 
@@ -348,6 +352,7 @@ Examples:
 
 ```bash
 birdclaw whois blacksmith --context 4 --no-xurl-fallback --json
+birdclaw whois "blacksmith guy" --context 4 --no-xurl-fallback --json
 birdclaw whois blacksmith --tweets --no-xurl-fallback
 ```
 

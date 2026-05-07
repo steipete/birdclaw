@@ -1,10 +1,15 @@
+import { getNativeDb } from "./db";
+import { fetchProfileBioEntities } from "./profile-bio-entities";
+import { fetchProfileSnapshots } from "./profile-history";
 import { expandUrlsFromTexts } from "./url-expansion";
 import { resolveProfilesForIds } from "./profile-resolver";
 import { listDmConversations, listTimelineItems } from "./queries";
 import type {
 	DmConversationItem,
 	ProfileAffiliation,
+	ProfileBioEntity,
 	ProfileRecord,
+	ProfileSnapshot,
 	TimelineItem,
 	UrlExpansionItem,
 } from "./types";
@@ -54,14 +59,63 @@ export interface WhoisEvidenceSignal {
 		| "profile_bio_url"
 		| "profile_verified_type"
 		| "affiliation"
+		| "bio_handle"
+		| "bio_domain"
+		| "bio_company"
+		| "profile_history"
 		| "dm_context"
 		| "expanded_url";
 	value: string;
-	source: "profile" | "affiliation" | "dm" | "url";
+	source: "profile" | "affiliation" | "bio_entity" | "history" | "dm" | "url";
 }
 
 function normalizeQuery(query: string) {
 	return query.trim().toLowerCase();
+}
+
+function getSignificantQueryTerms(query: string) {
+	const stopwords = new Set([
+		"a",
+		"an",
+		"and",
+		"at",
+		"for",
+		"from",
+		"guy",
+		"is",
+		"of",
+		"person",
+		"the",
+		"who",
+		"with",
+	]);
+	return Array.from(
+		new Set(
+			normalizeQuery(query)
+				.split(/[^a-z0-9_@.-]+/)
+				.map((term) => term.replace(/^@/, ""))
+				.filter((term) => term.length >= 3 && !stopwords.has(term)),
+		),
+	);
+}
+
+function matchesQueryText(query: string, value: string | undefined | null) {
+	if (!value) {
+		return false;
+	}
+	const normalizedValue = value.toLowerCase();
+	if (normalizedValue.includes(query)) {
+		return true;
+	}
+	return getSignificantQueryTerms(query).some((term) =>
+		normalizedValue.includes(term),
+	);
+}
+
+function getDmSearchQueries(query: string) {
+	const trimmed = query.trim();
+	const values = [trimmed, ...getSignificantQueryTerms(trimmed)];
+	return Array.from(new Set(values.filter((value) => value.length > 0)));
 }
 
 function getMessageTexts(conversation: DmConversationItem) {
@@ -114,13 +168,85 @@ function pushMatchEvidence(
 	value: string | undefined | null,
 	source: WhoisEvidenceSignal["source"],
 ) {
-	if (!value || !value.toLowerCase().includes(query)) {
+	if (!matchesQueryText(query, value)) {
 		return;
 	}
-	signals.push({ kind, value, source });
+	signals.push({ kind, value: String(value), source });
 }
 
-function collectProfileEvidence(query: string, profile: ProfileRecord) {
+function getSnapshotAffiliationTexts(snapshot: ProfileSnapshot) {
+	return snapshot.affiliations.flatMap((affiliation) => {
+		if (!affiliation || typeof affiliation !== "object") {
+			return [];
+		}
+		const record = affiliation as Record<string, unknown>;
+		return [
+			record.organizationName,
+			record.organizationHandle,
+			record.label,
+			record.url,
+		].filter(
+			(item): item is string => typeof item === "string" && item.length > 0,
+		);
+	});
+}
+
+function getHistoricalSnapshotTexts(
+	snapshot: ProfileSnapshot,
+	profile: ProfileRecord,
+) {
+	const texts: string[] = [];
+	if (snapshot.handle !== profile.handle) {
+		texts.push(`previous handle: @${snapshot.handle}`);
+	}
+	if (snapshot.displayName !== profile.displayName) {
+		texts.push(`previous name: ${snapshot.displayName}`);
+	}
+	if (snapshot.bio !== profile.bio) {
+		texts.push(`previous bio: ${snapshot.bio}`);
+	}
+	if (snapshot.location && snapshot.location !== (profile.location ?? null)) {
+		texts.push(`previous location: ${snapshot.location}`);
+	}
+	if (snapshot.url && snapshot.url !== (profile.url ?? null)) {
+		texts.push(`previous url: ${snapshot.url}`);
+	}
+	if (
+		snapshot.verifiedType &&
+		snapshot.verifiedType !== (profile.verifiedType ?? null)
+	) {
+		texts.push(`previous verified: ${snapshot.verifiedType}`);
+	}
+	const currentAffiliationTexts = new Set(
+		(profile.affiliations ?? [])
+			.flatMap((affiliation) => [
+				affiliation.organizationName,
+				affiliation.organizationHandle,
+				affiliation.label,
+				affiliation.url,
+			])
+			.filter((item): item is string => Boolean(item))
+			.map((item) => item.toLowerCase()),
+	);
+	const previousAffiliationTexts = getSnapshotAffiliationTexts(snapshot);
+	if (
+		previousAffiliationTexts.some(
+			(text) => !currentAffiliationTexts.has(text.toLowerCase()),
+		)
+	) {
+		texts.push(
+			`previous affiliations: ${JSON.stringify(snapshot.affiliations)}`,
+		);
+	}
+	return texts;
+}
+
+function collectProfileEvidence(
+	query: string,
+	profile: ProfileRecord,
+	bioEntities: ProfileBioEntity[] = [],
+	snapshots: ProfileSnapshot[] = [],
+) {
 	const signals: WhoisEvidenceSignal[] = [];
 	pushMatchEvidence(
 		signals,
@@ -160,6 +286,26 @@ function collectProfileEvidence(query: string, profile: ProfileRecord) {
 			pushMatchEvidence(signals, query, "affiliation", text, "affiliation");
 		}
 	}
+	for (const entity of bioEntities) {
+		const kind =
+			entity.kind === "handle"
+				? "bio_handle"
+				: entity.kind === "domain"
+					? "bio_domain"
+					: "bio_company";
+		pushMatchEvidence(signals, query, kind, entity.value, "bio_entity");
+	}
+	for (const snapshot of snapshots) {
+		for (const text of getHistoricalSnapshotTexts(snapshot, profile)) {
+			pushMatchEvidence(
+				signals,
+				query,
+				"profile_history",
+				`${snapshot.lastSeenAt}: ${text}`,
+				"history",
+			);
+		}
+	}
 	return signals;
 }
 
@@ -167,14 +313,26 @@ function scoreCandidate(
 	query: string,
 	conversation: DmConversationItem,
 	expansions: UrlExpansionItem[],
+	bioEntities: ProfileBioEntity[] = [],
+	snapshots: ProfileSnapshot[] = [],
 ) {
 	const normalized = normalizeQuery(query);
 	const profile = conversation.participant;
-	const profileEvidence = collectProfileEvidence(normalized, profile);
+	const profileEvidence = collectProfileEvidence(
+		normalized,
+		profile,
+		bioEntities,
+		snapshots,
+	);
 	const affiliationTexts = (profile.affiliations ?? []).flatMap(
 		getAffiliationTexts,
 	);
 	const profileBioUrls = getProfileBioUrls(profile);
+	const bioEntityTexts = bioEntities.map((entity) => entity.value);
+	const profileHistoryTexts = snapshots.flatMap((snapshot) =>
+		getHistoricalSnapshotTexts(snapshot, profile),
+	);
+	const messageTexts = getMessageTexts(conversation);
 	const haystack = [
 		conversation.title,
 		profile.handle,
@@ -185,7 +343,9 @@ function scoreCandidate(
 		profile.verifiedType,
 		...profileBioUrls,
 		...affiliationTexts,
-		...getMessageTexts(conversation),
+		...bioEntityTexts,
+		...profileHistoryTexts,
+		...messageTexts,
 	]
 		.filter(Boolean)
 		.join("\n")
@@ -198,16 +358,16 @@ function scoreCandidate(
 		reasons.push("resolved profile");
 	}
 	if (
-		profile.handle.toLowerCase().includes(normalized) ||
-		profile.displayName.toLowerCase().includes(normalized) ||
-		profile.bio.toLowerCase().includes(normalized)
+		matchesQueryText(normalized, profile.handle) ||
+		matchesQueryText(normalized, profile.displayName) ||
+		matchesQueryText(normalized, profile.bio)
 	) {
 		confidence += 20;
 		reasons.push("profile matches query");
 	}
 	if (
-		profile.url?.toLowerCase().includes(normalized) ||
-		profileBioUrls.some((url) => url.toLowerCase().includes(normalized))
+		matchesQueryText(normalized, profile.url) ||
+		profileBioUrls.some((url) => matchesQueryText(normalized, url))
 	) {
 		confidence += 20;
 		reasons.push("profile URL matches query");
@@ -216,11 +376,19 @@ function scoreCandidate(
 		confidence += 30;
 		reasons.push("affiliation matches query");
 	}
+	if (profileEvidence.some((signal) => signal.source === "bio_entity")) {
+		confidence += 25;
+		reasons.push("bio entity matches query");
+	}
+	if (profileEvidence.some((signal) => signal.source === "history")) {
+		confidence += 20;
+		reasons.push("profile history matches query");
+	}
 	if (haystack.includes("co-founder") || haystack.includes("cofounder")) {
 		confidence += 25;
 		reasons.push("cofounder language");
 	}
-	if (haystack.includes(normalized)) {
+	if (messageTexts.some((text) => matchesQueryText(normalized, text))) {
 		confidence += 15;
 		reasons.push("message text matches query");
 		profileEvidence.push({
@@ -229,9 +397,7 @@ function scoreCandidate(
 			source: "dm",
 		});
 	}
-	if (
-		expansions.some((item) => item.finalUrl.toLowerCase().includes(normalized))
-	) {
+	if (expansions.some((item) => matchesQueryText(normalized, item.finalUrl))) {
 		confidence += 15;
 		reasons.push("expanded URL matches query");
 		for (const item of expansions) {
@@ -272,6 +438,129 @@ function attachExpansionsToMatches(
 	}
 }
 
+function mergeConversations(
+	target: Map<string, DmConversationItem>,
+	conversations: DmConversationItem[],
+) {
+	for (const conversation of conversations) {
+		if (!target.has(conversation.id)) {
+			target.set(conversation.id, conversation);
+		}
+	}
+}
+
+function findProfileEvidenceConversationIds(
+	query: string,
+	account: string | undefined,
+	limit: number,
+) {
+	const terms = [normalizeQuery(query), ...getSignificantQueryTerms(query)]
+		.filter((term) => term.length > 0)
+		.filter((term, index, array) => array.indexOf(term) === index);
+	if (terms.length === 0) {
+		return [];
+	}
+	const clauses: string[] = [];
+	const params: Array<string | number> = [];
+	for (const term of terms) {
+		const pattern = `%${term}%`;
+		clauses.push(`
+      lower(p.handle) like ?
+      or lower(p.display_name) like ?
+      or lower(p.bio) like ?
+      or lower(coalesce(p.location, '')) like ?
+      or lower(coalesce(p.url, '')) like ?
+      or lower(coalesce(p.verified_type, '')) like ?
+      or lower(coalesce(pa.organization_name, '')) like ?
+      or lower(coalesce(pa.organization_handle, '')) like ?
+      or lower(coalesce(pa.label, '')) like ?
+      or lower(coalesce(pa.url, '')) like ?
+      or lower(coalesce(pbe.value, '')) like ?
+      or lower(coalesce(ps.handle, '')) like ?
+      or lower(coalesce(ps.display_name, '')) like ?
+      or lower(coalesce(ps.bio, '')) like ?
+      or lower(coalesce(ps.location, '')) like ?
+      or lower(coalesce(ps.url, '')) like ?
+      or lower(coalesce(ps.verified_type, '')) like ?
+      or lower(coalesce(ps.affiliations_json, '')) like ?
+    `);
+		for (let index = 0; index < 18; index += 1) {
+			params.push(pattern);
+		}
+	}
+
+	let accountClause = "";
+	if (account && account !== "all") {
+		accountClause = "and c.account_id = ?";
+		params.push(account);
+	}
+	params.push(limit);
+
+	const rows = getNativeDb()
+		.prepare(
+			`
+      select c.id
+      from dm_conversations c
+      join profiles p on p.id = c.participant_profile_id
+      left join profile_affiliations pa
+        on pa.subject_profile_id = p.id and pa.is_active = 1
+      left join profile_bio_entities pbe
+        on pbe.profile_id = p.id and pbe.is_active = 1
+      left join profile_snapshots ps on ps.profile_id = p.id
+      where (${clauses.map((clause) => `(${clause})`).join(" or ")})
+        ${accountClause}
+      group by c.id
+      order by c.last_message_at desc
+      limit ?
+      `,
+		)
+		.all(...params) as Array<{ id: string }>;
+	return rows.map((row) => row.id);
+}
+
+function loadWhoisConversations(
+	query: string,
+	options: WhoisOptions,
+	includeDms: boolean,
+	context: number,
+	limit: number,
+) {
+	if (!includeDms) {
+		return [];
+	}
+	const merged = new Map<string, DmConversationItem>();
+	const batchLimit = Math.max(limit * 3, 20);
+	for (const search of getDmSearchQueries(query)) {
+		mergeConversations(
+			merged,
+			listDmConversations({
+				account: options.account,
+				search,
+				context,
+				limit: batchLimit,
+			}),
+		);
+	}
+
+	const profileEvidenceIds = findProfileEvidenceConversationIds(
+		query,
+		options.account,
+		Math.max(limit * 5, 50),
+	);
+	if (profileEvidenceIds.length > 0) {
+		mergeConversations(
+			merged,
+			listDmConversations({
+				account: options.account,
+				conversationIds: profileEvidenceIds,
+				limit: profileEvidenceIds.length,
+			}),
+		);
+	}
+
+	return [...merged.values()];
+}
+
 export async function runWhois(
 	query: string,
 	options: WhoisOptions = {},
@@ -280,14 +569,13 @@ export async function runWhois(
 	const includeTweets = options.tweets ?? false;
 	const limit = options.limit ?? 10;
 	const context = options.context ?? 4;
-	let conversations = includeDms
-		? listDmConversations({
-				account: options.account,
-				search: query,
-				context,
-				limit,
-			})
-		: [];
+	let conversations = loadWhoisConversations(
+		query,
+		options,
+		includeDms,
+		context,
+		limit,
+	);
 	let profileResolution: WhoisResult["profileResolution"];
 
 	if (options.resolveProfiles ?? true) {
@@ -298,14 +586,13 @@ export async function runWhois(
 				xurlFallback: options.xurlFallback ?? true,
 			},
 		);
-		conversations = includeDms
-			? listDmConversations({
-					account: options.account,
-					search: query,
-					context,
-					limit,
-				})
-			: [];
+		conversations = loadWhoisConversations(
+			query,
+			options,
+			includeDms,
+			context,
+			limit,
+		);
 	}
 
 	const relatedTweets = includeTweets
@@ -344,12 +631,27 @@ export async function runWhois(
 		attachExpansionsToMatches(conversation, urlExpansions);
 	}
 
+	const profileIds = conversations.map(
+		(conversation) => conversation.participant.id,
+	);
+	const bioEntitiesByProfile = fetchProfileBioEntities(
+		getNativeDb(),
+		profileIds,
+	);
+	const snapshotsByProfile = fetchProfileSnapshots(getNativeDb(), profileIds);
 	const candidates = conversations
 		.map((conversation): WhoisCandidate => {
 			const conversationExpansions = urlExpansions.filter((item) =>
 				getMessageTexts(conversation).some((text) => text.includes(item.url)),
 			);
-			const score = scoreCandidate(query, conversation, conversationExpansions);
+			const profileId = conversation.participant.id;
+			const score = scoreCandidate(
+				query,
+				conversation,
+				conversationExpansions,
+				bioEntitiesByProfile.get(profileId) ?? [],
+				snapshotsByProfile.get(profileId) ?? [],
+			);
 			return {
 				conversation,
 				confidence: score.confidence,
@@ -374,7 +676,8 @@ export async function runWhois(
 				new Date(right.conversation.lastMessageAt).getTime() -
 				new Date(left.conversation.lastMessageAt).getTime()
 			);
-		});
+		})
+		.slice(0, limit);
 
 	return {
 		query,

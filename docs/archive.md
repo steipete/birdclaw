@@ -71,6 +71,8 @@ After import, archive data and live data live in the same canonical tables. Ther
 - **DMs** → `dm_conversations` and `dm_events` tables, indexed by FTS5 — searchable via `birdclaw search dms`
 - **Profiles** → `profiles` table — drives @mention resolution, profile evidence, and DM influence scoring
 - **Affiliations** → `profile_affiliations` table when live profile hydration exposes X badge/highlighted-label organization metadata
+- **Profile history** → `profile_snapshots` table after live hydration observes profile/bio/affiliation changes
+- **Bio entities** → `profile_bio_entities` table for extracted `@handle`, domain, and company-phrase identity hints
 - **Blocks** (when present in the archive export) → `blocks` table per account
 
 Tweets whose archive timestamps are missing or impossible (`1970-01-01` rows) get bucketed into `data/tweets/unknown.jsonl` on backup export rather than pretending they belong to 1970.

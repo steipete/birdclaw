@@ -108,6 +108,15 @@ SQLite only. Kysely schema in code, migrations checked into repo.
 - `profile_affiliations`
   - active subject-to-organization affiliation edges from X profile badges / highlighted labels
   - stores organization id or deterministic synthetic id, label, handle, badge URL, URL, source, and first/last-seen timestamps
+  - synthetic highlighted-label ids are upgraded to real local organization profile ids when `bird` can hydrate the org handle
+- `profile_snapshots`
+  - deduplicated history of hydrated profile identity fields
+  - stores bio, display name, handle, location, profile URL, verification type, counts, active affiliations, raw JSON, and first/last seen timestamps per state
+  - lets `whois` explain current-vs-former affiliation or bio evidence instead of losing overwritten profile text
+- `profile_bio_entities`
+  - first-class extracted identity hints from profile bio/URL/affiliations
+  - stores active and inactive `handle`, `domain`, and `company_phrase` values with first/last seen timestamps
+  - feeds fuzzy identity ranking for prompts such as `blacksmith guy`, where `@useblacksmith` or `blacksmith.sh` is stronger than a generic DM keyword
 - `blocks`
   - account-scoped local blocklist
   - canonical local state for blocklist UI and CLI

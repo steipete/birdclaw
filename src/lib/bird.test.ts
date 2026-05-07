@@ -17,6 +17,12 @@ function mockBirdStdoutOnce(stdout: string) {
 	});
 }
 
+function mockBirdRejectOnce(error: Error & { stderr?: string }) {
+	execFileAsyncMock.mockImplementationOnce(async () => {
+		throw error;
+	});
+}
+
 function expectBirdCommandCall(callNumber: number, args: string[]) {
 	const call = execFileAsyncMock.mock.calls[callNumber - 1];
 	expect(call).toBeDefined();
@@ -486,7 +492,37 @@ describe("bird transport wrapper", () => {
 				following_count: 45,
 			},
 		});
-		expectBirdCommandCall(1, ["user", "42", "--json", "--count", "1"]);
+		expectBirdCommandCall(1, ["user", "42", "--json", "--profile-only"]);
+	});
+
+	it("falls back to count one for older bird profile lookups", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdRejectOnce(
+			Object.assign(new Error("Command failed"), {
+				stderr: "error: unknown option '--profile-only'",
+			}),
+		);
+		mockBirdStdoutOnce(
+			JSON.stringify({
+				user: {
+					id: "42",
+					username: "sam",
+					name: "Sam",
+					followersCount: 123,
+				},
+			}),
+		);
+		const { lookupProfileViaBird } = await import("./bird");
+
+		await expect(lookupProfileViaBird("42")).resolves.toEqual(
+			expect.objectContaining({
+				id: "42",
+				username: "sam",
+				public_metrics: expect.objectContaining({ followers_count: 123 }),
+			}),
+		);
+		expectBirdCommandCall(1, ["user", "42", "--json", "--profile-only"]);
+		expectBirdCommandCall(2, ["user", "42", "--json", "--count", "1"]);
 	});
 
 	it("rejects unexpected direct messages json", async () => {

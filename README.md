@@ -25,6 +25,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - live likes and bookmarks sync through `xurl` or `bird`
 - Git-friendly text backups with yearly tweet shards and per-conversation DM shards
 - profile hydration from live Twitter metadata
+- profile-change history, affiliation badge edges, and extracted bio entities for local identity lookups
 - local avatar cache
 - local media cache root under `~/.birdclaw`
 
@@ -276,6 +277,7 @@ birdclaw research --account acct_primary --out ~/research/codex.md
 pnpm cli search dms "prototype" --json
 pnpm cli search dms "layout" --min-followers 1000 --min-influence-score 120 --sort influence --json
 pnpm cli search dms "blacksmith" --context 4 --resolve-profiles --expand-urls --no-xurl-fallback --json
+pnpm cli whois "blacksmith guy" --context 4 --no-xurl-fallback --json
 pnpm cli whois "blacksmith" --tweets --context 4 --no-xurl-fallback --json
 pnpm cli dms sync --limit 50 --refresh --json
 pnpm cli dms list --refresh --limit 10 --json
@@ -286,9 +288,14 @@ pnpm cli dms list --unreplied --min-followers 500 --min-influence-score 90 --sor
 cache first, then `bird`, then `xurl` unless `--no-xurl-fallback` is set.
 Resolved profiles keep bio, location, profile URL, verification type, structured
 URL entities, raw profile JSON, and any X affiliation badge metadata Birdclaw can
-see. `whois` uses that profile context plus DM context and cached URL expansion
-to return typed evidence such as `profile_bio`, `profile_url`, `profile_bio_url`,
-`affiliation`, `dm_context`, and `expanded_url`.
+see. When a highlighted-label badge only gives a synthetic label plus handle,
+Birdclaw tries to hydrate that org handle through `bird` and rewrites the edge to
+the real local organization profile id. Profile changes are snapshotted over
+time, and bios are indexed for `@handles`, domains, and company phrases.
+`whois` uses that profile context plus DM context and cached URL expansion to
+return typed evidence such as `profile_bio`, `profile_url`, `profile_bio_url`,
+`affiliation`, `bio_handle`, `bio_domain`, `bio_company`, `profile_history`,
+`dm_context`, and `expanded_url`.
 
 ### AI inbox
 
@@ -388,6 +395,8 @@ manifest.json
 data/accounts.jsonl
 data/profiles.jsonl
 data/profile_affiliations.jsonl
+data/profile_snapshots.jsonl
+data/profile_bio_entities.jsonl
 data/tweets/YYYY.jsonl
 data/tweets/unknown.jsonl
 data/collections/likes.jsonl

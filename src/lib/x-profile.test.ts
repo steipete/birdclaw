@@ -148,6 +148,66 @@ describe("x profile sync helpers", () => {
 		).toEqual({ followers_count: 999, following_count: 123 });
 	});
 
+	it("records profile snapshots and bio entities during upserts", () => {
+		const db = makeTempHome();
+
+		upsertProfileFromXUser(db, {
+			id: "4242",
+			username: "blacksmith_guy",
+			name: "Blacksmith Guy",
+			description: "Co-founder at @useblacksmith",
+			url: "https://blacksmith.sh",
+			public_metrics: {
+				followers_count: 10,
+				following_count: 5,
+			},
+		});
+		upsertProfileFromXUser(db, {
+			id: "4242",
+			username: "blacksmith_guy",
+			name: "Blacksmith Guy",
+			description: "Now at @newco",
+			url: "https://newco.dev",
+			public_metrics: {
+				followers_count: 20,
+				following_count: 5,
+			},
+		});
+
+		expect(
+			db
+				.prepare(
+					"select bio from profile_snapshots where profile_id = ? order by observed_at asc",
+				)
+				.all("profile_user_4242"),
+		).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ bio: "Co-founder at @useblacksmith" }),
+				expect.objectContaining({ bio: "Now at @newco" }),
+			]),
+		);
+		expect(
+			db
+				.prepare(
+					"select kind, value, is_active from profile_bio_entities where profile_id = ? order by value",
+				)
+				.all("profile_user_4242"),
+		).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "handle",
+					value: "@newco",
+					is_active: 1,
+				}),
+				expect.objectContaining({
+					kind: "handle",
+					value: "@useblacksmith",
+					is_active: 0,
+				}),
+			]),
+		);
+	});
+
 	it("falls back to username when x user payload omits a display name", () => {
 		const db = makeTempHome();
 

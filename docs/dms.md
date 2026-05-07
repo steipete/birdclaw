@@ -52,6 +52,7 @@ birdclaw search dms "prototype" --json
 birdclaw search dms "layout" --min-followers 1000 --min-influence-score 120 --sort influence --json
 birdclaw search dms "invoice" --participant @someone --replied --json
 birdclaw search dms "blacksmith" --context 4 --resolve-profiles --expand-urls --no-xurl-fallback --json
+birdclaw whois "blacksmith guy" --context 4 --no-xurl-fallback --json
 birdclaw whois "blacksmith" --context 4 --no-xurl-fallback --json
 ```
 
@@ -59,10 +60,13 @@ Same FTS5 backbone as tweet search, with the DM-specific filters layered on top.
 
 For identity lookups, `whois` clusters matching conversations, includes nearby DM
 context, resolves numeric archive profiles through cache-backed `bird`/`xurl`
-lookups, preserves richer profile metadata, checks first-class affiliations, and
-expands URLs through the persistent cache. JSON candidates include
-`profileEvidence` so agents can separate bio/profile URL/affiliation evidence
-from plain DM keyword matches.
+lookups, preserves richer profile metadata, checks first-class affiliations,
+bio entities, and profile-change snapshots, and expands URLs through the
+persistent cache. JSON candidates include `profileEvidence` so agents can
+separate bio/profile URL/affiliation/history evidence from plain DM keyword
+matches. Fuzzy identity prompts such as `blacksmith guy` search significant
+terms and can rank a profile from bio `@handle`, domain, and company-phrase
+evidence even when the literal phrase was not in the DM.
 
 ## Influence score
 

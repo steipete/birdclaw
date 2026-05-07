@@ -1,6 +1,10 @@
 import { getNativeDb } from "./db";
 import { lookupProfileViaBird } from "./bird";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
+import {
+	hydrateProfileAffiliationOrganizations,
+	type ProfileAffiliationHydrationResult,
+} from "./profile-affiliation-hydration";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
 import { lookupUsersByIds } from "./xurl";
@@ -31,6 +35,7 @@ export interface ProfileResolveResult {
 	status: ProfileLookupStatus;
 	source: ProfileLookupSource | "negative-cache";
 	profile?: ProfileRecord;
+	affiliationHydration?: ProfileAffiliationHydrationResult;
 	error?: string;
 }
 
@@ -246,6 +251,10 @@ export async function resolveProfilesForIds(
 		writeProfileLookupCache(externalUserId, fetched);
 		if (fetched.status === "hit" && fetched.user) {
 			const resolved = upsertProfileFromXUser(getNativeDb(), fetched.user);
+			const affiliationHydration = await hydrateProfileAffiliationOrganizations(
+				getNativeDb(),
+				resolved.profile.id,
+			);
 			updateConversationTitles(resolved.profile);
 			results.push({
 				profileId: resolved.profile.id,
@@ -253,6 +262,7 @@ export async function resolveProfilesForIds(
 				status: "hit",
 				source: fetched.source,
 				profile: resolved.profile,
+				...(affiliationHydration.checked > 0 ? { affiliationHydration } : {}),
 			});
 			continue;
 		}

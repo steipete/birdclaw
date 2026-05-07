@@ -14,6 +14,8 @@ manifest.json
 data/accounts.jsonl
 data/profiles.jsonl
 data/profile_affiliations.jsonl
+data/profile_snapshots.jsonl
+data/profile_bio_entities.jsonl
 data/tweets/YYYY.jsonl
 data/tweets/unknown.jsonl
 data/collections/likes.jsonl
@@ -32,6 +34,8 @@ Design rules:
 - **likes** and **bookmarks** are stored as collection edges and mirrored into the timeline rows so existing queries keep working
 - **profiles** include bio, follower/following counts, profile URL, location, verification type, structured URL entities, and raw profile JSON so the snapshot is meaningful on its own
 - **profile affiliations** preserve X badge/highlighted-label organization edges separately from profile rows
+- **profile snapshots** preserve deduplicated profile-history states for identity evidence over time
+- **profile bio entities** preserve extracted `@handle`, domain, and company-phrase identity hints, including inactive historical values
 - **no SQLite WAL/SHM, FTS shadow tables, or transient live cache rows** ever land in the backup
 
 The manifest pins per-shard byte counts, row counts, and SHA hashes. Validation walks every shard and verifies they line up.

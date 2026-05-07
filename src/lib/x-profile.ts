@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
 import { normalizeAvatarUrl } from "./avatar-cache";
+import { syncProfileBioEntitiesForProfileId } from "./profile-bio-entities";
 import { syncProfileAffiliationsFromUser } from "./profile-affiliations";
+import { recordProfileSnapshot } from "./profile-history";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 
 export interface ResolvedXProfile {
@@ -138,6 +140,7 @@ function updateExistingProfileFromUser(
 	const avatarUrl = normalizeAvatarUrl(user.profile_image_url);
 	const metadata = buildProfileMetadata(user);
 
+	recordProfileSnapshot(db, profileId, "pre_update");
 	db.prepare(
 		`
     update profiles
@@ -173,6 +176,8 @@ function updateExistingProfileFromUser(
 		profileId,
 	);
 	syncProfileAffiliationsFromUser(db, profileId, user);
+	recordProfileSnapshot(db, profileId, "x_profile");
+	syncProfileBioEntitiesForProfileId(db, profileId);
 
 	const row = db
 		.prepare(
@@ -277,6 +282,8 @@ export function upsertProfileFromXUser(
 		hasFollowingCount ? 1 : 0,
 	);
 	syncProfileAffiliationsFromUser(db, profileId, user);
+	recordProfileSnapshot(db, profileId, "x_profile");
+	syncProfileBioEntitiesForProfileId(db, profileId);
 
 	return {
 		profile: {

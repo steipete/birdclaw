@@ -210,6 +210,31 @@ function getExportRowSets(db: Database.Database) {
 			),
 		},
 		{
+			logicalName: "profile_snapshots",
+			rows: rowsForQuery(
+				db,
+				`
+        select profile_id, snapshot_hash, observed_at, last_seen_at, source,
+          handle, display_name, bio, location, url, verified_type,
+          followers_count, following_count, affiliations_json, raw_json
+        from profile_snapshots
+        order by profile_id, last_seen_at, snapshot_hash
+        `,
+			),
+		},
+		{
+			logicalName: "profile_bio_entities",
+			rows: rowsForQuery(
+				db,
+				`
+        select profile_id, kind, value, source, is_active, first_seen_at,
+          last_seen_at, raw_json
+        from profile_bio_entities
+        order by profile_id, kind, value
+        `,
+			),
+		},
+		{
 			logicalName: "tweets",
 			rows: rowsForQuery(
 				db,
@@ -332,6 +357,12 @@ function buildShards(db: Database.Database) {
 				break;
 			case "profile_affiliations":
 				addRows(shards, "data/profile_affiliations.jsonl", rowSet.rows);
+				break;
+			case "profile_snapshots":
+				addRows(shards, "data/profile_snapshots.jsonl", rowSet.rows);
+				break;
+			case "profile_bio_entities":
+				addRows(shards, "data/profile_bio_entities.jsonl", rowSet.rows);
 				break;
 			case "tweets":
 				for (const row of rowSet.rows) {
@@ -492,6 +523,8 @@ manifest.json
 data/accounts.jsonl
 data/profiles.jsonl
 data/profile_affiliations.jsonl
+data/profile_snapshots.jsonl
+data/profile_bio_entities.jsonl
 data/tweets/YYYY.jsonl
 data/tweets/unknown.jsonl
 data/collections/likes.jsonl
@@ -923,6 +956,8 @@ function clearBackupImportData(db: Database.Database) {
     delete from dm_messages;
     delete from dm_conversations;
     delete from tweets;
+    delete from profile_bio_entities;
+    delete from profile_snapshots;
     delete from profile_affiliations;
     delete from profiles;
     delete from accounts;
@@ -959,6 +994,8 @@ export async function importBackup({
 		accounts,
 		profiles,
 		profileAffiliations,
+		profileSnapshots,
+		profileBioEntities,
 		tweets,
 		collections,
 		conversations,
@@ -971,6 +1008,8 @@ export async function importBackup({
 		readRows((file) => file === "data/accounts.jsonl"),
 		readRows((file) => file === "data/profiles.jsonl"),
 		readRows((file) => file === "data/profile_affiliations.jsonl"),
+		readRows((file) => file === "data/profile_snapshots.jsonl"),
+		readRows((file) => file === "data/profile_bio_entities.jsonl"),
 		readRows((file) => file.startsWith("data/tweets/")),
 		readRows((file) => file.startsWith("data/collections/")),
 		readRows((file) => file === "data/dms/conversations.jsonl"),
@@ -1018,6 +1057,68 @@ export async function importBackup({
 				"transport",
 				"is_default",
 				"created_at",
+			],
+		);
+		insertRows(
+			db,
+			`
+      insert into profile_snapshots (
+        profile_id, snapshot_hash, observed_at, last_seen_at, source, handle,
+        display_name, bio, location, url, verified_type, followers_count,
+        following_count, affiliations_json, raw_json
+      ) values (?, ?, ?, ?, coalesce(?, 'backup'), ?, ?, ?, ?, ?, ?, coalesce(?, 0), coalesce(?, 0), coalesce(?, '[]'), coalesce(?, '{}'))
+      on conflict(profile_id, snapshot_hash) do update set
+        last_seen_at = max(profile_snapshots.last_seen_at, excluded.last_seen_at),
+        source = excluded.source,
+        raw_json = case
+          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
+          else profile_snapshots.raw_json
+        end
+      `,
+			profileSnapshots,
+			[
+				"profile_id",
+				"snapshot_hash",
+				"observed_at",
+				"last_seen_at",
+				"source",
+				"handle",
+				"display_name",
+				"bio",
+				"location",
+				"url",
+				"verified_type",
+				"followers_count",
+				"following_count",
+				"affiliations_json",
+				"raw_json",
+			],
+		);
+		insertRows(
+			db,
+			`
+      insert into profile_bio_entities (
+        profile_id, kind, value, source, is_active, first_seen_at, last_seen_at, raw_json
+      ) values (?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, coalesce(?, '{}'))
+      on conflict(profile_id, kind, value) do update set
+        source = excluded.source,
+        is_active = excluded.is_active,
+        last_seen_at = max(profile_bio_entities.last_seen_at, excluded.last_seen_at),
+        raw_json = case
+          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
+          else profile_bio_entities.raw_json
+        end
+      `,
+			profileBioEntities,
+			[
+				"profile_id",
+				"kind",
+				"value",
+				"source",
+				"is_active",
+				"first_seen_at",
+				"last_seen_at",
+				"raw_json",
 			],
 		);
 		insertRows(
