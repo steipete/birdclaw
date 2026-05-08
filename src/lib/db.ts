@@ -20,6 +20,7 @@ export interface ProfilesTable {
 	bio: string;
 	followers_count: number;
 	following_count: number;
+	public_metrics_json: string;
 	avatar_hue: number;
 	avatar_url: string | null;
 	location: string | null;
@@ -212,6 +213,50 @@ export interface LinkOccurrencesTable {
 	created_at: string;
 }
 
+export interface FollowEdgesTable {
+	account_id: string;
+	direction: "followers" | "following";
+	profile_id: string;
+	external_user_id: string;
+	source: string;
+	current: number;
+	first_seen_at: string;
+	last_seen_at: string;
+	ended_at: string | null;
+	updated_at: string;
+}
+
+export interface FollowSnapshotsTable {
+	id: string;
+	account_id: string;
+	direction: "followers" | "following";
+	source: string;
+	status: "complete" | "incomplete";
+	page_count: number;
+	result_count: number;
+	started_at: string;
+	completed_at: string;
+	raw_meta_json: string;
+}
+
+export interface FollowSnapshotMembersTable {
+	snapshot_id: string;
+	profile_id: string;
+	external_user_id: string;
+	position: number;
+}
+
+export interface FollowEventsTable {
+	id: string;
+	account_id: string;
+	direction: "followers" | "following";
+	profile_id: string;
+	external_user_id: string;
+	kind: "started" | "ended";
+	event_at: string;
+	snapshot_id: string;
+}
+
 export interface BirdclawDatabase {
 	accounts: AccountsTable;
 	profiles: ProfilesTable;
@@ -231,6 +276,10 @@ export interface BirdclawDatabase {
 	sync_cache: SyncCacheTable;
 	url_expansions: UrlExpansionsTable;
 	link_occurrences: LinkOccurrencesTable;
+	follow_edges: FollowEdgesTable;
+	follow_snapshots: FollowSnapshotsTable;
+	follow_snapshot_members: FollowSnapshotMembersTable;
+	follow_events: FollowEventsTable;
 }
 
 let nativeDb: Database | undefined;
@@ -262,6 +311,7 @@ const BASE_SCHEMA_SQL = `
     bio text not null,
     followers_count integer not null default 0,
     following_count integer not null default 0,
+    public_metrics_json text not null default '{}',
     avatar_hue integer not null default 0,
     avatar_url text,
     location text,
@@ -464,6 +514,52 @@ const BASE_SCHEMA_SQL = `
     primary key (source_kind, source_id, source_position, short_url)
   );
 
+  create table if not exists follow_snapshots (
+    id text primary key,
+    account_id text not null,
+    direction text not null,
+    source text not null,
+    status text not null,
+    page_count integer not null default 0,
+    result_count integer not null default 0,
+    started_at text not null,
+    completed_at text not null,
+    raw_meta_json text not null default '{}'
+  );
+
+  create table if not exists follow_snapshot_members (
+    snapshot_id text not null,
+    profile_id text not null,
+    external_user_id text not null,
+    position integer not null,
+    primary key (snapshot_id, profile_id)
+  );
+
+  create table if not exists follow_edges (
+    account_id text not null,
+    direction text not null,
+    profile_id text not null,
+    external_user_id text not null,
+    source text not null,
+    current integer not null default 1,
+    first_seen_at text not null,
+    last_seen_at text not null,
+    ended_at text,
+    updated_at text not null,
+    primary key (account_id, direction, profile_id)
+  );
+
+  create table if not exists follow_events (
+    id text primary key,
+    account_id text not null,
+    direction text not null,
+    profile_id text not null,
+    external_user_id text not null,
+    kind text not null,
+    event_at text not null,
+    snapshot_id text not null
+  );
+
   create virtual table if not exists tweets_fts using fts5(
     tweet_id unindexed,
     text
@@ -487,6 +583,7 @@ const INDEX_SQL = `
   create index if not exists idx_dm_messages_conversation on dm_messages(conversation_id, created_at asc);
   create index if not exists idx_profiles_followers on profiles(followers_count desc);
   create index if not exists idx_profiles_following on profiles(following_count desc);
+  create index if not exists idx_profiles_handle on profiles(handle);
   create index if not exists idx_profile_affiliations_subject on profile_affiliations(subject_profile_id, is_active, last_seen_at desc);
   create index if not exists idx_profile_affiliations_org on profile_affiliations(organization_profile_id, is_active, last_seen_at desc);
   create index if not exists idx_profile_snapshots_profile on profile_snapshots(profile_id, last_seen_at desc);
@@ -505,6 +602,10 @@ const INDEX_SQL = `
   create index if not exists idx_link_occurrences_created on link_occurrences(created_at desc);
   create index if not exists idx_link_occurrences_account on link_occurrences(account_id, created_at desc);
   create index if not exists idx_link_occurrences_direction on link_occurrences(direction, created_at desc);
+  create index if not exists idx_follow_edges_current on follow_edges(account_id, direction, current, last_seen_at desc);
+  create index if not exists idx_follow_edges_profile on follow_edges(profile_id, current);
+  create index if not exists idx_follow_snapshots_account on follow_snapshots(account_id, direction, completed_at desc);
+  create index if not exists idx_follow_events_account on follow_events(account_id, direction, kind, event_at desc);
 `;
 
 function getColumnNames(db: Database, tableName: string): Set<string> {
@@ -558,6 +659,11 @@ function ensureProfileAvatarColumns(db: Database) {
 	if (!columnNames.has("raw_json")) {
 		db.exec(
 			"alter table profiles add column raw_json text not null default '{}'",
+		);
+	}
+	if (!columnNames.has("public_metrics_json")) {
+		db.exec(
+			"alter table profiles add column public_metrics_json text not null default '{}'",
 		);
 	}
 }
@@ -716,6 +822,56 @@ function ensureLinkIndexTables(db: Database) {
 	}
 }
 
+function ensureFollowGraphTables(db: Database) {
+	db.exec(`
+    create table if not exists follow_snapshots (
+      id text primary key,
+      account_id text not null,
+      direction text not null,
+      source text not null,
+      status text not null,
+      page_count integer not null default 0,
+      result_count integer not null default 0,
+      started_at text not null,
+      completed_at text not null,
+      raw_meta_json text not null default '{}'
+    );
+
+    create table if not exists follow_snapshot_members (
+      snapshot_id text not null,
+      profile_id text not null,
+      external_user_id text not null,
+      position integer not null,
+      primary key (snapshot_id, profile_id)
+    );
+
+    create table if not exists follow_edges (
+      account_id text not null,
+      direction text not null,
+      profile_id text not null,
+      external_user_id text not null,
+      source text not null,
+      current integer not null default 1,
+      first_seen_at text not null,
+      last_seen_at text not null,
+      ended_at text,
+      updated_at text not null,
+      primary key (account_id, direction, profile_id)
+    );
+
+    create table if not exists follow_events (
+      id text primary key,
+      account_id text not null,
+      direction text not null,
+      profile_id text not null,
+      external_user_id text not null,
+      kind text not null,
+      event_at text not null,
+      snapshot_id text not null
+    );
+	`);
+}
+
 function backfillTweetCollections(db: Database) {
 	const now = new Date().toISOString();
 	const insert = db.prepare(`
@@ -780,6 +936,7 @@ function initDatabase(options: InitDatabaseOptions = {}) {
 		ensureProfileBioEntitiesTable(nativeDb);
 		ensureIdentitySearchIndexTable(nativeDb);
 		ensureLinkIndexTables(nativeDb);
+		ensureFollowGraphTables(nativeDb);
 		ensureSchemaIndexes(nativeDb);
 		if (options.seedDemoData !== false) {
 			seedDemoData(nativeDb);

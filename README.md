@@ -23,6 +23,8 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - archive import for tweets, likes, profiles, and full DMs
 - archive import for bookmark exports when present
 - live likes and bookmarks sync through `xurl` or `bird`
+- cache-first followers/following sync through `xurl`
+- local follow graph queries for top followers, unfollows, mutuals, and non-mutual following
 - Git-friendly text backups with yearly tweet shards and per-conversation DM shards
 - profile hydration from live Twitter metadata
 - profile-change history, affiliation badge edges, and extracted bio entities for local identity lookups
@@ -216,6 +218,25 @@ pnpm cli sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --
 pnpm cli sync timeline --limit 100 --refresh --json
 pnpm cli sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 ```
+
+### Follow graph queries
+
+Follow graph sync is cache-first and defaults to dry-run so repeated agent queries do not keep spending X API reads.
+
+```bash
+pnpm cli sync followers --json
+pnpm cli sync following --json
+pnpm cli sync followers --yes --json
+pnpm cli sync following --yes --json
+pnpm cli graph summary --json
+pnpm cli graph events --since 2026-05-01 --json
+pnpm cli graph top-followers --limit 20 --json
+pnpm cli graph unfollowed --date 2026-05-01 --json
+pnpm cli graph non-mutual-following --sort followers --limit 100 --json
+pnpm cli graph mutuals --json
+```
+
+Use `--refresh` only when you intentionally want a new live X fetch. The `graph` commands are local SQLite reads and never call X. See [follow-graph.md](docs/follow-graph.md) for long-term agent usage notes.
 
 ### Export mentions for agents
 
@@ -536,3 +557,4 @@ Workflow: [ci.yml](.github/workflows/ci.yml)
 - [spec.md](docs/spec.md)
 - [cli.md](docs/cli.md)
 - [data-architecture.md](docs/data-architecture.md)
+- [follow-graph.md](docs/follow-graph.md)

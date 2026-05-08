@@ -65,7 +65,11 @@ describe("database init", () => {
 			name: string;
 		}>;
 		expect(profileColumnNames.map((column) => column.name)).toEqual(
-			expect.arrayContaining(["following_count", "avatar_url"]),
+			expect.arrayContaining([
+				"following_count",
+				"avatar_url",
+				"public_metrics_json",
+			]),
 		);
 
 		const quotedIndex = db
@@ -84,6 +88,33 @@ describe("database init", () => {
 		}>;
 		expect(syncCacheColumnNames.map((column) => column.name)).toEqual(
 			expect.arrayContaining(["cache_key", "value_json", "updated_at"]),
+		);
+
+		const followEdgeColumnNames = db
+			.prepare("pragma table_info(follow_edges)")
+			.all() as Array<{
+			name: string;
+		}>;
+		expect(followEdgeColumnNames.map((column) => column.name)).toEqual(
+			expect.arrayContaining([
+				"account_id",
+				"direction",
+				"profile_id",
+				"external_user_id",
+				"current",
+				"first_seen_at",
+				"last_seen_at",
+				"ended_at",
+			]),
+		);
+
+		const followSnapshotColumnNames = db
+			.prepare("pragma table_info(follow_snapshots)")
+			.all() as Array<{
+			name: string;
+		}>;
+		expect(followSnapshotColumnNames.map((column) => column.name)).toEqual(
+			expect.arrayContaining(["id", "direction", "status", "result_count"]),
 		);
 
 		const collectionColumnNames = db

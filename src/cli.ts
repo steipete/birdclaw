@@ -36,6 +36,15 @@ import {
 	exportMentionsViaCachedBird,
 	exportMentionsViaCachedXurl,
 } from "#/lib/mentions-live";
+import {
+	getFollowGraphSummary,
+	listFollowEvents,
+	listMutuals,
+	listNonMutualFollowing,
+	listTopFollowers,
+	listUnfollowedSince,
+	syncFollowGraph,
+} from "#/lib/follow-graph";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
 import { resolveProfilesForIds } from "#/lib/profile-resolver";
 import { inspectProfileReplies } from "#/lib/profile-replies";
@@ -714,6 +723,41 @@ for (const kind of ["likes", "bookmarks"] as const) {
 		});
 }
 
+for (const direction of ["followers", "following"] as const) {
+	syncCommand
+		.command(direction)
+		.description(
+			`Dry-run or refresh live ${direction} into the local follow graph`,
+		)
+		.option("--account <accountId>", "Account id")
+		.option("--limit <n>", "X API users per page", "1000")
+		.option("--max-pages <n>", "Stop after N pages")
+		.option("--max-resources <n>", "Stop after N unique users")
+		.option("--cache-ttl <seconds>", "Live-cache freshness window", "86400")
+		.option("--refresh", "Bypass the live-cache freshness window")
+		.option("--allow-partial", "Acknowledge capped/incomplete snapshot")
+		.option("--yes", "Confirm live sync or fresh-cache merge")
+		.action(async (options) => {
+			const result = await syncFollowGraph({
+				direction,
+				account: options.account,
+				limit: Number(options.limit),
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+				maxResources: options.maxResources
+					? Number(options.maxResources)
+					: undefined,
+				cacheTtlMs: Number(options.cacheTtl) * 1000,
+				refresh: Boolean(options.refresh),
+				allowPartial: Boolean(options.allowPartial),
+				yes: Boolean(options.yes),
+			});
+			if (!result.dryRun) {
+				await autoSyncAfterWrite();
+			}
+			print(result, true);
+		});
+}
+
 const jobsCommand = program
 	.command("jobs")
 	.description("Run and install background Birdclaw jobs");
@@ -943,6 +987,120 @@ program
 				limit: Number(options.limit),
 			}),
 			program.opts().json ?? false,
+		);
+	});
+
+const graphCommand = program
+	.command("graph")
+	.description("Query the local cache-only follow graph");
+
+graphCommand
+	.command("summary")
+	.description("Summarize cached followers, following, mutuals, and snapshots")
+	.option("--account <accountId>", "Account id")
+	.action(async (options) => {
+		await autoUpdateBeforeRead();
+		print(getFollowGraphSummary({ account: options.account }), true);
+	});
+
+graphCommand
+	.command("top-followers")
+	.description("List current followers sorted by their follower count")
+	.option("--account <accountId>", "Account id")
+	.option("--limit <n>", "Limit results", "20")
+	.action(async (options) => {
+		await autoUpdateBeforeRead();
+		print(
+			listTopFollowers({
+				account: options.account,
+				limit: Number(options.limit),
+			}),
+			true,
+		);
+	});
+
+graphCommand
+	.command("unfollowed")
+	.description("List cached ended follow edges since a date")
+	.requiredOption("--date <date>", "YYYY-MM-DD or ISO timestamp")
+	.option("--account <accountId>", "Account id")
+	.option("--direction <direction>", "followers or following", "followers")
+	.option("--limit <n>", "Limit results", "100")
+	.action(async (options) => {
+		await autoUpdateBeforeRead();
+		print(
+			listUnfollowedSince({
+				account: options.account,
+				date: options.date,
+				direction:
+					options.direction === "following" ? "following" : "followers",
+				limit: Number(options.limit),
+			}),
+			true,
+		);
+	});
+
+graphCommand
+	.command("events")
+	.description("List cached append-only follow graph events")
+	.option("--account <accountId>", "Account id")
+	.option("--direction <direction>", "followers or following")
+	.option("--kind <kind>", "started or ended")
+	.option("--since <date>", "YYYY-MM-DD or ISO timestamp")
+	.option("--until <date>", "YYYY-MM-DD or ISO timestamp")
+	.option("--limit <n>", "Limit results", "100")
+	.action(async (options) => {
+		await autoUpdateBeforeRead();
+		print(
+			listFollowEvents({
+				account: options.account,
+				direction:
+					options.direction === "followers" || options.direction === "following"
+						? options.direction
+						: undefined,
+				kind:
+					options.kind === "started" || options.kind === "ended"
+						? options.kind
+						: undefined,
+				since: options.since,
+				until: options.until,
+				limit: Number(options.limit),
+			}),
+			true,
+		);
+	});
+
+graphCommand
+	.command("non-mutual-following")
+	.description("List current following who are not current followers")
+	.option("--account <accountId>", "Account id")
+	.option("--sort <mode>", "followers or handle", "followers")
+	.option("--limit <n>", "Limit results", "100")
+	.action(async (options) => {
+		await autoUpdateBeforeRead();
+		print(
+			listNonMutualFollowing({
+				account: options.account,
+				sort: options.sort === "handle" ? "handle" : "followers",
+				limit: Number(options.limit),
+			}),
+			true,
+		);
+	});
+
+graphCommand
+	.command("mutuals")
+	.description("List profiles that are both followers and following")
+	.option("--account <accountId>", "Account id")
+	.option("--limit <n>", "Limit results", "100")
+	.action(async (options) => {
+		await autoUpdateBeforeRead();
+		print(
+			listMutuals({
+				account: options.account,
+				limit: Number(options.limit),
+			}),
+			true,
 		);
 	});
 

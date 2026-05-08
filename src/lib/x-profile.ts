@@ -150,6 +150,7 @@ function updateExistingProfileFromUser(
         bio = ?,
         followers_count = ?,
         following_count = coalesce(?, following_count),
+        public_metrics_json = ?,
         avatar_url = coalesce(?, avatar_url),
         location = coalesce(?, location),
         url = coalesce(?, url),
@@ -167,6 +168,7 @@ function updateExistingProfileFromUser(
 		bio,
 		followersCount,
 		followingCount,
+		JSON.stringify(user.public_metrics ?? {}),
 		avatarUrl,
 		metadata.location,
 		metadata.url,
@@ -245,13 +247,15 @@ export function upsertProfileFromXUser(
 		`
     insert into profiles (
       id, handle, display_name, bio, followers_count, following_count, avatar_hue,
-      avatar_url, location, url, verified_type, entities_json, raw_json, created_at
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      public_metrics_json, avatar_url, location, url, verified_type, entities_json,
+      raw_json, created_at
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     on conflict(id) do update set
 	      handle = excluded.handle,
 	      display_name = excluded.display_name,
 	      bio = excluded.bio,
 	      followers_count = excluded.followers_count,
+	      public_metrics_json = excluded.public_metrics_json,
 	      following_count = case
 	        when ? then excluded.following_count
 	        else profiles.following_count
@@ -274,6 +278,7 @@ export function upsertProfileFromXUser(
 		followersCount,
 		followingCount ?? 0,
 		avatarHue,
+		JSON.stringify(user.public_metrics ?? {}),
 		avatarUrl,
 		metadata.location,
 		metadata.url,

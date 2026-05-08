@@ -80,9 +80,13 @@ This is the gentlest sync command on purpose. It walks back up the reply chain s
 Followers and following are first-class entities with append-only history. Both syncs record current state plus a `follow_events` row for every change.
 
 ```bash
-birdclaw sync followers --mode auto --refresh --json
-birdclaw sync following --mode auto --refresh --json
+birdclaw sync followers --json
+birdclaw sync following --json
+birdclaw sync followers --yes --json
+birdclaw sync following --yes --json
 ```
+
+The first two commands are dry runs. Live xurl fetches require `--yes`; pass `--refresh` only when you intentionally want to bypass the 24-hour follow-graph cache.
 
 After the first run, `birdclaw graph events` shows the diff log and `birdclaw graph mutuals` lists current mutuals.
 

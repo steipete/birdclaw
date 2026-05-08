@@ -91,6 +91,9 @@ birdclaw inbox
 birdclaw serve
 birdclaw graph summary
 birdclaw graph events
+birdclaw graph top-followers
+birdclaw graph unfollowed
+birdclaw graph non-mutual-following
 birdclaw graph mutuals
 birdclaw compose post
 birdclaw compose reply <tweet-id>
@@ -222,6 +225,7 @@ Default:
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`
 - `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
 - `sync mention-threads` fetches conversation context for recent mentions through `bird thread`; use `--delay-ms` and `--timeout-ms` to stay gentle on live X
+- `sync followers` and `sync following` default to dry-run and require `--yes` for live xurl sync or fresh-cache merge
 
 Common flags:
 
@@ -244,6 +248,21 @@ birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --
 birdclaw sync timeline --limit 100 --refresh --json
 birdclaw sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 ```
+
+Follow graph examples:
+
+```bash
+birdclaw sync followers --json
+birdclaw sync following --json
+birdclaw sync followers --yes --json
+birdclaw sync following --yes --json
+birdclaw sync followers --yes --max-pages 1 --allow-partial --json
+birdclaw sync followers --yes --refresh --json
+```
+
+Follow graph sync uses a 24-hour cache by default. Repeating the same sync command with `--yes` reuses fresh cache unless `--refresh` is passed, which prevents duplicate X reads during agent workflows.
+
+`--allow-partial` acknowledges capped/incomplete snapshots and suppresses the warning. Incomplete snapshots are still recorded for audit, but they are not used for churn events.
 
 ### `jobs sync-bookmarks`
 
@@ -577,21 +596,42 @@ Flags:
 
 ### `graph summary`
 
-- current graph counts
-- inbound/outbound
-- mutuals
-- recent churn
+- cache-only SQLite read
+- current followers/following counts
+- mutuals and non-mutual following counts
+- last complete and incomplete snapshot times
+
+### `graph top-followers`
+
+- cache-only SQLite read
+- current followers sorted by their `public_metrics.followers_count`
+- supports `--limit`
+
+### `graph unfollowed`
+
+- cache-only SQLite read
+- append-only ended follow edges since `--date`
+- defaults to `followers`; pass `--direction following` for outbound ended edges
 
 ### `graph events`
 
-- append-only follow/unfollow history
-- supports date window filters
-- supports `--json`
+- cache-only SQLite read
+- append-only `started` and `ended` follow graph history
+- supports `--direction followers|following`, `--kind started|ended`, `--since`, `--until`, and `--limit`
 
 ### `graph mutuals`
 
+- cache-only SQLite read
 - current mutuals
-- sortable by recency / follower size / interaction hints later
+- sorted by follower size
+
+### `graph non-mutual-following`
+
+- cache-only SQLite read
+- current following profiles that are not current followers
+- supports `--sort followers|handle`
+
+Agent rule: use `graph` commands for analysis. Ask for explicit user approval before `sync ... --yes --refresh`, because that can spend live X API reads.
 
 ## I/O contract
 

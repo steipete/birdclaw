@@ -34,6 +34,10 @@ function makeTempDir(prefix: string) {
 function clearData() {
 	const db = getNativeDb();
 	db.exec(`
+    delete from follow_events;
+    delete from follow_edges;
+    delete from follow_snapshot_members;
+    delete from follow_snapshots;
     delete from ai_scores;
     delete from tweet_actions;
     delete from tweet_account_edges;
@@ -80,11 +84,12 @@ function seedBackupFixture() {
     );
 
     insert into profiles (
-      id, handle, display_name, bio, followers_count, avatar_hue, avatar_url,
-      location, url, verified_type, entities_json, raw_json, created_at
+      id, handle, display_name, bio, followers_count, following_count,
+      public_metrics_json, avatar_hue, avatar_url, location, url,
+      verified_type, entities_json, raw_json, created_at
     ) values
-      ('profile_me', 'steipete', 'Peter Steinberger', 'Local-first builder', 1000, 42, 'https://img.example/me.jpg', 'Vienna', 'https://steipete.me', 'blue', '{"url":{"urls":[{"url":"https://t.co/me","expanded_url":"https://steipete.me"}]}}', '{"id":"profile_me"}', '2009-03-19T22:54:05.000Z'),
-      ('profile_friend', 'friend', 'Friend', 'Sends useful DMs', 50, 210, null, null, 'https://friend.example', null, '{}', '{}', '2025-01-01T00:00:00.000Z');
+      ('profile_me', 'steipete', 'Peter Steinberger', 'Local-first builder', 1000, 75, '{"followers_count":1000,"following_count":75,"listed_count":42}', 42, 'https://img.example/me.jpg', 'Vienna', 'https://steipete.me', 'blue', '{"url":{"urls":[{"url":"https://t.co/me","expanded_url":"https://steipete.me"}]}}', '{"id":"profile_me"}', '2009-03-19T22:54:05.000Z'),
+      ('profile_friend', 'friend', 'Friend', 'Sends useful DMs', 50, 25, '{"followers_count":50,"following_count":25,"listed_count":3}', 210, null, null, 'https://friend.example', null, '{}', '{}', '2025-01-01T00:00:00.000Z');
 
     insert into profile_affiliations (
       subject_profile_id, organization_profile_id, organization_name,
@@ -192,6 +197,39 @@ function seedBackupFixture() {
     ) values (
       'tweet', 'tweet_2025', 'test-model', 88, 'useful', 'has context', '2025-01-09T00:00:00.000Z'
     );
+
+    insert into follow_snapshots (
+      id, account_id, direction, source, status, page_count, result_count,
+      started_at, completed_at, raw_meta_json
+    ) values (
+      'follow_snapshot_1', 'acct_primary', 'followers', 'xurl', 'complete',
+      1, 1, '2025-01-10T00:00:00.000Z', '2025-01-10T00:00:01.000Z',
+      '{"result_count":1}'
+    );
+
+    insert into follow_snapshot_members (
+      snapshot_id, profile_id, external_user_id, position
+    ) values (
+      'follow_snapshot_1', 'profile_friend', 'external_friend', 0
+    );
+
+    insert into follow_edges (
+      account_id, direction, profile_id, external_user_id, source, current,
+      first_seen_at, last_seen_at, ended_at, updated_at
+    ) values (
+      'acct_primary', 'followers', 'profile_friend', 'external_friend', 'xurl',
+      1, '2025-01-10T00:00:01.000Z', '2025-01-10T00:00:01.000Z', null,
+      '2025-01-10T00:00:01.000Z'
+    );
+
+    insert into follow_events (
+      id, account_id, direction, profile_id, external_user_id, kind, event_at,
+      snapshot_id
+    ) values (
+      'follow_event_1', 'acct_primary', 'followers', 'profile_friend',
+      'external_friend', 'started', '2025-01-10T00:00:01.000Z',
+      'follow_snapshot_1'
+    );
   `);
 }
 
@@ -256,6 +294,10 @@ describe("text backup", () => {
 			mutes: 1,
 			tweet_actions: 1,
 			ai_scores: 1,
+			follow_snapshots: 1,
+			follow_snapshot_members: 1,
+			follow_edges: 1,
+			follow_events: 1,
 		});
 		expect(existsSync(path.join(repoPath, "data/tweets/2024.jsonl"))).toBe(
 			true,
@@ -282,6 +324,15 @@ describe("text backup", () => {
 				"utf8",
 			),
 		).toContain('"expanded_tweet_id":"2039395915421942108"');
+		expect(
+			readFileSync(path.join(repoPath, "data/profiles.jsonl"), "utf8"),
+		).toContain('"public_metrics_json"');
+		expect(existsSync(path.join(repoPath, "data/follow_snapshots.jsonl"))).toBe(
+			true,
+		);
+		expect(existsSync(path.join(repoPath, "data/follow_edges.jsonl"))).toBe(
+			true,
+		);
 
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
@@ -331,6 +382,23 @@ describe("text backup", () => {
 				short_url: "https://t.co/shared",
 			},
 		]);
+		expect(
+			getNativeDb({ seedDemoData: false })
+				.prepare(
+					"select public_metrics_json from profiles where id = 'profile_friend'",
+				)
+				.get(),
+		).toEqual({
+			public_metrics_json:
+				'{"followers_count":50,"following_count":25,"listed_count":3}',
+		});
+		expect(
+			getNativeDb({ seedDemoData: false })
+				.prepare(
+					"select count(*) as count from follow_events where id = 'follow_event_1'",
+				)
+				.get(),
+		).toEqual({ count: 1 });
 
 		const validation = await validateBackup(repoPath);
 		expect(validation.ok).toBe(true);
@@ -431,6 +499,10 @@ describe("text backup", () => {
 			mutes: 1,
 			tweet_actions: 1,
 			ai_scores: 1,
+			follow_snapshots: 1,
+			follow_snapshot_members: 1,
+			follow_edges: 1,
+			follow_events: 1,
 		});
 		expectNoDemoSeedRows();
 		expect(

@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type {
+	FollowDirection,
 	TransportStatus,
+	XurlFollowUsersResponse,
 	XurlMentionsResponse,
 	XurlMentionUser,
 	XurlTweetsResponse,
@@ -447,6 +449,61 @@ export async function listBookmarkedTweetsViaXurl(options: {
 		...options,
 		collection: "bookmarks",
 	});
+}
+
+export async function listFollowUsersViaXurl({
+	direction,
+	maxResults,
+	username,
+	userId,
+	paginationToken,
+}: {
+	direction: FollowDirection;
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+}): Promise<XurlFollowUsersResponse> {
+	let resolvedUserId = userId;
+	if (!resolvedUserId) {
+		if (username) {
+			const [user] = await lookupUsersByHandles([username]);
+			if (!user?.id) {
+				throw new Error(`Could not resolve Twitter user id for @${username}`);
+			}
+			resolvedUserId = String(user.id);
+		} else {
+			const user = await lookupAuthenticatedUser();
+			if (!user?.id) {
+				throw new Error("Could not resolve authenticated Twitter user id");
+			}
+			resolvedUserId = String(user.id);
+		}
+	}
+
+	const query = new URLSearchParams({
+		max_results: String(maxResults),
+		"user.fields":
+			"id,username,name,description,verified,protected,public_metrics,profile_image_url,created_at",
+	});
+	if (paginationToken) {
+		query.set("pagination_token", paginationToken);
+	}
+
+	const payload = await runJsonCommand([
+		"--auth",
+		"oauth2",
+		`/2/users/${resolvedUserId}/${direction}?${query.toString()}`,
+	]);
+	return {
+		data: Array.isArray(payload.data)
+			? (payload.data as XurlMentionUser[])
+			: [],
+		meta:
+			payload.meta && typeof payload.meta === "object"
+				? (payload.meta as Record<string, unknown>)
+				: undefined,
+	};
 }
 
 export async function listBlockedUsers(

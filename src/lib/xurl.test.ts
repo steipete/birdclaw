@@ -13,6 +13,8 @@ vi.mock("node:child_process", () => ({
 
 const RICH_USER_FIELDS =
 	"description%2Centities%2Clocation%2Cpublic_metrics%2Cprofile_image_url%2Curl%2Ccreated_at%2Cverified%2Cverified_type";
+const FOLLOW_USER_FIELDS =
+	"id%2Cusername%2Cname%2Cdescription%2Cverified%2Cprotected%2Cpublic_metrics%2Cprofile_image_url%2Ccreated_at";
 
 describe("xurl transport wrapper", () => {
 	beforeEach(() => {
@@ -375,6 +377,91 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("lists follow users through OAuth2 endpoints with pagination", async () => {
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				data: [{ id: "42", username: "sam" }],
+				meta: { next_token: "next-page" },
+			}),
+			stderr: "",
+		});
+		const { listFollowUsersViaXurl } = await import("./xurl");
+
+		await expect(
+			listFollowUsersViaXurl({
+				direction: "followers",
+				userId: "25401953",
+				maxResults: 1000,
+				paginationToken: "cursor",
+			}),
+		).resolves.toEqual({
+			data: [{ id: "42", username: "sam" }],
+			meta: { next_token: "next-page" },
+		});
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			"--auth",
+			"oauth2",
+			`/2/users/25401953/followers?max_results=1000&user.fields=${FOLLOW_USER_FIELDS}&pagination_token=cursor`,
+		]);
+	});
+
+	it("resolves handles for following reads and tolerates empty follow payloads", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [{ id: "7", username: "amelia" }] }),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: null, meta: null }),
+				stderr: "",
+			});
+		const { listFollowUsersViaXurl } = await import("./xurl");
+
+		await expect(
+			listFollowUsersViaXurl({
+				direction: "following",
+				username: "@amelia",
+				maxResults: 50,
+			}),
+		).resolves.toEqual({
+			data: [],
+			meta: undefined,
+		});
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
+			"--auth",
+			"oauth2",
+			`/2/users/7/following?max_results=50&user.fields=${FOLLOW_USER_FIELDS}`,
+		]);
+	});
+
+	it("uses the authenticated user for follow reads when no user is provided", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: { id: "1", username: "steipete" } }),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [] }),
+				stderr: "",
+			});
+		const { listFollowUsersViaXurl } = await import("./xurl");
+
+		await expect(
+			listFollowUsersViaXurl({
+				direction: "followers",
+				maxResults: 10,
+			}),
+		).resolves.toEqual({
+			data: [],
+			meta: undefined,
+		});
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
+			"--auth",
+			"oauth2",
+			`/2/users/1/followers?max_results=10&user.fields=${FOLLOW_USER_FIELDS}`,
+		]);
+	});
+
 	it("passes pagination tokens for user tweet scans and can keep retweets", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({ data: null, meta: null }),
@@ -494,9 +581,16 @@ describe("xurl transport wrapper", () => {
 			.mockResolvedValueOnce({
 				stdout: JSON.stringify({ data: null }),
 				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [] }),
+				stderr: "",
 			});
-		const { listBookmarkedTweetsViaXurl, listMentionsViaXurl } =
-			await import("./xurl");
+		const {
+			listBookmarkedTweetsViaXurl,
+			listFollowUsersViaXurl,
+			listMentionsViaXurl,
+		} = await import("./xurl");
 
 		await expect(
 			listMentionsViaXurl({ username: "missing", maxResults: 5 }),
@@ -504,6 +598,16 @@ describe("xurl transport wrapper", () => {
 		await expect(
 			listBookmarkedTweetsViaXurl({ maxResults: 5 }),
 		).rejects.toThrow("Could not resolve authenticated Twitter user id");
+		await expect(
+			listFollowUsersViaXurl({ maxResults: 5, direction: "followers" }),
+		).rejects.toThrow("Could not resolve authenticated Twitter user id");
+		await expect(
+			listFollowUsersViaXurl({
+				username: "missing",
+				maxResults: 5,
+				direction: "followers",
+			}),
+		).rejects.toThrow("Could not resolve Twitter user id for @missing");
 	});
 
 	it("returns an empty handle list when asked to resolve nothing", async () => {
@@ -517,6 +621,13 @@ describe("xurl transport wrapper", () => {
 		const { lookupUsersByIds } = await import("./xurl");
 
 		await expect(lookupUsersByIds([])).resolves.toEqual([]);
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+	});
+
+	it("returns an empty tweet lookup response when asked to hydrate no tweets", async () => {
+		const { lookupTweetsByIds } = await import("./xurl");
+
+		await expect(lookupTweetsByIds([])).resolves.toEqual({ data: [] });
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
 	});
 

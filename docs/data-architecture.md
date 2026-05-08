@@ -132,9 +132,9 @@ SQLite only. Kysely schema in code, migrations checked into repo.
 - `tweet_urls`
 - `tweet_mentions`
 - `follow_edges`
-  - current directional graph
+  - current complete directional graph for `followers` and `following`
 - `follow_snapshots`
-  - snapshot metadata for follower/following crawls
+  - snapshot metadata for follower/following crawls, including complete/incomplete status
 - `follow_snapshot_members`
   - normalized membership per snapshot
 - `follow_events`
@@ -203,23 +203,34 @@ Principles:
 
 ### Direction semantics
 
-- `inbound`: they follow me
-- `outbound`: I follow them
+- Conceptual `inbound`: they follow the account
+- Conceptual `outbound`: the account follows them
+- Stored/API `followers`: inbound direction, matching the X endpoint and CLI command
+- Stored/API `following`: outbound direction, matching the X endpoint and CLI command
 
 ### Tables
 
 - `follow_edges`
-  - primary key: `(account_id, observer_profile_id, subject_profile_id, direction)`
-  - fields: `is_active`, `first_seen_at`, `last_seen_at`, `created_at`, `updated_at`
+  - primary key: `(account_id, direction, profile_id)`
+  - `account_id` is the observer account; `profile_id` is the subject profile
+  - fields: `current`, `first_seen_at`, `last_seen_at`, `ended_at`, `source`, `updated_at`
 - `follow_snapshots`
   - one row per full followers/following crawl
-  - fields: `type`, `complete`, `page_count`, `item_count`, `source`
+  - fields: `direction`, `status`, `page_count`, `result_count`, `source`, `raw_meta_json`
 - `follow_snapshot_members`
   - normalized set of members per snapshot
 - `follow_events`
   - append-only `started` / `ended`
   - references snapshot/run when available
   - idempotent per account
+
+### Cache and cost guardrails
+
+- `sync followers` and `sync following` default to dry-run and do not call X
+- live xurl sync requires `--yes`
+- fresh sync results are stored in `sync_cache` and reused by matching sync commands unless `--refresh` is passed
+- graph query commands only read `follow_edges`, `follow_snapshots`, `follow_snapshot_members`, `follow_events`, and `profiles`
+- incomplete snapshots keep fetched members for audit but do not update current edges or churn events
 
 ### What this buys us
 

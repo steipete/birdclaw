@@ -445,6 +445,8 @@ export interface XurlPublicMetrics {
 	impression_count?: number;
 	followers_count?: number;
 	following_count?: number;
+	tweet_count?: number;
+	listed_count?: number;
 }
 
 export interface XurlMentionUser {
@@ -461,6 +463,7 @@ export interface XurlMentionUser {
 	affiliation?: Record<string, unknown>;
 	public_metrics?: XurlPublicMetrics;
 	created_at?: string;
+	protected?: boolean;
 }
 
 export interface XurlMentionData {
@@ -541,4 +544,42 @@ export interface XurlTweetsResponse {
 		users?: XurlMentionUser[];
 	};
 	meta?: Record<string, unknown>;
+}
+
+export type FollowDirection = "followers" | "following";
+
+export interface XurlFollowUsersResponse {
+	data: XurlMentionUser[];
+	meta?: Record<string, unknown>;
+}
+
+export interface FollowGraphProfile {
+	id: string;
+	externalUserId: string;
+	handle: string;
+	displayName: string;
+	bio: string;
+	followersCount: number;
+	publicMetrics: XurlPublicMetrics;
+	avatarUrl?: string;
+}
+
+export type FollowEventKind = "started" | "ended";
+
+export interface FollowGraphEvent {
+	eventAt: string;
+	direction: FollowDirection;
+	kind: FollowEventKind;
+	snapshotId: string;
+	profile: FollowGraphProfile;
+}
+
+export interface FollowGraphSummary {
+	accountId: string;
+	followers: number;
+	following: number;
+	mutuals: number;
+	nonMutualFollowing: number;
+	lastCompleteSnapshots: Partial<Record<FollowDirection, string>>;
+	lastIncompleteSnapshots: Partial<Record<FollowDirection, string>>;
 }

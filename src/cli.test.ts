@@ -26,6 +26,13 @@ const listMutesMock = vi.fn();
 const recordMuteMock = vi.fn();
 const listInboxItemsMock = vi.fn();
 const scoreInboxMock = vi.fn();
+const syncFollowGraphMock = vi.fn();
+const getFollowGraphSummaryMock = vi.fn();
+const listFollowEventsMock = vi.fn();
+const listMutualsMock = vi.fn();
+const listNonMutualFollowingMock = vi.fn();
+const listTopFollowersMock = vi.fn();
+const listUnfollowedSinceMock = vi.fn();
 const listTimelineItemsMock = vi.fn();
 const listDmConversationsMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
@@ -97,6 +104,18 @@ vi.mock("#/lib/blocks", () => ({
 vi.mock("#/lib/inbox", () => ({
 	listInboxItems: (...args: unknown[]) => listInboxItemsMock(...args),
 	scoreInbox: (...args: unknown[]) => scoreInboxMock(...args),
+}));
+
+vi.mock("#/lib/follow-graph", () => ({
+	getFollowGraphSummary: (...args: unknown[]) =>
+		getFollowGraphSummaryMock(...args),
+	listFollowEvents: (...args: unknown[]) => listFollowEventsMock(...args),
+	listMutuals: (...args: unknown[]) => listMutualsMock(...args),
+	listNonMutualFollowing: (...args: unknown[]) =>
+		listNonMutualFollowingMock(...args),
+	listTopFollowers: (...args: unknown[]) => listTopFollowersMock(...args),
+	listUnfollowedSince: (...args: unknown[]) => listUnfollowedSinceMock(...args),
+	syncFollowGraph: (...args: unknown[]) => syncFollowGraphMock(...args),
 }));
 
 vi.mock("#/lib/mutes", () => ({
@@ -202,6 +221,13 @@ describe("cli", () => {
 		recordMuteMock.mockReset();
 		listInboxItemsMock.mockReset();
 		scoreInboxMock.mockReset();
+		syncFollowGraphMock.mockReset();
+		getFollowGraphSummaryMock.mockReset();
+		listFollowEventsMock.mockReset();
+		listMutualsMock.mockReset();
+		listNonMutualFollowingMock.mockReset();
+		listTopFollowersMock.mockReset();
+		listUnfollowedSinceMock.mockReset();
 		listTimelineItemsMock.mockReset();
 		listDmConversationsMock.mockReset();
 		hydrateProfilesFromXMock.mockReset();
@@ -309,6 +335,17 @@ describe("cli", () => {
 		recordMuteMock.mockResolvedValue({ ok: true, action: "record-mute" });
 		listInboxItemsMock.mockReturnValue([{ id: "dm:1" }]);
 		scoreInboxMock.mockResolvedValue({ ok: true });
+		syncFollowGraphMock.mockResolvedValue({
+			ok: true,
+			dryRun: true,
+			direction: "followers",
+		});
+		getFollowGraphSummaryMock.mockReturnValue({ followers: 0, following: 0 });
+		listFollowEventsMock.mockReturnValue({ items: [] });
+		listMutualsMock.mockReturnValue({ items: [] });
+		listNonMutualFollowingMock.mockReturnValue({ items: [] });
+		listTopFollowersMock.mockReturnValue({ items: [] });
+		listUnfollowedSinceMock.mockReturnValue({ items: [] });
 		listTimelineItemsMock.mockReturnValue([{ id: "tweet_1" }]);
 		listDmConversationsMock.mockReturnValue([{ id: "dm_1" }]);
 		hydrateProfilesFromXMock.mockResolvedValue({
@@ -791,6 +828,155 @@ describe("cli", () => {
 			replyFilter: "replied",
 			limit: 20,
 		});
+	});
+
+	it("dispatches follow graph sync and query commands", async () => {
+		syncFollowGraphMock
+			.mockResolvedValueOnce({
+				ok: true,
+				dryRun: true,
+				direction: "followers",
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				dryRun: false,
+				direction: "following",
+			});
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "sync", "followers"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"sync",
+			"following",
+			"--account",
+			"acct_studio",
+			"--limit",
+			"50",
+			"--max-pages",
+			"2",
+			"--max-resources",
+			"75",
+			"--cache-ttl",
+			"30",
+			"--refresh",
+			"--allow-partial",
+			"--yes",
+		]);
+		await runCli(["node", "birdclaw", "graph", "summary"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"graph",
+			"top-followers",
+			"--limit",
+			"5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"graph",
+			"unfollowed",
+			"--date",
+			"2026-05-01",
+			"--direction",
+			"following",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"graph",
+			"events",
+			"--direction",
+			"followers",
+			"--kind",
+			"ended",
+			"--since",
+			"2026-05-01",
+			"--until",
+			"2026-05-02",
+			"--limit",
+			"12",
+		]);
+		await runCli(["node", "birdclaw", "graph", "events"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"graph",
+			"non-mutual-following",
+			"--sort",
+			"handle",
+		]);
+		await runCli(["node", "birdclaw", "graph", "non-mutual-following"]);
+		await runCli(["node", "birdclaw", "graph", "mutuals", "--limit", "3"]);
+
+		expect(syncFollowGraphMock).toHaveBeenNthCalledWith(1, {
+			direction: "followers",
+			account: undefined,
+			limit: 1000,
+			maxPages: undefined,
+			maxResources: undefined,
+			cacheTtlMs: 86_400_000,
+			refresh: false,
+			allowPartial: false,
+			yes: false,
+		});
+		expect(syncFollowGraphMock).toHaveBeenNthCalledWith(2, {
+			direction: "following",
+			account: "acct_studio",
+			limit: 50,
+			maxPages: 2,
+			maxResources: 75,
+			cacheTtlMs: 30_000,
+			refresh: true,
+			allowPartial: true,
+			yes: true,
+		});
+		expect(getFollowGraphSummaryMock).toHaveBeenCalledWith({
+			account: undefined,
+		});
+		expect(listTopFollowersMock).toHaveBeenCalledWith({
+			account: undefined,
+			limit: 5,
+		});
+		expect(listUnfollowedSinceMock).toHaveBeenCalledWith({
+			account: undefined,
+			date: "2026-05-01",
+			direction: "following",
+			limit: 100,
+		});
+		expect(listFollowEventsMock).toHaveBeenCalledWith({
+			account: undefined,
+			direction: "followers",
+			kind: "ended",
+			since: "2026-05-01",
+			until: "2026-05-02",
+			limit: 12,
+		});
+		expect(listFollowEventsMock).toHaveBeenCalledWith({
+			account: undefined,
+			direction: undefined,
+			kind: undefined,
+			since: undefined,
+			until: undefined,
+			limit: 100,
+		});
+		expect(listNonMutualFollowingMock).toHaveBeenCalledWith({
+			account: undefined,
+			sort: "handle",
+			limit: 100,
+		});
+		expect(listNonMutualFollowingMock).toHaveBeenCalledWith({
+			account: undefined,
+			sort: "followers",
+			limit: 100,
+		});
+		expect(listMutualsMock).toHaveBeenCalledWith({
+			account: undefined,
+			limit: 3,
+		});
+		expect(maybeAutoSyncBackupMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("falls back to default cli filters when flags are omitted", async () => {

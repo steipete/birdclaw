@@ -184,9 +184,9 @@ function getExportRowSets(db: Database) {
 			rows: rowsForQuery(
 				db,
 				`
-        select id, handle, display_name, bio, followers_count, following_count,
-          avatar_hue, avatar_url, location, url, verified_type, entities_json,
-          raw_json, created_at
+        select id, handle, display_name, bio, followers_count,
+          following_count, public_metrics_json, avatar_hue, avatar_url,
+          location, url, verified_type, entities_json, raw_json, created_at
         from profiles
         order by id
         `,
@@ -359,6 +359,53 @@ function getExportRowSets(db: Database) {
         `,
 			),
 		},
+		{
+			logicalName: "follow_snapshots",
+			rows: rowsForQuery(
+				db,
+				`
+        select id, account_id, direction, source, status, page_count,
+          result_count, started_at, completed_at, raw_meta_json
+        from follow_snapshots
+        order by account_id, direction, completed_at, id
+        `,
+			),
+		},
+		{
+			logicalName: "follow_snapshot_members",
+			rows: rowsForQuery(
+				db,
+				`
+        select snapshot_id, profile_id, external_user_id, position
+        from follow_snapshot_members
+        order by snapshot_id, position, profile_id
+        `,
+			),
+		},
+		{
+			logicalName: "follow_edges",
+			rows: rowsForQuery(
+				db,
+				`
+        select account_id, direction, profile_id, external_user_id, source,
+          current, first_seen_at, last_seen_at, ended_at, updated_at
+        from follow_edges
+        order by account_id, direction, profile_id
+        `,
+			),
+		},
+		{
+			logicalName: "follow_events",
+			rows: rowsForQuery(
+				db,
+				`
+        select id, account_id, direction, profile_id, external_user_id, kind,
+          event_at, snapshot_id
+        from follow_events
+        order by account_id, direction, event_at, kind, profile_id, id
+        `,
+			),
+		},
 	];
 	return rowSets;
 }
@@ -455,6 +502,18 @@ function buildShards(db: Database) {
 				break;
 			case "ai_scores":
 				addRows(shards, "data/ai_scores.jsonl", rowSet.rows);
+				break;
+			case "follow_snapshots":
+				addRows(shards, "data/follow_snapshots.jsonl", rowSet.rows);
+				break;
+			case "follow_snapshot_members":
+				addRows(shards, "data/follow_snapshot_members.jsonl", rowSet.rows);
+				break;
+			case "follow_edges":
+				addRows(shards, "data/follow_edges.jsonl", rowSet.rows);
+				break;
+			case "follow_events":
+				addRows(shards, "data/follow_events.jsonl", rowSet.rows);
 				break;
 		}
 	}
@@ -593,6 +652,10 @@ data/links/url_expansions.jsonl
 data/links/occurrences.jsonl
 data/moderation/blocks.jsonl
 data/moderation/mutes.jsonl
+data/follow_snapshots.jsonl
+data/follow_snapshot_members.jsonl
+data/follow_edges.jsonl
+data/follow_events.jsonl
 \`\`\`
 
 Tweets are sharded by creation year. Collection-only tweets whose creation date is unknown live in \`data/tweets/unknown.jsonl\`. Timeline edges keep account-scoped home/mention membership separate from canonical tweet content. DMs are sharded by year and keep \`conversation_id\` in each row.
@@ -1007,6 +1070,10 @@ function insertFtsRows(
 
 function clearBackupImportData(db: Database) {
 	db.exec(`
+    delete from follow_events;
+    delete from follow_edges;
+    delete from follow_snapshot_members;
+    delete from follow_snapshots;
     delete from ai_scores;
     delete from tweet_actions;
     delete from tweet_account_edges;
@@ -1071,6 +1138,10 @@ export async function importBackup({
 		scores,
 		urlExpansions,
 		linkOccurrences,
+		followSnapshots,
+		followSnapshotMembers,
+		followEdges,
+		followEvents,
 	] = await Promise.all([
 		readRows((file) => file === "data/accounts.jsonl"),
 		readRows((file) => file === "data/profiles.jsonl"),
@@ -1091,6 +1162,10 @@ export async function importBackup({
 		readRows((file) => file === "data/ai_scores.jsonl"),
 		readRows((file) => file === "data/links/url_expansions.jsonl"),
 		readRows((file) => file === "data/links/occurrences.jsonl"),
+		readRows((file) => file === "data/follow_snapshots.jsonl"),
+		readRows((file) => file === "data/follow_snapshot_members.jsonl"),
+		readRows((file) => file === "data/follow_edges.jsonl"),
+		readRows((file) => file === "data/follow_events.jsonl"),
 	]);
 
 	db.transaction(() => {
@@ -1196,15 +1271,19 @@ export async function importBackup({
 			`
       insert into profiles (
         id, handle, display_name, bio, followers_count, following_count,
-        avatar_hue, avatar_url, location, url, verified_type, entities_json,
-        raw_json, created_at
-      ) values (?, ?, ?, ?, ?, coalesce(?, 0), ?, ?, ?, ?, ?, coalesce(?, '{}'), coalesce(?, '{}'), ?)
+        public_metrics_json, avatar_hue, avatar_url, location, url,
+        verified_type, entities_json, raw_json, created_at
+      ) values (?, ?, ?, ?, ?, coalesce(?, 0), coalesce(?, '{}'), ?, ?, ?, ?, ?, coalesce(?, '{}'), coalesce(?, '{}'), ?)
       on conflict(id) do update set
         handle = coalesce(nullif(excluded.handle, ''), profiles.handle),
         display_name = coalesce(nullif(excluded.display_name, ''), profiles.display_name),
         bio = coalesce(nullif(excluded.bio, ''), profiles.bio),
         followers_count = max(profiles.followers_count, excluded.followers_count),
         following_count = max(profiles.following_count, excluded.following_count),
+        public_metrics_json = case
+          when excluded.public_metrics_json not in ('', '{}', 'null') then excluded.public_metrics_json
+          else profiles.public_metrics_json
+        end,
         avatar_hue = case when profiles.avatar_hue = 0 then excluded.avatar_hue else profiles.avatar_hue end,
         avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url),
         location = coalesce(excluded.location, profiles.location),
@@ -1228,6 +1307,7 @@ export async function importBackup({
 				"bio",
 				"followers_count",
 				"following_count",
+				"public_metrics_json",
 				"avatar_hue",
 				"avatar_url",
 				"location",
@@ -1276,6 +1356,118 @@ export async function importBackup({
 				"last_seen_at",
 				"raw_json",
 				"updated_at",
+			],
+		);
+		insertRows(
+			db,
+			`
+      insert into follow_snapshots (
+        id, account_id, direction, source, status, page_count, result_count,
+        started_at, completed_at, raw_meta_json
+      ) values (?, ?, ?, coalesce(?, 'backup'), ?, coalesce(?, 0), coalesce(?, 0), ?, ?, coalesce(?, '{}'))
+      on conflict(id) do update set
+        account_id = coalesce(nullif(excluded.account_id, ''), follow_snapshots.account_id),
+        direction = coalesce(nullif(excluded.direction, ''), follow_snapshots.direction),
+        source = coalesce(nullif(excluded.source, ''), follow_snapshots.source),
+        status = coalesce(nullif(excluded.status, ''), follow_snapshots.status),
+        page_count = max(follow_snapshots.page_count, excluded.page_count),
+        result_count = max(follow_snapshots.result_count, excluded.result_count),
+        started_at = min(follow_snapshots.started_at, excluded.started_at),
+        completed_at = max(follow_snapshots.completed_at, excluded.completed_at),
+        raw_meta_json = case
+          when excluded.raw_meta_json not in ('', '{}', 'null') then excluded.raw_meta_json
+          else follow_snapshots.raw_meta_json
+        end
+      `,
+			followSnapshots,
+			[
+				"id",
+				"account_id",
+				"direction",
+				"source",
+				"status",
+				"page_count",
+				"result_count",
+				"started_at",
+				"completed_at",
+				"raw_meta_json",
+			],
+		);
+		insertRows(
+			db,
+			`
+      insert into follow_snapshot_members (
+        snapshot_id, profile_id, external_user_id, position
+      ) values (?, ?, ?, coalesce(?, 0))
+      on conflict(snapshot_id, profile_id) do update set
+        external_user_id = coalesce(nullif(excluded.external_user_id, ''), follow_snapshot_members.external_user_id),
+        position = excluded.position
+      `,
+			followSnapshotMembers,
+			["snapshot_id", "profile_id", "external_user_id", "position"],
+		);
+		insertRows(
+			db,
+			`
+      insert into follow_edges (
+        account_id, direction, profile_id, external_user_id, source, current,
+        first_seen_at, last_seen_at, ended_at, updated_at
+      ) values (?, ?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, ?, ?)
+      on conflict(account_id, direction, profile_id) do update set
+        external_user_id = coalesce(nullif(excluded.external_user_id, ''), follow_edges.external_user_id),
+        source = coalesce(nullif(excluded.source, ''), follow_edges.source),
+        current = case
+          when excluded.updated_at >= follow_edges.updated_at then excluded.current
+          else follow_edges.current
+        end,
+        first_seen_at = min(follow_edges.first_seen_at, excluded.first_seen_at),
+        last_seen_at = max(follow_edges.last_seen_at, excluded.last_seen_at),
+        ended_at = case
+          when excluded.updated_at >= follow_edges.updated_at then excluded.ended_at
+          else follow_edges.ended_at
+        end,
+        updated_at = max(follow_edges.updated_at, excluded.updated_at)
+      `,
+			followEdges,
+			[
+				"account_id",
+				"direction",
+				"profile_id",
+				"external_user_id",
+				"source",
+				"current",
+				"first_seen_at",
+				"last_seen_at",
+				"ended_at",
+				"updated_at",
+			],
+		);
+		insertRows(
+			db,
+			`
+      insert into follow_events (
+        id, account_id, direction, profile_id, external_user_id, kind, event_at,
+        snapshot_id
+      ) values (?, ?, ?, ?, ?, ?, ?, ?)
+      on conflict(id) do update set
+        account_id = coalesce(nullif(excluded.account_id, ''), follow_events.account_id),
+        direction = coalesce(nullif(excluded.direction, ''), follow_events.direction),
+        profile_id = coalesce(nullif(excluded.profile_id, ''), follow_events.profile_id),
+        external_user_id = coalesce(nullif(excluded.external_user_id, ''), follow_events.external_user_id),
+        kind = coalesce(nullif(excluded.kind, ''), follow_events.kind),
+        event_at = coalesce(nullif(excluded.event_at, ''), follow_events.event_at),
+        snapshot_id = coalesce(nullif(excluded.snapshot_id, ''), follow_events.snapshot_id)
+      `,
+			followEvents,
+			[
+				"id",
+				"account_id",
+				"direction",
+				"profile_id",
+				"external_user_id",
+				"kind",
+				"event_at",
+				"snapshot_id",
 			],
 		);
 		insertRows(
