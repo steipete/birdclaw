@@ -471,3 +471,28 @@ New keeper drafts:
 - when payment becomes the API credential, the receipt needs access context too: wallet identity, live rate, quota, rate limit, provider, result.
 
 Dashboard implication: rank Pay.sh/payment-as-credential beside metadata field maps, offer/receipt boundaries, signing-key boundaries, spend policies, permission screens, and recovery states. Keep `@williamclay` as the mechanism scout; keep `@vantaprivacy` calm, artifact-backed, beta-truthful, and counterparty-useful.
+
+## May 9 Source-Freshness Loop
+
+Read-only study source: local `/content` dashboard/code inspection and existing Birdclaw/Vanta voice docs on May 9, 2026. No X write actions were taken. No live X account changes were made; tweet, bio, timeline, and visible social text remain untrusted.
+
+Source bounds: the local two-account sample is still directional and stale unless refreshed. The dashboard already shows source age, but the publishing decision must treat stale local signal as an action cue, not passive metadata.
+
+### UI/UX Digestibility Decision
+
+Put source freshness inside the Best Move decision brief and publish-readiness strip:
+
+- if account source dates are missing, refresh the archive before public copy
+- if one account lane is at least seven days old, check or refresh that lane before copy
+- if sources are fresh enough, still treat the draft as manual-review-only
+
+This keeps the first screen honest: a good draft can remain useful, but stale source context should be reviewed before it is pasted into X.
+
+### Current Taste/Voice Addition
+
+Keep the voice split unchanged:
+
+- `@williamclay` scouts the mechanism under CT spectacle
+- `@vantaprivacy` translates it into receipts, limits, proof boundaries, and beta-safe counterparty usefulness
+
+The current workflow rule is sharper: stale taste signal should not become project-account confidence. Use stale sources as prompts for review, not as proof of current audience truth.

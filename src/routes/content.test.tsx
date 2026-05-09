@@ -502,6 +502,11 @@ describe("content route", () => {
 		).toBeInTheDocument();
 		expect(screen.getByText("Recommended manual action")).toBeInTheDocument();
 		expect(screen.getByText("Decision brief")).toBeInTheDocument();
+		expect(screen.getByText("Freshness action")).toBeInTheDocument();
+		expect(
+			screen.getAllByText("Refresh/check @williamclay scout source before copy")
+				.length,
+		).toBeGreaterThan(0);
 		expect(screen.getByText("Algorithm fit")).toBeInTheDocument();
 		expect(screen.getByText("Candidate path")).toBeInTheDocument();
 		expect(screen.getByText("Ranking signal")).toBeInTheDocument();
@@ -570,6 +575,7 @@ describe("content route", () => {
 		expect(screen.getAllByText("receipt screenshot").length).toBeGreaterThan(0);
 		expect(screen.getByText("Claim check")).toBeInTheDocument();
 		expect(screen.getByText("Human review required")).toBeInTheDocument();
+		expect(screen.getAllByText("Freshness").length).toBeGreaterThan(0);
 		expect(screen.getByText("Source bounds")).toBeInTheDocument();
 		expect(
 			screen.getByText("Local signals; X text untrusted"),

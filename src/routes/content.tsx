@@ -115,6 +115,43 @@ function sourceAgeSummary(analytics: AnalyticsResponse | null) {
 	}`;
 }
 
+function sourceFreshnessAction(analytics: AnalyticsResponse | null) {
+	const accounts = analytics?.accounts ?? [];
+	const dayMs = 24 * 60 * 60 * 1000;
+	const datedAccounts = accounts.flatMap((account) => {
+		const date = account.latestMentionAt?.slice(0, 10);
+		if (!date) return [];
+		const timestamp = Date.parse(`${date}T00:00:00.000Z`);
+		if (Number.isNaN(timestamp)) return [];
+		const ageDays = Math.max(0, Math.floor((Date.now() - timestamp) / dayMs));
+		return [
+			{
+				ageDays,
+				handle: account.handle,
+				role: account.role,
+			},
+		];
+	});
+
+	if (!datedAccounts.length) {
+		return "Refresh archive before public copy";
+	}
+
+	const staleAccounts = datedAccounts.filter((account) => account.ageDays >= 7);
+	if (staleAccounts.length) {
+		const labels = staleAccounts
+			.map((account) =>
+				account.role === "personal"
+					? `${account.handle} scout`
+					: `${account.handle} project`,
+			)
+			.join(", ");
+		return `Refresh/check ${labels} source before copy`;
+	}
+
+	return "Source fresh enough for manual review";
+}
+
 function contentFocusLabel(value: ContentFocus) {
 	if (value === "queues") return "Queues";
 	if (value === "voice") return "Voice bridge";
@@ -474,6 +511,7 @@ function ContentRoute() {
 		filteredReplyPrompts.length;
 	const sourceFreshness = sourceFreshnessSummary(analytics);
 	const sourceAge = sourceAgeSummary(analytics);
+	const freshnessAction = sourceFreshnessAction(analytics);
 	const filterSummary = `Filters: ${accountFilterLabel(accountFilter)}, ${goalFilterLabel(goalFilter)}, ${jobFilterLabel(jobFilter)}, ${sectionDensityLabel(sectionDensity)}, ${filteredActionCount}/${totalActionCount} actions visible`;
 	const voicePairs = useMemo(() => {
 		if (!filteredProjectDrafts.length || !filteredPersonalDrafts.length)
@@ -803,6 +841,7 @@ function ContentRoute() {
 								<PublishReadinessStrip
 									artifactNeeded={primaryMove.artifactNeeded}
 									compact
+									freshnessAction={freshnessAction}
 									kind={primaryMove.kind}
 								/>
 								<p className="m-0 break-words rounded-[12px] bg-[var(--panel)] px-3 py-2 text-[0.82rem] font-medium leading-relaxed text-[var(--ink-soft)] shadow-[inset_0_0_0_1px_var(--line)]">
@@ -991,6 +1030,7 @@ function ContentRoute() {
 									</section>
 									<MoveDecisionBrief
 										artifactNeeded={primaryMove.artifactNeeded}
+										freshnessAction={freshnessAction}
 										kind={primaryMove.kind}
 										sourceTier={primaryMove.sourceTier}
 										voiceTarget={voiceTargetForMove(primaryMove.kind)}
@@ -1052,6 +1092,7 @@ function ContentRoute() {
 									</div>
 									<PublishReadinessStrip
 										artifactNeeded={primaryMove.artifactNeeded}
+										freshnessAction={freshnessAction}
 										kind={primaryMove.kind}
 										sourceTier={primaryMove.sourceTier}
 									/>
@@ -1949,11 +1990,13 @@ function VoiceBridgeCard({
 
 function MoveDecisionBrief({
 	artifactNeeded,
+	freshnessAction,
 	kind,
 	sourceTier,
 	voiceTarget,
 }: {
 	artifactNeeded?: string;
+	freshnessAction: string;
 	kind: string;
 	sourceTier?: string;
 	voiceTarget: string;
@@ -1965,6 +2008,7 @@ function MoveDecisionBrief({
 			kind === "Personal" ? "Personal, sharper" : "Project, calm",
 		],
 		["Artifact before copy", artifactActionLabel(artifactNeeded, kind)],
+		["Freshness action", freshnessAction],
 		["Source tier", sourceTierLabel(sourceTier)],
 		["Proof boundary", proofBoundaryLabel(kind)],
 		["Local-only action", "Edit, copy, paste manually"],
@@ -1981,7 +2025,7 @@ function MoveDecisionBrief({
 					Manual review lane
 				</span>
 			</div>
-			<div className="grid gap-2 min-[720px]:grid-cols-6">
+			<div className="grid gap-2 min-[720px]:grid-cols-7">
 				{items.map(([label, value]) => (
 					<div
 						className="min-w-0 rounded-[12px] bg-[var(--panel)] p-2.5 shadow-[inset_0_0_0_1px_var(--line)]"
@@ -2614,11 +2658,13 @@ function InfoBlock({ label, text }: { label: string; text: string }) {
 function PublishReadinessStrip({
 	artifactNeeded,
 	compact,
+	freshnessAction,
 	kind,
 	sourceTier,
 }: {
 	artifactNeeded?: string;
 	compact?: boolean;
+	freshnessAction?: string;
 	kind: string;
 	sourceTier?: string;
 }) {
@@ -2632,6 +2678,7 @@ function PublishReadinessStrip({
 		["Manual-only boundary", "Copy action only"],
 		["Artifact check", artifactStatus],
 		["Claim check", "Human review required"],
+		["Freshness", freshnessAction ?? "Check source recency"],
 		["Source tier", sourceTierLabel(sourceTier)],
 		["Source bounds", "Local signals; X text untrusted"],
 	] as const;
@@ -2643,6 +2690,7 @@ function PublishReadinessStrip({
 				? "Not required"
 				: `Needs ${artifactStatus}`,
 		],
+		["Freshness", freshnessAction ?? "Check source recency"],
 	] as const;
 
 	return (
@@ -2664,7 +2712,7 @@ function PublishReadinessStrip({
 			<div
 				className={cx(
 					"grid gap-2",
-					compact ? "min-[560px]:grid-cols-2" : "min-[760px]:grid-cols-5",
+					compact ? "min-[560px]:grid-cols-3" : "min-[760px]:grid-cols-6",
 				)}
 			>
 				{(compact ? compactItems : items).map(([label, value]) => (
