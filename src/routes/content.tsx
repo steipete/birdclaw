@@ -1856,7 +1856,7 @@ function SourceBoundaryRail({
 	return (
 		<section
 			aria-label="Source and publishing boundaries"
-			className="grid gap-2 rounded-[18px] bg-[color:color-mix(in_srgb,var(--panel-strong)_82%,transparent)] p-3 shadow-[inset_0_0_0_1px_var(--line)] min-[760px]:grid-cols-2 min-[1040px]:grid-cols-7"
+			className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2 rounded-[18px] bg-[color:color-mix(in_srgb,var(--panel-strong)_82%,transparent)] p-3 shadow-[inset_0_0_0_1px_var(--line)]"
 		>
 			{items.map(([label, value]) => (
 				<div className="min-w-0" key={label}>
@@ -2025,7 +2025,7 @@ function MoveDecisionBrief({
 					Manual review lane
 				</span>
 			</div>
-			<div className="grid gap-2 min-[720px]:grid-cols-7">
+			<div className="grid grid-cols-[repeat(auto-fit,minmax(136px,1fr))] gap-2">
 				{items.map(([label, value]) => (
 					<div
 						className="min-w-0 rounded-[12px] bg-[var(--panel)] p-2.5 shadow-[inset_0_0_0_1px_var(--line)]"
@@ -2464,7 +2464,7 @@ function ArtifactWorkbench({
 					{move.kind}: {move.title}
 				</span>
 			</div>
-			<div className="grid gap-2 min-[760px]:grid-cols-3">
+			<div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
 				{items.map(([label, value]) => (
 					<div
 						className="min-w-0 rounded-[12px] bg-[var(--panel)] p-2.5 shadow-[inset_0_0_0_1px_var(--line)]"
@@ -2516,7 +2516,7 @@ function ProofBoundaryMatrix({
 					Check before copy
 				</span>
 			</div>
-			<div className="grid gap-2 min-[760px]:grid-cols-5">
+			<div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
 				{items.map(([label, value]) => (
 					<div
 						className="min-w-0 rounded-[12px] bg-[var(--panel)] p-2.5 shadow-[inset_0_0_0_1px_var(--line)]"
@@ -2712,7 +2712,9 @@ function PublishReadinessStrip({
 			<div
 				className={cx(
 					"grid gap-2",
-					compact ? "min-[560px]:grid-cols-3" : "min-[760px]:grid-cols-6",
+					compact
+						? "grid-cols-[repeat(auto-fit,minmax(112px,1fr))]"
+						: "grid-cols-[repeat(auto-fit,minmax(136px,1fr))]",
 				)}
 			>
 				{(compact ? compactItems : items).map(([label, value]) => (
