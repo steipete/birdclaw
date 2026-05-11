@@ -3,34 +3,18 @@ import { expect, test } from "@playwright/test";
 test("navigates across the primary surfaces", async ({ page }) => {
 	await page.goto("/");
 
-	await expect(
-		page.getByRole("heading", { name: "Quiet signal for Twitter." }),
-	).toBeVisible();
-	await expect(
-		page.getByRole("heading", {
-			name: "Read first. Act only where signal survives.",
-		}),
-	).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+	await expect(page.getByText("Quiet signal for Twitter.")).toBeVisible();
 
 	await page.getByRole("link", { name: "Mentions" }).click();
-	await expect(
-		page.getByRole("heading", {
-			name: "Keep the actionable queue small and visible.",
-		}),
-	).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Mentions" })).toBeVisible();
 
 	await page.getByRole("link", { name: "DMs" }).click();
-	await expect(
-		page.getByRole("heading", {
-			name: "Influence, bio, and reply state. No hunting.",
-		}),
-	).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
 
 	await page.getByRole("link", { name: "Inbox" }).click();
-	await expect(
-		page.getByRole("heading", { name: "AI triage for mentions and DMs." }),
-	).toBeVisible();
-	await expect(page.locator(".inbox-card")).toHaveCount(3);
+	await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+	await expect(page.getByText("DM from Amelia N")).toBeVisible();
 
 	await page.getByRole("link", { name: "Blocks" }).click();
 	await expect(
@@ -43,7 +27,7 @@ test("navigates across the primary surfaces", async ({ page }) => {
 test("filters the home timeline by reply state", async ({ page }) => {
 	await page.goto("/");
 
-	const cards = page.locator(".content-card");
+	const cards = page.locator('[data-perf="timeline-card"]');
 	await expect(cards).toHaveCount(4);
 
 	await page.getByRole("button", { name: /^replied$/ }).click();
@@ -59,29 +43,24 @@ test("expands timeline cards with media, quote context, and profile hover", asyn
 }) => {
 	await page.goto("/");
 
-	const surveyCard = page.locator(".content-card").filter({
+	const surveyCard = page.locator('[data-perf="timeline-card"]').filter({
 		hasText: "New developer-platform pricing survey",
 	});
 	await expect(surveyCard.getByAltText("Pricing survey chart")).toBeVisible();
 	await expect(
-		surveyCard.getByRole("link", {
-			name: "example.com/developer-platform-pricing",
-		}),
+		surveyCard.getByRole("link", { name: "Developer platform pricing" }),
 	).toBeVisible();
-	await surveyCard.locator(".profile-preview-trigger").first().hover();
+	await surveyCard.getByRole("link", { name: "Ava Wires @avawires" }).hover();
 	await expect(
-		surveyCard.locator(".profile-preview-card .profile-preview-bio").filter({
-			hasText:
-				"Reports on infrastructure, AI policy, and the business of software.",
-		}),
+		surveyCard.getByText(
+			"Reports on infrastructure, AI policy, and the business of software.",
+		),
 	).toBeVisible();
 
-	const quoteCard = page.locator(".content-card").filter({
+	const quoteCard = page.locator('[data-perf="timeline-card"]').filter({
 		hasText: "Agents need retrieval surfaces",
 	});
-	await expect(
-		quoteCard.locator(".embedded-tweet-label", { hasText: "Quoted tweet" }),
-	).toBeVisible();
+	await expect(quoteCard.getByText("Quoted tweet")).toBeVisible();
 	await expect(
 		quoteCard.getByText(
 			"We need more software that defaults to local-first, legible state, and repairable failure modes.",
@@ -94,14 +73,14 @@ test("replies to an unreplied mention and clears it from the queue", async ({
 }) => {
 	await page.goto("/mentions");
 
-	await expect(page.locator(".content-card")).toHaveCount(1);
+	await expect(page.locator('[data-perf="timeline-card"]')).toHaveCount(1);
 
 	page.once("dialog", (dialog) =>
 		dialog.accept("Replayability is the point where sync earns its keep."),
 	);
 	await page.getByRole("button", { name: "Reply" }).click();
 
-	await expect(page.locator(".content-card")).toHaveCount(0);
+	await expect(page.locator('[data-perf="timeline-card"]')).toHaveCount(0);
 });
 
 test("filters dms and shows sender context", async ({ page }) => {
@@ -110,8 +89,8 @@ test("filters dms and shows sender context", async ({ page }) => {
 	await page.getByRole("button", { name: "all" }).click();
 	await page.getByPlaceholder("Min followers").fill("1000000");
 
-	await expect(page.locator(".context-handle")).toHaveText("@sam");
-	await expect(page.locator(".context-bio")).toContainText("Working on AGI");
+	await expect(page.getByText("@sam").first()).toBeVisible();
+	await expect(page.getByText("Working on AGI")).toBeVisible();
 	await expect(page.getByText("sender context")).toHaveCount(0);
 });
 
@@ -120,7 +99,7 @@ test("replies from the inbox dm queue", async ({ page }) => {
 
 	await page.getByRole("button", { name: "dms" }).click();
 
-	const ameliaCard = page.locator(".inbox-card").filter({
+	const ameliaCard = page.locator("article").filter({
 		hasText: "DM from Amelia N",
 	});
 
@@ -154,9 +133,7 @@ test("adds and removes a local blocklist entry", async ({ page }) => {
 
 	await page.reload();
 
-	const ameliaBlock = page
-		.locator(".block-card")
-		.filter({ hasText: /@amelia/i });
+	const ameliaBlock = page.locator("article").filter({ hasText: /@amelia/i });
 	await expect(ameliaBlock).toHaveCount(1, { timeout: 15_000 });
 
 	await ameliaBlock.getByRole("button", { name: "Unblock" }).click();
