@@ -91,6 +91,7 @@ describe("config", () => {
 		const birdPath = path.join(tempRoot, "bird");
 		writeFileSync(birdPath, "#!/bin/sh\n");
 		chmodSync(birdPath, 0o755);
+		process.env.BIRDCLAW_HOME = tempRoot;
 		process.env.PATH = tempRoot;
 
 		expect(getBirdCommand()).toBe(birdPath);
