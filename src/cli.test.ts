@@ -979,6 +979,29 @@ describe("cli", () => {
 		expect(maybeAutoSyncBackupMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("prints follow sync transport failures as json", async () => {
+		syncFollowGraphMock.mockRejectedValueOnce(
+			new Error("xurl followers failed: Unauthorized"),
+		);
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "sync", "followers", "--yes"]);
+
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			JSON.stringify(
+				{
+					ok: false,
+					direction: "followers",
+					error: "xurl followers failed: Unauthorized",
+				},
+				null,
+				2,
+			),
+		);
+		expect(process.exitCode).toBe(1);
+		expect(maybeAutoSyncBackupMock).not.toHaveBeenCalled();
+	});
+
 	it("falls back to default cli filters when flags are omitted", async () => {
 		const { runCli } = await loadCli();
 

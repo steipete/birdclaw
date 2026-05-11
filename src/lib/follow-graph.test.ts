@@ -324,6 +324,9 @@ describe("follow graph sync and cache-only queries", () => {
 		const memberCount = getNativeDb()
 			.prepare("select count(*) as count from follow_snapshot_members")
 			.get() as { count: number };
+		const snapshotMeta = getNativeDb()
+			.prepare("select raw_meta_json from follow_snapshots")
+			.get() as { raw_meta_json: string };
 
 		expect(result).toMatchObject({
 			status: "incomplete",
@@ -332,6 +335,11 @@ describe("follow graph sync and cache-only queries", () => {
 			warning: undefined,
 		});
 		expect(memberCount.count).toBe(1);
+		expect(JSON.parse(snapshotMeta.raw_meta_json)).toMatchObject({
+			result_count: 1,
+			page_count: 1,
+			truncated_by_max_resources: true,
+		});
 	});
 
 	it("supports handle sorting and ISO timestamp filters for cache-only queries", async () => {

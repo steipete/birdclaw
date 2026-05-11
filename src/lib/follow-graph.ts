@@ -212,11 +212,11 @@ function mergePages(
 	return {
 		data: users,
 		meta: {
+			...lastPage?.meta,
 			result_count: users.length,
 			page_count: pages.length,
 			next_token: nextToken ?? null,
 			truncated_by_max_resources: truncatedByMaxResources,
-			...lastPage?.meta,
 		},
 		complete: !nextToken && !truncatedByMaxResources,
 		pageCount: pages.length,

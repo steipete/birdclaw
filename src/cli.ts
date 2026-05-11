@@ -83,6 +83,10 @@ function printError(error: string) {
 	console.error(JSON.stringify({ error }));
 }
 
+function errorMessage(error: unknown) {
+	return error instanceof Error ? error.message : String(error);
+}
+
 function formatLinkSearchItems(items: ReturnType<typeof searchLinks>) {
 	return items
 		.map((item) => {
@@ -738,23 +742,28 @@ for (const direction of ["followers", "following"] as const) {
 		.option("--allow-partial", "Acknowledge capped/incomplete snapshot")
 		.option("--yes", "Confirm live sync or fresh-cache merge")
 		.action(async (options) => {
-			const result = await syncFollowGraph({
-				direction,
-				account: options.account,
-				limit: Number(options.limit),
-				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
-				maxResources: options.maxResources
-					? Number(options.maxResources)
-					: undefined,
-				cacheTtlMs: Number(options.cacheTtl) * 1000,
-				refresh: Boolean(options.refresh),
-				allowPartial: Boolean(options.allowPartial),
-				yes: Boolean(options.yes),
-			});
-			if (!result.dryRun) {
-				await autoSyncAfterWrite();
+			try {
+				const result = await syncFollowGraph({
+					direction,
+					account: options.account,
+					limit: Number(options.limit),
+					maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+					maxResources: options.maxResources
+						? Number(options.maxResources)
+						: undefined,
+					cacheTtlMs: Number(options.cacheTtl) * 1000,
+					refresh: Boolean(options.refresh),
+					allowPartial: Boolean(options.allowPartial),
+					yes: Boolean(options.yes),
+				});
+				if (!result.dryRun) {
+					await autoSyncAfterWrite();
+				}
+				print(result, true);
+			} catch (error) {
+				print({ ok: false, direction, error: errorMessage(error) }, true);
+				process.exitCode = 1;
 			}
-			print(result, true);
 		});
 }
 
