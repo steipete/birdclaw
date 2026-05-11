@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DmWorkspace } from "#/components/DmWorkspace";
 import type {
@@ -10,26 +11,33 @@ import type {
 } from "#/lib/types";
 import {
 	cx,
-	dmPageClass,
-	eyebrowClass,
-	heroControlsClass,
-	heroControlsDmClass,
-	heroCopyClass,
-	heroShellClass,
-	heroShellDmClass,
-	heroTitleClass,
-	pageWrapClass,
+	pageHeaderClass,
+	pageHeaderRowClass,
+	pageSubtitleClass,
+	pageTitleClass,
+	searchFieldIconClass,
+	searchFieldInputClass,
+	searchFieldShellClass,
 	segmentActiveClass,
 	segmentClass,
 	segmentedClass,
+	tabButtonActiveClass,
+	tabButtonClass,
+	tabButtonIndicatorClass,
+	tabStripClass,
 	textFieldClass,
 	textFieldShortClass,
-	textFieldWideClass,
 } from "#/lib/ui";
 
 export const Route = createFileRoute("/dms")({
 	component: DmsRoute,
 });
+
+const TABS: Array<{ value: ReplyFilter; label: string }> = [
+	{ value: "all", label: "All" },
+	{ value: "unreplied", label: "Unreplied" },
+	{ value: "replied", label: "Replied" },
+];
 
 function DmsRoute() {
 	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
@@ -110,7 +118,7 @@ function DmsRoute() {
 
 	const subtitle = useMemo(() => {
 		if (!meta) return "Loading direct messages...";
-		return `${meta.stats.dms} conversations cached locally · filter by follower load or derived influence score`;
+		return `${String(meta.stats.dms)} conversations cached locally`;
 	}, [meta]);
 
 	async function replyToConversation(conversationId: string) {
@@ -183,80 +191,84 @@ function DmsRoute() {
 	}
 
 	return (
-		<main className={pageWrapClass}>
-			<div className={dmPageClass}>
-				<section className={cx(heroShellClass, heroShellDmClass)}>
-					<div>
-						<p className={eyebrowClass}>direct messages</p>
-						<h2 className={heroTitleClass}>
-							Influence, bio, and reply state. No hunting.
-						</h2>
-						<p className={heroCopyClass}>{subtitle}</p>
+		<>
+			<header className={pageHeaderClass}>
+				<div className={pageHeaderRowClass}>
+					<div className="flex min-w-0 flex-col">
+						<h1 className={pageTitleClass}>Messages</h1>
+						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
-					<div className={cx(heroControlsClass, heroControlsDmClass)}>
+				</div>
+				<div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+					<label className={cx(searchFieldShellClass, "flex-1 min-w-[200px]")}>
+						<Search className={searchFieldIconClass} strokeWidth={2} />
 						<input
-							className={cx(textFieldClass, textFieldWideClass)}
+							className={searchFieldInputClass}
 							onChange={(event) => setSearch(event.target.value)}
 							placeholder="Search DMs"
 							value={search}
 						/>
-						<input
-							className={cx(textFieldClass, textFieldShortClass)}
-							inputMode="numeric"
-							onChange={(event) => setMinFollowers(event.target.value)}
-							placeholder="Min followers"
-							value={minFollowers}
-						/>
-						<input
-							className={cx(textFieldClass, textFieldShortClass)}
-							inputMode="numeric"
-							onChange={(event) => setMinInfluenceScore(event.target.value)}
-							placeholder="Min score"
-							value={minInfluenceScore}
-						/>
-						<div className={segmentedClass}>
-							{(["recent", "influence"] as const).map((value) => (
-								<button
-									key={value}
-									className={cx(
-										segmentClass,
-										value === sort && segmentActiveClass,
-									)}
-									onClick={() => setSort(value)}
-									type="button"
-								>
-									{value}
-								</button>
-							))}
-						</div>
-						<div className={segmentedClass}>
-							{(["all", "replied", "unreplied"] as const).map((value) => (
-								<button
-									key={value}
-									className={cx(
-										segmentClass,
-										value === replyFilter && segmentActiveClass,
-									)}
-									onClick={() => setReplyFilter(value)}
-									type="button"
-								>
-									{value}
-								</button>
-							))}
-						</div>
+					</label>
+					<input
+						className={cx(textFieldClass, textFieldShortClass)}
+						inputMode="numeric"
+						onChange={(event) => setMinFollowers(event.target.value)}
+						placeholder="Min followers"
+						value={minFollowers}
+					/>
+					<input
+						className={cx(textFieldClass, textFieldShortClass)}
+						inputMode="numeric"
+						onChange={(event) => setMinInfluenceScore(event.target.value)}
+						placeholder="Min score"
+						value={minInfluenceScore}
+					/>
+					<div className={segmentedClass}>
+						{(["recent", "influence"] as const).map((value) => (
+							<button
+								key={value}
+								className={cx(
+									segmentClass,
+									value === sort && segmentActiveClass,
+								)}
+								onClick={() => setSort(value)}
+								type="button"
+							>
+								{value}
+							</button>
+						))}
 					</div>
-				</section>
+				</div>
+				<div className={tabStripClass}>
+					{TABS.map((tab) => {
+						const active = replyFilter === tab.value;
+						return (
+							<button
+								key={tab.value}
+								type="button"
+								aria-pressed={active}
+								className={cx(tabButtonClass, active && tabButtonActiveClass)}
+								onClick={() => setReplyFilter(tab.value)}
+							>
+								<span className="relative inline-flex flex-col items-center justify-center py-1">
+									{tab.value}
+									{active ? <span className={tabButtonIndicatorClass} /> : null}
+								</span>
+							</button>
+						);
+					})}
+				</div>
+			</header>
 
-				<DmWorkspace
-					conversations={items}
-					onReplyDraftChange={setReplyDraft}
-					onReplySend={replyToConversation}
-					onSelectConversation={setSelectedConversationId}
-					replyDraft={replyDraft}
-					selectedConversation={selectedConversation}
-					selectedMessages={messages}
-				/>
-			</div>
-		</main>
+			<DmWorkspace
+				conversations={items}
+				onReplyDraftChange={setReplyDraft}
+				onReplySend={replyToConversation}
+				onSelectConversation={setSelectedConversationId}
+				replyDraft={replyDraft}
+				selectedConversation={selectedConversation}
+				selectedMessages={messages}
+			/>
+		</>
 	);
 }

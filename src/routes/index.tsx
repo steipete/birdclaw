@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TimelineCard } from "#/components/TimelineCard";
 import type {
@@ -9,24 +10,30 @@ import type {
 } from "#/lib/types";
 import {
 	cx,
-	eyebrowClass,
-	feedPageClass,
-	heroControlsClass,
-	heroCopyClass,
-	heroShellClass,
-	heroTitleClass,
-	pageWrapClass,
-	segmentActiveClass,
-	segmentClass,
-	segmentedClass,
-	textFieldClass,
-	textFieldWideClass,
-	timelineLaneClass,
+	emptyStateClass,
+	feedClass,
+	pageHeaderClass,
+	pageHeaderRowClass,
+	pageSubtitleClass,
+	pageTitleClass,
+	searchFieldIconClass,
+	searchFieldInputClass,
+	searchFieldShellClass,
+	tabButtonActiveClass,
+	tabButtonClass,
+	tabButtonIndicatorClass,
+	tabStripClass,
 } from "#/lib/ui";
 
 export const Route = createFileRoute("/")({
 	component: HomeRoute,
 });
+
+const TABS: Array<{ value: ReplyFilter; label: string }> = [
+	{ value: "all", label: "All" },
+	{ value: "unreplied", label: "Unreplied" },
+	{ value: "replied", label: "Replied" },
+];
 
 function HomeRoute() {
 	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
@@ -57,7 +64,7 @@ function HomeRoute() {
 
 	const subtitle = useMemo(() => {
 		if (!meta) return "Loading local context...";
-		return `${meta.stats.home} home items · ${meta.stats.needsReply} waiting on action · ${meta.transport.statusText}`;
+		return `${String(meta.stats.home)} items · ${String(meta.stats.needsReply)} waiting · ${meta.transport.statusText}`;
 	}, [meta]);
 
 	async function replyToTweet(tweetId: string) {
@@ -79,47 +86,53 @@ function HomeRoute() {
 	}
 
 	return (
-		<main className={pageWrapClass}>
-			<div className={feedPageClass}>
-				<section className={heroShellClass}>
-					<div>
-						<p className={eyebrowClass}>home timeline</p>
-						<h2 className={heroTitleClass}>
-							Read first. Act only where signal survives.
-						</h2>
-						<p className={heroCopyClass}>{subtitle}</p>
+		<>
+			<header className={pageHeaderClass}>
+				<div className={pageHeaderRowClass}>
+					<div className="flex min-w-0 flex-col">
+						<h1 className={pageTitleClass}>Home</h1>
+						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
-					<div className={heroControlsClass}>
+				</div>
+				<div className="px-4 pb-3">
+					<label className={searchFieldShellClass}>
+						<Search className={searchFieldIconClass} strokeWidth={2} />
 						<input
-							className={cx(textFieldClass, textFieldWideClass)}
+							className={searchFieldInputClass}
 							onChange={(event) => setSearch(event.target.value)}
 							placeholder="Search local timeline"
 							value={search}
 						/>
-						<div className={segmentedClass}>
-							{(["all", "replied", "unreplied"] as const).map((value) => (
-								<button
-									key={value}
-									className={cx(
-										segmentClass,
-										value === replyFilter && segmentActiveClass,
-									)}
-									onClick={() => setReplyFilter(value)}
-									type="button"
-								>
-									{value}
-								</button>
-							))}
-						</div>
-					</div>
-				</section>
-
-				<section className={timelineLaneClass}>
-					{items.map((item) => (
-						<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
-					))}
-				</section>
-			</div>
-		</main>
+					</label>
+				</div>
+				<div className={tabStripClass}>
+					{TABS.map((tab) => {
+						const active = replyFilter === tab.value;
+						return (
+							<button
+								key={tab.value}
+								type="button"
+								aria-pressed={active}
+								className={cx(tabButtonClass, active && tabButtonActiveClass)}
+								onClick={() => setReplyFilter(tab.value)}
+							>
+								<span className="relative inline-flex flex-col items-center justify-center py-1">
+									{tab.value}
+									{active ? <span className={tabButtonIndicatorClass} /> : null}
+								</span>
+							</button>
+						);
+					})}
+				</div>
+			</header>
+			<section className={feedClass}>
+				{items.length === 0 ? (
+					<div className={emptyStateClass}>No posts to show.</div>
+				) : null}
+				{items.map((item) => (
+					<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
+				))}
+			</section>
+		</>
 	);
 }

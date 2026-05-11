@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Add a `/links` web lane for Hacker News-style top URL and video-provider insights with today, week, month, year, and all-time ranges.
+- Hydrate missing link-discussion profile avatars through `bird`/`xurl` so hover sheets can upgrade archive placeholders into real profile cards.
+
 ### Fixed
 
 - Include expanded short URLs and link occurrences in Git-friendly backups so linked-tweet search survives backup restore.

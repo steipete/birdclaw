@@ -1,42 +1,68 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 @theme inline {
-	--font-sans: "Instrument Sans", sans-serif;
-	--font-display: "Fraunces", serif;
+	--font-sans:
+		-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+		Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+	--font-display: var(--font-sans);
+	--font-mono:
+		ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
 }
 
 :root {
-	--bg: #f5f0e8;
-	--panel: rgb(255 252 247 / 92%);
-	--panel-strong: rgb(255 255 255 / 82%);
-	--line: rgb(32 24 17 / 12%);
-	--line-strong: rgb(32 24 17 / 24%);
-	--ink: #19130e;
-	--ink-soft: rgb(25 19 14 / 68%);
-	--accent: #1d6f53;
-	--accent-soft: rgb(29 111 83 / 12%);
-	--alert: #a34a2d;
-	--alert-soft: rgb(163 74 45 / 14%);
-	--shadow: rgb(32 24 17 / 8%);
+	--bg: #ffffff;
+	--bg-elevated: #ffffff;
+	--bg-hover: #f7f9f9;
+	--bg-active: #eff3f4;
+	--panel: #ffffff;
+	--panel-strong: #ffffff;
+	--line: #eff3f4;
+	--line-strong: #cfd9de;
+	--ink: #0f1419;
+	--ink-soft: #536471;
+	--ink-mute: #8b98a5;
+	--accent: #1d9bf0;
+	--accent-hover: #1a8cd8;
+	--accent-press: #177cc1;
+	--accent-soft: rgb(29 155 240 / 10%);
+	--accent-text: #ffffff;
+	--alert: #f4212e;
+	--alert-soft: rgb(244 33 46 / 10%);
+	--like: #f91880;
+	--like-soft: rgb(249 24 128 / 10%);
+	--accent-on-ink: #1d9bf0;
+	--ring: rgb(29 155 240 / 35%);
+	--shadow: rgb(15 20 25 / 6%);
+	--shadow-strong: rgb(15 20 25 / 12%);
 	--theme-switch-x: 50%;
 	--theme-switch-y: 50%;
 	color-scheme: light;
 }
 
 [data-theme="dark"] {
-	--bg: #151311;
-	--panel: rgb(29 24 19 / 88%);
-	--panel-strong: rgb(39 32 27 / 94%);
-	--line: rgb(245 232 214 / 10%);
-	--line-strong: rgb(245 232 214 / 18%);
-	--ink: #f4ede3;
-	--ink-soft: rgb(244 237 227 / 68%);
-	--accent: #68c4a0;
-	--accent-soft: rgb(104 196 160 / 14%);
-	--alert: #d98a69;
-	--alert-soft: rgb(217 138 105 / 16%);
-	--shadow: rgb(0 0 0 / 34%);
+	--bg: #000000;
+	--bg-elevated: #16181c;
+	--bg-hover: #16181c;
+	--bg-active: #1d1f23;
+	--panel: #000000;
+	--panel-strong: #16181c;
+	--line: #2f3336;
+	--line-strong: #536471;
+	--ink: #e7e9ea;
+	--ink-soft: #71767b;
+	--ink-mute: #5b6166;
+	--accent: #1d9bf0;
+	--accent-hover: #1a8cd8;
+	--accent-press: #177cc1;
+	--accent-soft: rgb(29 155 240 / 18%);
+	--accent-text: #ffffff;
+	--alert: #f4212e;
+	--alert-soft: rgb(244 33 46 / 18%);
+	--like: #f91880;
+	--like-soft: rgb(249 24 128 / 18%);
+	--ring: rgb(29 155 240 / 45%);
+	--shadow: rgb(0 0 0 / 60%);
+	--shadow-strong: rgb(0 0 0 / 80%);
 	color-scheme: dark;
 }
 
@@ -45,23 +71,60 @@ body {
 	min-height: 100%;
 }
 
+html {
+	scrollbar-gutter: stable;
+}
+
 body {
-	background:
-		radial-gradient(
-			circle at top left,
-			color-mix(in srgb, var(--accent) 16%, transparent),
-			transparent 28%
-		),
-		radial-gradient(
-			circle at right 18%,
-			color-mix(in srgb, var(--alert) 12%, transparent),
-			transparent 24%
-		),
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--bg) 82%, white) 0%,
-			var(--bg) 100%
-		);
+	background: var(--bg);
+	font-feature-settings: "ss01" on, "cv11" on;
+}
+
+::selection {
+	background: color-mix(in srgb, var(--accent) 28%, transparent);
+	color: var(--ink);
+}
+
+* {
+	-webkit-tap-highlight-color: transparent;
+}
+
+*:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+button,
+a {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+input,
+textarea {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+/* Subtle thin scrollbar for app-owned internal scroll panes. */
+.custom-scrollbar::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+	background: color-mix(in srgb, var(--ink-soft) 30%, transparent);
+	border-radius: 999px;
+	border: 2px solid var(--bg);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+	background: color-mix(in srgb, var(--ink-soft) 55%, transparent);
 }
 
 @keyframes theme-circle-transition {

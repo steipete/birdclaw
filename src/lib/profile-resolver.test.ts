@@ -9,6 +9,7 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 const mocks = vi.hoisted(() => ({
 	lookupProfileViaBird: vi.fn(),
 	lookupProfilesViaBird: vi.fn(),
+	lookupUsersByHandles: vi.fn(),
 	lookupUsersByIds: vi.fn(),
 }));
 
@@ -18,6 +19,7 @@ vi.mock("./bird", () => ({
 }));
 
 vi.mock("./xurl", () => ({
+	lookupUsersByHandles: mocks.lookupUsersByHandles,
 	lookupUsersByIds: mocks.lookupUsersByIds,
 }));
 
@@ -59,6 +61,7 @@ describe("profile resolver", () => {
 		resetDatabaseForTests();
 		mocks.lookupProfileViaBird.mockReset();
 		mocks.lookupProfilesViaBird.mockReset();
+		mocks.lookupUsersByHandles.mockReset();
 		mocks.lookupUsersByIds.mockReset();
 		mocks.lookupProfilesViaBird.mockImplementation(async (targets: string[]) =>
 			Promise.all(
@@ -171,6 +174,46 @@ describe("profile resolver", () => {
 		]);
 		expect(mocks.lookupProfileViaBird).toHaveBeenCalledTimes(1);
 		expect(mocks.lookupUsersByIds).toHaveBeenCalledTimes(1);
+	});
+
+	it("resolves handle-only profiles through bird and xurl fallback", async () => {
+		const db = getNativeDb();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_local_fcoury', 'fcoury', 'Felipe Coury', '', 0, 42, '2026-05-01T00:00:00.000Z')",
+		).run();
+		mocks.lookupProfilesViaBird.mockResolvedValueOnce([
+			{
+				target: "fcoury",
+				user: null,
+			},
+		]);
+		mocks.lookupUsersByHandles.mockResolvedValueOnce([
+			{
+				id: "123",
+				username: "fcoury",
+				name: "Felipe Coury",
+				description: "Ruby and Rails",
+				profile_image_url:
+					"https://pbs.twimg.com/profile_images/123/avatar_normal.jpg",
+				public_metrics: { followers_count: 456, following_count: 7 },
+			},
+		]);
+		const { resolveProfilesForHandles } = await import("./profile-resolver");
+
+		await expect(resolveProfilesForHandles(["@fcoury"])).resolves.toEqual([
+			expect.objectContaining({
+				handle: "fcoury",
+				status: "hit",
+				source: "xurl",
+				profile: expect.objectContaining({
+					id: "profile_local_fcoury",
+					handle: "fcoury",
+					avatarUrl: "https://pbs.twimg.com/profile_images/123/avatar.jpg",
+					followersCount: 456,
+				}),
+			}),
+		]);
+		expect(mocks.lookupUsersByHandles).toHaveBeenCalledWith(["fcoury"]);
 	});
 
 	it("hydrates synthetic highlighted-label affiliations into real org profiles", async () => {

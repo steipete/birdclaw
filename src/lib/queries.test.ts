@@ -550,15 +550,48 @@ describe("birdclaw queries", () => {
 
 	it("hydrates rich tweet entities, media, reply context, and quote context", () => {
 		setupTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at,
+        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+        entities_json, media_json, quoted_tweet_id
+      ) values (
+        'tweet_raw_url', 'acct_primary', 'profile_me', 'home',
+        'Check it: https://t.co/peek', '2026-03-09T12:00:00.000Z',
+        0, null, 0, 0, 0, 0, '{}', '[]', null
+      )
+      `,
+		).run();
+		db.prepare(
+			`
+      insert into url_expansions (
+        short_url, expanded_url, final_url, status, title, description, source, updated_at
+      ) values (
+        'https://t.co/peek', 'https://peekaboo.boo/?ref=x',
+        'https://peekaboo.boo/', 'hit', 'Peekaboo', 'Mac automation',
+        'test', '2026-03-09T12:00:00.000Z'
+      )
+      `,
+		).run();
 
 		const items = listTimelineItems({
 			resource: "home",
 			limit: 10,
 		});
+		const rawUrlItem = items.find((item) => item.id === "tweet_raw_url");
 		const replyItem = items.find((item) => item.id === "tweet_002");
 		const mediaItem = items.find((item) => item.id === "tweet_003");
 		const quotedItem = items.find((item) => item.id === "tweet_006");
 
+		expect(rawUrlItem?.entities.urls?.[0]).toMatchObject({
+			url: "https://t.co/peek",
+			expandedUrl: "https://peekaboo.boo/",
+			displayUrl: "peekaboo.boo",
+			title: "Peekaboo",
+			description: "Mac automation",
+		});
 		expect(replyItem?.replyToTweet?.id).toBe("tweet_001");
 		expect(mediaItem?.media[0]?.altText).toBe("Pricing survey chart");
 		expect(mediaItem?.entities.urls?.[0]?.title).toBe(

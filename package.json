@@ -46,6 +46,7 @@
 		"format:check": "oxfmt --check src scripts playwright vite.config.ts vitest.config.ts playwright.config.ts",
 		"lint": "oxlint --import-plugin --node-plugin --vitest-plugin --deny-warnings -A require-mock-type-parameters -A no-control-regex src scripts playwright vite.config.ts vitest.config.ts playwright.config.ts",
 		"check": "pnpm run format:check && pnpm run lint",
+		"perf:browser": "node ./scripts/browser-perf.mjs",
 		"cli": "tsx src/cli.ts",
 		"docs:site": "node scripts/build-docs-site.mjs"
 	},

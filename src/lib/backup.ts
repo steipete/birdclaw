@@ -296,7 +296,8 @@ function getExportRowSets(db: Database) {
 				db,
 				`
         select short_url, expanded_url, final_url, status, expanded_tweet_id,
-          expanded_handle, title, description, error, source, updated_at
+          expanded_handle, title, description, image_url, site_name, error,
+          source, updated_at
         from url_expansions
         order by short_url
         `,
@@ -1454,8 +1455,9 @@ export async function importBackup({
 			`
       insert into url_expansions (
         short_url, expanded_url, final_url, status, expanded_tweet_id,
-        expanded_handle, title, description, error, source, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        expanded_handle, title, description, image_url, site_name, error, source,
+        updated_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       on conflict(short_url) do update set
         expanded_url = excluded.expanded_url,
         final_url = excluded.final_url,
@@ -1464,6 +1466,8 @@ export async function importBackup({
         expanded_handle = excluded.expanded_handle,
         title = excluded.title,
         description = excluded.description,
+        image_url = excluded.image_url,
+        site_name = excluded.site_name,
         error = excluded.error,
         source = excluded.source,
         updated_at = excluded.updated_at
@@ -1478,6 +1482,8 @@ export async function importBackup({
 				"expanded_handle",
 				"title",
 				"description",
+				"image_url",
+				"site_name",
 				"error",
 				"source",
 				"updated_at",

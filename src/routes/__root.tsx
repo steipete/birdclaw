@@ -4,7 +4,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { ReactNode } from "react";
 import { AppNav } from "#/components/AppNav";
 import { ThemeProvider, themeScript } from "#/lib/theme";
-import { bodyClass, pageWrapClass, siteShellClass } from "#/lib/ui";
+import { bodyClass, mainColumnClass, siteShellClass } from "#/lib/ui";
 
 import appCss from "../styles.css?url";
 
@@ -34,7 +34,11 @@ export const Route = createRootRoute({
 });
 
 function NotFoundView() {
-	return <main className={pageWrapClass}>Not Found</main>;
+	return (
+		<main className={mainColumnClass}>
+			<div className="px-4 py-10 text-[var(--ink-soft)]">Not Found</div>
+		</main>
+	);
 }
 
 function RootDocument({ children }: { children: ReactNode }) {
@@ -48,7 +52,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 				<ThemeProvider>
 					<div className={siteShellClass}>
 						<AppNav />
-						{children}
+						<main className={mainColumnClass}>{children}</main>
 					</div>
 				</ThemeProvider>
 				<TanStackDevtools

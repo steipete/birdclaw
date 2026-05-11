@@ -445,6 +445,20 @@ describe("xurl transport wrapper", () => {
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("includes stdout and stderr details for json command failures", async () => {
+		execFileAsyncMock.mockRejectedValueOnce(
+			Object.assign(new Error("Command failed: xurl whoami"), {
+				stdout: '{"title":"Unauthorized","detail":"OAuth token expired"}',
+				stderr: "run xurl auth oauth2",
+			}),
+		);
+		const { lookupAuthenticatedUser } = await import("./xurl");
+
+		await expect(lookupAuthenticatedUser()).rejects.toThrow(
+			'Command failed: xurl whoami\n{"title":"Unauthorized","detail":"OAuth token expired"}\nrun xurl auth oauth2',
+		);
+	});
+
 	it("does not retry malformed or exhausted rate limit failures", async () => {
 		process.env.BIRDCLAW_XURL_RETRY_BASE_MS = "-1";
 		execFileAsyncMock.mockRejectedValueOnce(

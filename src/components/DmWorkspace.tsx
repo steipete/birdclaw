@@ -1,66 +1,61 @@
 import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
 import type { DmConversationItem, DmMessageItem } from "#/lib/types";
 import {
-	actionButtonClass,
 	composerBarClass,
 	composerInputClass,
-	composerShellClass,
-	contextBioClass,
-	contextHandleClass,
 	contextStatRowClass,
-	contextStatsClass,
 	contextStatTermClass,
 	contextStatValueClass,
 	cx,
-	dmGridClass,
+	dmComposerShellClass,
+	dmListBodyClass,
 	dmListClass,
-	dmListCopyClass,
+	dmListHandleClass,
+	dmListHeaderClass,
 	dmListItemActiveClass,
 	dmListItemClass,
-	dmPreviewTextClass,
+	dmListNameClass,
+	dmListPreviewClass,
+	dmListTimestampClass,
+	dmMessageBubbleClass,
+	dmMessageBubbleOutboundClass,
+	dmMessageMetaClass,
+	dmMessageRowClass,
+	dmMessageRowOutboundClass,
+	dmMessagesClass,
+	dmShellClass,
+	dmThreadClass,
+	dmThreadHeaderClass,
+	dmThreadNameClass,
+	dmThreadSubtitleClass,
+	dmThreadTitleClass,
 	emptyStateClass,
-	eyebrowClass,
-	identityRowClass,
-	messageBubbleClass,
-	messageBubbleOutboundClass,
-	messageMetaClass,
-	messageRowClass,
-	messageRowOutboundClass,
-	messageStackClass,
-	metaStackClass,
 	pillAlertClass,
 	pillClass,
 	pillSoftClass,
-	threadBioClass,
-	threadDetailColumnClass,
-	threadDetailHeaderClass,
-	threadHeaderClass,
-	threadShellClass,
-	threadSubtitleClass,
-	threadTitleClass,
+	primaryButtonClass,
 	timestampClass,
 } from "#/lib/ui";
 import { AvatarChip } from "./AvatarChip";
 
 function MessageBubble({ message }: { message: DmMessageItem }) {
+	const outbound = message.direction === "outbound";
 	return (
 		<div
-			className={cx(
-				messageRowClass,
-				message.direction === "outbound" && messageRowOutboundClass,
-			)}
+			className={cx(dmMessageRowClass, outbound && dmMessageRowOutboundClass)}
 		>
-			<div className={messageMetaClass}>
-				<span>{message.sender.displayName}</span>
-				<span>{formatShortTimestamp(message.createdAt)}</span>
-			</div>
 			<div
 				className={cx(
-					messageBubbleClass,
-					message.direction === "outbound" && messageBubbleOutboundClass,
+					dmMessageBubbleClass,
+					outbound && dmMessageBubbleOutboundClass,
 				)}
 			>
 				{message.text}
+			</div>
+			<div className={dmMessageMetaClass}>
+				<span>{message.sender.displayName}</span>
+				<span>·</span>
+				<span>{formatShortTimestamp(message.createdAt)}</span>
 			</div>
 		</div>
 	);
@@ -89,8 +84,11 @@ export function DmWorkspace({
 		: "No conversation selected";
 
 	return (
-		<section className={dmGridClass}>
+		<section className={dmShellClass}>
 			<aside className={dmListClass}>
+				{conversations.length === 0 ? (
+					<div className={emptyStateClass}>No conversations.</div>
+				) : null}
 				{conversations.map((conversation) => {
 					const active = conversation.id === selectedConversation?.id;
 					return (
@@ -106,70 +104,77 @@ export function DmWorkspace({
 								name={conversation.participant.displayName}
 								profileId={conversation.participant.id}
 							/>
-							<div className={dmListCopyClass}>
-								<div className={identityRowClass}>
-									<strong>{conversation.participant.displayName}</strong>
-									<span>@{conversation.participant.handle}</span>
+							<div className={dmListBodyClass}>
+								<div className={dmListHeaderClass}>
+									<div className="flex min-w-0 items-center gap-1.5">
+										<span className={dmListNameClass}>
+											{conversation.participant.displayName}
+										</span>
+										<span className={dmListHandleClass}>
+											@{conversation.participant.handle}
+										</span>
+									</div>
+									<span className={dmListTimestampClass}>
+										{formatShortTimestamp(conversation.lastMessageAt)}
+									</span>
 								</div>
-								<p className={dmPreviewTextClass}>
+								<p className={dmListPreviewClass}>
 									{conversation.lastMessagePreview}
 								</p>
-							</div>
-							<div className={metaStackClass}>
-								<span
-									className={cx(
-										pillClass,
-										conversation.needsReply ? pillAlertClass : pillSoftClass,
-									)}
-								>
-									{conversation.needsReply ? "needs reply" : "clear"}
-								</span>
-								<span className={cx(pillClass, pillSoftClass)}>
-									{conversation.influenceScore} · {conversation.influenceLabel}
-								</span>
-								<span className={timestampClass}>
-									{formatShortTimestamp(conversation.lastMessageAt)}
-								</span>
+								<div className="mt-1 flex items-center gap-1.5">
+									<span
+										className={cx(
+											pillClass,
+											conversation.needsReply ? pillAlertClass : pillSoftClass,
+										)}
+									>
+										{conversation.needsReply ? "needs reply" : "clear"}
+									</span>
+									<span className={cx(pillClass, pillSoftClass)}>
+										{conversation.influenceScore} ·{" "}
+										{conversation.influenceLabel}
+									</span>
+								</div>
 							</div>
 						</button>
 					);
 				})}
 			</aside>
 
-			<div className={threadShellClass}>
+			<div className={dmThreadClass}>
 				{selectedConversation ? (
 					<>
-						<header className={threadHeaderClass}>
-							<div>
-								<p className={eyebrowClass}>direct messages</p>
-								<h2 className={threadTitleClass}>
-									{selectedConversation.participant.displayName}
-								</h2>
-								<p className={threadSubtitleClass}>{subtitle}</p>
-								<p className={threadBioClass}>
-									{selectedConversation.lastMessagePreview}
-								</p>
-							</div>
-							<div className={threadDetailColumnClass}>
-								<div className={threadDetailHeaderClass}>
-									<AvatarChip
-										avatarUrl={participant?.avatarUrl}
-										hue={participant?.avatarHue ?? 18}
-										name={participant?.displayName ?? "Unknown"}
-										profileId={participant?.id ?? undefined}
-										size="large"
-									/>
-									<div>
-										<strong>{participant?.displayName}</strong>
-										<p className={cx("context-handle", contextHandleClass)}>
-											@{participant?.handle}
-										</p>
+						<header className={dmThreadHeaderClass}>
+							<div className={dmThreadTitleClass}>
+								<AvatarChip
+									avatarUrl={participant?.avatarUrl}
+									hue={participant?.avatarHue ?? 18}
+									name={participant?.displayName ?? "Unknown"}
+									profileId={participant?.id ?? undefined}
+								/>
+								<div className="min-w-0">
+									<div className={dmThreadNameClass}>
+										{selectedConversation.participant.displayName}
 									</div>
+									<div className={dmThreadSubtitleClass}>{subtitle}</div>
 								</div>
-								<p className={cx("context-bio", contextBioClass)}>
-									{participant?.bio}
-								</p>
-								<dl className={contextStatsClass}>
+							</div>
+							<button
+								className={primaryButtonClass}
+								onClick={() => onReplySend(selectedConversation.id)}
+								type="button"
+							>
+								Reply
+							</button>
+						</header>
+						{participant?.bio || participant?.followersCount ? (
+							<div className="border-b border-[var(--line)] px-4 py-3">
+								{participant?.bio ? (
+									<p className="text-[14px] leading-[1.4] text-[var(--ink)]">
+										{participant.bio}
+									</p>
+								) : null}
+								<dl className="mt-2 grid grid-cols-2 gap-1 text-[13px]">
 									<div className={contextStatRowClass}>
 										<dt className={contextStatTermClass}>Followers</dt>
 										<dd className={contextStatValueClass}>
@@ -198,26 +203,19 @@ export function DmWorkspace({
 										</dd>
 									</div>
 								</dl>
-								<button
-									className={actionButtonClass}
-									onClick={() => onReplySend(selectedConversation.id)}
-									type="button"
-								>
-									Reply
-								</button>
 							</div>
-						</header>
-						<div className={messageStackClass}>
+						) : null}
+						<div className={dmMessagesClass}>
 							{selectedMessages.map((message) => (
 								<MessageBubble key={message.id} message={message} />
 							))}
 						</div>
-						<div className={composerShellClass}>
+						<div className={dmComposerShellClass}>
 							<textarea
 								className={composerInputClass}
 								onChange={(event) => onReplyDraftChange(event.target.value)}
 								placeholder={`Reply to @${selectedConversation.participant.handle}`}
-								rows={4}
+								rows={3}
 								value={replyDraft}
 							/>
 							<div className={composerBarClass}>
@@ -227,7 +225,7 @@ export function DmWorkspace({
 										: "Thread clear"}
 								</span>
 								<button
-									className={actionButtonClass}
+									className={primaryButtonClass}
 									disabled={!replyDraft.trim()}
 									onClick={() => onReplySend(selectedConversation.id)}
 									type="button"

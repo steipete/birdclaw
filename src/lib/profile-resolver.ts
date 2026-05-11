@@ -7,7 +7,7 @@ import {
 } from "./profile-affiliation-hydration";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
-import { lookupUsersByIds } from "./xurl";
+import { lookupUsersByHandles, lookupUsersByIds } from "./xurl";
 
 const PROFILE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PROFILE_NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -36,6 +36,14 @@ export interface ProfileResolveResult {
 	source: ProfileLookupSource | "negative-cache";
 	profile?: ProfileRecord;
 	affiliationHydration?: ProfileAffiliationHydrationResult;
+	error?: string;
+}
+
+export interface HandleProfileResolveResult {
+	handle: string;
+	status: ProfileLookupStatus;
+	source: Exclude<ProfileLookupSource, "local">;
+	profile?: ProfileRecord;
 	error?: string;
 }
 
@@ -137,6 +145,10 @@ function updateConversationTitles(profile: ProfileRecord) {
 async function lookupViaXurl(externalUserId: string) {
 	const [user] = await lookupUsersByIds([externalUserId]);
 	return user ?? null;
+}
+
+function normalizeHandle(value: string) {
+	return value.trim().replace(/^@/, "").toLowerCase();
 }
 
 async function fetchProfileUser(
@@ -385,6 +397,108 @@ export async function resolveProfilesForIds(
 	}
 
 	return results;
+}
+
+export async function resolveProfilesForHandles(
+	handles: string[],
+	options: Pick<ResolveProfilesOptions, "xurlFallback"> = {},
+): Promise<HandleProfileResolveResult[]> {
+	const xurlFallback = options.xurlFallback ?? true;
+	const targets = Array.from(
+		new Set(handles.map(normalizeHandle).filter((handle) => handle.length > 0)),
+	);
+	if (targets.length === 0) {
+		return [];
+	}
+
+	const results = new Map<string, HandleProfileResolveResult>();
+	let unresolved = targets;
+
+	try {
+		const birdResults = await lookupProfilesViaBird(targets);
+		for (const item of birdResults) {
+			const handle = normalizeHandle(item.target);
+			if (item.user) {
+				const resolved = upsertProfileFromXUser(getNativeDb(), item.user);
+				updateConversationTitles(resolved.profile);
+				results.set(handle, {
+					handle,
+					status: "hit",
+					source: "bird",
+					profile: resolved.profile,
+				});
+			} else if (item.error && !xurlFallback) {
+				results.set(handle, {
+					handle,
+					status: "error",
+					source: "bird",
+					error: item.error,
+				});
+			}
+		}
+		unresolved = targets.filter((handle) => !results.has(handle));
+	} catch (error) {
+		if (!xurlFallback) {
+			for (const handle of targets) {
+				results.set(handle, {
+					handle,
+					status: "error",
+					source: "bird",
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+			unresolved = [];
+		}
+	}
+
+	if (unresolved.length > 0 && xurlFallback) {
+		try {
+			const users = await lookupUsersByHandles(unresolved);
+			const usersByHandle = new Map(
+				users.map((user) => [
+					normalizeHandle(String(user.username ?? "")),
+					user,
+				]),
+			);
+			for (const handle of unresolved) {
+				const user = usersByHandle.get(handle);
+				if (user) {
+					const resolved = upsertProfileFromXUser(getNativeDb(), user);
+					updateConversationTitles(resolved.profile);
+					results.set(handle, {
+						handle,
+						status: "hit",
+						source: "xurl",
+						profile: resolved.profile,
+					});
+				} else {
+					results.set(handle, {
+						handle,
+						status: "miss",
+						source: "xurl",
+					});
+				}
+			}
+		} catch (error) {
+			for (const handle of unresolved) {
+				results.set(handle, {
+					handle,
+					status: "error",
+					source: "xurl",
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+	}
+
+	return targets.map(
+		(handle) =>
+			results.get(handle) ?? {
+				handle,
+				status: "miss",
+				source: "bird",
+			},
+	);
 }
 
 export async function resolvePlaceholderProfiles(

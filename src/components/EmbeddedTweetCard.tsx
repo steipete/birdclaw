@@ -1,12 +1,13 @@
 import { formatShortTimestamp } from "#/lib/present";
 import type { EmbeddedTweet } from "#/lib/types";
 import {
-	embeddedTweetAuthorClass,
-	embeddedTweetCardClass,
-	embeddedTweetCopyClass,
-	embeddedTweetHeaderClass,
-	embeddedTweetLabelClass,
-	timestampClass,
+	embeddedCardBodyClass,
+	embeddedCardCopyClass,
+	embeddedCardHandleClass,
+	embeddedCardHeaderClass,
+	embeddedCardLabelClass,
+	embeddedCardNameClass,
+	feedRowTimestampClass,
 } from "#/lib/ui";
 import { ProfilePreview } from "./ProfilePreview";
 import { TweetMediaGrid } from "./TweetMediaGrid";
@@ -20,21 +21,26 @@ export function EmbeddedTweetCard({
 	label: string;
 }) {
 	return (
-		<section className={embeddedTweetCardClass}>
-			<p className={embeddedTweetLabelClass}>{label}</p>
-			<header className={embeddedTweetHeaderClass}>
+		<section className={embeddedCardBodyClass}>
+			<p className={embeddedCardLabelClass}>{label}</p>
+			<header className={embeddedCardHeaderClass}>
 				<ProfilePreview profile={item.author}>
-					<span className={embeddedTweetAuthorClass}>
-						<strong>{item.author.displayName}</strong>
-						<span>@{item.author.handle}</span>
+					<span className="flex min-w-0 items-center gap-1.5">
+						<span className={embeddedCardNameClass}>
+							{item.author.displayName}
+						</span>
+						<span className={embeddedCardHandleClass}>
+							@{item.author.handle}
+						</span>
 					</span>
 				</ProfilePreview>
-				<span className={timestampClass}>
+				<span className="text-[var(--ink-soft)]">·</span>
+				<span className={feedRowTimestampClass}>
 					{formatShortTimestamp(item.createdAt)}
 				</span>
 			</header>
 			<TweetRichText
-				className={embeddedTweetCopyClass}
+				className={embeddedCardCopyClass}
 				entities={item.entities}
 				text={item.text}
 			/>

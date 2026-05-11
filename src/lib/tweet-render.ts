@@ -10,6 +10,14 @@ type TweetSegment =
 	| ({ kind: "url" } & TweetUrlEntity)
 	| ({ kind: "hashtag" } & TweetHashtagEntity);
 
+type UrlExpansion = Pick<TweetUrlEntity, "expandedUrl" | "displayUrl"> &
+	Partial<
+		Pick<TweetUrlEntity, "title" | "description" | "imageUrl" | "siteName">
+	>;
+
+const RAW_URL_PATTERN = /https?:\/\/[^\s<>"'`]+/g;
+const TRAILING_URL_PUNCTUATION = /[),.;:!?]+$/;
+
 const MARKDOWN_ESCAPE_CHARACTERS = new Set([
 	"\\",
 	"`",
@@ -36,6 +44,95 @@ function escapeMarkdown(text: string) {
 			MARKDOWN_ESCAPE_CHARACTERS.has(character) ? `\\${character}` : character,
 		)
 		.join("");
+}
+
+export function displayUrlForLink(url: string) {
+	try {
+		const parsed = new URL(url);
+		const host = parsed.hostname.replace(/^www\./, "");
+		const suffix = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+		return suffix === "/" ? host : `${host}${suffix}`;
+	} catch {
+		return url;
+	}
+}
+
+function spansOverlap(
+	leftStart: number,
+	leftEnd: number,
+	rightStart: number,
+	rightEnd: number,
+) {
+	return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+export function enrichFallbackUrlEntities(
+	text: string,
+	entities: TweetEntities,
+	resolveExpansion?: (rawUrl: string) => UrlExpansion | null | undefined,
+): TweetEntities {
+	const existingUrls = entities.urls ?? [];
+	const enrichedExistingUrls = existingUrls.map((entry) => {
+		const expansion = resolveExpansion?.(entry.url);
+		if (!expansion) return entry;
+		const expandedUrl = expansion.expandedUrl || entry.expandedUrl;
+		return {
+			...entry,
+			expandedUrl,
+			displayUrl: expansion.displayUrl || displayUrlForLink(expandedUrl),
+			...(expansion.title ? { title: expansion.title } : {}),
+			...(expansion && "description" in expansion
+				? { description: expansion.description ?? null }
+				: {}),
+			...(expansion.imageUrl ? { imageUrl: expansion.imageUrl } : {}),
+			...(expansion.siteName ? { siteName: expansion.siteName } : {}),
+		};
+	});
+	const fallbackUrls: TweetUrlEntity[] = [];
+
+	for (const match of text.matchAll(RAW_URL_PATTERN)) {
+		const rawMatch = match[0];
+		const url = rawMatch.replace(TRAILING_URL_PUNCTUATION, "");
+		const start = match.index ?? 0;
+		const end = start + url.length;
+		if (!url) {
+			continue;
+		}
+		if (
+			enrichedExistingUrls.some((entry) =>
+				spansOverlap(start, end, entry.start, entry.end),
+			)
+		) {
+			continue;
+		}
+
+		const expansion = resolveExpansion?.(url);
+		const expandedUrl = expansion?.expandedUrl || url;
+		fallbackUrls.push({
+			url,
+			expandedUrl,
+			displayUrl: expansion?.displayUrl || displayUrlForLink(expandedUrl),
+			start,
+			end,
+			...(expansion?.title ? { title: expansion.title } : {}),
+			...(expansion && "description" in expansion
+				? { description: expansion.description ?? null }
+				: {}),
+			...(expansion?.imageUrl ? { imageUrl: expansion.imageUrl } : {}),
+			...(expansion?.siteName ? { siteName: expansion.siteName } : {}),
+		});
+	}
+
+	if (fallbackUrls.length === 0) {
+		return { ...entities, urls: enrichedExistingUrls };
+	}
+
+	return {
+		...entities,
+		urls: [...enrichedExistingUrls, ...fallbackUrls].sort(
+			(left, right) => left.start - right.start,
+		),
+	};
 }
 
 export function collectTweetSegments(entities: TweetEntities): TweetSegment[] {

@@ -88,6 +88,8 @@ export interface TweetUrlEntity {
 	end: number;
 	title?: string;
 	description?: string | null;
+	imageUrl?: string | null;
+	siteName?: string | null;
 }
 
 export interface TweetHashtagEntity {
@@ -203,6 +205,8 @@ export interface LinkIndexItem {
 	expandedHandle?: string | null;
 	title?: string | null;
 	description?: string | null;
+	imageUrl?: string | null;
+	siteName?: string | null;
 	error?: string | null;
 	source: string;
 	updatedAt: string;
@@ -215,6 +219,86 @@ export interface LinkSearchItem {
 	sourceAuthor?: ProfileRecord | null;
 	participant?: ProfileRecord | null;
 	linkedTweet?: TimelineItem | null;
+}
+
+export type LinkInsightKind = "links" | "videos";
+export type LinkInsightRange = "today" | "week" | "month" | "year" | "all";
+export type LinkInsightSort = "rank" | "recent" | "comments";
+export type LinkInsightSource = "all" | "tweet" | "dm";
+
+export interface LinkInsightMention {
+	id: string;
+	sourceKind: "dm" | "tweet";
+	sourceId: string;
+	sourceUrl?: string | null;
+	sourceLabel: string;
+	shortUrl: string;
+	conversationId?: string | null;
+	createdAt: string;
+	text: string;
+	rawText: string;
+	commentText: string;
+	sharedContentText?: string | null;
+	hasComment: boolean;
+	isPureShare: boolean;
+	timelineTweetId?: string | null;
+	contentTweetId?: string | null;
+	contentTweetUrl?: string | null;
+	contentAuthor?: ProfileRecord | null;
+	media: TweetMediaItem[];
+	direction?: string | null;
+	accountHandle?: string | null;
+	sharedBy?: ProfileRecord | null;
+	participant?: ProfileRecord | null;
+}
+
+export interface LinkInsightItem {
+	id: string;
+	kind: LinkInsightKind;
+	url: string;
+	canonicalKey: string;
+	displayUrl: string;
+	host: string;
+	title?: string | null;
+	description?: string | null;
+	shareCount: number;
+	uniqueSharers: number;
+	totalInfluence: number;
+	mentionCount: number;
+	commentCount: number;
+	pureShareCount: number;
+	hiddenMentionCount: number;
+	firstSeenAt: string;
+	lastSeenAt: string;
+	topSharer?: ProfileRecord | null;
+	sharers: ProfileRecord[];
+	mentions: LinkInsightMention[];
+}
+
+export interface LinkInsightQuery {
+	kind?: LinkInsightKind;
+	range?: LinkInsightRange;
+	sort?: LinkInsightSort;
+	source?: LinkInsightSource;
+	since?: string;
+	until?: string;
+	limit?: number;
+	commentsLimit?: number;
+	now?: Date;
+}
+
+export interface LinkInsightResponse {
+	kind: LinkInsightKind;
+	range: LinkInsightRange;
+	sort: LinkInsightSort;
+	source: LinkInsightSource;
+	since: string | null;
+	until: string | null;
+	items: LinkInsightItem[];
+	stats: {
+		occurrences: number;
+		groups: number;
+	};
 }
 
 export interface DmSearchMatchItem {

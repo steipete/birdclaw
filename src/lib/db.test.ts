@@ -148,6 +148,15 @@ describe("database init", () => {
 			expect.arrayContaining(["external_user_id"]),
 		);
 
+		const urlExpansionColumnNames = db
+			.prepare("pragma table_info(url_expansions)")
+			.all() as Array<{
+			name: string;
+		}>;
+		expect(urlExpansionColumnNames.map((column) => column.name)).toEqual(
+			expect.arrayContaining(["image_url", "site_name"]),
+		);
+
 		const muteColumnNames = db
 			.prepare("pragma table_info(mutes)")
 			.all() as Array<{

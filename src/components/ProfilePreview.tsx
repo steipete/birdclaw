@@ -9,6 +9,7 @@ import {
 	profilePreviewHandleClass,
 	profilePreviewHeaderClass,
 	profilePreviewMetaClass,
+	profilePreviewNameClass,
 	profilePreviewTriggerClass,
 } from "#/lib/ui";
 import { AvatarChip } from "./AvatarChip";
@@ -40,12 +41,16 @@ export function ProfilePreview({
 						name={profile.displayName}
 						profileId={profile.id}
 					/>
-					<span>
-						<strong>{profile.displayName}</strong>
+					<span className="flex min-w-0 flex-col">
+						<span className={profilePreviewNameClass}>
+							{profile.displayName}
+						</span>
 						<span className={profilePreviewHandleClass}>@{profile.handle}</span>
 					</span>
 				</span>
-				<span className={profilePreviewBioClass}>{profile.bio}</span>
+				{profile.bio ? (
+					<span className={profilePreviewBioClass}>{profile.bio}</span>
+				) : null}
 				<span className={profilePreviewMetaClass}>
 					{formatCompactNumber(profile.followersCount)} followers
 				</span>

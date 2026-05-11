@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { getInitials } from "#/lib/present";
-import { avatarChipClass, avatarChipLargeClass, cx } from "#/lib/ui";
+import {
+	avatarChipClass,
+	avatarChipLargeClass,
+	avatarChipSmallClass,
+	cx,
+} from "#/lib/ui";
 
 export function AvatarChip({
 	profileId,
@@ -13,7 +18,7 @@ export function AvatarChip({
 	avatarUrl?: string;
 	name: string;
 	hue: number;
-	size?: "default" | "large";
+	size?: "default" | "large" | "small";
 }) {
 	const avatarSrc =
 		profileId && avatarUrl
@@ -26,10 +31,10 @@ export function AvatarChip({
 		<span
 			className={cx(
 				avatarChipClass,
-				"avatar-chip",
-				size === "large" && cx(avatarChipLargeClass, "avatar-chip-large"),
+				size === "large" && avatarChipLargeClass,
+				size === "small" && avatarChipSmallClass,
 			)}
-			style={{ backgroundColor: `hsl(${hue} 72% 50%)` }}
+			style={{ backgroundColor: `hsl(${String(hue)} 72% 50%)` }}
 		>
 			{showImage ? (
 				<img

@@ -147,6 +147,20 @@ function extractTweetEntities(tweet: Record<string, unknown>) {
 			title: typeof entry.title === "string" ? entry.title : undefined,
 			description:
 				typeof entry.description === "string" ? entry.description : null,
+			imageUrl:
+				typeof entry.image_url === "string"
+					? entry.image_url
+					: typeof entry.imageUrl === "string"
+						? entry.imageUrl
+						: typeof entry.thumbnail_url === "string"
+							? entry.thumbnail_url
+							: undefined,
+			siteName:
+				typeof entry.site_name === "string"
+					? entry.site_name
+					: typeof entry.siteName === "string"
+						? entry.siteName
+						: undefined,
 		}))
 		.filter((entry) => entry.url.length > 0 || entry.expandedUrl.length > 0);
 	const mentions = asArray<Record<string, unknown>>(entities?.user_mentions)

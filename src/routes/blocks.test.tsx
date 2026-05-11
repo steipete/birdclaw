@@ -268,6 +268,110 @@ describe("blocks route", () => {
 		expect(await screen.findByText("sync nope")).toBeInTheDocument();
 	});
 
+	it("shows multiline command failure details", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+							transport: { statusText: "xurl available" },
+							accounts: [
+								{ id: "acct_primary", handle: "@steipete", name: "Peter" },
+							],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/blocks")) {
+					return new Response(JSON.stringify({ items: [], matches: [] }));
+				}
+				if (url.endsWith("/api/action") && init?.method === "POST") {
+					return new Response(
+						JSON.stringify({
+							ok: false,
+							transport: {
+								ok: false,
+								output:
+									'Command failed: xurl whoami\n{"detail":"OAuth token expired"}\nrun xurl auth oauth2',
+							},
+						}),
+					);
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			}),
+		);
+
+		render(<BlocksRoute />);
+
+		const alert = await screen.findByText(/OAuth token expired/);
+		expect(alert).toHaveTextContent("Command failed: xurl whoami");
+		expect(alert).toHaveTextContent("run xurl auth oauth2");
+		expect(alert).toHaveClass("whitespace-pre-wrap");
+	});
+
+	it("shows action failures instead of success messages", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+							transport: { statusText: "xurl available" },
+							accounts: [
+								{ id: "acct_primary", handle: "@steipete", name: "Peter" },
+							],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/blocks")) {
+					return new Response(JSON.stringify({ items: [], matches: [] }));
+				}
+				if (url.endsWith("/api/action") && init?.method === "POST") {
+					const body = JSON.parse(String(init.body)) as Record<string, string>;
+					if (body.kind === "syncBlocks") {
+						return new Response(
+							JSON.stringify({
+								ok: true,
+								transport: {
+									ok: true,
+									output: "remote block sync disabled in test mode",
+								},
+							}),
+						);
+					}
+					return new Response(
+						JSON.stringify({
+							ok: false,
+							profile: { handle: "sam" },
+							transport: { ok: false, output: "block rejected" },
+						}),
+					);
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			}),
+		);
+
+		render(<BlocksRoute />);
+
+		fireEvent.change(
+			await screen.findByPlaceholderText("Handle, name, bio, or Twitter URL"),
+			{
+				target: { value: "@sam" },
+			},
+		);
+		await screen.findByDisplayValue("@sam");
+		fireEvent.click(screen.getByRole("button", { name: "Block" }));
+
+		expect(await screen.findByText("block rejected")).toBeInTheDocument();
+		expect(screen.queryByText(/Blocked @sam/)).not.toBeInTheDocument();
+	});
+
 	it("uses fallback labels for sync output and blocked matches", async () => {
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {

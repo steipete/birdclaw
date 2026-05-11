@@ -6,8 +6,10 @@ export interface UrlExpansionRecordInput {
 	expandedUrl: string;
 	finalUrl: string;
 	status: "hit" | "miss" | "error";
-	title?: string;
+	title?: string | null;
 	description?: string | null;
+	imageUrl?: string | null;
+	siteName?: string | null;
 	error?: string;
 	source: string;
 	updatedAt: string;
@@ -62,6 +64,8 @@ export function normalizeUrlExpansionForIndex(
 		expandedHandle: target.expandedHandle ?? null,
 		title: item.title ?? null,
 		description: item.description ?? null,
+		imageUrl: item.imageUrl ?? null,
+		siteName: item.siteName ?? null,
 		error: item.error ?? null,
 		source: item.source,
 		updatedAt: item.updatedAt,
@@ -72,8 +76,9 @@ export function upsertUrlExpansion(db: Database, item: LinkIndexItem) {
 	db.prepare(`
     insert into url_expansions (
       short_url, expanded_url, final_url, status, expanded_tweet_id,
-      expanded_handle, title, description, error, source, updated_at
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      expanded_handle, title, description, image_url, site_name, error, source,
+      updated_at
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     on conflict(short_url) do update set
       expanded_url = excluded.expanded_url,
       final_url = excluded.final_url,
@@ -82,6 +87,8 @@ export function upsertUrlExpansion(db: Database, item: LinkIndexItem) {
       expanded_handle = excluded.expanded_handle,
       title = excluded.title,
       description = excluded.description,
+      image_url = excluded.image_url,
+      site_name = excluded.site_name,
       error = excluded.error,
       source = excluded.source,
       updated_at = excluded.updated_at
@@ -94,6 +101,8 @@ export function upsertUrlExpansion(db: Database, item: LinkIndexItem) {
 		item.expandedHandle,
 		item.title,
 		item.description,
+		item.imageUrl,
+		item.siteName,
 		item.error,
 		item.source,
 		item.updatedAt,

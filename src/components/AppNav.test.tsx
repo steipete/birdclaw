@@ -8,12 +8,14 @@ vi.mock("@tanstack/react-router", () => ({
 		children,
 		to,
 		className,
+		...props
 	}: {
 		children: ReactNode;
 		to: string;
 		className: string;
+		[key: string]: unknown;
 	}) => (
-		<a className={className} href={to}>
+		<a className={className} href={to} {...props}>
 			{children}
 		</a>
 	),
@@ -36,6 +38,10 @@ describe("AppNav", () => {
 
 		expect(screen.getByRole("link", { name: "Inbox" })).toHaveClass(
 			"nav-link-active",
+		);
+		expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+			"aria-label",
+			"Inbox",
 		);
 		expect(screen.getByRole("link", { name: "Blocks" })).toBeInTheDocument();
 		expect(screen.getByText("Quiet signal for Twitter.")).toBeInTheDocument();

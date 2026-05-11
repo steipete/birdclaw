@@ -66,6 +66,10 @@ function formatExecError(error: unknown, fallback: string) {
 	return parts.join("\n");
 }
 
+function formatXurlCommandError(error: unknown, args: string[]) {
+	return new Error(formatExecError(error, `xurl ${args.join(" ")} failed`));
+}
+
 function parseErrorPayload(error: unknown) {
 	const stdout =
 		typeof error === "object" &&
@@ -205,7 +209,7 @@ async function runJsonCommand(args: string[], attempt = 0) {
 	} catch (error) {
 		const retryDelayMs = getRetryDelayMs(error, attempt);
 		if (retryDelayMs === null || attempt >= JSON_RETRY_LIMIT - 1) {
-			throw error;
+			throw formatXurlCommandError(error, args);
 		}
 
 		await sleep(retryDelayMs);

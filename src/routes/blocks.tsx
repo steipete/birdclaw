@@ -9,22 +9,21 @@ import type {
 	QueryEnvelope,
 } from "#/lib/types";
 import {
-	actionButtonClass,
-	cardHeaderClass,
-	contentCardClass,
+	blockRowBodyClass,
+	blockRowClass,
 	cx,
+	dangerButtonClass,
+	emptyStateClass,
 	errorCopyClass,
-	eyebrowClass,
-	heroControlsBlocksClass,
-	heroControlsClass,
-	heroCopyClass,
-	heroShellClass,
-	heroTitleClass,
-	identityBlockClass,
-	metaRowClass,
 	mutedDotClass,
-	pageWrapClass,
-	stackGridClass,
+	pageHeaderClass,
+	pageHeaderRowClass,
+	pageSubtitleClass,
+	pageTitleClass,
+	primaryButtonClass,
+	secondaryButtonClass,
+	selectFieldClass,
+	statusCopyClass,
 	textFieldClass,
 	textFieldShortClass,
 	textFieldWideClass,
@@ -142,7 +141,7 @@ function BlocksRoute() {
 					}
 					setMessage(
 						data.transport?.output ??
-							`Synced ${data.syncedCount ?? 0} remote blocks`,
+							`Synced ${String(data.syncedCount ?? 0)} remote blocks`,
 					);
 				},
 			)
@@ -162,12 +161,12 @@ function BlocksRoute() {
 	const subtitle = useMemo(() => {
 		if (!meta) {
 			return items.length > 0
-				? `${items.length} blocked profiles in view · loading transport status...`
+				? `${String(items.length)} blocked profiles · loading transport...`
 				: "Loading local blocklist...";
 		}
 		if (isSyncing)
 			return `Syncing remote blocklist · ${meta.transport.statusText}`;
-		return `${items.length} blocked profiles in view · ${meta.transport.statusText}`;
+		return `${String(items.length)} blocked profiles · ${meta.transport.statusText}`;
 	}, [isSyncing, items.length, meta]);
 
 	async function submit(
@@ -192,9 +191,14 @@ function BlocksRoute() {
 				}),
 			});
 			const data = (await response.json()) as {
+				ok?: boolean;
 				profile?: { handle?: string };
-				transport?: { output?: string };
+				transport?: { ok?: boolean; output?: string };
 			};
+			if (data.ok === false || data.transport?.ok === false) {
+				setError(data.transport?.output ?? "Blocklist action failed");
+				return;
+			}
 
 			setMessage(
 				`${kind === "blockProfile" ? "Blocked" : "Unblocked"} @${
@@ -214,18 +218,20 @@ function BlocksRoute() {
 	}
 
 	return (
-		<main className={pageWrapClass}>
-			<section className={heroShellClass}>
-				<div>
-					<p className={eyebrowClass}>blocks</p>
-					<h2 className={heroTitleClass}>
-						Maintain a clean blocklist locally.
-					</h2>
-					<p className={heroCopyClass}>{subtitle}</p>
+		<>
+			<header className={pageHeaderClass}>
+				<div className={pageHeaderRowClass}>
+					<div className="flex min-w-0 flex-col">
+						<h1 className={pageTitleClass}>Blocks</h1>
+						<h2 className={cx(pageSubtitleClass, "text-[14px]")}>
+							Maintain a clean blocklist locally.
+						</h2>
+						<p className={pageSubtitleClass}>{subtitle}</p>
+					</div>
 				</div>
-				<div className={cx(heroControlsClass, heroControlsBlocksClass)}>
+				<div className="flex flex-wrap items-center gap-2 px-4 pb-3">
 					<select
-						className={cx(textFieldClass, textFieldShortClass)}
+						className={cx(selectFieldClass, textFieldShortClass)}
 						disabled={!isReady}
 						onChange={(event) => setAccountId(event.target.value)}
 						value={accountId}
@@ -237,14 +243,18 @@ function BlocksRoute() {
 						))}
 					</select>
 					<input
-						className={cx(textFieldClass, textFieldWideClass)}
+						className={cx(
+							textFieldClass,
+							textFieldWideClass,
+							"flex-1 min-w-[200px]",
+						)}
 						disabled={!hasAccountId}
 						onChange={(event) => setSearch(event.target.value)}
 						placeholder="Handle, name, bio, or Twitter URL"
 						value={search}
 					/>
 					<button
-						className={actionButtonClass}
+						className={primaryButtonClass}
 						disabled={!hasAccountId || isSubmitting || !search.trim()}
 						onClick={() => void submit("blockProfile", search)}
 						type="button"
@@ -252,29 +262,31 @@ function BlocksRoute() {
 						{isSubmitting ? "Working..." : "Block"}
 					</button>
 				</div>
-			</section>
+			</header>
 
-			{message ? <p className={timestampClass}>{message}</p> : null}
+			{message ? <p className={statusCopyClass}>{message}</p> : null}
 			{error ? <p className={errorCopyClass}>{error}</p> : null}
 
 			{matches.length > 0 ? (
-				<section className={stackGridClass}>
+				<section className="flex flex-col">
+					<h2 className="px-4 pt-3 pb-1 text-[13px] font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
+						Search matches
+					</h2>
 					{matches.map((match) => (
-						<article
-							className={cx(contentCardClass, "block-card")}
-							key={match.profile.id}
-						>
-							<div className={cardHeaderClass}>
-								<div className={identityBlockClass}>
-									<AvatarChip
-										avatarUrl={match.profile.avatarUrl}
-										hue={match.profile.avatarHue}
-										name={match.profile.displayName}
-										profileId={match.profile.id}
-									/>
-									<div>
-										<strong>{match.profile.displayName}</strong>
-										<div className={metaRowClass}>
+						<article className={blockRowClass} key={match.profile.id}>
+							<AvatarChip
+								avatarUrl={match.profile.avatarUrl}
+								hue={match.profile.avatarHue}
+								name={match.profile.displayName}
+								profileId={match.profile.id}
+							/>
+							<div className={blockRowBodyClass}>
+								<div className="flex items-center justify-between gap-2">
+									<div className="flex min-w-0 flex-col">
+										<strong className="truncate text-[15px] text-[var(--ink)]">
+											{match.profile.displayName}
+										</strong>
+										<div className="flex flex-wrap items-center gap-1.5 text-[13px] text-[var(--ink-soft)]">
 											<span>@{match.profile.handle}</span>
 											<span className={mutedDotClass} />
 											<span>
@@ -283,43 +295,52 @@ function BlocksRoute() {
 											</span>
 										</div>
 									</div>
+									<button
+										className={
+											match.isBlocked ? secondaryButtonClass : dangerButtonClass
+										}
+										onClick={() =>
+											void submit(
+												match.isBlocked ? "unblockProfile" : "blockProfile",
+												match.profile.id,
+											)
+										}
+										type="button"
+									>
+										{match.isBlocked ? "Unblock" : "Block"}
+									</button>
 								</div>
-								<button
-									className={actionButtonClass}
-									onClick={() =>
-										void submit(
-											match.isBlocked ? "unblockProfile" : "blockProfile",
-											match.profile.id,
-										)
-									}
-									type="button"
-								>
-									{match.isBlocked ? "Unblock" : "Block"}
-								</button>
+								<p className="text-[14px] leading-[1.4] text-[var(--ink)]">
+									{match.profile.bio}
+								</p>
 							</div>
-							<p className="mt-2.5">{match.profile.bio}</p>
 						</article>
 					))}
 				</section>
 			) : null}
 
-			<section className={stackGridClass}>
+			<section className="flex flex-col">
+				{items.length === 0 && matches.length === 0 ? (
+					<div className={emptyStateClass}>No blocks in this account.</div>
+				) : null}
 				{items.map((item) => (
 					<article
-						className={cx(contentCardClass, "block-card")}
+						className={blockRowClass}
 						key={item.accountId + item.profile.id}
 					>
-						<div className={cardHeaderClass}>
-							<div className={identityBlockClass}>
-								<AvatarChip
-									avatarUrl={item.profile.avatarUrl}
-									hue={item.profile.avatarHue}
-									name={item.profile.displayName}
-									profileId={item.profile.id}
-								/>
-								<div>
-									<strong>{item.profile.displayName}</strong>
-									<div className={metaRowClass}>
+						<AvatarChip
+							avatarUrl={item.profile.avatarUrl}
+							hue={item.profile.avatarHue}
+							name={item.profile.displayName}
+							profileId={item.profile.id}
+						/>
+						<div className={blockRowBodyClass}>
+							<div className="flex items-center justify-between gap-2">
+								<div className="flex min-w-0 flex-col">
+									<strong className="truncate text-[15px] text-[var(--ink)]">
+										{item.profile.displayName}
+									</strong>
+									<div className="flex flex-wrap items-center gap-1.5 text-[13px] text-[var(--ink-soft)]">
 										<span>@{item.profile.handle}</span>
 										<span className={mutedDotClass} />
 										<span>{item.accountHandle}</span>
@@ -330,23 +351,27 @@ function BlocksRoute() {
 										</span>
 									</div>
 								</div>
+								<button
+									className={secondaryButtonClass}
+									onClick={() => void submit("unblockProfile", item.profile.id)}
+									type="button"
+								>
+									Unblock
+								</button>
 							</div>
-							<button
-								className={actionButtonClass}
-								onClick={() => void submit("unblockProfile", item.profile.id)}
-								type="button"
-							>
-								Unblock
-							</button>
+							{item.profile.bio ? (
+								<p className="text-[14px] leading-[1.4] text-[var(--ink)]">
+									{item.profile.bio}
+								</p>
+							) : null}
+							<p className={timestampClass}>
+								Blocked {new Date(item.blockedAt).toLocaleString()} ·{" "}
+								{item.source}
+							</p>
 						</div>
-						<p className="mt-2.5">{item.profile.bio}</p>
-						<p className={timestampClass}>
-							Blocked {new Date(item.blockedAt).toLocaleString()} ·{" "}
-							{item.source}
-						</p>
 					</article>
 				))}
 			</section>
-		</main>
+		</>
 	);
 }

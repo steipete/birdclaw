@@ -3,6 +3,7 @@ import type { Database } from "./sqlite";
 import { findArchives } from "./archive-finder";
 import { getDb, getNativeDb } from "./db";
 import { fetchProfileAffiliations } from "./profile-affiliations";
+import { displayUrlForLink, enrichFallbackUrlEntities } from "./tweet-render";
 import type {
 	AccountRecord,
 	DmConversationItem,
@@ -18,6 +19,7 @@ import type {
 	TimelineQuery,
 	TweetEntities,
 	TweetMediaItem,
+	TweetUrlEntity,
 } from "./types";
 import {
 	dmViaXurl,
@@ -107,7 +109,78 @@ function enrichEntities(
 	};
 }
 
+type UrlExpansionCache = Map<
+	string,
+	| (Pick<TweetUrlEntity, "expandedUrl" | "displayUrl"> &
+			Partial<
+				Pick<TweetUrlEntity, "title" | "description" | "imageUrl" | "siteName">
+			>)
+	| null
+>;
+
+function getUrlExpansion(
+	db: Database,
+	cache: UrlExpansionCache,
+	rawUrl: string,
+) {
+	if (cache.has(rawUrl)) {
+		return cache.get(rawUrl);
+	}
+
+	const row = db
+		.prepare(
+			`
+      select expanded_url, final_url, title, description, image_url, site_name
+      from url_expansions
+      where short_url = ?
+        and status = 'hit'
+      `,
+		)
+		.get(rawUrl) as
+		| {
+				expanded_url: string;
+				final_url: string;
+				title: string | null;
+				description: string | null;
+				image_url: string | null;
+				site_name: string | null;
+		  }
+		| undefined;
+	if (!row) {
+		cache.set(rawUrl, null);
+		return null;
+	}
+
+	const expandedUrl = row.final_url || row.expanded_url || rawUrl;
+	const expansion = {
+		expandedUrl,
+		displayUrl: displayUrlForLink(expandedUrl),
+		...(row.title ? { title: row.title } : {}),
+		...(row.description ? { description: row.description } : {}),
+		...(row.image_url ? { imageUrl: row.image_url } : {}),
+		...(row.site_name ? { siteName: row.site_name } : {}),
+	};
+	cache.set(rawUrl, expansion);
+	return expansion;
+}
+
+function enrichTimelineEntities(
+	db: Database,
+	urlExpansionCache: UrlExpansionCache,
+	text: string,
+	entities: TweetEntities,
+	profiles: Record<string, ProfileRecord>,
+): TweetEntities {
+	return enrichFallbackUrlEntities(
+		text,
+		enrichEntities(entities, profiles),
+		(rawUrl) => getUrlExpansion(db, urlExpansionCache, rawUrl),
+	);
+}
+
 function buildEmbeddedTweet(
+	db: Database,
+	urlExpansionCache: UrlExpansionCache,
 	row: Record<string, unknown>,
 	prefix: string,
 ): EmbeddedTweet | null {
@@ -127,12 +200,16 @@ function buildEmbeddedTweet(
 		created_at: row[`${prefix}profile_created_at`],
 	});
 
+	const text = String(row[`${prefix}text`] ?? "");
 	return {
 		id: String(row[`${prefix}id`]),
-		text: String(row[`${prefix}text`] ?? ""),
+		text,
 		createdAt: String(row[`${prefix}created_at`] ?? new Date(0).toISOString()),
 		author,
-		entities: enrichEntities(
+		entities: enrichTimelineEntities(
+			db,
+			urlExpansionCache,
+			text,
 			parseJsonField<TweetEntities>(row[`${prefix}entities_json`], {}),
 			{
 				[author.id]: author,
@@ -545,6 +622,7 @@ export function listTimelineItems({
 		)
 		.all(...params) as Array<Record<string, unknown>>;
 
+	const urlExpansionCache: UrlExpansionCache = new Map();
 	return rows.map((row) => {
 		const author = {
 			id: String(row.profile_id),
@@ -558,7 +636,11 @@ export function listTimelineItems({
 				typeof row.avatar_url === "string" ? String(row.avatar_url) : undefined,
 			createdAt: String(row.profile_created_at),
 		};
-		const entities = enrichEntities(
+		const text = String(row.text);
+		const entities = enrichTimelineEntities(
+			db,
+			urlExpansionCache,
+			text,
 			parseJsonField<TweetEntities>(row.entities_json, {}),
 			{
 				[author.id]: author,
@@ -599,7 +681,7 @@ export function listTimelineItems({
 			accountId: String(row.account_id),
 			accountHandle: String(row.account_handle),
 			kind: row.kind as TimelineItem["kind"],
-			text: String(row.text),
+			text,
 			...(typeof row.search_snippet === "string"
 				? { searchSnippet: row.search_snippet }
 				: {}),
@@ -612,8 +694,8 @@ export function listTimelineItems({
 			author,
 			entities,
 			media: parseJsonField<TweetMediaItem[]>(row.media_json, []),
-			replyToTweet: buildEmbeddedTweet(row, "reply_"),
-			quotedTweet: buildEmbeddedTweet(row, "quoted_"),
+			replyToTweet: buildEmbeddedTweet(db, urlExpansionCache, row, "reply_"),
+			quotedTweet: buildEmbeddedTweet(db, urlExpansionCache, row, "quoted_"),
 		};
 		return includeQualityReason
 			? {

@@ -194,6 +194,8 @@ export interface UrlExpansionsTable {
 	expanded_handle: string | null;
 	title: string | null;
 	description: string | null;
+	image_url: string | null;
+	site_name: string | null;
 	error: string | null;
 	source: string;
 	updated_at: string;
@@ -443,6 +445,8 @@ const BASE_SCHEMA_SQL = `
     expanded_handle text,
     title text,
     description text,
+    image_url text,
+    site_name text,
     error text,
     source text not null,
     updated_at text not null
@@ -683,6 +687,8 @@ function ensureLinkIndexTables(db: Database) {
       expanded_handle text,
       title text,
       description text,
+      image_url text,
+      site_name text,
       error text,
       source text not null,
       updated_at text not null
@@ -700,6 +706,14 @@ function ensureLinkIndexTables(db: Database) {
       primary key (source_kind, source_id, source_position, short_url)
     );
   `);
+
+	const urlExpansionColumns = getColumnNames(db, "url_expansions");
+	if (!urlExpansionColumns.has("image_url")) {
+		db.exec("alter table url_expansions add column image_url text");
+	}
+	if (!urlExpansionColumns.has("site_name")) {
+		db.exec("alter table url_expansions add column site_name text");
+	}
 }
 
 function backfillTweetCollections(db: Database) {

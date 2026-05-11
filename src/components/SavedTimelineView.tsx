@@ -1,18 +1,17 @@
+import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { TimelineCard } from "#/components/TimelineCard";
 import type { QueryEnvelope, QueryResponse, TimelineItem } from "#/lib/types";
 import {
-	cx,
-	eyebrowClass,
-	feedPageClass,
-	heroControlsClass,
-	heroCopyClass,
-	heroShellClass,
-	heroTitleClass,
-	pageWrapClass,
-	textFieldClass,
-	textFieldWideClass,
-	timelineLaneClass,
+	emptyStateClass,
+	feedClass,
+	pageHeaderClass,
+	pageHeaderRowClass,
+	pageSubtitleClass,
+	pageTitleClass,
+	searchFieldIconClass,
+	searchFieldInputClass,
+	searchFieldShellClass,
 } from "#/lib/ui";
 
 interface SavedTimelineViewProps {
@@ -23,9 +22,13 @@ interface SavedTimelineViewProps {
 	searchPlaceholder: string;
 }
 
+const TITLES: Record<SavedTimelineViewProps["filter"], string> = {
+	liked: "Likes",
+	bookmarked: "Bookmarks",
+};
+
 export function SavedTimelineView({
 	filter,
-	eyebrow,
 	title,
 	loadingLabel,
 	searchPlaceholder,
@@ -57,9 +60,11 @@ export function SavedTimelineView({
 
 	const subtitle = useMemo(() => {
 		if (!meta) {
-			return items.length > 0 ? `${items.length} visible` : loadingLabel;
+			return items.length > 0
+				? `${String(items.length)} visible`
+				: loadingLabel;
 		}
-		return `${items.length} visible · ${meta.transport.statusText}`;
+		return `${String(items.length)} visible · ${meta.transport.statusText}`;
 	}, [items.length, loadingLabel, meta]);
 
 	async function replyToTweet(tweetId: string) {
@@ -81,35 +86,40 @@ export function SavedTimelineView({
 	}
 
 	return (
-		<main className={pageWrapClass}>
-			<div className={feedPageClass}>
-				<section className={heroShellClass}>
-					<div>
-						<p className={eyebrowClass}>{eyebrow}</p>
-						<h2 className={heroTitleClass}>{title}</h2>
-						<p className={heroCopyClass}>{subtitle}</p>
+		<>
+			<header className={pageHeaderClass}>
+				<div className={pageHeaderRowClass}>
+					<div className="flex min-w-0 flex-col">
+						<h1 className={pageTitleClass}>{TITLES[filter]}</h1>
+						<p className={pageSubtitleClass}>{title}</p>
+						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
-					<div className={heroControlsClass}>
+				</div>
+				<div className="px-4 pb-3">
+					<label className={searchFieldShellClass}>
+						<Search className={searchFieldIconClass} strokeWidth={2} />
 						<input
-							className={cx(textFieldClass, textFieldWideClass)}
+							className={searchFieldInputClass}
 							onChange={(event) => setSearch(event.target.value)}
 							placeholder={searchPlaceholder}
 							value={search}
 						/>
-					</div>
-				</section>
-
-				<section className={timelineLaneClass}>
-					{items.map((item) => (
-						<TimelineCard
-							key={item.id}
-							item={item}
-							onReply={replyToTweet}
-							showReplyControls={false}
-						/>
-					))}
-				</section>
-			</div>
-		</main>
+					</label>
+				</div>
+			</header>
+			<section className={feedClass}>
+				{items.length === 0 ? (
+					<div className={emptyStateClass}>Nothing saved here yet.</div>
+				) : null}
+				{items.map((item) => (
+					<TimelineCard
+						key={item.id}
+						item={item}
+						onReply={replyToTweet}
+						showReplyControls={false}
+					/>
+				))}
+			</section>
+		</>
 	);
 }

@@ -52,4 +52,13 @@ describe("TweetRichText", () => {
 		expect(screen.getByText("#birdclaw")).toBeInTheDocument();
 		expect(screen.getByText("Design systems")).toBeInTheDocument();
 	});
+
+	it("links raw urls when archive entities are missing", () => {
+		render(<TweetRichText text="Check it: https://t.co/raw" entities={{}} />);
+
+		expect(screen.getByRole("link", { name: "t.co/raw" })).toHaveAttribute(
+			"href",
+			"https://t.co/raw",
+		);
+	});
 });

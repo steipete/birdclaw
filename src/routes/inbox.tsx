@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { InboxCard } from "#/components/InboxCard";
 import type {
@@ -8,21 +9,19 @@ import type {
 	QueryEnvelope,
 } from "#/lib/types";
 import {
-	actionButtonClass,
 	cx,
-	eyebrowClass,
-	feedPageClass,
-	heroControlsClass,
-	heroCopyClass,
-	heroShellClass,
-	heroTitleClass,
-	inboxLaneClass,
-	navLinkActiveClass,
-	navLinkClass,
-	pageWrapClass,
-	segmentActiveClass,
-	segmentClass,
-	segmentedClass,
+	emptyStateClass,
+	feedClass,
+	pageHeaderClass,
+	pageHeaderRowClass,
+	pageSubtitleClass,
+	pageTitleClass,
+	primaryButtonClass,
+	secondaryButtonClass,
+	tabButtonActiveClass,
+	tabButtonClass,
+	tabButtonIndicatorClass,
+	tabStripClass,
 	textFieldClass,
 	textFieldShortClass,
 	timestampClass,
@@ -31,6 +30,12 @@ import {
 export const Route = createFileRoute("/inbox")({
 	component: InboxRoute,
 });
+
+const TABS: Array<{ value: InboxKind; label: string }> = [
+	{ value: "mixed", label: "Mixed" },
+	{ value: "mentions", label: "Mentions" },
+	{ value: "dms", label: "DMs" },
+];
 
 function InboxRoute() {
 	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
@@ -70,7 +75,7 @@ function InboxRoute() {
 
 	const subtitle = useMemo(() => {
 		if (!meta || !stats) return "Ranking unreplied mentions and DMs...";
-		return `${stats.total} items in queue · ${stats.openai} OpenAI scored · ${meta.transport.statusText}`;
+		return `${String(stats.total)} in queue · ${String(stats.openai)} OpenAI scored · ${meta.transport.statusText}`;
 	}, [meta, stats]);
 
 	async function scoreNow() {
@@ -122,80 +127,87 @@ function InboxRoute() {
 	}
 
 	return (
-		<main className={pageWrapClass}>
-			<div className={feedPageClass}>
-				<section className={heroShellClass}>
-					<div>
-						<p className={eyebrowClass}>inbox</p>
-						<h2 className={heroTitleClass}>AI triage for mentions and DMs.</h2>
-						<p className={heroCopyClass}>{subtitle}</p>
+		<>
+			<header className={pageHeaderClass}>
+				<div className={pageHeaderRowClass}>
+					<div className="flex min-w-0 flex-col">
+						<h1 className={pageTitleClass}>Inbox</h1>
+						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
-					<div className={heroControlsClass}>
-						<div className={segmentedClass}>
-							{(["mixed", "mentions", "dms"] as const).map((value) => (
-								<button
-									key={value}
-									className={cx(
-										segmentClass,
-										value === kind && segmentActiveClass,
-									)}
-									onClick={() => setKind(value)}
-									type="button"
-								>
-									{value}
-								</button>
-							))}
-						</div>
-						<input
-							className={cx(textFieldClass, textFieldShortClass)}
-							inputMode="numeric"
-							onChange={(event) => setMinScore(event.target.value)}
-							placeholder="Min AI score"
-							value={minScore}
-						/>
-						<button
-							className={cx(navLinkClass, hideLowSignal && navLinkActiveClass)}
-							onClick={() => setHideLowSignal((value) => !value)}
-							type="button"
-						>
-							{hideLowSignal ? "Hide low-signal" : "Show all"}
-						</button>
-						<button
-							className={actionButtonClass}
-							disabled={isScoring}
-							onClick={() => void scoreNow()}
-							type="button"
-						>
-							{isScoring ? "Scoring..." : "Score with OpenAI"}
-						</button>
-					</div>
-				</section>
-
-				<section className={inboxLaneClass}>
-					{items.map((item) => (
-						<InboxCard
-							key={item.id}
-							isReplying={activeReplyId === item.id}
-							item={item}
-							onReplyChange={setReplyDraft}
-							onReplySend={() => void sendReply(item)}
-							onReplyToggle={() => {
-								if (activeReplyId === item.id) {
-									setActiveReplyId(null);
-									setReplyDraft("");
-									return;
-								}
-								setActiveReplyId(item.id);
+					<button
+						className={primaryButtonClass}
+						disabled={isScoring}
+						onClick={() => void scoreNow()}
+						type="button"
+					>
+						<Sparkles className="size-4" strokeWidth={2.2} />
+						{isScoring ? "Scoring..." : "Score with OpenAI"}
+					</button>
+				</div>
+				<div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+					<input
+						className={cx(textFieldClass, textFieldShortClass)}
+						inputMode="numeric"
+						onChange={(event) => setMinScore(event.target.value)}
+						placeholder="Min AI score"
+						value={minScore}
+					/>
+					<button
+						className={secondaryButtonClass}
+						onClick={() => setHideLowSignal((value) => !value)}
+						type="button"
+						aria-pressed={hideLowSignal}
+					>
+						{hideLowSignal ? "Hide low-signal" : "Show all"}
+					</button>
+				</div>
+				<div className={tabStripClass}>
+					{TABS.map((tab) => {
+						const active = kind === tab.value;
+						return (
+							<button
+								key={tab.value}
+								type="button"
+								aria-pressed={active}
+								className={cx(tabButtonClass, active && tabButtonActiveClass)}
+								onClick={() => setKind(tab.value)}
+							>
+								<span className="relative inline-flex flex-col items-center justify-center py-1">
+									{tab.value}
+									{active ? <span className={tabButtonIndicatorClass} /> : null}
+								</span>
+							</button>
+						);
+					})}
+				</div>
+			</header>
+			<section className={feedClass}>
+				{items.length === 0 ? (
+					<div className={emptyStateClass}>Inbox clear.</div>
+				) : null}
+				{items.map((item) => (
+					<InboxCard
+						key={item.id}
+						isReplying={activeReplyId === item.id}
+						item={item}
+						onReplyChange={setReplyDraft}
+						onReplySend={() => void sendReply(item)}
+						onReplyToggle={() => {
+							if (activeReplyId === item.id) {
+								setActiveReplyId(null);
 								setReplyDraft("");
-							}}
-							replyDraft={activeReplyId === item.id ? replyDraft : ""}
-						/>
-					))}
-				</section>
-			</div>
+								return;
+							}
+							setActiveReplyId(item.id);
+							setReplyDraft("");
+						}}
+						replyDraft={activeReplyId === item.id ? replyDraft : ""}
+					/>
+				))}
+			</section>
 			{isSendingReply ? (
-				<p className={timestampClass}>Sending reply...</p>
+				<p className={cx(timestampClass, "px-4 py-2")}>Sending reply...</p>
 			) : null}
-		</main>
+		</>
 	);
 }

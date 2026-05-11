@@ -34,6 +34,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - `Home` timeline
 - `Mentions` queue
 - `Likes` and `Bookmarks` review lanes
+- `Links` for Hacker News-style top URLs, video-provider links, and the comments around them across today/week/month/year/all-time windows
 - `DMs` workspace with two-column layout
 - `Inbox` for mixed mention + DM triage
 - `Blocks` for local blocklist maintenance
@@ -510,12 +511,14 @@ pnpm test
 pnpm coverage
 pnpm build
 pnpm e2e
+pnpm perf:browser -- --scenario=links,links-toggle --iterations=5
 ```
 
 Current bar:
 
 - branch coverage above `80%`
 - Playwright coverage for core UI flows
+- browser perf smoke reports ready/action timings plus API endpoint fan-out
 
 ## CI
 

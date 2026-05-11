@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { renderTweetMarkdown, renderTweetPlainText } from "./tweet-render";
+import {
+	enrichFallbackUrlEntities,
+	renderTweetMarkdown,
+	renderTweetPlainText,
+} from "./tweet-render";
 
 describe("tweet render helpers", () => {
 	it("renders plain text with expanded urls", () => {
@@ -64,5 +68,67 @@ describe("tweet render helpers", () => {
 		).toBe(
 			"Hi [@sam](https://x.com/sam) [example\\.com/demo](https://example.com/demo)",
 		);
+	});
+
+	it("adds expanded fallback url entities for raw links", () => {
+		const entities = enrichFallbackUrlEntities(
+			"Check it: https://t.co/demo.",
+			{},
+			(rawUrl) => ({
+				expandedUrl:
+					rawUrl === "https://t.co/demo" ? "https://peekaboo.boo/docs" : rawUrl,
+				displayUrl: "peekaboo.boo/docs",
+				title: "Peekaboo",
+			}),
+		);
+
+		expect(entities.urls).toEqual([
+			{
+				url: "https://t.co/demo",
+				expandedUrl: "https://peekaboo.boo/docs",
+				displayUrl: "peekaboo.boo/docs",
+				start: 10,
+				end: 27,
+				title: "Peekaboo",
+			},
+		]);
+	});
+
+	it("keeps existing url entities over fallback raw matches", () => {
+		const entities = enrichFallbackUrlEntities(
+			"Check it: https://t.co/demo",
+			{
+				urls: [
+					{
+						url: "https://t.co/demo",
+						expandedUrl: "https://example.com/demo",
+						displayUrl: "example.com/demo",
+						start: 10,
+						end: 27,
+					},
+				],
+			},
+			() => ({
+				expandedUrl: "https://peekaboo.sh/",
+				displayUrl: "peekaboo.sh",
+				title: "Peekaboo documentation",
+				description: "macOS automation",
+				imageUrl: "https://peekaboo.sh/social.png",
+				siteName: "Peekaboo",
+			}),
+		);
+
+		expect(entities.urls).toHaveLength(1);
+		expect(entities.urls?.[0]).toEqual({
+			url: "https://t.co/demo",
+			expandedUrl: "https://peekaboo.sh/",
+			displayUrl: "peekaboo.sh",
+			start: 10,
+			end: 27,
+			title: "Peekaboo documentation",
+			description: "macOS automation",
+			imageUrl: "https://peekaboo.sh/social.png",
+			siteName: "Peekaboo",
+		});
 	});
 });

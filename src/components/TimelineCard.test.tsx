@@ -50,6 +50,8 @@ const item = {
 				end: 32,
 				title: "Demo link",
 				description: "Link preview card",
+				imageUrl: "https://example.com/preview.jpg",
+				siteName: "Example",
 			},
 		],
 	},
@@ -107,6 +109,10 @@ describe("TimelineCard", () => {
 		expect(screen.getAllByText("Quoted tweet")[1]).toBeInTheDocument();
 		expect(screen.getByAltText("Demo image")).toBeInTheDocument();
 		expect(screen.getByText("Demo link")).toBeInTheDocument();
+		expect(screen.getByRole("img", { name: "Demo link" })).toHaveAttribute(
+			"src",
+			"https://example.com/preview.jpg",
+		);
 		expect(container.querySelectorAll("header p")).toHaveLength(0);
 		fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 		expect(onReply).toHaveBeenCalledWith("tweet_1");
@@ -215,5 +221,39 @@ describe("TimelineCard", () => {
 			screen.getByRole("link", { name: "example.com/kept" }),
 		).toBeInTheDocument();
 		expect(screen.getAllByText("example.com/kept").length).toBeGreaterThan(1);
+	});
+
+	it("renders direct image URL cards with the image immediately", () => {
+		render(
+			<TimelineCard
+				item={{
+					...item,
+					id: "tweet_4",
+					text: "@steipete https://t.co/image",
+					entities: {
+						urls: [
+							{
+								url: "https://t.co/image",
+								expandedUrl: "https://pbs.twimg.com/media/HIB4bvDXQAAUcO8.png",
+								displayUrl: "t.co/image",
+								start: 10,
+								end: 28,
+							},
+						],
+					},
+					replyToTweet: null,
+					quotedTweet: null,
+					media: [],
+					mediaCount: 1,
+				}}
+				onReply={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByRole("img", { name: "pbs.twimg.com" })).toHaveAttribute(
+			"src",
+			"https://pbs.twimg.com/media/HIB4bvDXQAAUcO8.png",
+		);
+		expect(screen.getAllByText("pbs.twimg.com").length).toBeGreaterThan(0);
 	});
 });

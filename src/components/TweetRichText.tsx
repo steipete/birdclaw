@@ -1,5 +1,8 @@
 import { Fragment } from "react";
-import { collectTweetSegments } from "#/lib/tweet-render";
+import {
+	collectTweetSegments,
+	enrichFallbackUrlEntities,
+} from "#/lib/tweet-render";
 import type { TweetEntities } from "#/lib/types";
 import {
 	bodyCopyClass,
@@ -18,7 +21,8 @@ export function TweetRichText({
 	entities: TweetEntities;
 	className?: string;
 }) {
-	const segments = collectTweetSegments(entities);
+	const richEntities = enrichFallbackUrlEntities(text, entities);
+	const segments = collectTweetSegments(richEntities);
 	let cursor = 0;
 
 	return (
