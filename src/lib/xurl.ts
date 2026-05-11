@@ -151,11 +151,24 @@ export async function getTransportStatus(): Promise<TransportStatus> {
 
 		try {
 			const { stdout } = await execFileAsync("xurl", ["auth", "status"]);
+			const rawStatus = stdout.trim();
+
+			// xurl is installed but has no registered apps — effectively unauthenticated
+			if (/no apps registered/i.test(rawStatus)) {
+				return {
+					installed: true,
+					availableTransport: "local",
+					statusText:
+						"xurl installed but no apps registered. local (bird) mode active.",
+					rawStatus,
+				};
+			}
+
 			return {
 				installed: true,
 				availableTransport: "xurl",
 				statusText: "xurl available",
-				rawStatus: stdout.trim(),
+				rawStatus,
 			};
 		} catch (error) {
 			return {
