@@ -235,7 +235,7 @@ Default:
 - update canonical tables
 - refresh cursors
 - refresh FTS incrementally
-- `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`
+- `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; pair `--max-pages` with `--early-stop` for dedupe-saturation early-exit on cron runs
 - `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
 - `sync mention-threads` fetches conversation context for recent mentions through `bird thread`; use `--delay-ms` and `--timeout-ms` to stay gentle on live X
 - `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` prefers `bird`, then falls back to `xurl`
@@ -249,6 +249,7 @@ Common flags:
 - `--mode auto|xurl|bird`
 - `--all`
 - `--max-pages <n>`
+- `--early-stop` (on `sync likes` and `sync bookmarks`)
 - `--refresh`
 - `--cache-ttl <seconds>`
 
@@ -256,7 +257,9 @@ Examples:
 
 ```bash
 birdclaw sync likes --mode auto --limit 100 --refresh --json
+birdclaw sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --refresh --json
+birdclaw sync bookmarks --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 birdclaw sync timeline --limit 100 --refresh --json
 birdclaw sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
