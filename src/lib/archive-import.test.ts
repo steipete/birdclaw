@@ -648,6 +648,73 @@ describe("archive import", () => {
 		).toBe(0);
 	});
 
+	it("preserves live follower source when an overlapping archive is later absent", async () => {
+		const firstArchivePath = makeFollowArchive({
+			followers: ["900"],
+			includeFollowing: false,
+		});
+		const secondArchivePath = makeFollowArchive({
+			following: ["201"],
+			includeFollowers: false,
+		});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into follow_edges (
+        account_id, direction, profile_id, external_user_id, source, current,
+        first_seen_at, last_seen_at, ended_at, updated_at
+      ) values (
+        'acct_primary', 'followers', 'profile_user_900', '900', 'xurl', 1,
+        '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', null,
+        '2026-05-01T00:00:00.000Z'
+      )
+      `,
+		).run();
+
+		await importArchive(firstArchivePath);
+		expect(
+			db
+				.prepare(
+					`
+          select external_user_id, source, current
+          from follow_edges
+          where direction = 'followers'
+        `,
+				)
+				.all(),
+		).toEqual([{ external_user_id: "900", source: "xurl", current: 1 }]);
+
+		await importArchive(secondArchivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select external_user_id, source, current
+          from follow_edges
+          where direction = 'followers'
+        `,
+				)
+				.all(),
+		).toEqual([{ external_user_id: "900", source: "xurl", current: 1 }]);
+		expect(
+			(
+				db
+					.prepare(
+						`
+            select count(*) as count
+            from follow_edges
+            where direction = 'followers' and source = 'archive'
+          `,
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(0);
+	});
+
 	it("keeps live follow source on xurl edges absent from the archive", async () => {
 		const archivePath = makeFollowArchive({
 			followers: ["101"],
@@ -684,7 +751,7 @@ describe("archive import", () => {
 			.all();
 
 		expect(rows).toEqual([
-			{ profile_id: "profile_user_101", source: "archive", current: 1 },
+			{ profile_id: "profile_user_101", source: "xurl", current: 1 },
 			{ profile_id: "profile_user_900", source: "xurl", current: 0 },
 		]);
 		expect(events).toEqual([{ external_user_id: "900", kind: "ended" }]);

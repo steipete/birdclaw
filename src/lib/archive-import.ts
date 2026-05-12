@@ -968,7 +968,10 @@ export async function importArchive(
     ) values (?, ?, ?, ?, 'archive', 1, ?, ?, null, ?)
     on conflict(account_id, direction, profile_id) do update set
       external_user_id = excluded.external_user_id,
-      source = excluded.source,
+      source = case
+        when follow_edges.source = 'archive' then excluded.source
+        else follow_edges.source
+      end,
       current = 1,
       last_seen_at = excluded.last_seen_at,
       ended_at = null,
