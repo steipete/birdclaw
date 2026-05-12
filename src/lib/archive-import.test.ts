@@ -578,6 +578,76 @@ describe("archive import", () => {
 		]);
 	});
 
+	it("clears archive follower rows when follower file is absent", async () => {
+		const firstArchivePath = makeFollowArchive({
+			followers: ["101", "102"],
+			includeFollowing: false,
+		});
+		const secondArchivePath = makeFollowArchive({
+			following: ["201"],
+			includeFollowers: false,
+		});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(firstArchivePath);
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into follow_edges (
+        account_id, direction, profile_id, external_user_id, source, current,
+        first_seen_at, last_seen_at, ended_at, updated_at
+      ) values (
+        'acct_primary', 'followers', 'profile_user_900', '900', 'xurl', 1,
+        '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', null,
+        '2026-05-01T00:00:00.000Z'
+      )
+      `,
+		).run();
+
+		await importArchive(secondArchivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select external_user_id, source, current
+          from follow_edges
+          where direction = 'followers'
+          order by external_user_id
+        `,
+				)
+				.all(),
+		).toEqual([{ external_user_id: "900", source: "xurl", current: 1 }]);
+		expect(
+			(
+				db
+					.prepare(
+						`
+            select count(*) as count
+            from follow_snapshots
+            where direction = 'followers' and source = 'archive'
+          `,
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(0);
+		expect(
+			(
+				db
+					.prepare(
+						`
+            select count(*) as count
+            from follow_snapshot_members
+            where snapshot_id like 'follow_snapshot_archive_acct_primary_followers%'
+          `,
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(0);
+	});
+
 	it("keeps live follow source on xurl edges absent from the archive", async () => {
 		const archivePath = makeFollowArchive({
 			followers: ["101"],

@@ -941,6 +941,21 @@ export async function importArchive(
 	const deleteFollowSnapshotMembers = db.prepare(
 		"delete from follow_snapshot_members where snapshot_id = ?",
 	);
+	const deleteArchiveFollowSnapshotMembers = db.prepare(`
+    delete from follow_snapshot_members
+    where snapshot_id in (
+      select id from follow_snapshots
+      where account_id = ? and direction = ? and source = 'archive'
+    )
+  `);
+	const deleteArchiveFollowSnapshots = db.prepare(`
+    delete from follow_snapshots
+    where account_id = ? and direction = ? and source = 'archive'
+  `);
+	const deleteArchiveFollowEdges = db.prepare(`
+    delete from follow_edges
+    where account_id = ? and direction = ? and source = 'archive'
+  `);
 	const selectFollowEdges = db.prepare(`
     select profile_id, external_user_id, current
     from follow_edges
@@ -1073,6 +1088,12 @@ export async function importArchive(
 		}
 	}
 
+	function clearArchiveFollowRows(direction: ArchiveFollowDirection) {
+		deleteArchiveFollowSnapshotMembers.run("acct_primary", direction);
+		deleteArchiveFollowSnapshots.run("acct_primary", direction);
+		deleteArchiveFollowEdges.run("acct_primary", direction);
+	}
+
 	db.transaction(() => {
 		insertAccount.run(
 			"acct_primary",
@@ -1174,6 +1195,8 @@ export async function importArchive(
 				followerEntries.length,
 				importedAt,
 			);
+		} else {
+			clearArchiveFollowRows("followers");
 		}
 		if (followingEntries.length > 0) {
 			importFollowRows(
@@ -1182,6 +1205,8 @@ export async function importArchive(
 				followingEntries.length,
 				importedAt,
 			);
+		} else {
+			clearArchiveFollowRows("following");
 		}
 	})();
 
