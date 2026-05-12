@@ -12,12 +12,18 @@ const DEFAULT_VANTA_CONTENT_ENGINE_EXPORT =
 	"/Users/clay/Documents/New project 13/content-engine/exports/birdclaw-content-lanes.json";
 
 type DraftWithId = { id?: unknown; text?: unknown };
+type OverlayProofBoundary = {
+	betaLimit?: unknown;
+	canProve?: unknown;
+	missingArtifact?: unknown;
+	staysPrivate?: unknown;
+};
 type OverlayDraft = DraftWithId & {
 	accountHandle?: unknown;
 	approvedToPost?: unknown;
 	artifactNeeded?: unknown;
 	body?: unknown;
-	proofBoundary?: { canProve?: unknown };
+	proofBoundary?: OverlayProofBoundary;
 	reviewChecklist?: unknown;
 	sourceEvidence?: unknown;
 };
@@ -83,6 +89,15 @@ function textHasUnsafeClaim(value: string) {
 	);
 }
 
+function hasCompleteProofBoundary(boundary: OverlayProofBoundary | undefined) {
+	return (
+		typeof boundary?.canProve === "string" &&
+		typeof boundary.staysPrivate === "string" &&
+		typeof boundary.missingArtifact === "string" &&
+		typeof boundary.betaLimit === "string"
+	);
+}
+
 function safeOverlayDraft(
 	value: unknown,
 	accountHandle?: "@williamclay",
@@ -101,7 +116,7 @@ function safeOverlayDraft(
 		draft.reviewChecklist.length === 0
 	)
 		return null;
-	if (typeof draft.proofBoundary?.canProve !== "string") return null;
+	if (!hasCompleteProofBoundary(draft.proofBoundary)) return null;
 
 	return {
 		...draft,

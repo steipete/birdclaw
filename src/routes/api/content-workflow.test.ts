@@ -40,7 +40,9 @@ describe("content workflow api route", () => {
 			artifactNeeded: "receipt field map",
 			id,
 			proofBoundary: {
+				betaLimit: "manual review before public use",
 				canProve: "receipt fields can be checked",
+				missingArtifact: "receipt field map",
 				staysPrivate: "private workflow context stays local",
 			},
 			reviewChecklist: [{ label: "Manual posting only", passed: true }],
@@ -176,6 +178,13 @@ describe("content workflow api route", () => {
 				{
 					...validProjectDraft("no-proof-project"),
 					proofBoundary: {},
+				},
+				{
+					...validProjectDraft("partial-proof-project"),
+					proofBoundary: {
+						canProve: "receipt fields can be checked",
+						staysPrivate: "private workflow context stays local",
+					},
 				},
 			],
 			voiceBridgePairs: [
