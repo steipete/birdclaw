@@ -15,6 +15,7 @@ const syncBlocksMock = vi.fn();
 const exportMentionItemsMock = vi.fn();
 const exportMentionsViaCachedBirdMock = vi.fn();
 const exportMentionsViaCachedXurlMock = vi.fn();
+const syncMentionsMock = vi.fn();
 const syncDirectMessagesViaCachedBirdMock = vi.fn();
 const resolveProfilesForIdsMock = vi.fn();
 const expandUrlsFromTextsMock = vi.fn();
@@ -134,6 +135,7 @@ vi.mock("#/lib/mentions-live", () => ({
 		exportMentionsViaCachedBirdMock(...args),
 	exportMentionsViaCachedXurl: (...args: unknown[]) =>
 		exportMentionsViaCachedXurlMock(...args),
+	syncMentions: (...args: unknown[]) => syncMentionsMock(...args),
 }));
 
 vi.mock("#/lib/dms-live", () => ({
@@ -210,6 +212,7 @@ describe("cli", () => {
 		exportMentionItemsMock.mockReset();
 		exportMentionsViaCachedBirdMock.mockReset();
 		exportMentionsViaCachedXurlMock.mockReset();
+		syncMentionsMock.mockReset();
 		syncDirectMessagesViaCachedBirdMock.mockReset();
 		resolveProfilesForIdsMock.mockReset();
 		expandUrlsFromTextsMock.mockReset();
@@ -533,6 +536,107 @@ describe("cli", () => {
 			cacheTtlMs: 120000,
 		});
 		expect(exportMentionsViaCachedXurlMock).not.toHaveBeenCalled();
+	});
+
+	it("dispatches sync mentions with stable json output", async () => {
+		syncMentionsMock.mockResolvedValueOnce({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			accountId: "acct_primary",
+			count: 1,
+			partial: false,
+			payload: { data: [{ id: "tweet_sync_mention_1" }] },
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"sync",
+			"mentions",
+			"--mode",
+			"xurl",
+			"--limit",
+			"5",
+		]);
+
+		expect(syncMentionsMock).toHaveBeenCalledWith({
+			account: undefined,
+			mode: "xurl",
+			limit: 5,
+			maxPages: undefined,
+			refresh: false,
+			cacheTtlMs: 120_000,
+		});
+		expect(
+			JSON.parse(consoleLogMock.mock.lastCall?.[0] as string),
+		).toMatchObject({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			count: 1,
+			partial: false,
+		});
+	});
+
+	it("marks capped sync mentions as partial", async () => {
+		syncMentionsMock.mockResolvedValueOnce({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			accountId: "acct_primary",
+			count: 1,
+			partial: true,
+			payload: {
+				data: [{ id: "tweet_sync_capped" }],
+				meta: { result_count: 1, next_token: "page-2" },
+			},
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"sync",
+			"mentions",
+			"--max-pages",
+			"1",
+			"--limit",
+			"5",
+		]);
+
+		expect(process.exitCode).toBe(5);
+		expect(syncMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ maxPages: 1 }),
+		);
+	});
+
+	it("rejects invalid sync mentions modes as json", async () => {
+		syncMentionsMock.mockRejectedValueOnce(
+			new Error("--mode must be bird or xurl"),
+		);
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "sync", "mentions", "--mode", "weird"]);
+
+		expect(syncMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "weird" }),
+		);
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			JSON.stringify(
+				{
+					ok: false,
+					kind: "mentions",
+					mode: "weird",
+					error: "--mode must be bird or xurl",
+				},
+				null,
+				2,
+			),
+		);
+		expect(process.exitCode).toBe(1);
 	});
 
 	it("imports an explicit archive path without discovery", async () => {

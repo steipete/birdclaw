@@ -35,6 +35,7 @@ import { exportMentionItems } from "#/lib/mentions-export";
 import {
 	exportMentionsViaCachedBird,
 	exportMentionsViaCachedXurl,
+	syncMentions,
 } from "#/lib/mentions-live";
 import {
 	getFollowGraphSummary,
@@ -674,6 +675,44 @@ syncCommand
 		});
 		await autoSyncAfterWrite();
 		print(result, true);
+	});
+
+syncCommand
+	.command("mentions")
+	.description("Refresh live mentions through xurl or bird")
+	.option("--account <accountId>", "Account id")
+	.option("--mode <mode>", "bird or xurl", "xurl")
+	.option("--limit <n>", "Result limit per page", "20")
+	.option("--max-pages <n>", "Stop after N pages")
+	.option("--refresh", "Bypass live-cache freshness window")
+	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
+	.action(async (options) => {
+		try {
+			const result = await syncMentions({
+				account: options.account,
+				mode: options.mode,
+				limit: Number(options.limit),
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+				refresh: Boolean(options.refresh),
+				cacheTtlMs: Number(options.cacheTtl) * 1000,
+			});
+			await autoSyncAfterWrite();
+			print(result, true);
+			if (result.partial) {
+				process.exitCode = 5;
+			}
+		} catch (error) {
+			print(
+				{
+					ok: false,
+					kind: "mentions",
+					mode: options.mode ?? "xurl",
+					error: errorMessage(error),
+				},
+				true,
+			);
+			process.exitCode = 1;
+		}
 	});
 
 syncCommand

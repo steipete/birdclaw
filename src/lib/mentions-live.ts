@@ -19,6 +19,7 @@ import { listMentionsViaXurl, lookupUsersByHandles } from "./xurl";
 export const DEFAULT_MENTIONS_CACHE_TTL_MS = 2 * 60_000;
 const MIN_XURL_MENTIONS_LIMIT = 5;
 const MAX_XURL_MENTIONS_LIMIT = 100;
+type MentionSyncMode = Exclude<MentionsDataSource, "birdclaw">;
 
 function getMentionsFetchModeKey({
 	mode,
@@ -63,6 +64,14 @@ function parseMaxPages(value?: number) {
 		throw new Error("--max-pages must be at least 1");
 	}
 	return Math.floor(value);
+}
+
+function parseSyncMode(value?: string): MentionSyncMode {
+	const mode = value ?? "xurl";
+	if (mode !== "bird" && mode !== "xurl") {
+		throw new Error("--mode must be bird or xurl");
+	}
+	return mode;
 }
 
 function resolveAccount(db: Database, accountId?: string) {
@@ -177,7 +186,11 @@ function mergeMentionsIntoLocalStore(
     on conflict(id) do update set
       account_id = tweets.account_id,
       author_profile_id = excluded.author_profile_id,
-      kind = case when tweets.kind = 'home' then tweets.kind else excluded.kind end,
+      kind = case
+        when tweets.kind in ('authored', 'home', 'mention') then tweets.kind
+        when excluded.kind in ('authored', 'home', 'mention') then excluded.kind
+        else excluded.kind
+      end,
       text = excluded.text,
       created_at = excluded.created_at,
       like_count = excluded.like_count,
@@ -346,6 +359,111 @@ async function fetchMentionsViaXurl({
 	);
 
 	return mergeMentionPayloads(pages);
+}
+
+async function fetchMentionsViaBird({ limit }: { limit: number }) {
+	return listMentionsViaBird({ maxResults: limit });
+}
+
+function isMaxPagesPartial({
+	payload,
+	maxPages,
+}: {
+	payload: XurlMentionsResponse;
+	maxPages: number | null;
+}) {
+	return (
+		maxPages !== null &&
+		typeof payload.meta?.next_token === "string" &&
+		payload.meta.next_token.length > 0
+	);
+}
+
+export async function syncMentions({
+	account,
+	mode,
+	limit = 20,
+	maxPages,
+	refresh = false,
+	cacheTtlMs,
+}: {
+	account?: string;
+	mode?: string;
+	limit?: number;
+	maxPages?: number;
+	refresh?: boolean;
+	cacheTtlMs?: number;
+}) {
+	const parsedMode = parseSyncMode(mode);
+	if (parsedMode === "xurl") {
+		assertXurlLimit(limit);
+	} else {
+		assertBirdLimit(limit);
+	}
+	const parsedMaxPages = parseMaxPages(maxPages);
+	const fetchAll = parsedMode === "xurl" && parsedMaxPages !== null;
+	const db = getNativeDb();
+	const resolvedAccount = resolveAccount(db, account);
+	const cacheKey = getMentionsFetchModeKey({
+		mode: parsedMode,
+		accountId: resolvedAccount.accountId,
+		pageSize: limit,
+		all: fetchAll,
+		maxPages: parsedMaxPages,
+	});
+	const ttlMs = parseCacheTtlMs(cacheTtlMs);
+	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
+	const cacheAgeMs = cached
+		? Date.now() - new Date(cached.updatedAt).getTime()
+		: Number.POSITIVE_INFINITY;
+
+	if (!refresh && cached && cacheAgeMs <= ttlMs) {
+		mergeMentionsIntoLocalStore(
+			db,
+			resolvedAccount.accountId,
+			cached.value,
+			parsedMode,
+		);
+		return {
+			ok: true,
+			source: "cache",
+			kind: "mentions",
+			accountId: resolvedAccount.accountId,
+			count: cached.value.data.length,
+			partial: isMaxPagesPartial({
+				payload: cached.value,
+				maxPages: parsedMaxPages,
+			}),
+			payload: cached.value,
+		};
+	}
+
+	const payload =
+		parsedMode === "bird"
+			? await fetchMentionsViaBird({ limit })
+			: await fetchMentionsViaXurl({
+					resolvedAccount,
+					limit,
+					all: fetchAll,
+					parsedMaxPages,
+				});
+	mergeMentionsIntoLocalStore(
+		db,
+		resolvedAccount.accountId,
+		payload,
+		parsedMode,
+	);
+	writeSyncCache(cacheKey, payload, db);
+
+	return {
+		ok: true,
+		source: parsedMode,
+		kind: "mentions",
+		accountId: resolvedAccount.accountId,
+		count: payload.data.length,
+		partial: isMaxPagesPartial({ payload, maxPages: parsedMaxPages }),
+		payload,
+	};
 }
 
 async function exportMentionsViaCachedLiveSource({

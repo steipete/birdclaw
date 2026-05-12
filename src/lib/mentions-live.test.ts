@@ -89,7 +89,7 @@ describe("cached live mentions", () => {
 				],
 			},
 			meta: {
-				result_count: 1,
+				result_count: 2,
 				page_count: 1,
 				next_token: null,
 			},
@@ -151,6 +151,101 @@ describe("cached live mentions", () => {
 			account_id: "acct_primary",
 			kind: "mention",
 			source: "xurl",
+		});
+	});
+
+	it("syncs xurl mentions into the local store and preserves authored kind", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				`
+	    insert into tweets (
+	      id, account_id, author_profile_id, kind, text, created_at,
+	      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+	      entities_json, media_json, quoted_tweet_id
+	    ) values (
+	      'tweet_authored_mention', 'acct_primary', 'profile_user_42',
+	      'authored', 'authored original', '2026-03-09T01:59:00.000Z',
+	      0, null, 1, 0, 0, 0, '{}', '[]', null
+	    )
+	    `,
+			)
+			.run();
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "tweet_sync_mention_1",
+					author_id: "42",
+					text: "Synced mention from xurl",
+					created_at: "2026-03-09T02:00:00.000Z",
+					conversation_id: "tweet_sync_root_1",
+					public_metrics: { like_count: 3 },
+				},
+				{
+					id: "tweet_authored_mention",
+					author_id: "42",
+					text: "authored tweet also appears as mention",
+					created_at: "2026-03-09T02:00:00.000Z",
+					public_metrics: { like_count: 8 },
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam Altman" }],
+			},
+			meta: {
+				result_count: 1,
+				page_count: 1,
+				next_token: null,
+			},
+		});
+		const { syncMentions } = await import("./mentions-live");
+
+		const result = await syncMentions({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			accountId: "acct_primary",
+			count: 2,
+			partial: false,
+			payload: {
+				meta: { result_count: 2, page_count: 1, next_token: null },
+			},
+		});
+		expect(
+			getNativeDb()
+				.prepare("select kind, text, like_count from tweets where id = ?")
+				.get("tweet_sync_mention_1"),
+		).toEqual({
+			kind: "mention",
+			text: "Synced mention from xurl",
+			like_count: 3,
+		});
+		expect(
+			getNativeDb()
+				.prepare(
+					"select account_id, kind, source from tweet_account_edges where tweet_id = ?",
+				)
+				.get("tweet_sync_mention_1"),
+		).toEqual({
+			account_id: "acct_primary",
+			kind: "mention",
+			source: "xurl",
+		});
+		expect(
+			getNativeDb()
+				.prepare("select kind, text, like_count from tweets where id = ?")
+				.get("tweet_authored_mention"),
+		).toEqual({
+			kind: "authored",
+			text: "authored tweet also appears as mention",
+			like_count: 8,
 		});
 	});
 
@@ -436,6 +531,46 @@ describe("cached live mentions", () => {
 		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("marks sync mentions partial when max-pages leaves another page", async () => {
+		makeTempHome();
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "tweet_sync_capped",
+					author_id: "7",
+					text: "capped sync page",
+					created_at: "2026-03-09T02:01:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "7", username: "amelia", name: "Amelia" }],
+			},
+			meta: {
+				result_count: 1,
+				next_token: "page-2",
+			},
+		});
+		const { syncMentions } = await import("./mentions-live");
+
+		const result = await syncMentions({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			maxPages: 1,
+			refresh: true,
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			count: 1,
+			partial: true,
+			payload: { meta: { page_count: 1, next_token: "page-2" } },
+		});
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("returns filtered xurl-compatible payloads from the local cache", async () => {
 		makeTempHome();
 		listMentionsViaXurlMock.mockResolvedValueOnce({
@@ -567,7 +702,8 @@ describe("cached live mentions", () => {
 
 	it("validates xurl limits", async () => {
 		makeTempHome();
-		const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+		const { exportMentionsViaCachedXurl, syncMentions } =
+			await import("./mentions-live");
 
 		await expect(
 			exportMentionsViaCachedXurl({
@@ -582,6 +718,13 @@ describe("cached live mentions", () => {
 				maxPages: 0,
 			}),
 		).rejects.toThrow("--max-pages must be at least 1");
+		await expect(
+			syncMentions({
+				account: "acct_primary",
+				mode: "weird",
+				limit: 5,
+			}),
+		).rejects.toThrow("--mode must be bird or xurl");
 	});
 
 	it("throws for unknown accounts and refresh failures without cache fallback", async () => {

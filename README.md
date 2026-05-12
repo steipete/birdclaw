@@ -216,10 +216,11 @@ pnpm cli sync likes --mode auto --limit 100 --refresh --json
 pnpm cli sync bookmarks --mode auto --limit 100 --refresh --json
 pnpm cli sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 pnpm cli sync timeline --limit 100 --refresh --json
+pnpm cli sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
 pnpm cli sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 ```
 
-`sync mention-threads --mode xurl` is a downstream thread-context walker: it only visits mention rows that already exist locally with `kind='mention'`. Populate those rows first with `birdclaw mentions export --refresh --mode xurl`, then run the thread sync to fill parent/root context.
+Mention context is a two-step sync pipeline: run `sync mentions` to ingest recent mention rows with `kind='mention'`, then run `sync mention-threads --mode xurl` to fill parent/root conversation context.
 
 ### Follow graph queries
 
@@ -243,7 +244,7 @@ Use `--refresh` only when you intentionally want a new live fetch. The `graph` c
 
 ### Export mentions for agents
 
-Default `birdclaw` mode returns normalized items with `text`, `plainText`, `markdown`, author metadata, and canonical URLs:
+Default `birdclaw` mode exports DB-backed mention items with `text`, `plainText`, `markdown`, author metadata, and canonical URLs:
 
 ```bash
 pnpm cli mentions export "agent" --unreplied --limit 10
