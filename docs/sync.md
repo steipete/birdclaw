@@ -21,7 +21,7 @@ All `sync *` commands accept:
 - `--limit <n>` — page size in `xurl` mode, total in single-page modes
 - `--all` — keep paginating until the retrievable window is exhausted
 - `--max-pages <n>` — cap a paged scan; implies `--all`
-- `--early-stop` — on `sync likes` and `sync bookmarks`, stop paging once a fetched page is 100% already local (dedupe saturation); cuts repeated API spend to ~one page per run
+- `--early-stop` — on `sync likes` and `sync bookmarks`, stop paging once a fetched page is 100% already local (dedupe saturation); without `--all` or `--max-pages`, caps at 10 pages
 - `--refresh` — bypass the cache and force a live fetch
 - `--cache-ttl <seconds>` — tune freshness without forcing a full refresh
 - `--since <cursor-or-id>` — resume from a known cursor or tweet ID
@@ -41,7 +41,7 @@ birdclaw sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh
 
 Liked tweets land in the same `tweets` table as archive imports and can be queried with `birdclaw search tweets --liked`.
 
-`--early-stop` halts pagination as soon as one fetched page is 100% already in the local store. Pair it with `--max-pages` on a cron loop: the first run after a long absence walks back as far as `--max-pages` allows, every subsequent run stops at the first saturated page and spends one X API page read instead of `--max-pages` of them.
+`--early-stop` halts pagination as soon as one fetched page is 100% already in the local store. Pair it with `--max-pages` on a cron loop: the first run after a long absence walks back as far as `--max-pages` allows, every subsequent run stops at the first saturated page and spends one X API page read instead of `--max-pages` of them. If neither `--all` nor `--max-pages` is present, Birdclaw applies a 10-page cap.
 
 ## sync bookmarks
 

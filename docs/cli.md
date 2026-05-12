@@ -235,7 +235,7 @@ Default:
 - update canonical tables
 - refresh cursors
 - refresh FTS incrementally
-- `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; pair `--max-pages` with `--early-stop` for dedupe-saturation early-exit on cron runs
+- `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
 - `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
 - `sync mention-threads` fetches conversation context for recent mentions through `bird thread`; use `--delay-ms` and `--timeout-ms` to stay gentle on live X
 - `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` prefers `bird`, then falls back to `xurl`

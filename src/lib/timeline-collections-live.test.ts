@@ -421,6 +421,43 @@ describe("live timeline collection sync", () => {
 		expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenCalledTimes(2);
 	});
 
+	it("caps early-stop pagination when max-pages is omitted", async () => {
+		setupTempHome();
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		for (let page = 1; page <= 10; page += 1) {
+			mocks.listLikedTweetsViaXurl.mockResolvedValueOnce({
+				data: [makeTweet(`liked_capped_${page}`, `capped page ${page}`)],
+				meta: { result_count: 1, next_token: `page-${page + 1}` },
+			});
+		}
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		const result = await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			earlyStop: true,
+			refresh: true,
+		});
+
+		expect(result).toMatchObject({
+			count: 10,
+			payload: { meta: { page_count: 10 } },
+		});
+		expect(result).not.toHaveProperty("saturated_at_page");
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenCalledTimes(10);
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenLastCalledWith(
+			expect.objectContaining({ paginationToken: "page-10" }),
+		);
+		expect(consoleError).toHaveBeenCalledWith(
+			"likes early-stop capped at 10 pages by default; pass --max-pages or --all to override",
+		);
+		consoleError.mockRestore();
+	});
+
 	it("keeps an early-stop rerun idempotent for existing collection rows", async () => {
 		setupTempHome();
 		const consoleError = vi

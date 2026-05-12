@@ -18,6 +18,7 @@ export type TimelineCollectionKind = "likes" | "bookmarks";
 export type TimelineCollectionMode = "auto" | "xurl" | "bird";
 
 const DEFAULT_COLLECTION_CACHE_TTL_MS = 2 * 60_000;
+const DEFAULT_EARLY_STOP_MAX_PAGES = 10;
 const MIN_XURL_LIMIT = 5;
 const MAX_XURL_LIMIT = 100;
 
@@ -430,13 +431,18 @@ export async function syncTimelineCollection({
 }) {
 	assertLimit(limit);
 	const parsedMaxPages = parseMaxPages(maxPages);
+	const shouldApplyEarlyStopCap =
+		earlyStop && !all && parsedMaxPages === null && mode !== "bird";
+	const effectiveMaxPages = shouldApplyEarlyStopCap
+		? DEFAULT_EARLY_STOP_MAX_PAGES
+		: parsedMaxPages;
 	if (mode === "xurl" || mode === "auto") {
 		assertXurlLimit(limit);
 	}
 
 	const db = getNativeDb();
 	const resolvedAccount = resolveAccount(db, account);
-	const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${parsedMaxPages === null ? "all-pages" : String(parsedMaxPages)}${earlyStop ? ":early-stop" : ""}`;
+	const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${effectiveMaxPages === null ? "all-pages" : String(effectiveMaxPages)}${earlyStop ? ":early-stop" : ""}`;
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
 	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
 	const cacheAgeMs = cached
@@ -458,6 +464,12 @@ export async function syncTimelineCollection({
 		};
 	}
 
+	if (shouldApplyEarlyStopCap) {
+		console.error(
+			`${kind} early-stop capped at ${DEFAULT_EARLY_STOP_MAX_PAGES} pages by default; pass --max-pages or --all to override`,
+		);
+	}
+
 	let source: "xurl" | "bird";
 	let payload: XurlMentionsResponse;
 	if (mode === "bird") {
@@ -465,7 +477,7 @@ export async function syncTimelineCollection({
 			kind,
 			limit,
 			all,
-			maxPages: parsedMaxPages,
+			maxPages: effectiveMaxPages,
 		});
 		source = "bird";
 	} else {
@@ -478,7 +490,7 @@ export async function syncTimelineCollection({
 				userId: resolvedAccount.externalUserId,
 				limit,
 				all,
-				maxPages: parsedMaxPages,
+				maxPages: effectiveMaxPages,
 				earlyStop,
 			});
 			source = "xurl";
@@ -490,7 +502,7 @@ export async function syncTimelineCollection({
 				kind,
 				limit,
 				all,
-				maxPages: parsedMaxPages,
+				maxPages: effectiveMaxPages,
 			});
 			source = "bird";
 		}
