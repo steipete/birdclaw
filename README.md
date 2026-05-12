@@ -20,7 +20,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - one shared SQLite DB for multiple accounts, with canonical tweets/profiles and account-scoped timeline/collection edges
 - FTS5 search over tweets and DMs
 - archive autodiscovery on macOS
-- archive import for tweets, likes, profiles, and full DMs
+- archive import for tweets, likes, followers/following, profiles, and full DMs
 - archive import for bookmark exports when present
 - live likes and bookmarks sync through `xurl` or `bird`
 - cache-first followers/following sync through `bird` or `xurl`

@@ -29,10 +29,14 @@ interface ImportedArchiveSummary {
 		dmConversations: number;
 		dmMessages: number;
 		profiles: number;
+		followers: number;
+		following: number;
 	};
 }
 
 type ArchiveRecord = Record<string, unknown>;
+type ArchiveFollowDirection = "followers" | "following";
+type ArchiveFollowKey = "follower" | "following";
 
 function normalizeArchivePath(value: string) {
 	return value.replaceAll("\\", "/");
@@ -295,6 +299,23 @@ function inferProfileFromDirectory(
 	return { handle, displayName };
 }
 
+function getArchiveFollowRows(content: string, key: ArchiveFollowKey) {
+	const rows: Array<{ profileId: string; externalUserId: string }> = [];
+
+	for (const wrapper of parseArchiveArray(content)) {
+		const item = asRecord(wrapper[key]);
+		const externalUserId = String(item?.accountId ?? "");
+		if (!externalUserId) continue;
+
+		rows.push({
+			profileId: `profile_user_${externalUserId}`,
+			externalUserId,
+		});
+	}
+
+	return rows;
+}
+
 function clearImportedData() {
 	const db = getNativeDb();
 	db.exec(`
@@ -339,6 +360,14 @@ export async function importArchive(
 	const dmEntries = getMatchingEntries(
 		entries,
 		/(?:^|\/)data\/direct-messages(?:-group)?(?:-part\d+)?\.js$/i,
+	);
+	const followerEntries = getMatchingEntries(
+		entries,
+		/(?:^|\/)data\/follower(?:-part\d+)?\.js$/i,
+	);
+	const followingEntries = getMatchingEntries(
+		entries,
+		/(?:^|\/)data\/following(?:-part\d+)?\.js$/i,
 	);
 
 	if (!accountEntry) {
@@ -511,6 +540,11 @@ export async function importArchive(
 		}
 	>();
 	const dmMessages: MessageRow[] = [];
+	const followerRows: Array<{ profileId: string; externalUserId: string }> = [];
+	const followingRows: Array<{ profileId: string; externalUserId: string }> =
+		[];
+	const followerIds = new Set<string>();
+	const followingIds = new Set<string>();
 
 	const localProfile = {
 		id: "profile_me",
@@ -760,6 +794,38 @@ export async function importArchive(
 		bookmarkCount += bookmarks.length;
 	}
 
+	for (const entry of followerEntries) {
+		const content = await readArchiveEntry(archivePath, entry);
+		for (const row of getArchiveFollowRows(content, "follower")) {
+			if (followerIds.has(row.externalUserId)) continue;
+			followerIds.add(row.externalUserId);
+			followerRows.push(row);
+		}
+	}
+
+	for (const entry of followingEntries) {
+		const content = await readArchiveEntry(archivePath, entry);
+		for (const row of getArchiveFollowRows(content, "following")) {
+			if (followingIds.has(row.externalUserId)) continue;
+			followingIds.add(row.externalUserId);
+			followingRows.push(row);
+		}
+	}
+
+	for (const row of [...followerRows, ...followingRows]) {
+		if (profiles.has(row.profileId)) continue;
+		profiles.set(row.profileId, {
+			id: row.profileId,
+			handle: `id${row.externalUserId}`,
+			displayName: "",
+			bio: "",
+			followersCount: 0,
+			followingCount: 0,
+			avatarHue: 210,
+			createdAt: accountPayload.createdAt,
+		});
+	}
+
 	if (tweetRows.some((tweet) => tweet.authorProfileId === "profile_unknown")) {
 		profiles.set("profile_unknown", {
 			id: "profile_unknown",
@@ -826,6 +892,125 @@ export async function importArchive(
 	const insertDmFts = db.prepare(
 		"insert into dm_fts (message_id, text) values (?, ?)",
 	);
+	const insertFollowSnapshot = db.prepare(`
+    insert into follow_snapshots (
+      id, account_id, direction, source, status, page_count, result_count,
+      started_at, completed_at, raw_meta_json
+    ) values (?, ?, ?, 'archive', 'complete', ?, ?, ?, ?, ?)
+  `);
+	const insertFollowSnapshotMember = db.prepare(`
+    insert into follow_snapshot_members (
+      snapshot_id, profile_id, external_user_id, position
+    ) values (?, ?, ?, ?)
+  `);
+	const selectFollowEdges = db.prepare(`
+    select profile_id, external_user_id, current
+    from follow_edges
+    where account_id = ? and direction = ?
+  `);
+	const insertFollowEdge = db.prepare(`
+    insert into follow_edges (
+      account_id, direction, profile_id, external_user_id, source, current,
+      first_seen_at, last_seen_at, ended_at, updated_at
+    ) values (?, ?, ?, ?, 'archive', 1, ?, ?, null, ?)
+    on conflict(account_id, direction, profile_id) do update set
+      external_user_id = excluded.external_user_id,
+      source = excluded.source,
+      current = 1,
+      last_seen_at = excluded.last_seen_at,
+      ended_at = null,
+      updated_at = excluded.updated_at
+  `);
+	const endFollowEdge = db.prepare(`
+    update follow_edges
+    set current = 0, ended_at = ?, updated_at = ?
+    where account_id = ? and direction = ? and profile_id = ?
+  `);
+	const insertFollowEvent = db.prepare(`
+    insert into follow_events (
+      id, account_id, direction, profile_id, external_user_id, kind, event_at, snapshot_id
+    ) values (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+	function importFollowRows(
+		direction: ArchiveFollowDirection,
+		rows: Array<{ profileId: string; externalUserId: string }>,
+		entryCount: number,
+		now: string,
+	) {
+		const snapshotId = `follow_snapshot_${randomUUID()}`;
+		const existingEdges = new Map(
+			(
+				selectFollowEdges.all("acct_primary", direction) as Array<{
+					profile_id: string;
+					external_user_id: string;
+					current: number;
+				}>
+			).map((row) => [row.profile_id, row]),
+		);
+		const currentProfileIds = new Set<string>();
+
+		insertFollowSnapshot.run(
+			snapshotId,
+			"acct_primary",
+			direction,
+			entryCount,
+			rows.length,
+			now,
+			now,
+			JSON.stringify({ archivePath, result_count: rows.length }),
+		);
+
+		rows.forEach((row, index) => {
+			currentProfileIds.add(row.profileId);
+			insertFollowSnapshotMember.run(
+				snapshotId,
+				row.profileId,
+				row.externalUserId,
+				index,
+			);
+
+			const previous = existingEdges.get(row.profileId);
+			insertFollowEdge.run(
+				"acct_primary",
+				direction,
+				row.profileId,
+				row.externalUserId,
+				now,
+				now,
+				now,
+			);
+			if (!previous || previous.current === 0) {
+				insertFollowEvent.run(
+					`follow_event_${randomUUID()}`,
+					"acct_primary",
+					direction,
+					row.profileId,
+					row.externalUserId,
+					"started",
+					now,
+					snapshotId,
+				);
+			}
+		});
+
+		for (const [profileId, previous] of existingEdges) {
+			if (previous.current === 0 || currentProfileIds.has(profileId)) {
+				continue;
+			}
+			endFollowEdge.run(now, now, "acct_primary", direction, profileId);
+			insertFollowEvent.run(
+				`follow_event_${randomUUID()}`,
+				"acct_primary",
+				direction,
+				profileId,
+				previous.external_user_id,
+				"ended",
+				now,
+				snapshotId,
+			);
+		}
+	}
 
 	db.transaction(() => {
 		insertAccount.run(
@@ -920,6 +1105,23 @@ export async function importArchive(
 			);
 			insertDmFts.run(message.id, message.text);
 		}
+
+		if (followerEntries.length > 0) {
+			importFollowRows(
+				"followers",
+				followerRows,
+				followerEntries.length,
+				importedAt,
+			);
+		}
+		if (followingEntries.length > 0) {
+			importFollowRows(
+				"following",
+				followingRows,
+				followingEntries.length,
+				importedAt,
+			);
+		}
 	})();
 
 	return {
@@ -937,6 +1139,8 @@ export async function importArchive(
 			dmConversations: conversations.size,
 			dmMessages: dmMessages.length,
 			profiles: profiles.size,
+			followers: followerRows.length,
+			following: followingRows.length,
 		},
 	};
 }

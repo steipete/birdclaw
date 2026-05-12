@@ -280,6 +280,58 @@ function makeWeirdArchive() {
 	return archivePath;
 }
 
+function makeFollowArchive({
+	followers = [],
+	following = [],
+	includeFollowers = true,
+	includeFollowing = true,
+}: {
+	followers?: string[];
+	following?: string[];
+	includeFollowers?: boolean;
+	includeFollowing?: boolean;
+}) {
+	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-follow-"));
+	const archiveDir = path.join(root, "sample", "data");
+	mkdirSync(archiveDir, { recursive: true });
+
+	writeFileSync(
+		path.join(archiveDir, "account.js"),
+		'window.YTD.account.part0 = [{ "account": { "accountId": "25401953", "username": "steipete" } }]',
+	);
+	if (includeFollowers) {
+		writeFileSync(
+			path.join(archiveDir, "follower.js"),
+			`window.YTD.follower.part0 = ${JSON.stringify(
+				followers.map((id) => ({
+					follower: {
+						accountId: id,
+						userLink: `https://twitter.com/intent/user?user_id=${id}`,
+					},
+				})),
+			)}`,
+		);
+	}
+	if (includeFollowing) {
+		writeFileSync(
+			path.join(archiveDir, "following.js"),
+			`window.YTD.following.part0 = ${JSON.stringify(
+				following.map((id) => ({
+					following: {
+						accountId: id,
+						userLink: `https://twitter.com/intent/user?user_id=${id}`,
+					},
+				})),
+			)}`,
+		);
+	}
+
+	const archivePath = path.join(root, "archive.zip");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
+	createdDirs.push(root);
+	return archivePath;
+}
+
 describe("archive import", () => {
 	afterEach(() => {
 		resetDatabaseForTests();
@@ -329,6 +381,8 @@ describe("archive import", () => {
 		expect(result.counts.tweets).toBe(2);
 		expect(result.counts.likes).toBe(1);
 		expect(result.counts.bookmarks).toBe(1);
+		expect(result.counts.followers).toBe(0);
+		expect(result.counts.following).toBe(0);
 		expect(envelope.stats.home).toBe(2);
 		expect(envelope.stats.dms).toBe(1);
 		expect(tweets.map((item) => item.text)).toEqual([
@@ -349,6 +403,177 @@ describe("archive import", () => {
 		expect(liked.map((item) => item.text)).toEqual(["liked archive item"]);
 		expect(bookmarked.map((item) => item.text)).toEqual(["saved archive item"]);
 	}, 30000);
+
+	it("imports follower and following archive files into the follow graph", async () => {
+		const archivePath = makeFollowArchive({
+			followers: ["101", "102"],
+			following: ["102", "103"],
+		});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		const result = await importArchive(archivePath);
+		const db = getNativeDb();
+		const edges = db
+			.prepare(
+				`
+        select direction || ':' || profile_id || ':' || external_user_id || ':' || source || ':' || current as value
+        from follow_edges
+        order by direction, external_user_id
+        `,
+			)
+			.all() as Array<{ value: string }>;
+		const events = db
+			.prepare(
+				`
+        select direction || ':' || external_user_id || ':' || kind as value
+        from follow_events
+        order by direction, external_user_id
+        `,
+			)
+			.all() as Array<{ value: string }>;
+		const snapshots = db
+			.prepare(
+				`
+        select direction || ':' || source || ':' || status || ':' || result_count as value
+        from follow_snapshots
+        order by direction
+        `,
+			)
+			.all() as Array<{ value: string }>;
+
+		expect(result.counts.followers).toBe(2);
+		expect(result.counts.following).toBe(2);
+		expect(edges.map((row) => row.value)).toEqual([
+			"followers:profile_user_101:101:archive:1",
+			"followers:profile_user_102:102:archive:1",
+			"following:profile_user_102:102:archive:1",
+			"following:profile_user_103:103:archive:1",
+		]);
+		expect(events.map((row) => row.value)).toEqual([
+			"followers:101:started",
+			"followers:102:started",
+			"following:102:started",
+			"following:103:started",
+		]);
+		expect(snapshots.map((row) => row.value)).toEqual([
+			"followers:archive:complete:2",
+			"following:archive:complete:2",
+		]);
+		expect(
+			db
+				.prepare(
+					"select handle, display_name, bio from profiles where id = 'profile_user_101'",
+				)
+				.get(),
+		).toEqual({ handle: "id101", display_name: "", bio: "" });
+	});
+
+	it("handles empty follower and following files", async () => {
+		const archivePath = makeFollowArchive({});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		const result = await importArchive(archivePath);
+		const db = getNativeDb();
+
+		expect(result.counts.followers).toBe(0);
+		expect(result.counts.following).toBe(0);
+		expect(
+			(
+				db.prepare("select count(*) as count from follow_edges").get() as {
+					count: number;
+				}
+			).count,
+		).toBe(0);
+		expect(
+			(
+				db.prepare("select count(*) as count from follow_events").get() as {
+					count: number;
+				}
+			).count,
+		).toBe(0);
+		expect(
+			(
+				db.prepare("select count(*) as count from follow_snapshots").get() as {
+					count: number;
+				}
+			).count,
+		).toBe(2);
+	});
+
+	it("re-imports follower data without duplicate follow events", async () => {
+		const archivePath = makeFollowArchive({
+			followers: ["101", "102"],
+			following: ["103"],
+		});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(archivePath);
+		await importArchive(archivePath);
+		const db = getNativeDb();
+
+		expect(
+			(
+				db.prepare("select count(*) as count from follow_edges").get() as {
+					count: number;
+				}
+			).count,
+		).toBe(3);
+		expect(
+			(
+				db.prepare("select count(*) as count from follow_events").get() as {
+					count: number;
+				}
+			).count,
+		).toBe(3);
+	});
+
+	it("keeps live follow source on xurl edges absent from the archive", async () => {
+		const archivePath = makeFollowArchive({
+			followers: ["101"],
+			includeFollowing: false,
+		});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into follow_edges (
+        account_id, direction, profile_id, external_user_id, source, current,
+        first_seen_at, last_seen_at, ended_at, updated_at
+      ) values
+        ('acct_primary', 'followers', 'profile_user_101', '101', 'xurl', 1, '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', null, '2026-05-01T00:00:00.000Z'),
+        ('acct_primary', 'followers', 'profile_user_900', '900', 'xurl', 1, '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', null, '2026-05-01T00:00:00.000Z')
+      `,
+		).run();
+
+		await importArchive(archivePath);
+		const rows = db
+			.prepare(
+				`
+        select profile_id, source, current
+        from follow_edges
+        where direction = 'followers'
+        order by profile_id
+        `,
+			)
+			.all();
+		const events = db
+			.prepare("select external_user_id, kind from follow_events")
+			.all();
+
+		expect(rows).toEqual([
+			{ profile_id: "profile_user_101", source: "archive", current: 1 },
+			{ profile_id: "profile_user_900", source: "xurl", current: 0 },
+		]);
+		expect(events).toEqual([{ external_user_id: "900", kind: "ended" }]);
+	});
 
 	it("covers parsing helpers and fallback normalizers", () => {
 		expect(__test__.normalizeArchivePath("data\\tweets.js")).toBe(
