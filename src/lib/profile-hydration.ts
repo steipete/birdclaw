@@ -44,7 +44,7 @@ export async function hydrateProfilesFromX() {
 
 	const candidateIds = candidateRows
 		.map((row) => row.id.replace(/^profile_user_/, ""))
-		.filter((id) => id.length > 0);
+		.filter((id) => /^\d+$/.test(id));
 
 	const updateConversationTitle = db.prepare(`
     update dm_conversations
