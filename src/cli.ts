@@ -708,7 +708,11 @@ for (const kind of ["likes", "bookmarks"] as const) {
 		.option("--mode <mode>", "auto, xurl, or bird", "auto")
 		.option("--limit <n>", "Per-page/result limit", "20")
 		.option("--all", "Fetch every retrievable page")
-		.option("--max-pages <n>", "Stop after N pages when using --all")
+		.option(
+			"--max-pages <n>",
+			"Stop after N pages when using --all or --early-stop",
+		)
+		.option("--early-stop", "Stop when a fetched page is already fully local")
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 		.option("--refresh", "Bypass live-cache freshness window")
 		.action(async (options) => {
@@ -721,6 +725,7 @@ for (const kind of ["likes", "bookmarks"] as const) {
 				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
+				earlyStop: Boolean(options.earlyStop),
 			});
 			await autoSyncAfterWrite();
 			print(result, true);

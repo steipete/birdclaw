@@ -816,6 +816,7 @@ describe("cli", () => {
 			maxPages: 3,
 			refresh: true,
 			cacheTtlMs: 30_000,
+			earlyStop: false,
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
 			account: undefined,
@@ -828,6 +829,50 @@ describe("cli", () => {
 			replyFilter: "replied",
 			limit: 20,
 		});
+	});
+
+	it("passes early-stop to collection sync and prints saturated page json", async () => {
+		syncTimelineCollectionMock.mockResolvedValueOnce({
+			ok: true,
+			source: "xurl",
+			kind: "likes",
+			accountId: "acct_primary",
+			count: 0,
+			saturated_at_page: 1,
+			payload: {
+				data: [],
+				meta: { saturated_at_page: 1 },
+			},
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"sync",
+			"likes",
+			"--mode",
+			"xurl",
+			"--limit",
+			"100",
+			"--early-stop",
+			"--refresh",
+		]);
+
+		expect(syncTimelineCollectionMock).toHaveBeenCalledWith({
+			kind: "likes",
+			account: undefined,
+			mode: "xurl",
+			limit: 100,
+			all: false,
+			maxPages: undefined,
+			refresh: true,
+			cacheTtlMs: 120_000,
+			earlyStop: true,
+		});
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"saturated_at_page": 1'),
+		);
 	});
 
 	it("dispatches follow graph sync and query commands", async () => {

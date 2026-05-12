@@ -209,11 +209,13 @@ pnpm cli search tweets --bookmarked --limit 20 --json
 
 ### Sync likes, bookmarks, and home timeline
 
-`auto` tries `xurl` first for likes/bookmarks, then falls back to `bird`. Use `bird` directly when the API path is unavailable for the account/token you have locally.
+`auto` tries `xurl` first for likes/bookmarks, then falls back to `bird`. Use `bird` directly when the API path is unavailable for the account/token you have locally. For repeated xurl collection syncs, add `--early-stop` with `--max-pages` to stop paging once a whole page already exists locally.
 
 ```bash
 pnpm cli sync likes --mode auto --limit 100 --refresh --json
 pnpm cli sync bookmarks --mode auto --limit 100 --refresh --json
+pnpm cli sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
+pnpm cli sync bookmarks --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 pnpm cli sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 pnpm cli sync timeline --limit 100 --refresh --json
 pnpm cli sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json

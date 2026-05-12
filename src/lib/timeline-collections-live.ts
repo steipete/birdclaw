@@ -149,6 +149,52 @@ function mergePayloads(pages: XurlMentionsResponse[]): XurlMentionsResponse {
 	};
 }
 
+function getCollectionPageDedupe(
+	db: Database,
+	accountId: string,
+	kind: TimelineCollectionKind,
+	tweetIds: string[],
+) {
+	const uniqueTweetIds = [...new Set(tweetIds)];
+	if (uniqueTweetIds.length === 0) {
+		return { existingTweetIds: new Set<string>(), uniqueTweetCount: 0 };
+	}
+
+	const rows = db
+		.prepare(
+			`
+      select tweet_id
+      from tweet_collections
+      where account_id = ?
+        and kind = ?
+        and tweet_id in (${uniqueTweetIds.map(() => "?").join(", ")})
+      `,
+		)
+		.all(accountId, kind, ...uniqueTweetIds) as { tweet_id: string }[];
+	return {
+		existingTweetIds: new Set(rows.map((row) => row.tweet_id)),
+		uniqueTweetCount: uniqueTweetIds.length,
+	};
+}
+
+function filterExistingCollectionTweets(
+	payload: XurlMentionsResponse,
+	existingTweetIds: Set<string>,
+) {
+	if (existingTweetIds.size === 0) {
+		return payload;
+	}
+	return {
+		...payload,
+		data: payload.data.filter((tweet) => !existingTweetIds.has(tweet.id)),
+	};
+}
+
+function readSaturatedAtPage(payload: XurlMentionsResponse) {
+	const value = payload.meta?.saturated_at_page;
+	return typeof value === "number" ? value : undefined;
+}
+
 function mergeTimelineCollectionIntoLocalStore(
 	db: Database,
 	accountId: string,
@@ -244,19 +290,25 @@ function mergeTimelineCollectionIntoLocalStore(
 }
 
 async function fetchXurlCollection({
+	db,
 	kind,
+	accountId,
 	username,
 	userId,
 	limit,
 	all,
 	maxPages,
+	earlyStop,
 }: {
+	db: Database;
 	kind: TimelineCollectionKind;
+	accountId: string;
 	username: string;
 	userId?: string;
 	limit: number;
 	all: boolean;
 	maxPages: number | null;
+	earlyStop: boolean;
 }) {
 	let resolvedUserId = userId;
 	if (!resolvedUserId) {
@@ -270,6 +322,7 @@ async function fetchXurlCollection({
 	const pages: XurlMentionsResponse[] = [];
 	let nextToken: string | undefined;
 	let pageCount = 0;
+	let saturatedAtPage: number | undefined;
 	do {
 		const payload =
 			kind === "likes"
@@ -286,15 +339,48 @@ async function fetchXurlCollection({
 						isPaginatedWalk: all,
 						paginationToken: nextToken,
 					});
-		pages.push(payload);
+		pageCount += 1;
+		if (earlyStop) {
+			const tweetIds = payload.data.map((tweet) => tweet.id);
+			const { existingTweetIds, uniqueTweetCount } = getCollectionPageDedupe(
+				db,
+				accountId,
+				kind,
+				tweetIds,
+			);
+			if (tweetIds.length > 0 && existingTweetIds.size === uniqueTweetCount) {
+				saturatedAtPage = pageCount;
+				console.error(
+					`${kind} saturated at page ${pageCount} (100% existing rows)`,
+				);
+				break;
+			}
+			pages.push(filterExistingCollectionTweets(payload, existingTweetIds));
+		} else {
+			pages.push(payload);
+		}
 		nextToken =
 			typeof payload.meta?.next_token === "string"
 				? payload.meta.next_token
 				: undefined;
-		pageCount += 1;
-	} while (all && nextToken && (maxPages === null || pageCount < maxPages));
+	} while (
+		(all || earlyStop) &&
+		nextToken &&
+		(maxPages === null || pageCount < maxPages)
+	);
 
-	return mergePayloads(pages);
+	const merged = mergePayloads(pages);
+	// A saturated page may expose another token, but our walk is complete.
+	const saturationMeta =
+		saturatedAtPage === undefined
+			? {}
+			: { saturated_at_page: saturatedAtPage, next_token: null };
+	merged.meta = {
+		...merged.meta,
+		page_count: pageCount,
+		...saturationMeta,
+	};
+	return merged;
 }
 
 async function fetchBirdCollection({
@@ -330,6 +416,7 @@ export async function syncTimelineCollection({
 	maxPages,
 	refresh = false,
 	cacheTtlMs,
+	earlyStop = false,
 }: {
 	kind: TimelineCollectionKind;
 	account?: string;
@@ -339,6 +426,7 @@ export async function syncTimelineCollection({
 	maxPages?: number;
 	refresh?: boolean;
 	cacheTtlMs?: number;
+	earlyStop?: boolean;
 }) {
 	assertLimit(limit);
 	const parsedMaxPages = parseMaxPages(maxPages);
@@ -348,7 +436,7 @@ export async function syncTimelineCollection({
 
 	const db = getNativeDb();
 	const resolvedAccount = resolveAccount(db, account);
-	const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${parsedMaxPages === null ? "all-pages" : String(parsedMaxPages)}`;
+	const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${parsedMaxPages === null ? "all-pages" : String(parsedMaxPages)}${earlyStop ? ":early-stop" : ""}`;
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
 	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
 	const cacheAgeMs = cached
@@ -356,6 +444,7 @@ export async function syncTimelineCollection({
 		: Number.POSITIVE_INFINITY;
 
 	if (!refresh && cached && cacheAgeMs <= ttlMs) {
+		const saturatedAtPage = readSaturatedAtPage(cached.value);
 		return {
 			ok: true,
 			source: "cache",
@@ -363,6 +452,9 @@ export async function syncTimelineCollection({
 			accountId: resolvedAccount.accountId,
 			count: cached.value.data.length,
 			payload: cached.value,
+			...(saturatedAtPage === undefined
+				? {}
+				: { saturated_at_page: saturatedAtPage }),
 		};
 	}
 
@@ -379,12 +471,15 @@ export async function syncTimelineCollection({
 	} else {
 		try {
 			payload = await fetchXurlCollection({
+				db,
 				kind,
+				accountId: resolvedAccount.accountId,
 				username: resolvedAccount.username,
 				userId: resolvedAccount.externalUserId,
 				limit,
 				all,
 				maxPages: parsedMaxPages,
+				earlyStop,
 			});
 			source = "xurl";
 		} catch (error) {
@@ -409,6 +504,7 @@ export async function syncTimelineCollection({
 		source,
 	);
 	writeSyncCache(cacheKey, payload, db);
+	const saturatedAtPage = readSaturatedAtPage(payload);
 
 	return {
 		ok: true,
@@ -417,5 +513,8 @@ export async function syncTimelineCollection({
 		accountId: resolvedAccount.accountId,
 		count: payload.data.length,
 		payload,
+		...(saturatedAtPage === undefined
+			? {}
+			: { saturated_at_page: saturatedAtPage }),
 	};
 }
