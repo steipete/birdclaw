@@ -504,7 +504,7 @@ describe("archive import", () => {
 		).toBe(2);
 	});
 
-	it("re-imports follower data without duplicate follow events", async () => {
+	it("re-imports follower data without duplicate follow events or snapshots", async () => {
 		const archivePath = makeFollowArchive({
 			followers: ["101", "102"],
 			following: ["103"],
@@ -514,8 +514,35 @@ describe("archive import", () => {
 		process.env.BIRDCLAW_HOME = homeDir;
 
 		await importArchive(archivePath);
-		await importArchive(archivePath);
 		const db = getNativeDb();
+		const readArchiveSnapshots = () =>
+			db
+				.prepare(
+					`
+          select direction, id, result_count
+          from follow_snapshots
+          where source = 'archive'
+          order by direction
+        `,
+				)
+				.all();
+		const readArchiveMembers = () =>
+			db
+				.prepare(
+					`
+          select s.direction, count(m.profile_id) as count
+          from follow_snapshots s
+          left join follow_snapshot_members m on m.snapshot_id = s.id
+          where s.source = 'archive'
+          group by s.direction
+          order by s.direction
+        `,
+				)
+				.all();
+		const firstSnapshots = readArchiveSnapshots();
+		const firstMembers = readArchiveMembers();
+
+		await importArchive(archivePath);
 
 		expect(
 			(
@@ -531,6 +558,24 @@ describe("archive import", () => {
 				}
 			).count,
 		).toBe(3);
+		expect(readArchiveSnapshots()).toEqual(firstSnapshots);
+		expect(readArchiveMembers()).toEqual(firstMembers);
+		expect(firstSnapshots).toEqual([
+			{
+				direction: "followers",
+				id: "follow_snapshot_archive_acct_primary_followers",
+				result_count: 2,
+			},
+			{
+				direction: "following",
+				id: "follow_snapshot_archive_acct_primary_following",
+				result_count: 1,
+			},
+		]);
+		expect(firstMembers).toEqual([
+			{ count: 2, direction: "followers" },
+			{ count: 1, direction: "following" },
+		]);
 	});
 
 	it("keeps live follow source on xurl edges absent from the archive", async () => {

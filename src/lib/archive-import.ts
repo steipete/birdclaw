@@ -916,12 +916,31 @@ export async function importArchive(
       id, account_id, direction, source, status, page_count, result_count,
       started_at, completed_at, raw_meta_json
     ) values (?, ?, ?, 'archive', 'complete', ?, ?, ?, ?, ?)
+    on conflict(id) do update set
+      account_id = excluded.account_id,
+      direction = excluded.direction,
+      source = excluded.source,
+      status = excluded.status,
+      page_count = excluded.page_count,
+      result_count = excluded.result_count,
+      started_at = excluded.started_at,
+      completed_at = excluded.completed_at,
+      raw_meta_json = excluded.raw_meta_json
   `);
 	const insertFollowSnapshotMember = db.prepare(`
     insert into follow_snapshot_members (
       snapshot_id, profile_id, external_user_id, position
     ) values (?, ?, ?, ?)
   `);
+	const selectFollowSnapshotMembers = db.prepare(`
+    select profile_id, external_user_id
+    from follow_snapshot_members
+    where snapshot_id = ?
+    order by position, profile_id
+  `);
+	const deleteFollowSnapshotMembers = db.prepare(
+		"delete from follow_snapshot_members where snapshot_id = ?",
+	);
 	const selectFollowEdges = db.prepare(`
     select profile_id, external_user_id, current
     from follow_edges
@@ -957,7 +976,7 @@ export async function importArchive(
 		entryCount: number,
 		now: string,
 	) {
-		const snapshotId = `follow_snapshot_${randomUUID()}`;
+		const snapshotId = `follow_snapshot_archive_acct_primary_${direction}`;
 		const existingEdges = new Map(
 			(
 				selectFollowEdges.all("acct_primary", direction) as Array<{
@@ -967,6 +986,24 @@ export async function importArchive(
 				}>
 			).map((row) => [row.profile_id, row]),
 		);
+		const existingMemberKey = (
+			selectFollowSnapshotMembers.all(snapshotId) as Array<{
+				profile_id: string;
+				external_user_id: string;
+			}>
+		)
+			.map(
+				(row, index) =>
+					`${String(index)}:${row.profile_id}:${row.external_user_id}`,
+			)
+			.join("\n");
+		const nextMemberKey = rows
+			.map(
+				(row, index) =>
+					`${String(index)}:${row.profileId}:${row.externalUserId}`,
+			)
+			.join("\n");
+		const membersChanged = existingMemberKey !== nextMemberKey;
 		const currentProfileIds = new Set<string>();
 
 		insertFollowSnapshot.run(
@@ -980,14 +1017,19 @@ export async function importArchive(
 			JSON.stringify({ archivePath, result_count: rows.length }),
 		);
 
+		if (membersChanged) {
+			deleteFollowSnapshotMembers.run(snapshotId);
+		}
 		rows.forEach((row, index) => {
 			currentProfileIds.add(row.profileId);
-			insertFollowSnapshotMember.run(
-				snapshotId,
-				row.profileId,
-				row.externalUserId,
-				index,
-			);
+			if (membersChanged) {
+				insertFollowSnapshotMember.run(
+					snapshotId,
+					row.profileId,
+					row.externalUserId,
+					index,
+				);
+			}
 
 			const previous = existingEdges.get(row.profileId);
 			insertFollowEdge.run(
