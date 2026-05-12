@@ -219,7 +219,7 @@ function mergeTimelineCollectionIntoLocalStore(
       account_id = tweets.account_id,
       author_profile_id = excluded.author_profile_id,
       kind = case
-        when tweets.kind in ('home', 'mention') then tweets.kind
+        when tweets.kind in ('authored', 'home', 'mention') then tweets.kind
         else excluded.kind
       end,
       text = excluded.text,

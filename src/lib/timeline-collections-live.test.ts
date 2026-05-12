@@ -149,6 +149,47 @@ describe("live timeline collection sync", () => {
 		});
 	});
 
+	it("preserves authored tweet kind when a collection sync sees the same tweet", async () => {
+		setupTempHome();
+		getNativeDb()
+			.prepare(
+				`
+        insert into tweets (
+          id, account_id, author_profile_id, kind, text, created_at,
+          is_replied, like_count, media_count, bookmarked, liked,
+          entities_json, media_json
+        ) values (?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, '{}', '[]')
+        `,
+			)
+			.run(
+				"authored_liked_1",
+				"acct_primary",
+				"profile_user_42",
+				"authored",
+				"authored before likes sync",
+				"2026-04-26T13:43:34.000Z",
+			);
+		mocks.listLikedTweetsViaXurl.mockResolvedValue({
+			data: [makeTweet("authored_liked_1", "same tweet via likes")],
+			includes: { users: [makeUser()] },
+			meta: { result_count: 1 },
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+		const row = getNativeDb()
+			.prepare("select kind from tweets where id = ?")
+			.get("authored_liked_1");
+
+		expect(row).toEqual({ kind: "authored" });
+	});
+
 	it("paginates xurl collections and deduplicates tweets and users", async () => {
 		setupTempHome();
 		const db = getNativeDb();
