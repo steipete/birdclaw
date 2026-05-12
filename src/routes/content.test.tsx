@@ -597,6 +597,11 @@ describe("content route", () => {
 		expect(
 			screen.getByText("Project 2d; personal 8d; personal source stale"),
 		).toBeInTheDocument();
+		expect(screen.getByText("Copy-ready")).toBeInTheDocument();
+		expect(screen.getByText("All jobs (3)")).toBeInTheDocument();
+		expect(screen.getByText("Needs artifact (1)")).toBeInTheDocument();
+		expect(screen.getByText("Copy-ready (1)")).toBeInTheDocument();
+		expect(screen.getByText("Reply review (1)")).toBeInTheDocument();
 		expect(screen.getByText("Content engine")).toBeInTheDocument();
 		expect(
 			screen.getByText(

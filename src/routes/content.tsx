@@ -623,7 +623,9 @@ function ContentRoute() {
 	const workflowStats = useMemo(() => {
 		const allDrafts = [...projectDrafts, ...personalDrafts];
 		return {
-			readyDrafts: allDrafts.length,
+			copyReadyDrafts: allDrafts.filter(
+				(draft) => !copyGateForDraft(draft).blocked,
+			).length,
 			highSignalDrafts: allDrafts.filter((draft) => draft.priority === "high")
 				.length,
 			artifactDrafts: allDrafts.filter(
@@ -641,6 +643,37 @@ function ContentRoute() {
 		personalDrafts,
 		projectDrafts,
 	]);
+	const jobOptionCounts = useMemo(() => {
+		const projectForAccountGoal = projectDrafts.filter(
+			(draft) =>
+				(accountFilter === "all" || accountFilter === "project") &&
+				(goalFilter === "all" || draft.engagementGoal === goalFilter),
+		);
+		const personalForAccountGoal = personalDrafts.filter(
+			(draft) =>
+				(accountFilter === "all" || accountFilter === "personal") &&
+				(goalFilter === "all" || draft.engagementGoal === goalFilter),
+		);
+		const repliesForAccountGoal = replyPrompts.filter(
+			() =>
+				(accountFilter === "all" || accountFilter === "project") &&
+				(goalFilter === "all" || goalFilter === "reply"),
+		);
+		const draftsForAccountGoal = [
+			...projectForAccountGoal,
+			...personalForAccountGoal,
+		];
+		return {
+			all: draftsForAccountGoal.length + repliesForAccountGoal.length,
+			artifact: draftsForAccountGoal.filter((draft) =>
+				matchesDraftJobFilter(draft, "artifact"),
+			).length,
+			copy: draftsForAccountGoal.filter((draft) =>
+				matchesDraftJobFilter(draft, "copy"),
+			).length,
+			replyReview: repliesForAccountGoal.length,
+		};
+	}, [accountFilter, goalFilter, personalDrafts, projectDrafts, replyPrompts]);
 	const artifactQueue = useMemo<ArtifactQueueItem[]>(() => {
 		const projectItems = filteredProjectDrafts.map((draft) => ({
 			artifactNeeded: draft.artifactNeeded ?? "none",
@@ -962,8 +995,8 @@ function ContentRoute() {
 								value={workflowStats.manualActions}
 							/>
 							<WorkflowStat
-								label="Ready drafts"
-								value={workflowStats.readyDrafts}
+								label="Copy-ready"
+								value={workflowStats.copyReadyDrafts}
 							/>
 							<WorkflowStat
 								label="High signal"
@@ -992,10 +1025,13 @@ function ContentRoute() {
 								label="Job"
 								onChange={(value) => setJobFilter(value as JobFilter)}
 								options={[
-									["all", "All jobs"],
-									["artifact", "Needs artifact"],
-									["copy", "Copy-ready"],
-									["reply-review", "Reply review"],
+									["all", `All jobs (${jobOptionCounts.all})`],
+									["artifact", `Needs artifact (${jobOptionCounts.artifact})`],
+									["copy", `Copy-ready (${jobOptionCounts.copy})`],
+									[
+										"reply-review",
+										`Reply review (${jobOptionCounts.replyReview})`,
+									],
 								]}
 								value={jobFilter}
 							/>
