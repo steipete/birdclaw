@@ -564,6 +564,39 @@ describe("live timeline collection sync", () => {
 		});
 	});
 
+	it("does not pass the implicit early-stop cap to bird fallback", async () => {
+		setupTempHome();
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		mocks.listBookmarkedTweetsViaXurl.mockRejectedValue(new Error("xurl down"));
+		mocks.listBookmarkedTweetsViaBird.mockResolvedValue({
+			data: [makeTweet("bookmark_bird_fallback", "bird fallback", "43")],
+			includes: {
+				users: [{ id: "43", username: "amelia", name: "Amelia" }],
+			},
+			meta: { result_count: 1 },
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		const result = await syncTimelineCollection({
+			kind: "bookmarks",
+			mode: "auto",
+			limit: 5,
+			earlyStop: true,
+			refresh: true,
+		});
+
+		expect(result).toMatchObject({ ok: true, source: "bird", count: 1 });
+		expect(mocks.listBookmarkedTweetsViaBird).toHaveBeenCalledWith({
+			maxResults: 5,
+			all: false,
+			maxPages: undefined,
+		});
+		consoleError.mockRestore();
+	});
+
 	it("keeps live saved-state scoped to the syncing account", async () => {
 		setupTempHome();
 		mocks.listLikedTweetsViaBird.mockResolvedValue({

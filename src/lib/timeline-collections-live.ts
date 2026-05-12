@@ -433,7 +433,7 @@ export async function syncTimelineCollection({
 	const parsedMaxPages = parseMaxPages(maxPages);
 	const shouldApplyEarlyStopCap =
 		earlyStop && !all && parsedMaxPages === null && mode !== "bird";
-	const effectiveMaxPages = shouldApplyEarlyStopCap
+	const xurlMaxPages = shouldApplyEarlyStopCap
 		? DEFAULT_EARLY_STOP_MAX_PAGES
 		: parsedMaxPages;
 	if (mode === "xurl" || mode === "auto") {
@@ -442,7 +442,8 @@ export async function syncTimelineCollection({
 
 	const db = getNativeDb();
 	const resolvedAccount = resolveAccount(db, account);
-	const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${effectiveMaxPages === null ? "all-pages" : String(effectiveMaxPages)}${earlyStop ? ":early-stop" : ""}`;
+	const cacheMaxPages = mode === "bird" ? parsedMaxPages : xurlMaxPages;
+	const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${earlyStop ? ":early-stop" : ""}`;
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
 	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
 	const cacheAgeMs = cached
@@ -477,7 +478,7 @@ export async function syncTimelineCollection({
 			kind,
 			limit,
 			all,
-			maxPages: effectiveMaxPages,
+			maxPages: parsedMaxPages,
 		});
 		source = "bird";
 	} else {
@@ -490,7 +491,7 @@ export async function syncTimelineCollection({
 				userId: resolvedAccount.externalUserId,
 				limit,
 				all,
-				maxPages: effectiveMaxPages,
+				maxPages: xurlMaxPages,
 				earlyStop,
 			});
 			source = "xurl";
@@ -502,7 +503,7 @@ export async function syncTimelineCollection({
 				kind,
 				limit,
 				all,
-				maxPages: effectiveMaxPages,
+				maxPages: parsedMaxPages,
 			});
 			source = "bird";
 		}
