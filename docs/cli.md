@@ -216,6 +216,7 @@ birdclaw backup validate ~/Projects/birdclaw-store --json
 - validate archive
 - analyze contents
 - import selected slices
+- parse `data/follower.js` and `data/following.js` into the local follow graph
 - idempotent
 
 Flags:

@@ -1,11 +1,11 @@
 ---
 title: Archive Import
-description: "Import a Twitter/X archive into local SQLite — autodiscovery, full DM mode, idempotent re-runs, and profile hydration."
+description: "Import a Twitter/X archive into local SQLite — autodiscovery, full DM mode, follower/following parsing, idempotent re-runs, and profile hydration."
 ---
 
 # Archive import
 
-`birdclaw import archive` parses a Twitter/X archive ZIP and writes everything into the canonical SQLite tables: tweets, likes, bookmarks, profiles, DMs, and (when present) blocklists.
+`birdclaw import archive` parses a Twitter/X archive ZIP and writes everything into the canonical SQLite tables: tweets, likes, bookmarks, profiles, followers/following edges, DMs, and (when present) blocklists.
 
 It is **idempotent**. Re-running on the same archive replays the import without producing duplicates, so you can import, then re-import after a fresh archive download to top up.
 
@@ -49,6 +49,16 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --dm-mode metadata --jso
 birdclaw import archive ~/Downloads/twitter-archive.zip --dry-run --json
 ```
 
+## Follower and following edges
+
+When the archive ships with `data/follower.js` and `data/following.js`, `import archive` parses both files and writes the rows into the same local follow graph that [`sync followers`](sync.md#sync-followers--following) and `sync following` populate:
+
+- each entry becomes a stub `profiles` row plus a current `follow_edges` row
+- counts land in the archive-import result envelope under `followGraph.followersCount` and `followGraph.followingCount`
+- re-importing the same archive is a no-op; switching to a fresher archive tops up new edges
+
+A fresh install with just an archive and no live transport still gets a usable [follow graph](follow-graph.md). `birdclaw graph summary`, `graph mutuals`, and `graph top-followers` all work against archive-imported edges. Live `sync followers --yes` can layer churn on top later.
+
 ## Hydrate profiles
 
 The archive ships with stale profile metadata (bios, follower counts, avatars from years ago). Hydrate from live Twitter when you can:
@@ -70,6 +80,7 @@ After import, archive data and live data live in the same canonical tables. Ther
 - **Bookmarks** → `tweets` table + a `bookmarks` collection edge — searchable via `--bookmarked`
 - **DMs** → `dm_conversations` and `dm_events` tables, indexed by FTS5 — searchable via `birdclaw search dms`
 - **Profiles** → `profiles` table — drives @mention resolution, profile evidence, and DM influence scoring
+- **Followers/Following** → `profiles` stub rows plus current `follow_edges` rows; surfaced via `birdclaw graph *`
 - **Affiliations** → `profile_affiliations` table when live profile hydration exposes X badge/highlighted-label organization metadata
 - **Profile history** → `profile_snapshots` table after live hydration observes profile/bio/affiliation changes
 - **Bio entities** → `profile_bio_entities` table for extracted `@handle`, domain, and company-phrase identity hints
