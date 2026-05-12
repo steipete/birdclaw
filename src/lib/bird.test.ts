@@ -27,6 +27,7 @@ function expectBirdCommandCall(callNumber: number, args: string[]) {
 	const call = execFileAsyncMock.mock.calls[callNumber - 1];
 	expect(call).toBeDefined();
 	expect(call[0]).toBe("/bin/bash");
+	expect((call[1] as string[])[0]).toBe("-c");
 	expect((call[1] as string[]).slice(4)).toEqual(["/tmp/bird", ...args]);
 	expect(call[2]).toEqual(
 		expect.objectContaining({ maxBuffer: expect.any(Number) }),
@@ -219,16 +220,17 @@ describe("bird transport wrapper", () => {
 
 	it("explains how to configure bird when the binary is missing", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/missing/bird";
-		execFileAsyncMock.mockRejectedValue(
-			Object.assign(new Error("spawn /missing/bird ENOENT"), {
-				code: "ENOENT",
+		mockBirdRejectOnce(
+			Object.assign(new Error("command failed"), {
+				stderr:
+					"birdclaw-bird: /missing/bird: No such file or directory\nbirdclaw-bird: line 0: exec: /missing/bird: cannot execute: No such file or directory",
 			}),
 		);
 
 		const { listMentionsViaBird } = await import("./bird");
 
 		await expect(listMentionsViaBird({ maxResults: 10 })).rejects.toThrow(
-			"bird CLI not found at /missing/bird",
+			"bird command unavailable: /missing/bird",
 		);
 	});
 

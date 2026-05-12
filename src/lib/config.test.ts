@@ -85,7 +85,7 @@ describe("config", () => {
 		expect(getBirdCommand()).toBe("/tmp/custom-bird");
 	});
 
-	it("resolves bird from PATH before falling back to the local dev path", () => {
+	it("resolves bird from PATH before using the shell fallback", () => {
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-config-"));
 		tempRoots.push(tempRoot);
 		const birdPath = path.join(tempRoot, "bird");
@@ -105,5 +105,10 @@ describe("config", () => {
 		expect(resolveMentionsDataSource()).toBe("xurl");
 		expect(resolveActionsTransport()).toBe("bird");
 		expect(getBirdCommand()).toBe("/tmp/env-bird");
+	});
+
+	it("defaults bird command to PATH lookup", () => {
+		process.env.PATH = "";
+		expect(getBirdCommand()).toBe("bird");
 	});
 });

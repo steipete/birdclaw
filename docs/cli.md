@@ -177,6 +177,19 @@ Backup auto-sync config lives in `~/.birdclaw/config.json`:
 
 Read commands pull + merge only when the last backup check is stale. Data-changing commands run a full backup sync afterward. Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable backup auto-sync for one process.
 
+### local `bird` command
+
+Live local likes, bookmarks, DMs, and moderation verification use `bird` on PATH
+by default. Override it with `BIRDCLAW_BIRD_COMMAND` or:
+
+```json
+{
+	"mentions": {
+		"birdCommand": "/absolute/path/to/bird"
+	}
+}
+```
+
 ### `backup import`
 
 - validates the backup first unless `--no-validate` is passed

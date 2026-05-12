@@ -172,7 +172,7 @@ export function getBirdCommand() {
 		return pathCommand;
 	}
 
-	return path.join(os.homedir(), "Projects", "bird", "bird");
+	return "bird";
 }
 
 export function ensureBirdclawDirs(): BirdclawPaths {

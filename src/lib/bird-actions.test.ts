@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const execFileAsyncMock = vi.fn();
+const accessMock = vi.fn();
 
 vi.mock("node:child_process", () => ({
 	execFile: vi.fn(),
@@ -11,10 +12,15 @@ vi.mock("node:util", () => ({
 	promisify: vi.fn(() => execFileAsyncMock),
 }));
 
+vi.mock("node:fs/promises", () => ({
+	access: accessMock,
+}));
+
 describe("bird action transport wrapper", () => {
 	afterEach(() => {
 		vi.resetModules();
 		execFileAsyncMock.mockReset();
+		accessMock.mockReset();
 		delete process.env.BIRDCLAW_BIRD_COMMAND;
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 	});

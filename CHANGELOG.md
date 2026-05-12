@@ -64,6 +64,13 @@
 - Allow Playwright e2e runs to use an alternate local port when `3000` is already occupied.
 - Replace maintainer-local documentation links with repo-relative links and align the setup docs with the Node version file. Thanks @stainlu.
 
+## Unreleased
+
+### Fixed
+
+- Fix live `xurl` status detection when the CLI is installed but not authenticated; thanks @kyupark.
+- Default local `bird` integration to `bird` on PATH and report stale configured command paths with setup guidance.
+
 ## 0.2.1 - 2026-04-27
 
 ### Changed

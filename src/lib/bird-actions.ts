@@ -1,9 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { getBirdCommand } from "./config";
+import { runBirdCommand } from "./bird-command";
 import type { XurlMentionUser } from "./types";
-
-const execFileAsync = promisify(execFile);
 
 function liveWritesDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
@@ -40,11 +36,6 @@ function formatExecError(error: unknown, fallback: string) {
 
 function normalizeOutput(stdout?: string, stderr?: string) {
 	return stripAnsi(stdout || stderr || "ok").trim();
-}
-
-async function runBirdCommand(args: string[]) {
-	const birdCommand = getBirdCommand();
-	return execFileAsync(birdCommand, args);
 }
 
 async function runBirdJsonCommand(args: string[]) {

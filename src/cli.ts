@@ -1229,6 +1229,9 @@ export async function runCli(argv = process.argv) {
 if (process.argv[1]) {
 	const entryUrl = pathToFileURL(process.argv[1]).href;
 	if (import.meta.url === entryUrl) {
-		void runCli();
+		void runCli().catch((error) => {
+			console.error(error instanceof Error ? error.message : String(error));
+			process.exitCode = 1;
+		});
 	}
 }

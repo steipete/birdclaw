@@ -181,13 +181,30 @@ function parseBirdJson(stdout: string) {
 }
 
 function formatBirdCommandError(error: unknown, birdCommand: string) {
+	const text = [
+		error instanceof Error ? error.message : "",
+		error &&
+		typeof error === "object" &&
+		"stderr" in error &&
+		typeof error.stderr === "string"
+			? error.stderr
+			: "",
+		error &&
+		typeof error === "object" &&
+		"stdout" in error &&
+		typeof error.stdout === "string"
+			? error.stdout
+			: "",
+	].join("\n");
 	if (
-		error instanceof Error &&
-		"code" in error &&
-		(error as { code?: unknown }).code === "ENOENT"
+		(error instanceof Error &&
+			"code" in error &&
+			(error as { code?: unknown }).code === "ENOENT") ||
+		(/No such file or directory|command not found|cannot execute/i.test(text) &&
+			text.includes(birdCommand))
 	) {
 		return new Error(
-			`bird CLI not found at ${birdCommand}. Install @steipete/bird or set BIRDCLAW_BIRD_COMMAND / mentions.birdCommand to a valid bird binary.`,
+			`bird command unavailable: ${birdCommand}\nInstall bird on PATH, set BIRDCLAW_BIRD_COMMAND, or update ~/.birdclaw/config.json mentions.birdCommand.`,
 		);
 	}
 
@@ -214,7 +231,7 @@ async function runBirdJsonCommand(args: string[], timeoutMs?: number) {
 		const shellScript = 'out="$1"; shift; exec "$@" > "$out"';
 		await execFileAsync(
 			"/bin/bash",
-			["-lc", shellScript, "birdclaw-bird", stdoutPath, birdCommand, ...args],
+			["-c", shellScript, "birdclaw-bird", stdoutPath, birdCommand, ...args],
 			{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
 		);
 		return readFileSync(stdoutPath, "utf8");
