@@ -571,7 +571,7 @@ export async function importArchive(
 	);
 
 	function addArchiveFollowProfile(profileId: string, externalUserId: string) {
-		if (!profileId || profiles.has(profileId)) return;
+		if (!profileId) return;
 		const existing = existingProfiles.get(profileId);
 		if (existing) {
 			profiles.set(profileId, {
@@ -587,6 +587,7 @@ export async function importArchive(
 			});
 			return;
 		}
+		if (profiles.has(profileId)) return;
 		const fallbackId =
 			externalUserId || profileId.replace(/^profile_user_/, "");
 		profiles.set(profileId, {
@@ -876,16 +877,36 @@ export async function importArchive(
 		addArchiveFollowProfile(row.profileId, row.externalUserId);
 	}
 
+	const clearedFollowDirections = new Set<ArchiveFollowDirection>();
+	if (followerEntries.length === 0) clearedFollowDirections.add("followers");
+	if (followingEntries.length === 0) clearedFollowDirections.add("following");
 	const retainedFollowProfiles = getNativeDb()
 		.prepare(
 			`
-      select profile_id, external_user_id from follow_edges
+      select direction, profile_id, external_user_id, source, null as snapshot_id, null as snapshot_source
+      from follow_edges
       union
-      select profile_id, external_user_id from follow_events
+      select ev.direction, ev.profile_id, ev.external_user_id, null as source, ev.snapshot_id, snap.source as snapshot_source
+      from follow_events ev
+      left join follow_snapshots snap on snap.id = ev.snapshot_id
       `,
 		)
-		.all() as Array<{ profile_id: string; external_user_id: string }>;
+		.all() as Array<{
+		direction: ArchiveFollowDirection;
+		profile_id: string;
+		external_user_id: string;
+		source: string | null;
+		snapshot_id: string | null;
+		snapshot_source: string | null;
+	}>;
 	for (const row of retainedFollowProfiles) {
+		const isClearedArchiveRow =
+			clearedFollowDirections.has(row.direction) &&
+			(row.source === "archive" ||
+				row.snapshot_source === "archive" ||
+				row.snapshot_id ===
+					`follow_snapshot_archive_acct_primary_${row.direction}`);
+		if (isClearedArchiveRow) continue;
 		addArchiveFollowProfile(row.profile_id, row.external_user_id);
 	}
 
