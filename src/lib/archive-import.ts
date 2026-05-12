@@ -523,11 +523,25 @@ export async function importArchive(
 			bio: string;
 			followersCount: number;
 			followingCount: number;
+			publicMetricsJson: string;
 			avatarHue: number;
 			avatarUrl: string | null;
+			location: string | null;
+			url: string | null;
+			verifiedType: string | null;
+			entitiesJson: string;
+			rawJson: string;
 			createdAt: string;
 		}
 	>();
+	const defaultProfileMetadata = {
+		publicMetricsJson: "{}",
+		location: null,
+		url: null,
+		verifiedType: null,
+		entitiesJson: "{}",
+		rawJson: "{}",
+	};
 	const conversations = new Map<
 		string,
 		{
@@ -551,10 +565,11 @@ export async function importArchive(
 			getNativeDb()
 				.prepare(
 					`
-        select id, handle, display_name, bio, followers_count, following_count,
-          avatar_hue, avatar_url, created_at
-        from profiles
-      `,
+	        select id, handle, display_name, bio, followers_count, following_count,
+	          public_metrics_json, avatar_hue, avatar_url, location, url,
+	          verified_type, entities_json, raw_json, created_at
+	        from profiles
+	      `,
 				)
 				.all() as Array<{
 				id: string;
@@ -563,8 +578,14 @@ export async function importArchive(
 				bio: string;
 				followers_count: number;
 				following_count: number;
+				public_metrics_json: string;
 				avatar_hue: number;
 				avatar_url: string | null;
+				location: string | null;
+				url: string | null;
+				verified_type: string | null;
+				entities_json: string;
+				raw_json: string;
 				created_at: string;
 			}>
 		).map((profile) => [profile.id, profile]),
@@ -581,8 +602,14 @@ export async function importArchive(
 				bio: existing.bio,
 				followersCount: existing.followers_count,
 				followingCount: existing.following_count,
+				publicMetricsJson: existing.public_metrics_json,
 				avatarHue: existing.avatar_hue,
 				avatarUrl: existing.avatar_url,
+				location: existing.location,
+				url: existing.url,
+				verifiedType: existing.verified_type,
+				entitiesJson: existing.entities_json,
+				rawJson: existing.raw_json,
 				createdAt: existing.created_at,
 			});
 			return;
@@ -597,6 +624,7 @@ export async function importArchive(
 			bio: "",
 			followersCount: 0,
 			followingCount: 0,
+			...defaultProfileMetadata,
 			avatarHue: 210,
 			avatarUrl: null,
 			createdAt: accountPayload.createdAt,
@@ -610,6 +638,7 @@ export async function importArchive(
 		bio: accountPayload.bio,
 		followersCount: 0,
 		followingCount: 0,
+		...defaultProfileMetadata,
 		avatarHue: 18,
 		avatarUrl: null,
 		createdAt: accountPayload.createdAt,
@@ -695,6 +724,7 @@ export async function importArchive(
 						bio: `Group DM with ${externalParticipantIds.length} participants`,
 						followersCount: 0,
 						followingCount: 0,
+						...defaultProfileMetadata,
 						avatarHue: 220,
 						avatarUrl: null,
 						createdAt: accountPayload.createdAt,
@@ -712,6 +742,7 @@ export async function importArchive(
 						bio: `Imported from archive user ${otherUserId}`,
 						followersCount: 0,
 						followingCount: 0,
+						...defaultProfileMetadata,
 						avatarHue: 210,
 						avatarUrl: null,
 						createdAt: accountPayload.createdAt,
@@ -742,6 +773,7 @@ export async function importArchive(
 								bio: `Imported from archive user ${senderId}`,
 								followersCount: 0,
 								followingCount: 0,
+								...defaultProfileMetadata,
 								avatarHue: 240,
 								avatarUrl: null,
 								createdAt: accountPayload.createdAt,
@@ -918,6 +950,7 @@ export async function importArchive(
 			bio: "Imported from archive collection metadata",
 			followersCount: 0,
 			followingCount: 0,
+			...defaultProfileMetadata,
 			avatarHue: 210,
 			avatarUrl: null,
 			createdAt: accountPayload.createdAt,
@@ -932,9 +965,13 @@ export async function importArchive(
     values (?, ?, ?, ?, ?, 1, ?)
   `);
 	const insertProfile = db.prepare(`
-    insert into profiles (id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url, created_at)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+	    insert into profiles (
+	      id, handle, display_name, bio, followers_count, following_count,
+	      public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+	      entities_json, raw_json, created_at
+	    )
+	    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	  `);
 	const insertTweet = db.prepare(`
     insert into tweets (
       id, account_id, author_profile_id, kind, text, created_at, is_replied,
@@ -1197,8 +1234,14 @@ export async function importArchive(
 				profile.bio,
 				profile.followersCount,
 				profile.followingCount,
+				profile.publicMetricsJson,
 				profile.avatarHue,
 				profile.avatarUrl,
+				profile.location,
+				profile.url,
+				profile.verifiedType,
+				profile.entitiesJson,
+				profile.rawJson,
 				profile.createdAt,
 			);
 		}

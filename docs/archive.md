@@ -54,7 +54,7 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --dry-run --json
 When the archive ships with `data/follower.js` and `data/following.js`, `import archive` parses both files and writes the rows into the same local follow graph that [`sync followers`](sync.md#sync-followers--following) and `sync following` populate:
 
 - each entry becomes a stub `profiles` row plus a current `follow_edges` row
-- counts land in the archive-import result envelope under `followGraph.followersCount` and `followGraph.followingCount`
+- counts land in the archive-import result envelope under `counts.followers` and `counts.following`
 - re-importing the same archive is a no-op; switching to a fresher archive tops up new edges
 
 A fresh install with just an archive and no live transport still gets a usable [follow graph](follow-graph.md). `birdclaw graph summary`, `graph mutuals`, and `graph top-followers` all work against archive-imported edges. Live `sync followers --yes` can layer churn on top later.
