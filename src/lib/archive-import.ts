@@ -524,6 +524,7 @@ export async function importArchive(
 			followersCount: number;
 			followingCount: number;
 			avatarHue: number;
+			avatarUrl: string | null;
 			createdAt: string;
 		}
 	>();
@@ -545,9 +546,47 @@ export async function importArchive(
 		[];
 	const followerIds = new Set<string>();
 	const followingIds = new Set<string>();
+	const existingProfiles = new Map(
+		(
+			getNativeDb()
+				.prepare(
+					`
+        select id, handle, display_name, bio, followers_count, following_count,
+          avatar_hue, avatar_url, created_at
+        from profiles
+      `,
+				)
+				.all() as Array<{
+				id: string;
+				handle: string;
+				display_name: string;
+				bio: string;
+				followers_count: number;
+				following_count: number;
+				avatar_hue: number;
+				avatar_url: string | null;
+				created_at: string;
+			}>
+		).map((profile) => [profile.id, profile]),
+	);
 
 	function addArchiveFollowProfile(profileId: string, externalUserId: string) {
 		if (!profileId || profiles.has(profileId)) return;
+		const existing = existingProfiles.get(profileId);
+		if (existing) {
+			profiles.set(profileId, {
+				id: profileId,
+				handle: existing.handle,
+				displayName: existing.display_name,
+				bio: existing.bio,
+				followersCount: existing.followers_count,
+				followingCount: existing.following_count,
+				avatarHue: existing.avatar_hue,
+				avatarUrl: existing.avatar_url,
+				createdAt: existing.created_at,
+			});
+			return;
+		}
 		const fallbackId =
 			externalUserId || profileId.replace(/^profile_user_/, "");
 		profiles.set(profileId, {
@@ -558,6 +597,7 @@ export async function importArchive(
 			followersCount: 0,
 			followingCount: 0,
 			avatarHue: 210,
+			avatarUrl: null,
 			createdAt: accountPayload.createdAt,
 		});
 	}
@@ -570,6 +610,7 @@ export async function importArchive(
 		followersCount: 0,
 		followingCount: 0,
 		avatarHue: 18,
+		avatarUrl: null,
 		createdAt: accountPayload.createdAt,
 	};
 	profiles.set(localProfile.id, localProfile);
@@ -654,6 +695,7 @@ export async function importArchive(
 						followersCount: 0,
 						followingCount: 0,
 						avatarHue: 220,
+						avatarUrl: null,
 						createdAt: accountPayload.createdAt,
 					});
 				} else {
@@ -670,6 +712,7 @@ export async function importArchive(
 						followersCount: 0,
 						followingCount: 0,
 						avatarHue: 210,
+						avatarUrl: null,
 						createdAt: accountPayload.createdAt,
 					});
 				}
@@ -699,6 +742,7 @@ export async function importArchive(
 								followersCount: 0,
 								followingCount: 0,
 								avatarHue: 240,
+								avatarUrl: null,
 								createdAt: accountPayload.createdAt,
 							});
 						}
@@ -854,6 +898,7 @@ export async function importArchive(
 			followersCount: 0,
 			followingCount: 0,
 			avatarHue: 210,
+			avatarUrl: null,
 			createdAt: accountPayload.createdAt,
 		});
 	}
@@ -941,6 +986,15 @@ export async function importArchive(
 	const deleteFollowSnapshotMembers = db.prepare(
 		"delete from follow_snapshot_members where snapshot_id = ?",
 	);
+	const deleteArchiveFollowEvents = db.prepare(`
+    delete from follow_events
+    where account_id = ? and direction = ? and (
+      snapshot_id = ? or snapshot_id in (
+        select id from follow_snapshots
+        where account_id = ? and direction = ? and source = 'archive'
+      )
+    )
+  `);
 	const deleteArchiveFollowSnapshotMembers = db.prepare(`
     delete from follow_snapshot_members
     where snapshot_id in (
@@ -1092,6 +1146,13 @@ export async function importArchive(
 	}
 
 	function clearArchiveFollowRows(direction: ArchiveFollowDirection) {
+		deleteArchiveFollowEvents.run(
+			"acct_primary",
+			direction,
+			`follow_snapshot_archive_acct_primary_${direction}`,
+			"acct_primary",
+			direction,
+		);
 		deleteArchiveFollowSnapshotMembers.run("acct_primary", direction);
 		deleteArchiveFollowSnapshots.run("acct_primary", direction);
 		deleteArchiveFollowEdges.run("acct_primary", direction);
@@ -1116,7 +1177,7 @@ export async function importArchive(
 				profile.followersCount,
 				profile.followingCount,
 				profile.avatarHue,
-				null,
+				profile.avatarUrl,
 				profile.createdAt,
 			);
 		}

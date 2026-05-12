@@ -578,6 +578,63 @@ describe("archive import", () => {
 		]);
 	});
 
+	it("preserves hydrated follow profile metadata on archive import", async () => {
+		const archivePath = makeFollowArchive({
+			followers: ["900"],
+			includeFollowing: false,
+		});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        avatar_hue, avatar_url, created_at
+      ) values (
+        'profile_user_900', 'real900', 'Real User', 'Hydrated bio', 123, 45,
+        33, 'https://img.example.com/avatar.jpg', '2026-05-01T00:00:00.000Z'
+      )
+      `,
+		).run();
+		db.prepare(
+			`
+      insert into follow_edges (
+        account_id, direction, profile_id, external_user_id, source, current,
+        first_seen_at, last_seen_at, ended_at, updated_at
+      ) values (
+        'acct_primary', 'followers', 'profile_user_900', '900', 'xurl', 1,
+        '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', null,
+        '2026-05-01T00:00:00.000Z'
+      )
+      `,
+		).run();
+
+		await importArchive(archivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select handle, display_name, bio, followers_count, following_count,
+            avatar_hue, avatar_url
+          from profiles
+          where id = 'profile_user_900'
+        `,
+				)
+				.get(),
+		).toEqual({
+			handle: "real900",
+			display_name: "Real User",
+			bio: "Hydrated bio",
+			followers_count: 123,
+			following_count: 45,
+			avatar_hue: 33,
+			avatar_url: "https://img.example.com/avatar.jpg",
+		});
+	});
+
 	it("clears archive follower rows when follower file is absent", async () => {
 		const firstArchivePath = makeFollowArchive({
 			followers: ["101", "102"],
@@ -593,6 +650,20 @@ describe("archive import", () => {
 
 		await importArchive(firstArchivePath);
 		const db = getNativeDb();
+		expect(
+			(
+				db
+					.prepare(
+						`
+            select count(*) as count
+            from follow_events
+            where direction = 'followers'
+              and snapshot_id = 'follow_snapshot_archive_acct_primary_followers'
+          `,
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(2);
 		db.prepare(
 			`
       insert into follow_edges (
@@ -641,6 +712,20 @@ describe("archive import", () => {
             select count(*) as count
             from follow_snapshot_members
             where snapshot_id like 'follow_snapshot_archive_acct_primary_followers%'
+          `,
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(0);
+		expect(
+			(
+				db
+					.prepare(
+						`
+            select count(*) as count
+            from follow_events
+            where direction = 'followers'
+              and snapshot_id = 'follow_snapshot_archive_acct_primary_followers'
           `,
 					)
 					.get() as { count: number }
