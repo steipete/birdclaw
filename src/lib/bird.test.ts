@@ -722,7 +722,9 @@ describe("bird transport wrapper", () => {
 		});
 		expect(__test__.formatBirdCommandError(enoent, "/missing/bird")).toEqual(
 			expect.objectContaining({
-				message: expect.stringContaining("bird CLI not found at /missing/bird"),
+				message: expect.stringContaining(
+					"bird command unavailable: /missing/bird",
+				),
 			}),
 		);
 		expect(__test__.formatBirdCommandError("boom", "/tmp/bird")).toBe("boom");
