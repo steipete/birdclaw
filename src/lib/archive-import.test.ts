@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { __test__, importArchive } from "./archive-import";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
+import { listFollowEvents, listUnfollowedSince } from "./follow-graph";
 import {
 	getQueryEnvelope,
 	listDmConversations,
@@ -194,7 +195,6 @@ function makeRootDataArchive() {
   }
 ]`,
 	);
-
 	const archivePath = path.join(root, "archive.zip");
 	execFileSync("zip", ["-qr", archivePath, "data"], { cwd: root });
 	createdDirs.push(root);
@@ -573,6 +573,21 @@ describe("archive import", () => {
 			{ profile_id: "profile_user_900", source: "xurl", current: 0 },
 		]);
 		expect(events).toEqual([{ external_user_id: "900", kind: "ended" }]);
+		expect(
+			listUnfollowedSince({ date: "2000-01-01" }).items.map(
+				(item) => item.profile.handle,
+			),
+		).toEqual(["id900"]);
+		expect(
+			listFollowEvents({
+				direction: "followers",
+				kind: "ended",
+				since: "2000-01-01",
+			}).items.map((item) => ({
+				kind: item.kind,
+				handle: item.profile.handle,
+			})),
+		).toEqual([{ kind: "ended", handle: "id900" }]);
 	});
 
 	it("covers parsing helpers and fallback normalizers", () => {

@@ -546,6 +546,22 @@ export async function importArchive(
 	const followerIds = new Set<string>();
 	const followingIds = new Set<string>();
 
+	function addArchiveFollowProfile(profileId: string, externalUserId: string) {
+		if (!profileId || profiles.has(profileId)) return;
+		const fallbackId =
+			externalUserId || profileId.replace(/^profile_user_/, "");
+		profiles.set(profileId, {
+			id: profileId,
+			handle: fallbackId ? `id${fallbackId}` : profileId,
+			displayName: "",
+			bio: "",
+			followersCount: 0,
+			followingCount: 0,
+			avatarHue: 210,
+			createdAt: accountPayload.createdAt,
+		});
+	}
+
 	const localProfile = {
 		id: "profile_me",
 		handle: accountPayload.username,
@@ -813,17 +829,20 @@ export async function importArchive(
 	}
 
 	for (const row of [...followerRows, ...followingRows]) {
-		if (profiles.has(row.profileId)) continue;
-		profiles.set(row.profileId, {
-			id: row.profileId,
-			handle: `id${row.externalUserId}`,
-			displayName: "",
-			bio: "",
-			followersCount: 0,
-			followingCount: 0,
-			avatarHue: 210,
-			createdAt: accountPayload.createdAt,
-		});
+		addArchiveFollowProfile(row.profileId, row.externalUserId);
+	}
+
+	const retainedFollowProfiles = getNativeDb()
+		.prepare(
+			`
+      select profile_id, external_user_id from follow_edges
+      union
+      select profile_id, external_user_id from follow_events
+      `,
+		)
+		.all() as Array<{ profile_id: string; external_user_id: string }>;
+	for (const row of retainedFollowProfiles) {
+		addArchiveFollowProfile(row.profile_id, row.external_user_id);
 	}
 
 	if (tweetRows.some((tweet) => tweet.authorProfileId === "profile_unknown")) {
