@@ -16,7 +16,7 @@ import {
 
 const createdDirs: string[] = [];
 
-function makeArchive() {
+function makeArchive({ following = [] }: { following?: string[] } = {}) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-"));
 	const archiveDir = path.join(root, "sample", "data");
 	mkdirSync(archiveDir, { recursive: true });
@@ -140,6 +140,19 @@ function makeArchive() {
   }
 ]`,
 	);
+	if (following.length > 0) {
+		writeFileSync(
+			path.join(archiveDir, "following.js"),
+			`window.YTD.following.part0 = ${JSON.stringify(
+				following.map((id) => ({
+					following: {
+						accountId: id,
+						userLink: `https://twitter.com/intent/user?user_id=${id}`,
+					},
+				})),
+			)}`,
+		);
+	}
 
 	const archivePath = path.join(root, "archive.zip");
 	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
@@ -790,6 +803,64 @@ describe("archive import", () => {
 		const db = getNativeDb();
 
 		await importArchive(secondArchivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select handle, display_name, bio
+          from profiles
+          where id = 'profile_user_42'
+        `,
+				)
+				.get(),
+		).toEqual({
+			handle: "sam",
+			display_name: "sam",
+			bio: "Imported from archive user 42",
+		});
+	});
+
+	it("preserves mention-inferred DM profiles when a later archive lacks mention metadata", async () => {
+		const firstArchivePath = makeRootDataArchive();
+		const secondArchivePath = makeArchive();
+		const thirdArchivePath = makeRootDataArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(firstArchivePath);
+		await importArchive(secondArchivePath);
+		const db = getNativeDb();
+		await importArchive(thirdArchivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select handle, display_name, bio
+          from profiles
+          where id = 'profile_user_42'
+        `,
+				)
+				.get(),
+		).toEqual({
+			handle: "sam",
+			display_name: "sam",
+			bio: "Imported from archive user 42",
+		});
+	});
+
+	it("preserves mention-inferred DM profiles when follow rows overlap on re-import", async () => {
+		const firstArchivePath = makeRootDataArchive();
+		const secondArchivePath = makeArchive({ following: ["42"] });
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(firstArchivePath);
+		await importArchive(secondArchivePath);
+		const db = getNativeDb();
 
 		expect(
 			db

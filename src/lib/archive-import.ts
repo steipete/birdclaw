@@ -534,6 +534,8 @@ export async function importArchive(
 			createdAt: string;
 		}
 	>();
+	type ProfileRow =
+		typeof profiles extends Map<string, infer Value> ? Value : never;
 	const defaultProfileMetadata = {
 		publicMetricsJson: "{}",
 		location: null,
@@ -560,6 +562,23 @@ export async function importArchive(
 		[];
 	const followerIds = new Set<string>();
 	const followingIds = new Set<string>();
+	type ExistingProfileRow = {
+		id: string;
+		handle: string;
+		display_name: string;
+		bio: string;
+		followers_count: number;
+		following_count: number;
+		public_metrics_json: string;
+		avatar_hue: number;
+		avatar_url: string | null;
+		location: string | null;
+		url: string | null;
+		verified_type: string | null;
+		entities_json: string;
+		raw_json: string;
+		created_at: string;
+	};
 	const existingProfiles = new Map(
 		(
 			getNativeDb()
@@ -571,85 +590,121 @@ export async function importArchive(
 	        from profiles
 	      `,
 				)
-				.all() as Array<{
-				id: string;
-				handle: string;
-				display_name: string;
-				bio: string;
-				followers_count: number;
-				following_count: number;
-				public_metrics_json: string;
-				avatar_hue: number;
-				avatar_url: string | null;
-				location: string | null;
-				url: string | null;
-				verified_type: string | null;
-				entities_json: string;
-				raw_json: string;
-				created_at: string;
-			}>
+				.all() as ExistingProfileRow[]
 		).map((profile) => [profile.id, profile]),
 	);
 
-	function isArchivePlaceholderProfile(profile: {
-		handle: string;
-		bio: string;
-		followers_count: number;
-		following_count: number;
-		public_metrics_json: string;
-		avatar_url: string | null;
-		location: string | null;
-		url: string | null;
-		verified_type: string | null;
-		entities_json: string;
-		raw_json: string;
-	}) {
-		const hasStubIdentity =
-			/^id\d+$/i.test(profile.handle) ||
-			profile.bio.startsWith("Imported from archive user ");
+	type ArchiveProfileTier =
+		| "archive_follow_stub"
+		| "archive_dm_stub"
+		| "archive_mention_inferred"
+		| "live_or_hydrated";
+	const archiveProfileTierRank: Record<ArchiveProfileTier, number> = {
+		archive_follow_stub: 0,
+		archive_dm_stub: 1,
+		archive_mention_inferred: 2,
+		live_or_hydrated: 3,
+	};
+
+	function classifyExistingProfile(profile: ProfileRow): ArchiveProfileTier {
+		const externalUserId = profile.id.startsWith("profile_user_")
+			? profile.id.slice("profile_user_".length)
+			: "";
+		const fallbackHandle = externalUserId ? `id${externalUserId}` : profile.id;
 		const hasLiveSignals =
-			profile.followers_count > 0 ||
-			profile.following_count > 0 ||
-			profile.public_metrics_json.trim() !== "{}" ||
-			profile.avatar_url !== null ||
+			profile.followersCount > 0 ||
+			profile.followingCount > 0 ||
+			profile.publicMetricsJson.trim() !== "{}" ||
+			profile.avatarUrl !== null ||
 			profile.location !== null ||
 			profile.url !== null ||
-			profile.verified_type !== null ||
-			profile.entities_json.trim() !== "{}" ||
-			profile.raw_json.trim() !== "{}";
+			profile.verifiedType !== null ||
+			profile.entitiesJson.trim() !== "{}" ||
+			profile.rawJson.trim() !== "{}";
 
+		if (hasLiveSignals) return "live_or_hydrated";
+		if (
+			profile.handle === fallbackHandle &&
+			profile.displayName === "" &&
+			profile.bio === ""
+		) {
+			return "archive_follow_stub";
+		}
+		if (profile.bio.startsWith("Imported from archive user ")) {
+			return profile.handle === fallbackHandle &&
+				profile.displayName === fallbackHandle
+				? "archive_dm_stub"
+				: "archive_mention_inferred";
+		}
+		return profile.handle === fallbackHandle && profile.displayName === ""
+			? "archive_follow_stub"
+			: "archive_mention_inferred";
+	}
+
+	function shouldPreserveProfile(
+		existingTier: ArchiveProfileTier,
+		incomingTier: ArchiveProfileTier,
+	) {
 		return (
-			!hasLiveSignals && (hasStubIdentity || profile.followers_count === 0)
+			archiveProfileTierRank[existingTier] >=
+			archiveProfileTierRank[incomingTier]
 		);
+	}
+
+	function existingProfileToProfileRow(
+		profile: ExistingProfileRow,
+	): ProfileRow {
+		return {
+			id: profile.id,
+			handle: profile.handle,
+			displayName: profile.display_name,
+			bio: profile.bio,
+			followersCount: profile.followers_count,
+			followingCount: profile.following_count,
+			publicMetricsJson: profile.public_metrics_json,
+			avatarHue: profile.avatar_hue,
+			avatarUrl: profile.avatar_url,
+			location: profile.location,
+			url: profile.url,
+			verifiedType: profile.verified_type,
+			entitiesJson: profile.entities_json,
+			rawJson: profile.raw_json,
+			createdAt: profile.created_at,
+		};
+	}
+
+	function mergeArchiveProfile(incoming: ProfileRow) {
+		const incomingTier = classifyExistingProfile(incoming);
+		const current = profiles.get(incoming.id);
+		if (
+			current &&
+			shouldPreserveProfile(classifyExistingProfile(current), incomingTier)
+		) {
+			return;
+		}
+
+		const existing = existingProfiles.get(incoming.id);
+		if (existing) {
+			const existingProfile = existingProfileToProfileRow(existing);
+			if (
+				shouldPreserveProfile(
+					classifyExistingProfile(existingProfile),
+					incomingTier,
+				)
+			) {
+				profiles.set(incoming.id, existingProfile);
+				return;
+			}
+		}
+
+		profiles.set(incoming.id, incoming);
 	}
 
 	function addArchiveFollowProfile(profileId: string, externalUserId: string) {
 		if (!profileId) return;
-		const existing = existingProfiles.get(profileId);
-		if (existing) {
-			profiles.set(profileId, {
-				id: profileId,
-				handle: existing.handle,
-				displayName: existing.display_name,
-				bio: existing.bio,
-				followersCount: existing.followers_count,
-				followingCount: existing.following_count,
-				publicMetricsJson: existing.public_metrics_json,
-				avatarHue: existing.avatar_hue,
-				avatarUrl: existing.avatar_url,
-				location: existing.location,
-				url: existing.url,
-				verifiedType: existing.verified_type,
-				entitiesJson: existing.entities_json,
-				rawJson: existing.raw_json,
-				createdAt: existing.created_at,
-			});
-			return;
-		}
-		if (profiles.has(profileId)) return;
 		const fallbackId =
 			externalUserId || profileId.replace(/^profile_user_/, "");
-		profiles.set(profileId, {
+		mergeArchiveProfile({
 			id: profileId,
 			handle: fallbackId ? `id${fallbackId}` : profileId,
 			displayName: "",
@@ -763,43 +818,22 @@ export async function importArchive(
 					});
 				} else {
 					const otherUserId = externalParticipantIds[0] ?? conversationId;
-					const existing = existingProfiles.get(participantProfileId);
-					if (existing && !isArchivePlaceholderProfile(existing)) {
-						profiles.set(participantProfileId, {
-							id: participantProfileId,
-							handle: existing.handle,
-							displayName: existing.display_name,
-							bio: existing.bio,
-							followersCount: existing.followers_count,
-							followingCount: existing.following_count,
-							publicMetricsJson: existing.public_metrics_json,
-							avatarHue: existing.avatar_hue,
-							avatarUrl: existing.avatar_url,
-							location: existing.location,
-							url: existing.url,
-							verifiedType: existing.verified_type,
-							entitiesJson: existing.entities_json,
-							rawJson: existing.raw_json,
-							createdAt: existing.created_at,
-						});
-					} else {
-						const inferred = inferProfileFromDirectory(
-							otherUserId,
-							mentionDirectory,
-						);
-						profiles.set(participantProfileId, {
-							id: participantProfileId,
-							handle: inferred.handle,
-							displayName: inferred.displayName,
-							bio: `Imported from archive user ${otherUserId}`,
-							followersCount: 0,
-							followingCount: 0,
-							...defaultProfileMetadata,
-							avatarHue: 210,
-							avatarUrl: null,
-							createdAt: accountPayload.createdAt,
-						});
-					}
+					const inferred = inferProfileFromDirectory(
+						otherUserId,
+						mentionDirectory,
+					);
+					mergeArchiveProfile({
+						id: participantProfileId,
+						handle: inferred.handle,
+						displayName: inferred.displayName,
+						bio: `Imported from archive user ${otherUserId}`,
+						followersCount: 0,
+						followingCount: 0,
+						...defaultProfileMetadata,
+						avatarHue: 210,
+						avatarUrl: null,
+						createdAt: accountPayload.createdAt,
+					});
 				}
 			}
 
