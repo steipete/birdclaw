@@ -214,7 +214,7 @@ function makeRootDataArchive() {
 	return archivePath;
 }
 
-function makeWeirdArchive() {
+function makeWeirdArchive({ followers = [] }: { followers?: string[] } = {}) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-weird-"));
 	const archiveDir = path.join(root, "sample", "data");
 	mkdirSync(archiveDir, { recursive: true });
@@ -286,6 +286,19 @@ function makeWeirdArchive() {
   }
 ]`,
 	);
+	if (followers.length > 0) {
+		writeFileSync(
+			path.join(archiveDir, "follower.js"),
+			`window.YTD.follower.part0 = ${JSON.stringify(
+				followers.map((id) => ({
+					follower: {
+						accountId: id,
+						userLink: `https://twitter.com/intent/user?user_id=${id}`,
+					},
+				})),
+			)}`,
+		);
+	}
 
 	const archivePath = path.join(root, "archive.zip");
 	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
@@ -876,6 +889,52 @@ describe("archive import", () => {
 			handle: "sam",
 			display_name: "sam",
 			bio: "Imported from archive user 42",
+		});
+	});
+
+	it("preserves hydrated group-DM sender profiles when follow rows overlap", async () => {
+		const archivePath = makeWeirdArchive({ followers: ["42"] });
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, location, raw_json, created_at
+      ) values (
+        'profile_user_42', 'real42', 'Real Group Sender', 'Hydrated bio',
+        321, 54, ?, 33, 'London', ?, '2026-05-01T00:00:00.000Z'
+      )
+      `,
+		).run(
+			'{"followers_count":321,"following_count":54}',
+			'{"id":"42","username":"real42","description":"hydrated"}',
+		);
+
+		await importArchive(archivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select handle, display_name, bio, followers_count, following_count,
+            public_metrics_json, location, raw_json
+          from profiles
+          where id = 'profile_user_42'
+        `,
+				)
+				.get(),
+		).toEqual({
+			handle: "real42",
+			display_name: "Real Group Sender",
+			bio: "Hydrated bio",
+			followers_count: 321,
+			following_count: 54,
+			public_metrics_json: '{"followers_count":321,"following_count":54}',
+			location: "London",
+			raw_json: '{"id":"42","username":"real42","description":"hydrated"}',
 		});
 	});
 

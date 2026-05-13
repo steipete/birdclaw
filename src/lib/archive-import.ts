@@ -676,25 +676,31 @@ export async function importArchive(
 	function mergeArchiveProfile(incoming: ProfileRow) {
 		const incomingTier = classifyExistingProfile(incoming);
 		const current = profiles.get(incoming.id);
+		const currentTier = current ? classifyExistingProfile(current) : null;
+		const existing = existingProfiles.get(incoming.id);
+		const existingProfile = existing
+			? existingProfileToProfileRow(existing)
+			: null;
+		const existingTier = existingProfile
+			? classifyExistingProfile(existingProfile)
+			: null;
+
 		if (
 			current &&
-			shouldPreserveProfile(classifyExistingProfile(current), incomingTier)
+			currentTier &&
+			shouldPreserveProfile(currentTier, incomingTier) &&
+			(!existingTier || shouldPreserveProfile(currentTier, existingTier))
 		) {
 			return;
 		}
 
-		const existing = existingProfiles.get(incoming.id);
-		if (existing) {
-			const existingProfile = existingProfileToProfileRow(existing);
-			if (
-				shouldPreserveProfile(
-					classifyExistingProfile(existingProfile),
-					incomingTier,
-				)
-			) {
-				profiles.set(incoming.id, existingProfile);
-				return;
-			}
+		if (
+			existingProfile &&
+			existingTier &&
+			shouldPreserveProfile(existingTier, incomingTier)
+		) {
+			profiles.set(incoming.id, existingProfile);
+			return;
 		}
 
 		profiles.set(incoming.id, incoming);
