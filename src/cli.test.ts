@@ -573,6 +573,7 @@ describe("cli", () => {
 			mode: "xurl",
 			limit: 5,
 			maxPages: undefined,
+			sinceId: undefined,
 			refresh: false,
 			cacheTtlMs: 120_000,
 		});

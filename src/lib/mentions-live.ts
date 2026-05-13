@@ -27,14 +27,16 @@ function getMentionsFetchModeKey({
 	pageSize,
 	all,
 	maxPages,
+	sinceId,
 }: {
 	mode: MentionsDataSource;
 	accountId: string;
 	pageSize: number;
 	all: boolean;
 	maxPages: number | null;
+	sinceId: string | null;
 }) {
-	return `mentions:${mode}:${accountId}:${String(pageSize)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}`;
+	return `mentions:${mode}:${accountId}:${String(pageSize)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}:${sinceId ?? "no-since"}`;
 }
 
 function parseCacheTtlMs(value?: number) {
@@ -98,6 +100,24 @@ function resolveAccount(db: Database, accountId?: string) {
 		accountId: row.id,
 		username: row.handle.replace(/^@/, ""),
 	};
+}
+
+function findNewestLocalMentionId(db: Database, accountId: string) {
+	const row = db
+		.prepare(
+			`
+      select t.id
+      from tweets t
+      join tweet_account_edges e
+        on e.account_id = t.account_id and e.tweet_id = t.id
+      where e.account_id = ?
+        and e.kind = 'mention'
+      order by length(t.id) desc, t.id desc
+      limit 1
+      `,
+		)
+		.get(accountId) as { id: string } | undefined;
+	return row?.id;
 }
 
 function toLocalEntities(tweet: XurlMentionData): TweetEntities {
@@ -322,11 +342,13 @@ async function fetchMentionsViaXurl({
 	limit,
 	all,
 	parsedMaxPages,
+	sinceId,
 }: {
 	resolvedAccount: ReturnType<typeof resolveAccount>;
 	limit: number;
 	all: boolean;
 	parsedMaxPages: number | null;
+	sinceId?: string;
 }) {
 	const [accountUser] = await lookupUsersByHandles([resolvedAccount.username]);
 	if (!accountUser?.id) {
@@ -344,6 +366,7 @@ async function fetchMentionsViaXurl({
 			username: resolvedAccount.username,
 			userId: String(accountUser.id),
 			paginationToken: nextToken,
+			...(sinceId ? { sinceId } : {}),
 		});
 		pages.push(payload);
 		const metaNextToken =
@@ -386,6 +409,7 @@ export async function syncMentions({
 	maxPages,
 	refresh = false,
 	cacheTtlMs,
+	sinceId,
 }: {
 	account?: string;
 	mode?: string;
@@ -393,8 +417,10 @@ export async function syncMentions({
 	maxPages?: number;
 	refresh?: boolean;
 	cacheTtlMs?: number;
+	sinceId?: string;
 }) {
 	const parsedMode = parseSyncMode(mode);
+	const explicitSinceId = sinceId?.trim() || undefined;
 	if (parsedMode === "xurl") {
 		assertXurlLimit(limit);
 	} else {
@@ -410,6 +436,7 @@ export async function syncMentions({
 		pageSize: limit,
 		all: fetchAll,
 		maxPages: parsedMaxPages,
+		sinceId: explicitSinceId ?? null,
 	});
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
 	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
@@ -438,6 +465,26 @@ export async function syncMentions({
 		};
 	}
 
+	const cachedPaginationToken =
+		typeof cached?.value.meta?.next_token === "string" &&
+		cached.value.meta.next_token.length > 0
+			? cached.value.meta.next_token
+			: undefined;
+	const seededSinceId =
+		parsedMode === "xurl" && !explicitSinceId && !cachedPaginationToken
+			? findNewestLocalMentionId(db, resolvedAccount.accountId)
+			: undefined;
+	if (
+		parsedMode === "xurl" &&
+		!explicitSinceId &&
+		!cachedPaginationToken &&
+		!seededSinceId
+	) {
+		console.error(
+			"No local mention baseline found; syncing mentions from the newest page backwards.",
+		);
+	}
+
 	const payload =
 		parsedMode === "bird"
 			? await fetchMentionsViaBird({ limit })
@@ -446,6 +493,7 @@ export async function syncMentions({
 					limit,
 					all: fetchAll,
 					parsedMaxPages,
+					sinceId: explicitSinceId ?? seededSinceId,
 				});
 	mergeMentionsIntoLocalStore(
 		db,
@@ -503,6 +551,7 @@ async function exportMentionsViaCachedLiveSource({
 		pageSize: limit,
 		all: fetchAll,
 		maxPages: parsedMaxPages,
+		sinceId: null,
 	});
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
 	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);

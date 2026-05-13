@@ -684,6 +684,7 @@ syncCommand
 	.option("--mode <mode>", "bird or xurl", "xurl")
 	.option("--limit <n>", "Result limit per page", "20")
 	.option("--max-pages <n>", "Stop after N pages")
+	.option("--since-id <id>", "Fetch mentions newer than this tweet id")
 	.option("--refresh", "Bypass live-cache freshness window")
 	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 	.action(async (options) => {
@@ -693,6 +694,7 @@ syncCommand
 				mode: options.mode,
 				limit: Number(options.limit),
 				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+				sinceId: options.sinceId,
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
 			});

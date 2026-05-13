@@ -249,6 +249,99 @@ describe("cached live mentions", () => {
 		});
 	});
 
+	it("seeds first-run xurl mention sync from the newest local mention id", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		db.exec("delete from tweet_account_edges where kind = 'mention'");
+		db.exec("delete from tweets where kind = 'mention'");
+		db.prepare(
+			`
+	    insert into tweets (
+	      id, account_id, author_profile_id, kind, text, created_at,
+	      is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+	      entities_json, media_json, quoted_tweet_id
+	    ) values (
+	      '1000', 'acct_primary', 'profile_user_42', 'mention',
+	      'archived mention', '2026-03-09T01:59:00.000Z',
+	      0, null, 0, 0, 0, 0, '{}', '[]', null
+	    )
+	    `,
+		).run();
+		db.prepare(
+			`
+	    insert into tweet_account_edges (
+	      account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
+	      source, raw_json, updated_at
+	    ) values (
+	      'acct_primary', '1000', 'mention', '2026-03-09T01:59:00.000Z',
+	      '2026-03-09T01:59:00.000Z', 1, 'archive', '{}',
+	      '2026-03-09T01:59:00.000Z'
+	    )
+	    `,
+		).run();
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [],
+			meta: { result_count: 0 },
+		});
+		const { syncMentions } = await import("./mentions-live");
+
+		await syncMentions({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(listMentionsViaXurlMock).toHaveBeenCalledWith({
+			maxResults: 5,
+			username: "steipete",
+			userId: "25401953",
+			paginationToken: undefined,
+			sinceId: "1000",
+		});
+	});
+
+	it("warns and scans without since_id when no local mention baseline exists", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		db.exec("delete from tweet_account_edges where kind = 'mention'");
+		db.exec("delete from tweets where kind = 'mention'");
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [],
+			meta: { result_count: 0 },
+		});
+		const { syncMentions } = await import("./mentions-live");
+
+		try {
+			await syncMentions({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				refresh: true,
+			});
+			expect(consoleErrorMock).toHaveBeenCalledWith(
+				"No local mention baseline found; syncing mentions from the newest page backwards.",
+			);
+		} finally {
+			consoleErrorMock.mockRestore();
+		}
+
+		const call = listMentionsViaXurlMock.mock.calls[0]?.[0] as Record<
+			string,
+			unknown
+		>;
+		expect(call).toMatchObject({
+			maxResults: 5,
+			username: "steipete",
+			userId: "25401953",
+			paginationToken: undefined,
+		});
+		expect(call).not.toHaveProperty("sinceId");
+	});
+
 	it("creates stub authors and counts media urls when includes are missing", async () => {
 		makeTempHome();
 		listMentionsViaXurlMock.mockResolvedValueOnce({
