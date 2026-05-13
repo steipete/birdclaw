@@ -779,6 +779,35 @@ describe("archive import", () => {
 		});
 	});
 
+	it("upgrades DM-only placeholder profiles from archive mention metadata on re-import", async () => {
+		const firstArchivePath = makeRootDataArchive();
+		const secondArchivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(firstArchivePath);
+		const db = getNativeDb();
+
+		await importArchive(secondArchivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select handle, display_name, bio
+          from profiles
+          where id = 'profile_user_42'
+        `,
+				)
+				.get(),
+		).toEqual({
+			handle: "sam",
+			display_name: "sam",
+			bio: "Imported from archive user 42",
+		});
+	});
+
 	it("merges hydrated profile metadata when archive DM and follower rows overlap", async () => {
 		const archivePath = makeFollowDmArchive("900");
 		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));

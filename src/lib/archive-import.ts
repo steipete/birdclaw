@@ -591,6 +591,38 @@ export async function importArchive(
 		).map((profile) => [profile.id, profile]),
 	);
 
+	function isArchivePlaceholderProfile(profile: {
+		handle: string;
+		bio: string;
+		followers_count: number;
+		following_count: number;
+		public_metrics_json: string;
+		avatar_url: string | null;
+		location: string | null;
+		url: string | null;
+		verified_type: string | null;
+		entities_json: string;
+		raw_json: string;
+	}) {
+		const hasStubIdentity =
+			/^id\d+$/i.test(profile.handle) ||
+			profile.bio.startsWith("Imported from archive user ");
+		const hasLiveSignals =
+			profile.followers_count > 0 ||
+			profile.following_count > 0 ||
+			profile.public_metrics_json.trim() !== "{}" ||
+			profile.avatar_url !== null ||
+			profile.location !== null ||
+			profile.url !== null ||
+			profile.verified_type !== null ||
+			profile.entities_json.trim() !== "{}" ||
+			profile.raw_json.trim() !== "{}";
+
+		return (
+			!hasLiveSignals && (hasStubIdentity || profile.followers_count === 0)
+		);
+	}
+
 	function addArchiveFollowProfile(profileId: string, externalUserId: string) {
 		if (!profileId) return;
 		const existing = existingProfiles.get(profileId);
@@ -732,7 +764,7 @@ export async function importArchive(
 				} else {
 					const otherUserId = externalParticipantIds[0] ?? conversationId;
 					const existing = existingProfiles.get(participantProfileId);
-					if (existing) {
+					if (existing && !isArchivePlaceholderProfile(existing)) {
 						profiles.set(participantProfileId, {
 							id: participantProfileId,
 							handle: existing.handle,
