@@ -732,6 +732,53 @@ describe("archive import", () => {
 		});
 	});
 
+	it("preserves hydrated DM-only profile columns on archive re-import", async () => {
+		const archivePath = makeRootDataArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(archivePath);
+		const db = getNativeDb();
+		db.prepare(
+			`
+      update profiles
+      set handle = 'real42',
+        display_name = 'Real DM User',
+        followers_count = 321,
+        public_metrics_json = ?,
+        location = 'London',
+        raw_json = ?
+      where id = 'profile_user_42'
+      `,
+		).run(
+			'{"followers_count":321,"following_count":54}',
+			'{"id":"42","username":"real42","description":"hydrated"}',
+		);
+
+		await importArchive(archivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select handle, display_name, followers_count, public_metrics_json,
+            location, raw_json
+          from profiles
+          where id = 'profile_user_42'
+        `,
+				)
+				.get(),
+		).toEqual({
+			handle: "real42",
+			display_name: "Real DM User",
+			followers_count: 321,
+			public_metrics_json: '{"followers_count":321,"following_count":54}',
+			location: "London",
+			raw_json: '{"id":"42","username":"real42","description":"hydrated"}',
+		});
+	});
+
 	it("merges hydrated profile metadata when archive DM and follower rows overlap", async () => {
 		const archivePath = makeFollowDmArchive("900");
 		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));

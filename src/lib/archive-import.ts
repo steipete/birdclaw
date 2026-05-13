@@ -731,22 +731,43 @@ export async function importArchive(
 					});
 				} else {
 					const otherUserId = externalParticipantIds[0] ?? conversationId;
-					const inferred = inferProfileFromDirectory(
-						otherUserId,
-						mentionDirectory,
-					);
-					profiles.set(participantProfileId, {
-						id: participantProfileId,
-						handle: inferred.handle,
-						displayName: inferred.displayName,
-						bio: `Imported from archive user ${otherUserId}`,
-						followersCount: 0,
-						followingCount: 0,
-						...defaultProfileMetadata,
-						avatarHue: 210,
-						avatarUrl: null,
-						createdAt: accountPayload.createdAt,
-					});
+					const existing = existingProfiles.get(participantProfileId);
+					if (existing) {
+						profiles.set(participantProfileId, {
+							id: participantProfileId,
+							handle: existing.handle,
+							displayName: existing.display_name,
+							bio: existing.bio,
+							followersCount: existing.followers_count,
+							followingCount: existing.following_count,
+							publicMetricsJson: existing.public_metrics_json,
+							avatarHue: existing.avatar_hue,
+							avatarUrl: existing.avatar_url,
+							location: existing.location,
+							url: existing.url,
+							verifiedType: existing.verified_type,
+							entitiesJson: existing.entities_json,
+							rawJson: existing.raw_json,
+							createdAt: existing.created_at,
+						});
+					} else {
+						const inferred = inferProfileFromDirectory(
+							otherUserId,
+							mentionDirectory,
+						);
+						profiles.set(participantProfileId, {
+							id: participantProfileId,
+							handle: inferred.handle,
+							displayName: inferred.displayName,
+							bio: `Imported from archive user ${otherUserId}`,
+							followersCount: 0,
+							followingCount: 0,
+							...defaultProfileMetadata,
+							avatarHue: 210,
+							avatarUrl: null,
+							createdAt: accountPayload.createdAt,
+						});
+					}
 				}
 			}
 
