@@ -465,7 +465,9 @@ function buildShards(db: Database) {
 			case "tweet_account_edges":
 				for (const row of rowSet.rows) {
 					const kind =
-						row.kind === "home" || row.kind === "mention"
+						row.kind === "home" ||
+						row.kind === "mention" ||
+						row.kind === "authored"
 							? row.kind
 							: "unknown";
 					addRows(shards, `data/timeline_edges/${kind}.jsonl`, [row]);

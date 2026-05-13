@@ -117,7 +117,7 @@ export interface TweetCollectionsTable {
 export interface TweetAccountEdgesTable {
 	account_id: string;
 	tweet_id: string;
-	kind: "home" | "mention";
+	kind: "home" | "mention" | "authored";
 	first_seen_at: string;
 	last_seen_at: string;
 	seen_count: number;
