@@ -188,6 +188,45 @@ describe("live timeline collection sync", () => {
 		).toHaveLength(2);
 	});
 
+	it("marks bookmark xurl walks as paginated for the max_results cap", async () => {
+		setupTempHome();
+		mocks.listBookmarkedTweetsViaXurl
+			.mockResolvedValueOnce({
+				data: [],
+				meta: { next_token: "next-page" },
+			})
+			.mockResolvedValueOnce({
+				data: [],
+				meta: {},
+			});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await syncTimelineCollection({
+			kind: "bookmarks",
+			mode: "xurl",
+			limit: 100,
+			all: true,
+			refresh: true,
+		});
+
+		expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({
+				maxResults: 100,
+				isPaginatedWalk: true,
+			}),
+		);
+		expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				maxResults: 100,
+				isPaginatedWalk: true,
+				paginationToken: "next-page",
+			}),
+		);
+	});
+
 	it("falls back to bird for bookmarks when xurl fails", async () => {
 		setupTempHome();
 		mocks.lookupUsersByHandles.mockResolvedValue([{ id: "25401953" }]);

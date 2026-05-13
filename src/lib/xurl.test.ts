@@ -412,6 +412,54 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("caps bookmark max_results only for paginated walks", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [] }),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [] }),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [] }),
+				stderr: "",
+			});
+		const { listBookmarkedTweetsViaXurl, listLikedTweetsViaXurl } =
+			await import("./xurl");
+
+		await listBookmarkedTweetsViaXurl({
+			maxResults: 100,
+			userId: "25401953",
+			isPaginatedWalk: true,
+		});
+		await listBookmarkedTweetsViaXurl({
+			maxResults: 100,
+			userId: "25401953",
+		});
+		await listLikedTweetsViaXurl({
+			maxResults: 100,
+			userId: "25401953",
+		});
+
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
+			"--auth",
+			"oauth2",
+			`/2/users/25401953/bookmarks?max_results=90&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+		]);
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
+			"--auth",
+			"oauth2",
+			`/2/users/25401953/bookmarks?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+		]);
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(3, "xurl", [
+			"--auth",
+			"oauth2",
+			`/2/users/25401953/liked_tweets?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
+		]);
+	});
+
 	it("lists follow users through OAuth2 endpoints with pagination", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({

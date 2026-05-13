@@ -283,6 +283,7 @@ async function fetchXurlCollection({
 						maxResults: limit,
 						username,
 						userId: resolvedUserId,
+						isPaginatedWalk: all,
 						paginationToken: nextToken,
 					});
 		pages.push(payload);
