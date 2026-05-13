@@ -1367,6 +1367,16 @@ export async function importArchive(
 					new Date().toISOString(),
 				);
 			}
+			if (tweet.authorProfileId === localProfile.id) {
+				insertTimelineEdge.run(
+					"acct_primary",
+					tweet.id,
+					"authored",
+					tweet.createdAt,
+					tweet.createdAt,
+					new Date().toISOString(),
+				);
+			}
 			insertTweetFts.run(tweet.id, tweet.text);
 		}
 

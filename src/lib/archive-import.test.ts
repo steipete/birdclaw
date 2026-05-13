@@ -481,6 +481,53 @@ describe("archive import", () => {
 		expect(bookmarked.map((item) => item.text)).toEqual(["saved archive item"]);
 	}, 30000);
 
+	it("creates authored edges for archive-imported account tweets", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(archivePath);
+		const db = getNativeDb();
+		const accountTweets = db
+			.prepare(
+				`
+        select id, created_at
+        from tweets
+        where account_id = 'acct_primary' and author_profile_id = 'profile_me'
+        order by id
+        `,
+			)
+			.all() as Array<{ id: string; created_at: string }>;
+		const authoredEdges = db
+			.prepare(
+				`
+        select edge.tweet_id, edge.source, edge.first_seen_at, edge.last_seen_at
+        from tweet_account_edges edge
+        join tweets tweet on tweet.id = edge.tweet_id
+        where edge.account_id = 'acct_primary'
+          and edge.kind = 'authored'
+          and tweet.author_profile_id = 'profile_me'
+        order by edge.tweet_id
+        `,
+			)
+			.all() as Array<{
+			tweet_id: string;
+			source: string;
+			first_seen_at: string;
+			last_seen_at: string;
+		}>;
+
+		expect(authoredEdges).toEqual(
+			accountTweets.map((tweet) => ({
+				tweet_id: tweet.id,
+				source: "archive",
+				first_seen_at: tweet.created_at,
+				last_seen_at: tweet.created_at,
+			})),
+		);
+	});
+
 	it("imports follower and following archive files into the follow graph", async () => {
 		const archivePath = makeFollowArchive({
 			followers: ["101", "102"],
