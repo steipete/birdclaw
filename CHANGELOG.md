@@ -11,6 +11,7 @@
 
 ### Fixed
 
+- Skip non-numeric archive placeholder IDs such as self-DM conversation IDs when hydrating profiles through X, so one malformed local ID no longer aborts the batch. Thanks @nfarina.
 - Include expanded short URLs and link occurrences in Git-friendly backups so linked-tweet search survives backup restore.
 - Prefer `bird` for follow graph sync in `auto` mode, keeping `xurl` as an explicit fallback for accounts where OAuth2 follow reads work.
 - Update the docs site and app icons to use the Birdclaw crab-bird mark instead of the generic bird logo.

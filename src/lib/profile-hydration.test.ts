@@ -126,6 +126,60 @@ describe("profile hydration", () => {
 		expect(title.title).toBe("Sam Altman");
 	});
 
+	it("skips non-numeric archive placeholder ids before calling X", async () => {
+		const db = getNativeDb();
+		db.exec(`
+      delete from ai_scores;
+      delete from tweet_actions;
+      delete from dm_fts;
+      delete from tweets_fts;
+      delete from dm_messages;
+      delete from dm_conversations;
+      delete from tweets;
+      delete from profiles;
+      delete from accounts;
+    `);
+		db.prepare(
+			"insert into accounts (id, name, handle, transport, is_default, created_at) values ('acct_primary', 'Peter', '@steipete', 'archive', 1, '2009-03-19T22:54:05.000Z')",
+		).run();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_me', 'steipete', 'Peter', '', 0, 18, '2009-03-19T22:54:05.000Z')",
+		).run();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_user_42', 'id42', 'id42', 'Imported from archive user 42', 0, 210, '2009-03-19T22:54:05.000Z')",
+		).run();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_user_9388262-9388262', 'id9388262-9388262', 'id9388262-9388262', 'Imported from archive user 9388262-9388262', 0, 210, '2009-03-19T22:54:05.000Z')",
+		).run();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_user_not-a-user', 'idnot-a-user', 'idnot-a-user', 'Imported from archive user not-a-user', 0, 210, '2009-03-19T22:54:05.000Z')",
+		).run();
+
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupUsersByIds.mockResolvedValue([
+			{
+				id: "42",
+				username: "sam",
+				name: "Sam Altman",
+			},
+		]);
+		mocks.lookupAuthenticatedUser.mockResolvedValue(null);
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		const result = await hydrateProfilesFromX();
+
+		expect(mocks.lookupUsersByIds).toHaveBeenCalledTimes(1);
+		expect(mocks.lookupUsersByIds).toHaveBeenCalledWith(["42"]);
+		expect(result).toMatchObject({
+			hydratedProfiles: 1,
+			hydratedAccount: false,
+		});
+	});
+
 	it("covers hydration helper guards", async () => {
 		const { __test__ } = await import("./profile-hydration");
 
