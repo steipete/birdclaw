@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +29,30 @@ function makeTempHome() {
 	process.env.BIRDCLAW_HOME = tempDir;
 	resetBirdclawPathsForTests();
 	resetDatabaseForTests();
+}
+
+function makeArchiveWithTweet(id: string) {
+	const root = mkdtempSync(
+		path.join(os.tmpdir(), "birdclaw-authored-archive-"),
+	);
+	tempDirs.push(root);
+	const archiveDir = path.join(root, "sample", "data");
+	mkdirSync(archiveDir, { recursive: true });
+	writeFileSync(
+		path.join(archiveDir, "account.js"),
+		`window.YTD.account.part0 = [
+  { "account": { "accountId": "25401953", "username": "steipete", "accountDisplayName": "Peter Steinberger", "createdAt": "2009-03-19T22:54:05.000Z" } }
+]`,
+	);
+	writeFileSync(
+		path.join(archiveDir, "tweets.js"),
+		`window.YTD.tweets.part0 = [
+  { "tweet": { "id_str": "${id}", "created_at": "Tue Jun 03 19:32:20 +0000 2025", "full_text": "archive baseline ${id}", "favorite_count": "0" } }
+]`,
+	);
+	const archivePath = path.join(root, "archive.zip");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
+	return archivePath;
 }
 
 function authoredTweet(id: string, text = id) {
@@ -103,14 +128,18 @@ function insertLocalAuthoredHomeTweet({
 		);
 }
 
-function insertAuthoredEdge(tweetId: string, accountId = "acct_primary") {
+function insertAuthoredEdge(
+	tweetId: string,
+	accountId = "acct_primary",
+	source = "xurl",
+) {
 	getNativeDb()
 		.prepare(
 			`
       insert into tweet_account_edges (
         account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
         source, raw_json, updated_at
-      ) values (?, ?, 'authored', ?, ?, 1, 'xurl', '{}', ?)
+      ) values (?, ?, 'authored', ?, ?, 1, ?, '{}', ?)
       `,
 		)
 		.run(
@@ -118,6 +147,7 @@ function insertAuthoredEdge(tweetId: string, accountId = "acct_primary") {
 			tweetId,
 			"2026-05-10T12:00:00.000Z",
 			"2026-05-10T12:00:00.000Z",
+			source,
 			"2026-05-10T12:00:00.000Z",
 		);
 }
@@ -299,6 +329,44 @@ describe("live authored tweet sync", () => {
 				.prepare("select count(*) as count from tweets_fts where tweet_id = ?")
 				.get("100"),
 		).toEqual({ count: 1 });
+	});
+
+	it("does not overwrite hydrated source profile from fallback user data", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			"update profiles set bio = ?, followers_count = ? where id = ?",
+		).run("Hydrated archive bio", 123, "profile_me");
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [
+				{
+					id: "101",
+					author_id: "25401953",
+					text: "sparse authored page",
+					created_at: "2026-05-11T12:00:00.000Z",
+				},
+			],
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		expect(
+			db
+				.prepare(
+					"select bio, followers_count from profiles where id = 'profile_me'",
+				)
+				.get(),
+		).toEqual({
+			bio: "Hydrated archive bio",
+			followers_count: 123,
+		});
+		expect(
+			db
+				.prepare("select author_profile_id from tweets where id = ?")
+				.get("101"),
+		).toEqual({ author_profile_id: "profile_me" });
 	});
 
 	it("paginates authored tweets and deduplicates users", async () => {
@@ -551,7 +619,7 @@ describe("live authored tweet sync", () => {
 		}
 	});
 
-	it("seeds from selected account authored edges when the tweet belongs to another account", async () => {
+	it("seeds from selected account archive authored edges when the tweet belongs to another account", async () => {
 		makeTempHome();
 		insertLocalAuthoredHomeTweet({
 			id: "1100",
@@ -559,7 +627,7 @@ describe("live authored tweet sync", () => {
 			tweetAccountId: "acct_studio",
 			edgeAccountId: "acct_studio",
 		});
-		insertAuthoredEdge("1100");
+		insertAuthoredEdge("1100", "acct_primary", "archive");
 		mocks.listUserTweets.mockResolvedValueOnce({
 			items: [],
 			nextToken: null,
@@ -571,6 +639,53 @@ describe("live authored tweet sync", () => {
 		expect(mocks.listUserTweets).toHaveBeenCalledWith(
 			"25401953",
 			expect.objectContaining({ sinceId: "1100" }),
+		);
+	});
+
+	it("seeds from archive authored edges instead of newer live authored edges", async () => {
+		makeTempHome();
+		insertLocalAuthoredHomeTweet({ id: "1000", source: "bird" });
+		insertAuthoredEdge("1000", "acct_primary", "archive");
+		insertLocalAuthoredHomeTweet({ id: "2000", source: "bird" });
+		insertAuthoredEdge("2000", "acct_primary", "xurl");
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [],
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		expect(mocks.listUserTweets).toHaveBeenCalledWith(
+			"25401953",
+			expect.objectContaining({ sinceId: "1000" }),
+		);
+	});
+
+	it("skips nonnumeric archive ids when seeding first authored sync", async () => {
+		makeTempHome();
+		insertLocalAuthoredHomeTweet({
+			id: "550e8400-e29b-41d4-a716-446655440000",
+			source: "bird",
+		});
+		insertAuthoredEdge(
+			"550e8400-e29b-41d4-a716-446655440000",
+			"acct_primary",
+			"archive",
+		);
+		insertLocalAuthoredHomeTweet({ id: "1000", source: "bird" });
+		insertAuthoredEdge("1000", "acct_primary", "archive");
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [],
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		expect(mocks.listUserTweets).toHaveBeenCalledWith(
+			"25401953",
+			expect.objectContaining({ sinceId: "1000" }),
 		);
 	});
 
@@ -595,6 +710,242 @@ describe("live authored tweet sync", () => {
 		} finally {
 			stderr.mockRestore();
 		}
+	});
+
+	it("commits archive baseline after clearImportedData invalidates authored cursor", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify({
+					state: "pending-forward",
+					sinceId: "900",
+					token: "stale-forward",
+					pendingNewestId: "950",
+				}),
+				"2026-05-12T12:00:00.000Z",
+			);
+		const { importArchive } = await import("./archive-import");
+		await importArchive(makeArchiveWithTweet("1000"));
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [],
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		expect(mocks.listUserTweets).toHaveBeenCalledWith(
+			"25401953",
+			expect.objectContaining({ sinceId: "1000" }),
+		);
+		expect(authoredCursor()).toEqual({
+			state: "committed",
+			sinceId: "1000",
+		});
+	});
+
+	it("stores and resumes matching until_id tokens without moving since_id", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify({ state: "committed", sinceId: "600" }),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets
+			.mockResolvedValueOnce(authoredPage("250", "older-page"))
+			.mockResolvedValueOnce({
+				items: [],
+				nextToken: null,
+			});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		const partial = await syncAuthoredTweets({
+			limit: 5,
+			untilId: "250",
+			maxPages: 1,
+		});
+		expect(partial).toMatchObject({
+			partial: true,
+			nextSinceId: "600",
+			nextToken: "older-page",
+		});
+		expect(authoredCursor()).toEqual({
+			state: "pending-until",
+			sinceId: "600",
+			token: "older-page",
+			untilId: "250",
+			requestedSinceId: null,
+		});
+
+		const resumed = await syncAuthoredTweets({ limit: 5, untilId: "250" });
+
+		expect(resumed).toMatchObject({
+			ok: true,
+			nextSinceId: "600",
+		});
+		expect(mocks.listUserTweets).toHaveBeenNthCalledWith(
+			2,
+			"25401953",
+			expect.objectContaining({
+				paginationToken: "older-page",
+				untilId: "250",
+			}),
+		);
+		expect(authoredCursor()).toEqual({
+			state: "committed",
+			sinceId: "600",
+		});
+	});
+
+	it("preserves explicit since_id across pending until_id resumes", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify({ state: "committed", sinceId: "600" }),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets
+			.mockResolvedValueOnce(authoredPage("250", "older-page"))
+			.mockResolvedValueOnce({
+				items: [],
+				nextToken: null,
+			});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({
+			limit: 5,
+			sinceId: "100",
+			untilId: "500",
+			maxPages: 1,
+		});
+		expect(authoredCursor()).toEqual({
+			state: "pending-until",
+			sinceId: "600",
+			token: "older-page",
+			untilId: "500",
+			requestedSinceId: "100",
+		});
+
+		await syncAuthoredTweets({ limit: 5, untilId: "500" });
+
+		expect(mocks.listUserTweets).toHaveBeenNthCalledWith(
+			2,
+			"25401953",
+			expect.objectContaining({
+				paginationToken: "older-page",
+				sinceId: "100",
+				untilId: "500",
+			}),
+		);
+		expect(authoredCursor()).toEqual({
+			state: "committed",
+			sinceId: "600",
+		});
+	});
+
+	it("reports committed since_id when an until_id backfill fails after saved pages", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify({ state: "committed", sinceId: "600" }),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets
+			.mockResolvedValueOnce(authoredPage("250", "older-page"))
+			.mockRejectedValueOnce(new Error("rate limited"));
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		const result = await syncAuthoredTweets({ limit: 5, untilId: "250" });
+
+		expect(result).toMatchObject({
+			ok: false,
+			partial: true,
+			error: "rate limited",
+			nextSinceId: "600",
+			cursor: { sinceId: "600", paginationToken: "older-page" },
+		});
+	});
+
+	it("ignores pending until_id tokens during default authored sync", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify({
+					state: "pending-until",
+					sinceId: "600",
+					token: "older-page",
+					untilId: "250",
+				}),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [],
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		const requestOptions = mocks.listUserTweets.mock.calls[0]?.[1] as
+			| Record<string, unknown>
+			| undefined;
+		expect(requestOptions).toEqual(expect.objectContaining({ sinceId: "600" }));
+		expect(requestOptions?.paginationToken).toBeUndefined();
+		expect(requestOptions?.untilId).toBeUndefined();
+		expect(authoredCursor()).toEqual({
+			state: "committed",
+			sinceId: "600",
+		});
+	});
+
+	it("migrates legacy paginationToken cursors to pending-forward on read", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify({ sinceId: "600", paginationToken: "legacy-page" }),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [],
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		const requestOptions = mocks.listUserTweets.mock.calls[0]?.[1] as
+			| Record<string, unknown>
+			| undefined;
+		expect(requestOptions).toEqual(
+			expect.objectContaining({
+				sinceId: "600",
+				paginationToken: "legacy-page",
+			}),
+		);
 	});
 
 	it("passes until_id without preserving a stale pending pagination token", async () => {
@@ -664,9 +1015,46 @@ describe("live authored tweet sync", () => {
 		expect(requestOptions).toEqual(expect.objectContaining({ untilId: "250" }));
 		expect(requestOptions?.sinceId).toBeUndefined();
 		expect(authoredCursor()).toEqual({
+			state: "committed",
 			sinceId: "600",
-			paginationToken: null,
-			pendingNewestId: null,
+		});
+	});
+
+	it("preserves explicit since_id after an empty completed sync", async () => {
+		makeTempHome();
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify({
+					sinceId: "500",
+					paginationToken: null,
+					pendingNewestId: null,
+				}),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [],
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		const result = await syncAuthoredTweets({ limit: 5, sinceId: "1000" });
+
+		expect(result).toMatchObject({
+			ok: true,
+			sinceId: "1000",
+			nextSinceId: "1000",
+		});
+		expect(mocks.listUserTweets).toHaveBeenCalledWith(
+			"25401953",
+			expect.objectContaining({ sinceId: "1000" }),
+		);
+		expect(authoredCursor()).toEqual({
+			state: "committed",
+			sinceId: "1000",
 		});
 	});
 

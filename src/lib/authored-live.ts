@@ -13,7 +13,11 @@ import type {
 	XurlUserTweetsResponse,
 } from "./types";
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
-import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
+import {
+	buildExternalProfileId,
+	ensureStubProfileForXUser,
+	upsertProfileFromXUser,
+} from "./x-profile";
 import {
 	getTransportStatus,
 	listUserTweets,
@@ -32,11 +36,25 @@ export class AuthoredSyncError extends Error {
 	}
 }
 
-interface AuthoredCursorState {
-	sinceId: string | null;
-	paginationToken: string | null;
-	pendingNewestId: string | null;
-}
+// sync_cache JSON shapes:
+// { state: "committed", sinceId }
+// { state: "pending-forward", sinceId, token, pendingNewestId }
+// { state: "pending-until", sinceId, token, untilId, requestedSinceId }
+type AuthoredCursorState =
+	| { state: "committed"; sinceId: string | null }
+	| {
+			state: "pending-forward";
+			sinceId: string | null;
+			token: string;
+			pendingNewestId: string | null;
+	  }
+	| {
+			state: "pending-until";
+			sinceId: string | null;
+			token: string;
+			untilId: string;
+			requestedSinceId?: string | null;
+	  };
 
 interface AuthoredPayload {
 	data: XurlMentionData[];
@@ -117,20 +135,54 @@ function cursorKey(accountId: string) {
 
 function normalizeCursor(value: unknown): AuthoredCursorState {
 	if (!value || typeof value !== "object") {
-		return { sinceId: null, paginationToken: null, pendingNewestId: null };
+		return { state: "committed", sinceId: null };
 	}
 	const record = value as Record<string, unknown>;
-	return {
-		sinceId: typeof record.sinceId === "string" ? record.sinceId : null,
-		paginationToken:
-			typeof record.paginationToken === "string"
-				? record.paginationToken
-				: null,
-		pendingNewestId:
-			typeof record.pendingNewestId === "string"
-				? record.pendingNewestId
-				: null,
-	};
+	const sinceId = typeof record.sinceId === "string" ? record.sinceId : null;
+	if (record.state === "pending-forward" && typeof record.token === "string") {
+		return {
+			state: "pending-forward",
+			sinceId,
+			token: record.token,
+			pendingNewestId:
+				typeof record.pendingNewestId === "string"
+					? record.pendingNewestId
+					: null,
+		};
+	}
+	if (
+		record.state === "pending-until" &&
+		typeof record.token === "string" &&
+		typeof record.untilId === "string"
+	) {
+		const requestedSinceId =
+			"requestedSinceId" in record
+				? typeof record.requestedSinceId === "string"
+					? record.requestedSinceId
+					: null
+				: undefined;
+		return {
+			state: "pending-until",
+			sinceId,
+			token: record.token,
+			untilId: record.untilId,
+			...(requestedSinceId !== undefined ? { requestedSinceId } : {}),
+		};
+	}
+	const legacyToken =
+		typeof record.paginationToken === "string" ? record.paginationToken : null;
+	if (legacyToken) {
+		return {
+			state: "pending-forward",
+			sinceId,
+			token: legacyToken,
+			pendingNewestId:
+				typeof record.pendingNewestId === "string"
+					? record.pendingNewestId
+					: null,
+		};
+	}
+	return { state: "committed", sinceId };
 }
 
 function readAuthoredCursor(db: Database, accountId: string) {
@@ -145,6 +197,60 @@ function writeAuthoredCursor(
 	writeSyncCache(cursorKey(accountId), state, db);
 }
 
+function writeCommittedCursor(
+	db: Database,
+	accountId: string,
+	sinceId: string | null,
+) {
+	writeAuthoredCursor(db, accountId, { state: "committed", sinceId });
+}
+
+function writePendingForwardCursor(
+	db: Database,
+	accountId: string,
+	{
+		sinceId,
+		token,
+		pendingNewestId,
+	}: {
+		sinceId: string | null;
+		token: string;
+		pendingNewestId: string | null;
+	},
+) {
+	writeAuthoredCursor(db, accountId, {
+		state: "pending-forward",
+		sinceId,
+		token,
+		pendingNewestId,
+	});
+}
+
+function writePendingUntilCursor(
+	db: Database,
+	accountId: string,
+	{
+		sinceId,
+		token,
+		untilId,
+		requestedSinceId,
+	}: {
+		sinceId: string | null;
+		token: string;
+		untilId: string;
+		requestedSinceId: string | null;
+	},
+) {
+	writeAuthoredCursor(db, accountId, {
+		state: "pending-until",
+		sinceId,
+		token,
+		untilId,
+		requestedSinceId,
+	});
+}
+
+// Archive seeds stay archive-only because backups can contain live edges without sync_cache.
 function findArchiveAuthoredSinceSeed(db: Database, accountId: string) {
 	const row = db
 		.prepare(
@@ -152,14 +258,17 @@ function findArchiveAuthoredSinceSeed(db: Database, accountId: string) {
     select t.id
     from tweets t
     join accounts a on a.id = ?
-    where (
+    where t.id glob '[0-9]*'
+      and t.id not glob '*[^0-9]*'
+      and (
       exists (
         select 1
         from tweet_account_edges e
-        where e.account_id = ?
-          and e.tweet_id = t.id
-          and e.kind = 'authored'
-      )
+	        where e.account_id = ?
+	          and e.tweet_id = t.id
+	          and e.kind = 'authored'
+	          and e.source = 'archive'
+	      )
       or (
         t.kind = 'home'
         and exists (
@@ -521,6 +630,23 @@ function replaceTweetFts(db: Database, tweetId: string, text: string) {
 	);
 }
 
+function findExistingProfileIdForUser(db: Database, user: XurlMentionUser) {
+	const username = String(user.username ?? "").replace(/^@/, "");
+	const row = db
+		.prepare(
+			`
+      select id
+      from profiles
+      where id = ? or handle = ?
+      limit 1
+      `,
+		)
+		.get(buildExternalProfileId(user.id), username) as
+		| { id: string }
+		| undefined;
+	return row?.id ?? null;
+}
+
 function mergeAuthoredPayloadIntoLocalStore({
 	db,
 	accountId,
@@ -535,8 +661,10 @@ function mergeAuthoredPayloadIntoLocalStore({
 	const usersById = new Map(
 		(payload.includes?.users ?? []).map((user) => [user.id, user]),
 	);
+	const fallbackUserIds = new Set<string>();
 	if (!usersById.has(sourceUser.id)) {
 		usersById.set(sourceUser.id, sourceUser);
+		fallbackUserIds.add(sourceUser.id);
 	}
 	const mediaByKey = new Map(
 		(payload.includes?.media ?? []).map((media) => [media.media_key, media]),
@@ -578,16 +706,20 @@ function mergeAuthoredPayloadIntoLocalStore({
 				username: `user_${tweet.author_id}`,
 				name: `user_${tweet.author_id}`,
 			} as const);
-		const profile = usersById.has(tweet.author_id)
-			? upsertProfileFromXUser(db, author)
-			: ensureStubProfileForXUser(db, tweet.author_id);
+		const profileId =
+			usersById.has(tweet.author_id) && !fallbackUserIds.has(tweet.author_id)
+				? upsertProfileFromXUser(db, author).profile.id
+				: ((fallbackUserIds.has(tweet.author_id)
+						? findExistingProfileIdForUser(db, author)
+						: null) ??
+					ensureStubProfileForXUser(db, tweet.author_id).profile.id);
 		const replyToId = getReferencedTweetId(tweet, "replied_to");
 		const quotedTweetId = getReferencedTweetId(tweet, "quoted");
 		const media = toLocalMedia(tweet, mediaByKey);
 		upsertTweet.run(
 			tweet.id,
 			accountId,
-			profile.profile.id,
+			profileId,
 			kind,
 			tweet.text,
 			tweet.created_at,
@@ -779,17 +911,15 @@ export async function syncAuthoredTweets({
 	const db = getNativeDb();
 	const identity = await resolveAuthoredIdentity({ account, db });
 	const cursor = readAuthoredCursor(db, identity.accountId);
-	if (untilId && cursor.paginationToken) {
-		writeAuthoredCursor(db, identity.accountId, {
-			sinceId: cursor.sinceId,
-			paginationToken: null,
-			pendingNewestId: null,
-		});
-	}
-	const usePersistedPagination =
-		!sinceId && !untilId && Boolean(cursor.paginationToken);
+	const usePersistedForward =
+		sinceId === undefined && !untilId && cursor.state === "pending-forward";
+	const usePersistedUntil =
+		sinceId === undefined &&
+		Boolean(untilId) &&
+		cursor.state === "pending-until" &&
+		cursor.untilId === untilId;
 	const shouldSeedFromArchive =
-		!usePersistedPagination &&
+		!usePersistedForward &&
 		!cursor.sinceId &&
 		sinceId === undefined &&
 		!untilId;
@@ -801,12 +931,22 @@ export async function syncAuthoredTweets({
 			"birdclaw sync authored: no archive baseline found; starting a full backwards scan",
 		);
 	}
-	const effectiveSinceId =
-		sinceId ?? archiveSinceSeed ?? (untilId ? null : cursor.sinceId);
-	let nextToken = usePersistedPagination
-		? (cursor.paginationToken ?? undefined)
-		: undefined;
-	let newestSeenId = usePersistedPagination
+	const persistedUntilSinceId: string | null = usePersistedUntil
+		? (("requestedSinceId" in cursor
+				? cursor.requestedSinceId
+				: cursor.sinceId) ?? null)
+		: null;
+	const effectiveSinceId: string | null =
+		sinceId ??
+		archiveSinceSeed ??
+		(untilId ? persistedUntilSinceId : cursor.sinceId) ??
+		null;
+	let nextToken = usePersistedForward
+		? cursor.token
+		: usePersistedUntil
+			? cursor.token
+			: undefined;
+	let newestSeenId = usePersistedForward
 		? maxTweetId(cursor.sinceId, cursor.pendingNewestId)
 		: cursor.sinceId;
 	const pages: XurlUserTweetsResponse[] = [];
@@ -845,7 +985,7 @@ export async function syncAuthoredTweets({
 				accountId: identity.accountId,
 				userId: identity.userId,
 				effectiveSinceId,
-				nextSinceId: effectiveSinceId,
+				nextSinceId: untilId ? cursor.sinceId : effectiveSinceId,
 				nextToken: nextToken ?? null,
 				pageCount,
 				payload,
@@ -870,10 +1010,17 @@ export async function syncAuthoredTweets({
 		newestSeenId = maxTweetId(newestSeenId, pagePayload.meta.newest_id);
 		nextToken = page.nextToken ?? undefined;
 
-		if (nextToken && !untilId) {
-			writeAuthoredCursor(db, identity.accountId, {
+		if (nextToken && untilId) {
+			writePendingUntilCursor(db, identity.accountId, {
+				sinceId: cursor.sinceId,
+				token: nextToken,
+				untilId,
+				requestedSinceId: effectiveSinceId,
+			});
+		} else if (nextToken) {
+			writePendingForwardCursor(db, identity.accountId, {
 				sinceId: effectiveSinceId,
-				paginationToken: nextToken,
+				token: nextToken,
 				pendingNewestId: newestSeenId,
 			});
 		}
@@ -888,13 +1035,24 @@ export async function syncAuthoredTweets({
 		? cursor.sinceId
 		: capped
 			? effectiveSinceId
-			: maxTweetId(newestSeenId, cursor.sinceId);
-	if (!untilId) {
-		writeAuthoredCursor(db, identity.accountId, {
-			sinceId: nextSinceId,
-			paginationToken: nextToken ?? null,
-			pendingNewestId: capped ? newestSeenId : null,
+			: maxTweetId(newestSeenId, effectiveSinceId, cursor.sinceId);
+	if (untilId && capped && nextToken) {
+		writePendingUntilCursor(db, identity.accountId, {
+			sinceId: cursor.sinceId,
+			token: nextToken,
+			untilId,
+			requestedSinceId: effectiveSinceId,
 		});
+	} else if (untilId) {
+		writeCommittedCursor(db, identity.accountId, cursor.sinceId);
+	} else if (capped && nextToken) {
+		writePendingForwardCursor(db, identity.accountId, {
+			sinceId: nextSinceId,
+			token: nextToken,
+			pendingNewestId: newestSeenId,
+		});
+	} else {
+		writeCommittedCursor(db, identity.accountId, nextSinceId);
 	}
 
 	const payload = mergePages({

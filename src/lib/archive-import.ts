@@ -332,6 +332,7 @@ function clearImportedData() {
     delete from tweets;
     delete from profiles;
     delete from accounts;
+    delete from sync_cache where cache_key like 'authored:xurl:%:cursor';
   `);
 }
 
