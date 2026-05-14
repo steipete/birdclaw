@@ -1,6 +1,10 @@
 import type { Database } from "./sqlite";
 
-export type TweetAccountEdgeKind = "home" | "mention" | "authored";
+export type TweetAccountEdgeKind =
+	| "home"
+	| "mention"
+	| "authored"
+	| "thread_context";
 
 export function upsertTweetAccountEdge(
 	db: Database,
@@ -29,7 +33,10 @@ export function upsertTweetAccountEdge(
       first_seen_at = min(tweet_account_edges.first_seen_at, excluded.first_seen_at),
       last_seen_at = max(tweet_account_edges.last_seen_at, excluded.last_seen_at),
       seen_count = tweet_account_edges.seen_count + 1,
-      source = coalesce(nullif(excluded.source, ''), tweet_account_edges.source),
+	      source = case
+	        when tweet_account_edges.source = 'archive' then 'archive'
+	        else coalesce(nullif(excluded.source, ''), tweet_account_edges.source)
+	      end,
       raw_json = case
         when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
         else tweet_account_edges.raw_json

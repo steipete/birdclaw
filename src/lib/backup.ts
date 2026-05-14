@@ -1484,8 +1484,8 @@ export async function importBackup({
         account_id = coalesce(nullif(excluded.account_id, ''), tweets.account_id),
         author_profile_id = coalesce(nullif(excluded.author_profile_id, ''), tweets.author_profile_id),
         kind = case
-          when tweets.kind in ('home', 'mention') then tweets.kind
-          when excluded.kind in ('home', 'mention') then excluded.kind
+          when tweets.kind in ('home', 'mention', 'authored') then tweets.kind
+          when excluded.kind in ('home', 'mention', 'authored') then excluded.kind
           else coalesce(nullif(excluded.kind, ''), tweets.kind)
         end,
         text = coalesce(nullif(excluded.text, ''), tweets.text),

@@ -83,6 +83,26 @@ describe("media includes mapping", () => {
 		});
 	});
 
+	it("maps unknown remote media types to local unknown media", () => {
+		expect(
+			media(
+				["space_1"],
+				[
+					{
+						media_key: "space_1",
+						type: "audio_space",
+						url: "https://pbs.twimg.com/media/space.jpg",
+					},
+				],
+			),
+		).toEqual([
+			{
+				url: "https://pbs.twimg.com/media/space.jpg",
+				type: "unknown",
+			},
+		]);
+	});
+
 	it("preserves mixed media order from tweet attachments", () => {
 		expect(
 			media(["video_1", "photo_1"], [photo, video]).map(

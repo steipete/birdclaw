@@ -109,13 +109,15 @@ birdclaw compose dm dm_003 "Send it over."
 
 Replies use the active live transport (`auto` by default). Without a working transport, the command fails fast with exit code `4` rather than recording a half-state local row.
 
-## DM mode on archive import
+## Archive import
 
-Twitter archives include full DM history but the JSON is awkward. By default, `import archive` runs `--dm-mode full` so message bodies land in SQLite and become FTS5-searchable. Pass `--dm-mode metadata` if you only want conversation skeletons (faster import, no body content).
+Twitter archives include full DM history but the JSON is awkward. `import archive` imports message bodies into SQLite and makes them FTS5-searchable.
+
+Use `--select directMessages` when a newer archive has fresher DMs and you do not want to touch tweets, likes, bookmarks, profiles, or follow data. The selected re-import clears only archive DM rows for `acct_primary`, preserves other accounts, then rebuilds DM FTS. `dms` is accepted as a shorter alias.
 
 ```bash
-birdclaw import archive ~/Downloads/twitter-archive.zip --dm-mode metadata --json
-birdclaw import archive ~/Downloads/twitter-archive.zip --dm-mode full --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select directMessages --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select dms --json
 ```
 
 ## Web UI

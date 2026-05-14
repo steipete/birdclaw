@@ -7,7 +7,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { registerModerationCommands } from "#/cli-moderation";
 import { findArchives } from "#/lib/archive-finder";
-import { importArchive } from "#/lib/archive-import";
+import {
+	ARCHIVE_IMPORT_SLICES,
+	type ArchiveImportSlice,
+	importArchive,
+} from "#/lib/archive-import";
+import {
+	AuthoredSyncError,
+	syncAuthoredTweets,
+	type AuthoredSyncMode,
+} from "#/lib/authored-live";
 import {
 	exportBackup,
 	importBackup,
@@ -36,6 +45,7 @@ import { exportMentionItems } from "#/lib/mentions-export";
 import {
 	exportMentionsViaCachedBird,
 	exportMentionsViaCachedXurl,
+	syncMentions,
 } from "#/lib/mentions-live";
 import {
 	getFollowGraphSummary,
@@ -142,6 +152,55 @@ function parsePositiveIntegerOption(value: string | undefined, option: string) {
 		return undefined;
 	}
 	return parsed;
+}
+
+function parseArchiveImportSelect(value: string | undefined) {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const aliases: Record<string, ArchiveImportSlice> = Object.assign(
+		Object.create(null) as Record<string, ArchiveImportSlice>,
+		{
+			tweets: "tweets",
+			likes: "likes",
+			bookmarks: "bookmarks",
+			directmessages: "directMessages",
+			"direct-messages": "directMessages",
+			dms: "directMessages",
+			profiles: "profiles",
+			followers: "followers",
+			following: "following",
+		},
+	);
+	const selected: ArchiveImportSlice[] = [];
+	const seen = new Set<ArchiveImportSlice>();
+	for (const rawItem of value.split(",")) {
+		const item = rawItem.trim();
+		if (!item) continue;
+		const slice = aliases[item] ?? aliases[item.toLowerCase()];
+		if (!slice) {
+			printError(
+				`--select must be a comma-separated subset of ${ARCHIVE_IMPORT_SLICES.join(", ")}`,
+			);
+			process.exitCode = 1;
+			return undefined;
+		}
+		if (!seen.has(slice)) {
+			seen.add(slice);
+			selected.push(slice);
+		}
+	}
+
+	if (selected.length === 0) {
+		printError(
+			`--select must include at least one of ${ARCHIVE_IMPORT_SLICES.join(", ")}`,
+		);
+		process.exitCode = 1;
+		return undefined;
+	}
+
+	return selected;
 }
 
 function resolveActionOptions(options: { transport?: string }) {
@@ -262,7 +321,15 @@ const importCommand = program
 importCommand
 	.command("archive [archivePath]")
 	.description("Import a Twitter archive into the local SQLite store")
-	.action(async (archivePath) => {
+	.option(
+		"--select <kinds>",
+		`Import only selected archive slices: ${ARCHIVE_IMPORT_SLICES.join(", ")}`,
+	)
+	.action(async (archivePath, options: { select?: string }) => {
+		const select = parseArchiveImportSelect(options.select);
+		if (options.select !== undefined && !select) {
+			return;
+		}
 		let resolvedArchivePath = archivePath;
 		if (!resolvedArchivePath) {
 			const [latestArchive] = await findArchives();
@@ -275,7 +342,7 @@ importCommand
 			);
 		}
 
-		const result = await importArchive(resolvedArchivePath);
+		const result = await importArchive(resolvedArchivePath, { select });
 		await autoSyncAfterWrite();
 		print(result, program.opts().json ?? false);
 	});
@@ -295,7 +362,7 @@ const searchCommand = program
 
 searchCommand
 	.command("tweets [query]")
-	.option("--resource <resource>", "home or mentions", "home")
+	.option("--resource <resource>", "home, mentions, or authored", "home")
 	.option("--replied", "Only replied items")
 	.option("--unreplied", "Only unreplied items")
 	.option("--since <date>", "Include tweets created at or after this date")
@@ -326,7 +393,12 @@ searchCommand
 				? "unreplied"
 				: "all";
 		const items = listTimelineItems({
-			resource: options.resource === "mentions" ? "mentions" : "home",
+			resource:
+				options.resource === "mentions"
+					? "mentions"
+					: options.resource === "authored"
+						? "authored"
+						: "home",
 			search: query,
 			replyFilter,
 			since: options.since,
@@ -758,27 +830,129 @@ syncCommand
 	});
 
 syncCommand
+	.command("mentions")
+	.description("Refresh live mentions through xurl or bird")
+	.option("--account <accountId>", "Account id")
+	.option("--mode <mode>", "bird or xurl", "xurl")
+	.option("--limit <n>", "Result limit per page", "20")
+	.option("--max-pages <n>", "Stop after N pages")
+	.option("--since-id <id>", "Fetch mentions newer than this tweet id")
+	.option("--start-time <iso>", "Fetch mentions created at or after this time")
+	.option("--refresh", "Bypass live-cache freshness window")
+	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
+	.action(async (options) => {
+		try {
+			const result = await syncMentions({
+				account: options.account,
+				mode: options.mode,
+				limit: Number(options.limit),
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+				sinceId: options.sinceId,
+				startTime: options.startTime,
+				refresh: Boolean(options.refresh),
+				cacheTtlMs: Number(options.cacheTtl) * 1000,
+			});
+			await autoSyncAfterWrite();
+			print(result, true);
+			if (result.partial) {
+				process.exitCode = 5;
+			}
+		} catch (error) {
+			print(
+				{
+					ok: false,
+					kind: "mentions",
+					mode: options.mode ?? "xurl",
+					error: errorMessage(error),
+				},
+				true,
+			);
+			process.exitCode = 1;
+		}
+	});
+
+syncCommand
+	.command("authored")
+	.description("Refresh authenticated authored tweets through xurl")
+	.option("--account <accountId>", "Account id")
+	.option("--mode <mode>", "xurl", "xurl")
+	.option("--limit <n>", "X API page size", "100")
+	.option("--max-pages <n>", "Stop after N pages and resume later")
+	.option("--since-id <tweetId>", "Override the stored since_id cursor")
+	.option(
+		"--until-id <tweetId>",
+		"Fetch tweets older than this id without moving the cursor",
+	)
+	.action(async (options) => {
+		try {
+			const result = await syncAuthoredTweets({
+				account: options.account,
+				mode: options.mode as AuthoredSyncMode,
+				limit: Number(options.limit),
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+				sinceId: options.sinceId,
+				untilId: options.untilId,
+			});
+			await autoSyncAfterWrite();
+			print(result, true);
+			if (result.partial) {
+				process.exitCode = 5;
+			}
+		} catch (error) {
+			print(
+				{
+					ok: false,
+					kind: "authored",
+					source: "xurl",
+					error: errorMessage(error),
+				},
+				true,
+			);
+			process.exitCode =
+				error instanceof AuthoredSyncError ? error.exitCode : 1;
+		}
+	});
+
+syncCommand
 	.command("mention-threads")
 	.description(
-		"Fetch tweet conversation context for recent mentions through bird",
+		"Fetch tweet conversation context for recent mentions through bird or xurl",
 	)
 	.option("--account <accountId>", "Account id")
+	.option("--mode <mode>", "bird or xurl", "bird")
 	.option("--limit <n>", "Recent mentions to inspect", "30")
 	.option("--delay-ms <n>", "Delay between thread fetches", "1500")
 	.option("--timeout-ms <n>", "Per-thread timeout", "15000")
 	.option("--all", "Fetch all retrievable thread pages")
 	.option("--max-pages <n>", "Stop after N pages")
 	.action(async (options) => {
-		const result = await syncMentionThreads({
-			account: options.account,
-			limit: Number(options.limit),
-			delayMs: Number(options.delayMs),
-			timeoutMs: Number(options.timeoutMs),
-			all: Boolean(options.all),
-			maxPages: options.maxPages ? Number(options.maxPages) : undefined,
-		});
-		await autoSyncAfterWrite();
-		print(result, true);
+		try {
+			const result = await syncMentionThreads({
+				account: options.account,
+				mode: options.mode,
+				limit: Number(options.limit),
+				delayMs: Number(options.delayMs),
+				timeoutMs: Number(options.timeoutMs),
+				all: Boolean(options.all),
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+			});
+			await autoSyncAfterWrite();
+			print(result, true);
+			if (result.partial) {
+				process.exitCode = 5;
+			}
+		} catch (error) {
+			print(
+				{
+					ok: false,
+					kind: "mention-threads",
+					mode: options.mode ?? "bird",
+					error: errorMessage(error),
+				},
+				true,
+			);
+			process.exitCode = 1;
+		}
 	});
 
 for (const kind of ["likes", "bookmarks"] as const) {

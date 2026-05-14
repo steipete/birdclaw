@@ -33,7 +33,10 @@ function localType(media: XurlMediaItem): TweetMediaItem["type"] {
 	if (media.type === "animated_gif") {
 		return "gif";
 	}
-	return media.type;
+	if (media.type === "video") {
+		return "video";
+	}
+	return "unknown";
 }
 
 function mp4Variants(

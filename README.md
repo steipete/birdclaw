@@ -21,9 +21,10 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - FTS5 search over tweets and DMs
 - archive autodiscovery on macOS
 - archive import for tweets, likes, followers/following, profiles, and full DMs
+- selective archive re-imports for one stale slice without wiping the rest of the local store
 - archive import for bookmark exports when present
 - archive import streams bundled media files into the local originals cache and extracts `video_info.variants[]` for video and animated-GIF rows
-- live likes and bookmarks sync through `xurl` or `bird`
+- live authored sync through `xurl`, plus likes and bookmarks through `xurl` or `bird`
 - cache-first followers/following sync through `bird` or `xurl`
 - local follow graph queries for top followers, unfollows, mutuals, and non-mutual following
 - Git-friendly text backups with yearly tweet shards and per-conversation DM shards
@@ -217,10 +218,25 @@ Find and import an archive:
 birdclaw archive find --json
 birdclaw import archive --json
 birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
+```
+
+Optional profile hydration can improve bios, follower counts, and avatars, but it performs live X profile reads and can spend API credits on large archives:
+
+```bash
 birdclaw import hydrate-profiles --json
 ```
 
 `import archive` is idempotent. Re-running parses follower/following edges into the local follow graph, streams bundled media files under `data/tweets_media/`, `data/direct_messages_media/`, and the other archive media folders into `~/.birdclaw/media/originals/archive/<kind>/<id>/`, and pulls `video_info.variants[]` so archive video and animated-GIF rows carry mp4 URLs for the live media fetcher. Already-extracted files are skipped when size matches.
+
+Re-import only one part of a newer archive when you already have live or local data you want to keep:
+
+```bash
+birdclaw import archive ~/Downloads/twitter-archive-2026.zip --select tweets --json
+birdclaw import archive ~/Downloads/twitter-archive-2026.zip --select likes,bookmarks --json
+birdclaw import archive ~/Downloads/twitter-archive-2026.zip --select directMessages --json
+```
+
+Valid `--select` slices are `tweets`, `likes`, `bookmarks`, `profiles`, `directMessages`, `followers`, and `following`. `dms` and `direct-messages` are accepted aliases for `directMessages`.
 
 Back up the local SQLite store as canonical JSONL text:
 
@@ -260,19 +276,23 @@ pnpm cli search tweets --liked --limit 20 --json
 pnpm cli search tweets --bookmarked --limit 20 --json
 ```
 
-### Sync likes, bookmarks, and home timeline
+### Sync authored tweets, likes, bookmarks, home timeline, and mentions
 
 `auto` tries `xurl` first for likes/bookmarks, then falls back to `bird`. Use `bird` directly when the API path is unavailable for the account/token you have locally. For repeated xurl collection syncs, add `--early-stop` to stop paging once a whole page already exists locally; without `--all` or `--max-pages`, it caps at 10 pages.
 
 ```bash
+pnpm cli sync authored --mode xurl --limit 100 --json
 pnpm cli sync likes --mode auto --limit 100 --refresh --json
 pnpm cli sync bookmarks --mode auto --limit 100 --refresh --json
 pnpm cli sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 pnpm cli sync bookmarks --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 pnpm cli sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 pnpm cli sync timeline --limit 100 --refresh --json
+pnpm cli sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
 pnpm cli sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 ```
+
+Mention context is a two-step sync pipeline: run `sync mentions` to ingest recent mention rows with `kind='mention'`, then run `sync mention-threads --mode xurl` to fill parent/root conversation context.
 
 ### Follow graph queries
 
@@ -296,7 +316,7 @@ Use `--refresh` only when you intentionally want a new live fetch. The `graph` c
 
 ### Export mentions for agents
 
-Default `birdclaw` mode returns normalized items with `text`, `plainText`, `markdown`, author metadata, and canonical URLs:
+Default `birdclaw` mode exports DB-backed mention items with `text`, `plainText`, `markdown`, author metadata, and canonical URLs:
 
 ```bash
 pnpm cli mentions export "agent" --unreplied --limit 10
@@ -338,7 +358,7 @@ Notes:
 - `actions.transport` accepts `auto`, `bird`, or `xurl`
 - `bird` mode uses your local `bird` CLI and caches its mentions output into birdclaw's canonical store
 - filters still work in `xurl` mode; filtered payloads are rebuilt from the local canonical store after sync
-- `sync likes`, `sync bookmarks`, `sync timeline`, and `sync mention-threads` store live results in the canonical local store; per-account home/mention/like/bookmark membership is kept as edges so shared tweets do not clobber account ownership
+- `sync authored`, `sync mentions`, `sync mention-threads`, `sync likes`, `sync bookmarks`, and `sync timeline` store live results in the canonical local store; per-account authored/home/mention/like/bookmark membership is kept as edges so shared tweets do not clobber account ownership
 
 ### Research bookmarks and threads
 

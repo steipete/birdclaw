@@ -8,6 +8,7 @@ import type {
 	XurlMentionUser,
 	XurlTweetsResponse,
 	XurlUserTweet,
+	XurlUserTweetsResponse,
 } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -18,11 +19,19 @@ const MEDIA_EXPANSION = "attachments.media_keys";
 const AUTHOR_MEDIA_EXPANSIONS = `author_id,${MEDIA_EXPANSION}`;
 const MEDIA_FIELDS =
 	"variants,preview_image_url,url,duration_ms,alt_text,type,width,height,public_metrics";
+const RICH_USER_FIELDS =
+	"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type";
+const THREAD_TWEET_FIELDS =
+	"created_at,conversation_id,entities,public_metrics,referenced_tweets,in_reply_to_user_id,attachments";
 // X bookmarks pagination truncates above 90 until this bug is fixed:
 // https://devcommunity.x.com/t/bookmarks-api-v2-stops-paginating-after-3-pages-no-next-token-returned/257339
 const BOOKMARKS_MAX_RESULTS_CAP = 90;
 
 type TimelineCollectionEndpoint = "liked_tweets" | "bookmarks";
+type JsonCommandOptions = {
+	timeoutMs?: number;
+	deadlineMs?: number;
+};
 
 let transportStatusCache:
 	| {
@@ -241,18 +250,52 @@ async function runShortcut(
 	}
 }
 
-async function runJsonCommand(args: string[], attempt = 0) {
+async function runJsonCommand(
+	args: string[],
+	options: JsonCommandOptions = {},
+	attempt = 0,
+) {
+	const deadlineMs =
+		options.deadlineMs ??
+		(typeof options.timeoutMs === "number" &&
+		Number.isFinite(options.timeoutMs) &&
+		options.timeoutMs > 0
+			? Date.now() + options.timeoutMs
+			: undefined);
+	const timeoutMs = deadlineMs
+		? Math.max(0, deadlineMs - Date.now())
+		: undefined;
+	const controller =
+		typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+			? new AbortController()
+			: undefined;
+	const timeout = controller
+		? setTimeout(() => controller.abort(), timeoutMs)
+		: undefined;
+
 	try {
-		const { stdout } = await execFileAsync("xurl", args);
+		const { stdout } = controller
+			? await execFileAsync("xurl", args, { signal: controller.signal })
+			: await execFileAsync("xurl", args);
 		return JSON.parse(stdout) as Record<string, unknown>;
 	} catch (error) {
 		const retryDelayMs = getRetryDelayMs(error, attempt);
 		if (retryDelayMs === null || attempt >= JSON_RETRY_LIMIT - 1) {
 			throw formatXurlCommandError(error, args);
 		}
+		const remainingMs = deadlineMs
+			? Math.max(0, deadlineMs - Date.now())
+			: undefined;
+		if (remainingMs !== undefined && retryDelayMs >= remainingMs) {
+			throw formatXurlCommandError(error, args);
+		}
 
 		await sleep(retryDelayMs);
-		return runJsonCommand(args, attempt + 1);
+		return runJsonCommand(args, { ...options, deadlineMs }, attempt + 1);
+	} finally {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
 	}
 }
 
@@ -350,11 +393,15 @@ export async function listMentionsViaXurl({
 	username,
 	userId,
 	paginationToken,
+	sinceId,
+	startTime,
 }: {
 	maxResults: number;
 	username?: string;
 	userId?: string;
 	paginationToken?: string;
+	sinceId?: string;
+	startTime?: string;
 }): Promise<XurlMentionsResponse> {
 	let resolvedUserId = userId;
 	if (!resolvedUserId) {
@@ -383,6 +430,12 @@ export async function listMentionsViaXurl({
 	});
 	if (paginationToken) {
 		query.set("pagination_token", paginationToken);
+	}
+	if (sinceId) {
+		query.set("since_id", sinceId);
+	}
+	if (startTime) {
+		query.set("start_time", startTime);
 	}
 
 	const payload = await runJsonCommand([
@@ -590,19 +643,49 @@ export async function listUserTweets(
 		maxResults,
 		paginationToken,
 		excludeRetweets = true,
+		sinceId,
+		untilId,
+		tweetFields,
+		expansions,
+		userFields,
+		mediaFields,
+		auth,
 	}: {
 		maxResults: number;
 		paginationToken?: string;
 		excludeRetweets?: boolean;
+		sinceId?: string;
+		untilId?: string;
+		tweetFields?: string[];
+		expansions?: string[];
+		userFields?: string[];
+		mediaFields?: string[];
+		auth?: "oauth2";
 	},
-) {
+): Promise<XurlUserTweetsResponse> {
 	const query = new URLSearchParams({
 		max_results: String(maxResults),
 		expansions: MEDIA_EXPANSION,
 		"tweet.fields":
+			tweetFields?.join(",") ??
 			"created_at,conversation_id,public_metrics,referenced_tweets",
 		"media.fields": MEDIA_FIELDS,
 	});
+	if (expansions && expansions.length > 0) {
+		query.set("expansions", expansions.join(","));
+	}
+	if (userFields && userFields.length > 0) {
+		query.set("user.fields", userFields.join(","));
+	}
+	if (mediaFields && mediaFields.length > 0) {
+		query.set("media.fields", mediaFields.join(","));
+	}
+	if (sinceId) {
+		query.set("since_id", sinceId);
+	}
+	if (untilId) {
+		query.set("until_id", untilId);
+	}
 	if (excludeRetweets) {
 		query.set("exclude", "retweets");
 	}
@@ -610,7 +693,10 @@ export async function listUserTweets(
 		query.set("pagination_token", paginationToken);
 	}
 
-	const payload = await runJsonCommand([`/2/users/${userId}/tweets?${query}`]);
+	const endpoint = `/2/users/${userId}/tweets?${query}`;
+	const payload = await runJsonCommand(
+		auth === "oauth2" ? ["--auth", "oauth2", endpoint] : [endpoint],
+	);
 	const data = Array.isArray(payload.data)
 		? (payload.data as XurlUserTweet[])
 		: [];
@@ -620,7 +706,7 @@ export async function listUserTweets(
 			: null;
 	const includes =
 		payload.includes && typeof payload.includes === "object"
-			? (payload.includes as XurlMentionsResponse["includes"])
+			? (payload.includes as XurlUserTweetsResponse["includes"])
 			: undefined;
 
 	return {
@@ -653,6 +739,88 @@ export async function lookupTweetsByIds(
 		data: Array.isArray(payload.data)
 			? (payload.data as XurlTweetsResponse["data"])
 			: [],
+		includes:
+			payload.includes && typeof payload.includes === "object"
+				? (payload.includes as XurlTweetsResponse["includes"])
+				: undefined,
+		meta:
+			payload.meta && typeof payload.meta === "object"
+				? (payload.meta as XurlTweetsResponse["meta"])
+				: undefined,
+	};
+}
+
+export async function searchRecentByConversationId(
+	conversationId: string,
+	{
+		maxResults,
+		paginationToken,
+		timeoutMs,
+	}: {
+		maxResults: number;
+		paginationToken?: string;
+		timeoutMs?: number;
+	},
+): Promise<XurlTweetsResponse> {
+	const query = new URLSearchParams({
+		query: `conversation_id:${conversationId}`,
+		max_results: String(maxResults),
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
+		"tweet.fields": THREAD_TWEET_FIELDS,
+		"media.fields": MEDIA_FIELDS,
+		"user.fields": RICH_USER_FIELDS,
+	});
+	if (paginationToken) {
+		query.set("pagination_token", paginationToken);
+	}
+
+	const payload = await runJsonCommand(
+		[`/2/tweets/search/recent?${query.toString()}`],
+		{ timeoutMs },
+	);
+	return {
+		data: Array.isArray(payload.data)
+			? (payload.data as XurlTweetsResponse["data"])
+			: [],
+		includes:
+			payload.includes && typeof payload.includes === "object"
+				? (payload.includes as XurlTweetsResponse["includes"])
+				: undefined,
+		meta:
+			payload.meta && typeof payload.meta === "object"
+				? (payload.meta as XurlTweetsResponse["meta"])
+				: undefined,
+	};
+}
+
+export async function getTweetById(
+	id: string,
+	{ timeoutMs }: { timeoutMs?: number } = {},
+): Promise<XurlTweetsResponse> {
+	const query = new URLSearchParams({
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
+		"tweet.fields": THREAD_TWEET_FIELDS,
+		"media.fields": MEDIA_FIELDS,
+		"user.fields": RICH_USER_FIELDS,
+	});
+
+	const payload = await runJsonCommand(
+		[`/2/tweets/${id}?${query.toString()}`],
+		{
+			timeoutMs,
+		},
+	);
+	const data =
+		payload.data &&
+		typeof payload.data === "object" &&
+		!Array.isArray(payload.data)
+			? [payload.data as XurlTweetsResponse["data"][number]]
+			: Array.isArray(payload.data)
+				? (payload.data as XurlTweetsResponse["data"])
+				: [];
+
+	return {
+		data,
 		includes:
 			payload.includes && typeof payload.includes === "object"
 				? (payload.includes as XurlTweetsResponse["includes"])

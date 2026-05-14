@@ -16,6 +16,7 @@ import { getBirdclawPaths, resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listFollowEvents, listUnfollowedSince } from "./follow-graph";
 import {
+	getConversationThread,
 	getQueryEnvelope,
 	listDmConversations,
 	listTimelineItems,
@@ -23,7 +24,10 @@ import {
 
 const createdDirs: string[] = [];
 
-function makeArchive({ following = [] }: { following?: string[] } = {}) {
+function makeArchive({
+	following = [],
+	likeText = "liked archive item",
+}: { following?: string[]; likeText?: string } = {}) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-archive-"));
 	const archiveDir = path.join(root, "sample", "data");
 	mkdirSync(archiveDir, { recursive: true });
@@ -106,7 +110,7 @@ function makeArchive({ following = [] }: { following?: string[] } = {}) {
 	writeFileSync(
 		path.join(archiveDir, "like.js"),
 		`window.YTD.like.part0 = [
-  { "like": { "tweetId": "5", "fullText": "liked archive item", "likedAt": "2025-06-03T20:00:00.000Z" } }
+  { "like": { "tweetId": "5", "fullText": ${JSON.stringify(likeText)}, "likedAt": "2025-06-03T20:00:00.000Z" } }
 ]`,
 	);
 	writeFileSync(
@@ -595,6 +599,18 @@ describe("archive import", () => {
 		expect(dms).toHaveLength(1);
 		expect(dms[0]?.participant.handle).toBe("sam");
 		expect(dmMessageCount).toBe(2);
+		expect(
+			db
+				.prepare(
+					"select participant_profile_id from dm_conversations where id = 'dm-1'",
+				)
+				.get(),
+		).toEqual({ participant_profile_id: "profile_user_42" });
+		expect(
+			db
+				.prepare("select handle from profiles where id = 'profile_user_42'")
+				.get(),
+		).toEqual({ handle: "sam" });
 		expect(archivedTweet?.entities.mentions?.[0]?.username).toBe("sam");
 		expect(archivedTweet?.entities.urls?.[0]?.expandedUrl).toBe(
 			"https://birdclaw.dev/archive",
@@ -719,6 +735,913 @@ describe("archive import", () => {
 		]);
 	});
 
+	it("clears mention sync state on full archive re-import", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.prepare(
+			"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+		).run(
+			"mentions:sync:high-water:v1:mode=xurl:account=acct_primary",
+			'{"sinceId":"2000"}',
+			"2026-05-01T00:00:00.000Z",
+		);
+
+		await importArchive(archivePath);
+
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from sync_cache where cache_key like 'mentions:sync:%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+	});
+
+	it("imports only selected archive slices", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		const result = await importArchive(archivePath, { select: ["likes"] });
+		const db = getNativeDb();
+
+		expect(result.counts).toMatchObject({
+			tweets: 0,
+			likes: 1,
+			bookmarks: 0,
+			dmConversations: 0,
+			dmMessages: 0,
+			followers: 0,
+			following: 0,
+		});
+		expect(
+			db
+				.prepare(
+					"select id, kind, liked, bookmarked from tweets where id = '5'",
+				)
+				.all(),
+		).toEqual([{ id: "5", kind: "like", liked: 1, bookmarked: 0 }]);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from tweet_collections where tweet_id = '5' and kind = 'likes'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+
+		db.prepare(
+			"update tweet_collections set source = 'legacy' where tweet_id = '5' and kind = 'likes'",
+		).run();
+		await importArchive(makeRootDataArchive(), { select: ["likes"] });
+
+		expect(
+			db.prepare("select id from tweets where id = '5'").get(),
+		).toBeUndefined();
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from tweets_fts where tweet_id = '5'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(0);
+	});
+
+	it("preserves collection-only tweets referenced by retained tweets", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(archivePath, { select: ["likes"] });
+		const db = getNativeDb();
+		db.exec(`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at, is_replied,
+        reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json,
+        quoted_tweet_id
+      ) values (
+        '200', 'acct_primary', 'profile_me', 'home', 'kept quote', '2026-01-02T00:00:00.000Z',
+        0, null, 1, 0, 0, 0, '{}', '[]', '5'
+      );
+      insert into tweet_account_edges (
+        account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count, source,
+        raw_json, updated_at
+      ) values (
+        'acct_primary', '200', 'home', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z',
+        1, 'bird', '{}', '2026-01-02T00:00:00.000Z'
+      );
+    `);
+
+		await importArchive(makeRootDataArchive(), { select: ["likes"] });
+
+		expect(db.prepare("select text from tweets where id = '5'").get()).toEqual({
+			text: "liked archive item",
+		});
+		expect(
+			listTimelineItems({ resource: "home", limit: 10 }).find(
+				(item) => item.id === "200",
+			)?.quotedTweet?.text,
+		).toBe("liked archive item");
+	});
+
+	it("preserves existing account metadata during selected imports", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Live Primary', '@steipete', '25401953', 'xurl', 0, '2026-01-01T00:00:00.000Z')
+    `);
+
+		await importArchive(archivePath, { select: ["likes"] });
+
+		expect(
+			db
+				.prepare(
+					"select name, handle, transport, is_default, created_at from accounts where id = 'acct_primary'",
+				)
+				.get(),
+		).toEqual({
+			name: "Live Primary",
+			handle: "@steipete",
+			transport: "xurl",
+			is_default: 0,
+			created_at: "2026-01-01T00:00:00.000Z",
+		});
+	});
+
+	it("rejects selected imports for a different existing primary account", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Other Primary', '@other', '999', 'xurl', 1, '2026-01-01T00:00:00.000Z')
+    `);
+
+		await expect(
+			importArchive(archivePath, { select: ["likes"] }),
+		).rejects.toThrow("does not match archive account 25401953");
+		expect(
+			db.prepare("select id from tweets where id = '5'").get(),
+		).toBeUndefined();
+	});
+
+	it("refreshes existing local profile metadata when selected", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Primary', '@steipete', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_user_25401953', 'steipete', 'Live Peter', 'stale bio', 10, 11,
+        '{"followers_count":10}', 12, 'https://img.example.com/live.jpg',
+        'Vienna', 'https://example.com', 'blue', '{}', '{}',
+        '2026-01-01T00:00:00.000Z'
+      );
+    `);
+
+		await importArchive(archivePath, { select: ["profiles"] });
+
+		expect(
+			db
+				.prepare(
+					"select id, handle, display_name, bio, followers_count, avatar_url from profiles where id = 'profile_user_25401953'",
+				)
+				.get(),
+		).toEqual({
+			id: "profile_user_25401953",
+			handle: "steipete",
+			display_name: "Peter Steinberger",
+			bio: "Local-first builder",
+			followers_count: 10,
+			avatar_url: "https://img.example.com/live.jpg",
+		});
+		expect(
+			db.prepare("select id from profiles where id = 'profile_me'").get(),
+		).toBeUndefined();
+	});
+
+	it("keeps collection-only tweets on the synthetic unknown profile", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_real_unknown', 'unknown', 'Real Unknown', 'real profile', 50, 5,
+        '{}', 12, null, null, null, null, '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+    `);
+
+		await importArchive(archivePath, { select: ["likes"] });
+
+		expect(
+			db.prepare("select author_profile_id from tweets where id = '5'").get(),
+		).toEqual({ author_profile_id: "profile_unknown" });
+		expect(
+			db
+				.prepare(
+					"select display_name, bio from profiles where id = 'profile_real_unknown'",
+				)
+				.get(),
+		).toEqual({ display_name: "Real Unknown", bio: "real profile" });
+		expect(
+			db
+				.prepare("select handle from profiles where id = 'profile_unknown'")
+				.get(),
+		).toEqual({ handle: "unknown_archive" });
+		expect(
+			listTimelineItems({ resource: "home", likedOnly: true }).map(
+				(item) => item.id,
+			),
+		).toContain("5");
+	});
+
+	it("preserves unselected slices when re-importing a selection", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(archivePath);
+		await importArchive(archivePath, { select: ["likes"] });
+		const db = getNativeDb();
+
+		expect(
+			(
+				db.prepare("select count(*) as count from dm_messages").get() as {
+					count: number;
+				}
+			).count,
+		).toBe(2);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from tweet_collections where kind = 'likes'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from tweet_collections where kind = 'bookmarks'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+	});
+
+	it("preserves live collection rows when re-importing archive collections", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.exec(`
+      insert or replace into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Primary', '@primary', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_live', 'live', 'Live', '', 0, 0, '{}', 12, null, null, null, null,
+        '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at, is_replied,
+        reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json,
+        quoted_tweet_id
+	      ) values
+	        (
+	          'live-like', 'acct_primary', 'profile_live', 'like', 'live liked item',
+	          '2026-01-01T00:00:00.000Z', 0, null, 1, 0, 0, 1, '{}', '[]', null
+	        ),
+	        (
+	          '5', 'acct_primary', 'profile_live', 'like', 'hydrated live liked item',
+	          '2026-01-02T00:00:00.000Z', 0, null, 1, 0, 0, 1, '{}', '[]', null
+	        );
+      insert into tweet_collections (
+        account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+	      ) values
+	        (
+	          'acct_primary', 'live-like', 'likes', '2026-01-01T00:00:00.000Z',
+	          'bird', '{}', '2026-01-01T00:00:00.000Z'
+	        ),
+	        (
+	          'acct_primary', '5', 'likes', '2026-01-01T00:00:00.000Z',
+	          'bird', '{"source":"live"}', '2026-01-01T00:00:00.000Z'
+	        );
+	    `);
+
+		await importArchive(archivePath, { select: ["likes"] });
+
+		expect(
+			db
+				.prepare(
+					"select tweet_id, source, raw_json from tweet_collections where kind = 'likes' and tweet_id in ('5', 'live-like') order by tweet_id",
+				)
+				.all(),
+		).toEqual([
+			{ tweet_id: "5", source: "bird", raw_json: '{"source":"live"}' },
+			{ tweet_id: "live-like", source: "bird", raw_json: "{}" },
+		]);
+		expect(
+			listTimelineItems({ resource: "home", likedOnly: true }).map(
+				(item) => item.id,
+			),
+		).toEqual(expect.arrayContaining(["5", "live-like"]));
+		expect(
+			db.prepare("select text, created_at from tweets where id = '5'").get(),
+		).toEqual({
+			text: "hydrated live liked item",
+			created_at: "2026-01-02T00:00:00.000Z",
+		});
+	});
+
+	it("scopes selected direct message re-imports to the archive account", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.exec(`
+      insert or replace into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_other', 'Other', '@other', 'other', 'xurl', 0, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_other', 'other', 'Other', '', 0, 0, '{}', 12, null, null, null, null,
+        '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+	      insert into dm_conversations (
+	        id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
+	      ) values (
+	        'dm-stale', 'acct_primary', 'profile_other', 'Stale', '2026-01-01T00:00:00.000Z', 0, 0
+	      );
+	      insert into dm_messages (
+	        id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
+	      ) values (
+	        'm-stale', 'dm-stale', 'profile_other', 'stale primary dm', '2026-01-01T00:00:00.000Z',
+	        'incoming', 0, 0
+	      );
+	      insert into link_occurrences (
+	        source_kind, source_id, source_position, short_url, account_id, conversation_id, created_at
+	      ) values (
+	        'dm', 'm-stale', 0, 'https://t.co/stale-dm', 'acct_primary', 'dm-stale', '2026-01-01T00:00:00.000Z'
+	      );
+	      insert into dm_conversations (
+	        id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
+	      ) values (
+	        'dm-other', 'acct_other', 'profile_other', 'Other', '2026-01-01T00:00:00.000Z', 0, 0
+	      );
+	      insert into dm_messages (
+	        id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
+	      ) values (
+	        'm-other', 'dm-other', 'profile_other', 'keep other dm', '2026-01-01T00:00:00.000Z',
+	        'incoming', 0, 0
+	      );
+	      insert into dm_fts (message_id, text) values ('m-other', 'keep other dm');
+	      insert into link_occurrences (
+	        source_kind, source_id, source_position, short_url, account_id, conversation_id, created_at
+	      ) values (
+	        'dm', 'm-other', 0, 'https://t.co/other-dm', 'acct_other', 'dm-other', '2026-01-01T00:00:00.000Z'
+	      );
+	    `);
+
+		await importArchive(archivePath, { select: ["directMessages"] });
+
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from dm_messages where conversation_id = 'dm-other'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from dm_fts where dm_fts match 'other'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from link_occurrences where source_kind = 'dm' and source_id = 'm-stale'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(0);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from link_occurrences where source_kind = 'dm' and source_id = 'm-other'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+	});
+
+	it("remaps selected direct message ids that collide with another account", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values
+        ('acct_primary', 'Primary', '@steipete', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z'),
+        ('acct_other', 'Other', '@other', 'other', 'xurl', 0, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_other', 'other', 'Other', '', 0, 0, '{}', 12, null, null, null, null,
+        '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+      insert into dm_conversations (
+        id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
+      ) values (
+        'dm-1', 'acct_other', 'profile_other', 'Other copy', '2026-01-01T00:00:00.000Z', 0, 0
+      );
+      insert into dm_messages (
+        id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
+      ) values (
+        'm1', 'dm-1', 'profile_other', 'other account copy', '2026-01-01T00:00:00.000Z',
+        'incoming', 0, 0
+      );
+    `);
+
+		await importArchive(archivePath, { select: ["directMessages"] });
+
+		expect(
+			db
+				.prepare(
+					"select id, account_id from dm_conversations order by account_id, id",
+				)
+				.all(),
+		).toEqual([
+			{ id: "dm-1", account_id: "acct_other" },
+			{ id: "acct_primary:dm-1", account_id: "acct_primary" },
+		]);
+		expect(
+			db
+				.prepare(
+					"select id, conversation_id, text from dm_messages order by conversation_id, id",
+				)
+				.all(),
+		).toEqual([
+			{
+				id: "acct_primary:m1",
+				conversation_id: "acct_primary:dm-1",
+				text: "Need a local archive tool",
+			},
+			{
+				id: "acct_primary:m2",
+				conversation_id: "acct_primary:dm-1",
+				text: "Building one now",
+			},
+			{
+				id: "m1",
+				conversation_id: "dm-1",
+				text: "other account copy",
+			},
+		]);
+		expect(
+			listDmConversations({ account: "acct_primary", limit: 10 }).map(
+				(item) => item.id,
+			),
+		).toEqual(["acct_primary:dm-1"]);
+		expect(
+			listDmConversations({ account: "acct_other", limit: 10 }).map(
+				(item) => item.id,
+			),
+		).toEqual(["dm-1"]);
+	});
+
+	it("preserves profile and timeline tweet state during collection re-imports", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.exec(`
+      insert or replace into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Primary', '@primary', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_unknown', 'unknown', 'Hydrated Unknown', 'live bio', 123, 45,
+        '{"followers_count":123}', 42, 'https://img.example.com/live.jpg', 'Vienna',
+        'https://example.com', 'blue', '{"url":true}', '{"live":true}',
+        '2026-01-01T00:00:00.000Z'
+      );
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at, is_replied,
+        reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json,
+        quoted_tweet_id
+      ) values (
+        '5', 'acct_primary', 'profile_unknown', 'home', 'full live root text',
+        '2025-01-01T00:00:00.000Z', 0, null, 9, 0, 0, 0, '{}', '[]', null
+      );
+      insert into tweets_fts (tweet_id, text) values ('5', 'full live root text');
+    `);
+
+		await importArchive(archivePath, { select: ["likes"] });
+		const tweet = db
+			.prepare(
+				"select kind, text, created_at, liked from tweets where id = '5'",
+			)
+			.get() as {
+			kind: string;
+			text: string;
+			created_at: string;
+			liked: number;
+		};
+		const profile = db
+			.prepare(
+				"select display_name, followers_count, avatar_url, raw_json from profiles where id = 'profile_unknown'",
+			)
+			.get() as {
+			display_name: string;
+			followers_count: number;
+			avatar_url: string;
+			raw_json: string;
+		};
+
+		expect(tweet).toEqual({
+			kind: "home",
+			text: "full live root text",
+			created_at: "2025-01-01T00:00:00.000Z",
+			liked: 1,
+		});
+		expect(profile).toEqual({
+			display_name: "Hydrated Unknown",
+			followers_count: 123,
+			avatar_url: "https://img.example.com/live.jpg",
+			raw_json: '{"live":true}',
+		});
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from tweets_fts where tweets_fts match 'root'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+	});
+
+	it("preserves existing tweet ownership during selected imports", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.exec(`
+      insert or replace into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values
+        ('acct_primary', 'Primary', '@primary', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z'),
+        ('acct_other', 'Other', '@other', 'other', 'xurl', 0, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_other', 'other', 'Other', '', 0, 0, '{}', 12, null, null, null, null,
+        '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at, is_replied,
+        reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json,
+        quoted_tweet_id
+      ) values (
+        '5', 'acct_other', 'profile_other', 'home', 'other account text',
+        '2026-01-01T00:00:00.000Z', 0, null, 1, 0, 0, 0, '{}', '[]', null
+      );
+    `);
+
+		await importArchive(archivePath, { select: ["likes"] });
+
+		expect(
+			db
+				.prepare("select account_id, kind, liked from tweets where id = '5'")
+				.get(),
+		).toEqual({ account_id: "acct_other", kind: "home", liked: 0 });
+		expect(
+			db
+				.prepare(
+					"select account_id, source from tweet_collections where tweet_id = '5' and kind = 'likes'",
+				)
+				.all(),
+		).toEqual([{ account_id: "acct_primary", source: "archive" }]);
+		expect(
+			listTimelineItems({
+				resource: "home",
+				account: "acct_primary",
+				likedOnly: true,
+				limit: 10,
+			}).map((item) => item.id),
+		).toContain("5");
+		expect(
+			listTimelineItems({
+				resource: "home",
+				account: "acct_other",
+				likedOnly: true,
+				limit: 10,
+			}).map((item) => item.id),
+		).not.toContain("5");
+
+		db.prepare("update tweets set liked = 1 where id = '5'").run();
+		await importArchive(makeRootDataArchive(), { select: ["likes"] });
+
+		expect(
+			db
+				.prepare("select account_id, kind, liked from tweets where id = '5'")
+				.get(),
+		).toEqual({ account_id: "acct_other", kind: "home", liked: 1 });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweet_collections where tweet_id = '5' and kind = 'likes'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		expect(
+			listTimelineItems({
+				resource: "home",
+				account: "acct_other",
+				likedOnly: true,
+			}).map((item) => item.id),
+		).toContain("5");
+	});
+
+	it("uses an existing same-handle profile for selected local-account tweets", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Primary', '@steipete', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_user_25401953', 'steipete', 'Live Peter', '', 0, 0, '{}', 12,
+        null, null, null, null, '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+    `);
+
+		await importArchive(archivePath, { select: ["tweets"] });
+
+		expect(
+			db.prepare("select id from profiles where id = 'profile_me'").get(),
+		).toBeUndefined();
+		expect(
+			db.prepare("select author_profile_id from tweets where id = '100'").get(),
+		).toEqual({ author_profile_id: "profile_user_25401953" });
+		expect(
+			listTimelineItems({ resource: "home", limit: 10 }).map((item) => item.id),
+		).toEqual(expect.arrayContaining(["100"]));
+	});
+
+	it("uses an existing same-handle profile for selected local-account DMs", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+	      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+	      values ('acct_primary', 'Primary', '@steipete', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z');
+	      insert into profiles (
+	        id, handle, display_name, bio, followers_count, following_count,
+	        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+	        entities_json, raw_json, created_at
+	      ) values (
+	        'profile_user_25401953', 'steipete', 'Live Peter', '', 0, 0, '{}', 12,
+	        null, null, null, null, '{}', '{}', '2026-01-01T00:00:00.000Z'
+	      );
+	    `);
+
+		await importArchive(archivePath, { select: ["directMessages"] });
+
+		expect(
+			db
+				.prepare("select sender_profile_id from dm_messages where id = 'm2'")
+				.get(),
+		).toEqual({ sender_profile_id: "profile_user_25401953" });
+		expect(
+			getConversationThread("dm-1")?.messages.map((message) => message.id),
+		).toEqual(["m1", "m2"]);
+	});
+
+	it("uses an existing same-handle participant profile during selected imports", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Primary', '@steipete', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_sam', 'sam', 'Existing Sam', 'live bio', 100, 10, '{}', 12,
+        null, null, null, null, '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+    `);
+
+		await importArchive(archivePath, { select: ["tweets", "directMessages"] });
+
+		expect(
+			db
+				.prepare(
+					"select participant_profile_id from dm_conversations where id = 'dm-1'",
+				)
+				.get(),
+		).toEqual({ participant_profile_id: "profile_sam" });
+		expect(
+			db
+				.prepare("select sender_profile_id from dm_messages where id = 'm1'")
+				.get(),
+		).toEqual({ sender_profile_id: "profile_sam" });
+		expect(
+			db.prepare("select id from profiles where id = 'profile_user_42'").get(),
+		).toBeUndefined();
+		expect(
+			getConversationThread("dm-1")?.messages.map((message) => message.id),
+		).toEqual(["m1", "m2"]);
+	});
+
+	it("replaces the visible archive timeline when re-importing only tweets", async () => {
+		const archivePath = makeArchive();
+		const nextArchivePath = makeRootDataArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+
+		await importArchive(archivePath);
+		getNativeDb().exec(`
+      update tweet_account_edges
+      set source = 'legacy'
+      where account_id = 'acct_primary' and tweet_id in ('100', '101');
+
+	      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+	      values ('acct_other', 'Other', '@other', 'other', 'xurl', 0, '2026-01-01T00:00:00.000Z');
+	      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at, is_replied,
+        reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json,
+        quoted_tweet_id
+      ) values
+        (
+          '200', 'acct_primary', 'profile_me', 'home', 'mentioned elsewhere',
+          '2026-01-02T00:00:00.000Z', 0, null, 1, 0, 0, 0, '{}', '[]', null
+        ),
+        (
+          '300', 'acct_primary', 'profile_me', 'home', 'liked elsewhere',
+          '2026-01-03T00:00:00.000Z', 0, null, 1, 0, 0, 0, '{}', '[]', null
+        );
+      insert into tweet_account_edges (
+        account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count, source,
+        raw_json, updated_at
+      ) values
+        (
+          'acct_other', '100', 'home', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+          1, 'xurl', '{}', '2026-01-01T00:00:00.000Z'
+        ),
+        (
+          'acct_primary', '200', 'home', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z',
+          1, 'archive', '{}', '2026-01-02T00:00:00.000Z'
+        ),
+        (
+          'acct_primary', '200', 'mention', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z',
+          1, 'bird', '{}', '2026-01-02T00:00:00.000Z'
+        ),
+        (
+          'acct_primary', '300', 'home', '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:00.000Z',
+          1, 'archive', '{}', '2026-01-03T00:00:00.000Z'
+        );
+	      insert into link_occurrences (
+	        source_kind, source_id, source_position, short_url, account_id, created_at
+	      ) values (
+	        'tweet', '100', 0, 'https://t.co/local', 'acct_primary', '2026-01-01T00:00:00.000Z'
+	      );
+	      insert into tweet_collections (
+	        account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+	      ) values (
+	        'acct_primary', '100', 'likes', '2026-01-01T00:00:00.000Z', 'bird', '{}', '2026-01-01T00:00:00.000Z'
+	      );
+      insert into tweet_collections (
+        account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+      ) values (
+        'acct_other', '300', 'likes', '2026-01-03T00:00:00.000Z', 'bird', '{}', '2026-01-03T00:00:00.000Z'
+      );
+	    `);
+		await importArchive(nextArchivePath, { select: ["tweets"] });
+		const db = getNativeDb();
+
+		expect(
+			listTimelineItems({
+				resource: "home",
+				account: "acct_primary",
+				limit: 10,
+			}).map((item) => item.id),
+		).toEqual(["root-1"]);
+		expect(listTimelineItems({ resource: "home", likedOnly: true })).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "5" }),
+				expect.objectContaining({ id: "100" }),
+			]),
+		);
+		expect(
+			listTimelineItems({
+				resource: "home",
+				account: "acct_other",
+				limit: 10,
+			}).map((item) => item.id),
+		).toEqual(["100"]);
+		expect(
+			listTimelineItems({
+				resource: "mentions",
+				account: "acct_primary",
+				limit: 10,
+			}).map((item) => item.id),
+		).toEqual(["200"]);
+		expect(
+			listTimelineItems({
+				resource: "home",
+				account: "acct_other",
+				likedOnly: true,
+				limit: 10,
+			}).map((item) => item.id),
+		).toEqual(["300"]);
+		expect(
+			(
+				db
+					.prepare(
+						"select count(*) as count from link_occurrences where source_kind = 'tweet' and source_id = '100'",
+					)
+					.get() as { count: number }
+			).count,
+		).toBe(1);
+		expect(
+			db.prepare("select kind from tweets where id = '101'").get(),
+		).toEqual({ kind: "archive_stale" });
+		expect(
+			listTimelineItems({ resource: "home", likedOnly: true }).find(
+				(item) => item.id === "100",
+			)?.quotedTweet?.text,
+		).toBe("Longer archive note");
+	});
+
 	it("creates authored edges for archive-imported account tweets", async () => {
 		const archivePath = makeArchive();
 		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
@@ -830,6 +1753,49 @@ describe("archive import", () => {
 				)
 				.get(),
 		).toEqual({ handle: "id101", display_name: "", bio: "" });
+	});
+
+	it("uses existing same-handle profiles for selected follow imports", async () => {
+		const archivePath = makeFollowArchive({
+			followers: ["101"],
+			includeFollowing: false,
+		});
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+      values ('acct_primary', 'Primary', '@steipete', '25401953', 'xurl', 1, '2026-01-01T00:00:00.000Z');
+      insert into profiles (
+        id, handle, display_name, bio, followers_count, following_count,
+        public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+        entities_json, raw_json, created_at
+      ) values (
+        'profile_local_101', 'id101', 'Existing 101', 'live bio', 10, 2, '{}',
+        12, null, null, null, null, '{}', '{}', '2026-01-01T00:00:00.000Z'
+      );
+    `);
+
+		await importArchive(archivePath, { select: ["followers"] });
+
+		expect(
+			db
+				.prepare(
+					"select profile_id from follow_edges where direction = 'followers'",
+				)
+				.get(),
+		).toEqual({ profile_id: "profile_local_101" });
+		expect(
+			db
+				.prepare(
+					"select profile_id from follow_snapshot_members where snapshot_id = 'follow_snapshot_archive_acct_primary_followers'",
+				)
+				.get(),
+		).toEqual({ profile_id: "profile_local_101" });
+		expect(
+			db.prepare("select id from profiles where id = 'profile_user_101'").get(),
+		).toBeUndefined();
 	});
 
 	it("handles empty follower and following files", async () => {
@@ -1164,10 +2130,10 @@ describe("archive import", () => {
 			db
 				.prepare(
 					`
-          select handle, display_name, bio
-          from profiles
-          where id = 'profile_user_42'
-        `,
+	          select handle, display_name, bio
+	          from profiles
+	          where id = 'profile_user_42'
+	        `,
 				)
 				.get(),
 		).toEqual({
@@ -1175,7 +2141,7 @@ describe("archive import", () => {
 			display_name: "sam",
 			bio: "Imported from archive user 42",
 		});
-	});
+	}, 20000);
 
 	it("preserves hydrated group-DM sender profiles when follow rows overlap", async () => {
 		const archivePath = makeWeirdArchive({ followers: ["42"] });

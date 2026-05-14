@@ -15,6 +15,8 @@ const syncBlocksMock = vi.fn();
 const exportMentionItemsMock = vi.fn();
 const exportMentionsViaCachedBirdMock = vi.fn();
 const exportMentionsViaCachedXurlMock = vi.fn();
+const syncMentionsMock = vi.fn();
+const syncMentionThreadsMock = vi.fn();
 const syncDirectMessagesViaCachedBirdMock = vi.fn();
 const resolveProfilesForIdsMock = vi.fn();
 const expandUrlsFromTextsMock = vi.fn();
@@ -38,6 +40,7 @@ const listDmConversationsMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
 const inspectProfileRepliesMock = vi.fn();
 const runResearchModeMock = vi.fn();
+const syncAuthoredTweetsMock = vi.fn();
 const syncTimelineCollectionMock = vi.fn();
 const createPostMock = vi.fn();
 const createTweetReplyMock = vi.fn();
@@ -77,6 +80,15 @@ vi.mock("#/lib/archive-finder", () => ({
 }));
 
 vi.mock("#/lib/archive-import", () => ({
+	ARCHIVE_IMPORT_SLICES: [
+		"tweets",
+		"likes",
+		"bookmarks",
+		"directMessages",
+		"profiles",
+		"followers",
+		"following",
+	],
 	importArchive: (...args: unknown[]) => importArchiveMock(...args),
 }));
 
@@ -134,6 +146,11 @@ vi.mock("#/lib/mentions-live", () => ({
 		exportMentionsViaCachedBirdMock(...args),
 	exportMentionsViaCachedXurl: (...args: unknown[]) =>
 		exportMentionsViaCachedXurlMock(...args),
+	syncMentions: (...args: unknown[]) => syncMentionsMock(...args),
+}));
+
+vi.mock("#/lib/mention-threads-live", () => ({
+	syncMentionThreads: (...args: unknown[]) => syncMentionThreadsMock(...args),
 }));
 
 vi.mock("#/lib/dms-live", () => ({
@@ -158,6 +175,18 @@ vi.mock("#/lib/profile-replies", () => ({
 
 vi.mock("#/lib/research", () => ({
 	runResearchMode: (...args: unknown[]) => runResearchModeMock(...args),
+}));
+
+vi.mock("#/lib/authored-live", () => ({
+	AuthoredSyncError: class AuthoredSyncError extends Error {
+		constructor(
+			message: string,
+			public readonly exitCode: number,
+		) {
+			super(message);
+		}
+	},
+	syncAuthoredTweets: (...args: unknown[]) => syncAuthoredTweetsMock(...args),
 }));
 
 vi.mock("#/lib/queries", () => ({
@@ -210,6 +239,8 @@ describe("cli", () => {
 		exportMentionItemsMock.mockReset();
 		exportMentionsViaCachedBirdMock.mockReset();
 		exportMentionsViaCachedXurlMock.mockReset();
+		syncMentionsMock.mockReset();
+		syncMentionThreadsMock.mockReset();
 		syncDirectMessagesViaCachedBirdMock.mockReset();
 		resolveProfilesForIdsMock.mockReset();
 		expandUrlsFromTextsMock.mockReset();
@@ -233,6 +264,7 @@ describe("cli", () => {
 		hydrateProfilesFromXMock.mockReset();
 		inspectProfileRepliesMock.mockReset();
 		runResearchModeMock.mockReset();
+		syncAuthoredTweetsMock.mockReset();
 		syncTimelineCollectionMock.mockReset();
 		createPostMock.mockReset();
 		createTweetReplyMock.mockReset();
@@ -373,6 +405,13 @@ describe("cli", () => {
 			kind: "likes",
 			count: 1,
 		});
+		syncAuthoredTweetsMock.mockResolvedValue({
+			ok: true,
+			source: "xurl",
+			kind: "authored",
+			count: 1,
+			partial: false,
+		});
 		createPostMock.mockResolvedValue({ ok: true, tweetId: "tweet_new" });
 		createTweetReplyMock.mockResolvedValue({
 			ok: true,
@@ -475,7 +514,9 @@ describe("cli", () => {
 
 		await runCli(["node", "birdclaw", "--json", "import", "archive"]);
 
-		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/twitter.zip");
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/twitter.zip", {
+			select: undefined,
+		});
 	});
 
 	it("dispatches paged live mention exports", async () => {
@@ -535,6 +576,183 @@ describe("cli", () => {
 		expect(exportMentionsViaCachedXurlMock).not.toHaveBeenCalled();
 	});
 
+	it("dispatches sync mentions with stable json output", async () => {
+		syncMentionsMock.mockResolvedValueOnce({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			accountId: "acct_primary",
+			count: 1,
+			partial: false,
+			payload: { data: [{ id: "tweet_sync_mention_1" }] },
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"sync",
+			"mentions",
+			"--mode",
+			"xurl",
+			"--limit",
+			"5",
+			"--start-time",
+			"2026-03-01T00:00:00Z",
+		]);
+
+		expect(syncMentionsMock).toHaveBeenCalledWith({
+			account: undefined,
+			mode: "xurl",
+			limit: 5,
+			maxPages: undefined,
+			sinceId: undefined,
+			startTime: "2026-03-01T00:00:00Z",
+			refresh: false,
+			cacheTtlMs: 120_000,
+		});
+		expect(
+			JSON.parse(consoleLogMock.mock.lastCall?.[0] as string),
+		).toMatchObject({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			count: 1,
+			partial: false,
+		});
+	});
+
+	it("marks capped sync mentions as partial", async () => {
+		syncMentionsMock.mockResolvedValueOnce({
+			ok: true,
+			source: "xurl",
+			kind: "mentions",
+			accountId: "acct_primary",
+			count: 1,
+			partial: true,
+			payload: {
+				data: [{ id: "tweet_sync_capped" }],
+				meta: { result_count: 1, next_token: "page-2" },
+			},
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"sync",
+			"mentions",
+			"--max-pages",
+			"1",
+			"--limit",
+			"5",
+		]);
+
+		expect(process.exitCode).toBe(5);
+		expect(syncMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ maxPages: 1 }),
+		);
+	});
+
+	it("rejects invalid sync mentions modes as json", async () => {
+		syncMentionsMock.mockRejectedValueOnce(
+			new Error("--mode must be bird or xurl"),
+		);
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "sync", "mentions", "--mode", "weird"]);
+
+		expect(syncMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "weird" }),
+		);
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			JSON.stringify(
+				{
+					ok: false,
+					kind: "mentions",
+					mode: "weird",
+					error: "--mode must be bird or xurl",
+				},
+				null,
+				2,
+			),
+		);
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("marks truncated sync mention-threads as partial with exit code 5", async () => {
+		syncMentionThreadsMock.mockResolvedValueOnce({
+			ok: true,
+			source: "xurl",
+			accountId: "acct_primary",
+			mentions: 1,
+			threads: 1,
+			succeeded: 1,
+			skipped: 0,
+			failed: 0,
+			mergedTweets: 1,
+			uniqueTweets: 1,
+			generalReadTweets: 1,
+			partial: true,
+			options: {
+				mode: "xurl",
+				limit: 5,
+				delayMs: 1500,
+				timeoutMs: 15000,
+				all: false,
+				maxPages: 1,
+				maxFallbackDepth: 12,
+			},
+			results: [
+				{
+					tweetId: "mention_truncated",
+					conversationId: "root_truncated",
+					ok: true,
+					count: 1,
+					strategy: "conversation_search",
+					pages: 1,
+					fallbackDepth: 0,
+					truncated: true,
+				},
+			],
+			failures: [],
+			warnings: [],
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"sync",
+			"mention-threads",
+			"--mode",
+			"xurl",
+			"--limit",
+			"5",
+			"--max-pages",
+			"1",
+		]);
+
+		expect(syncMentionThreadsMock).toHaveBeenCalledWith({
+			account: undefined,
+			mode: "xurl",
+			limit: 5,
+			delayMs: 1500,
+			timeoutMs: 15000,
+			all: false,
+			maxPages: 1,
+		});
+		expect(
+			JSON.parse(consoleLogMock.mock.lastCall?.[0] as string),
+		).toMatchObject({
+			ok: true,
+			partial: true,
+			results: [expect.objectContaining({ truncated: true })],
+		});
+		expect(process.exitCode).toBe(5);
+	});
+
 	it("imports an explicit archive path without discovery", async () => {
 		const { runCli } = await loadCli();
 
@@ -547,8 +765,101 @@ describe("cli", () => {
 			"/tmp/explicit.zip",
 		]);
 
-		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip");
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip", {
+			select: undefined,
+		});
 		expect(findArchivesMock).not.toHaveBeenCalled();
+	});
+
+	it("passes selected archive slices to import archive", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"import",
+			"archive",
+			"/tmp/explicit.zip",
+			"--select",
+			"tweets,directMessages,dms,likes",
+		]);
+
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip", {
+			select: ["tweets", "directMessages", "likes"],
+		});
+	});
+
+	it("rejects unknown archive import slices", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"import",
+			"archive",
+			"/tmp/explicit.zip",
+			"--select",
+			"likes,blocks",
+		]);
+
+		expect(process.exitCode).toBe(1);
+		expect(importArchiveMock).not.toHaveBeenCalled();
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			expect.stringContaining("--select must be a comma-separated subset"),
+		);
+		consoleErrorMock.mockRestore();
+	});
+
+	it("rejects prototype-property archive import selections", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"import",
+			"archive",
+			"/tmp/explicit.zip",
+			"--select",
+			"constructor",
+		]);
+
+		expect(process.exitCode).toBe(1);
+		expect(importArchiveMock).not.toHaveBeenCalled();
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			expect.stringContaining("--select must be a comma-separated subset"),
+		);
+		consoleErrorMock.mockRestore();
+	});
+
+	it("rejects empty archive import selections", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"import",
+			"archive",
+			"/tmp/explicit.zip",
+			"--select",
+			"",
+		]);
+
+		expect(process.exitCode).toBe(1);
+		expect(importArchiveMock).not.toHaveBeenCalled();
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			expect.stringContaining("--select must include at least one"),
+		);
+		consoleErrorMock.mockRestore();
 	});
 
 	it("reports backup auto-sync failures without hiding command output", async () => {
@@ -586,7 +897,9 @@ describe("cli", () => {
 			"birdclaw backup sync failed: push failed",
 		);
 		expect(listTimelineItemsMock).toHaveBeenCalled();
-		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/x.zip");
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/x.zip", {
+			select: undefined,
+		});
 		consoleErrorMock.mockRestore();
 	});
 
@@ -718,6 +1031,24 @@ describe("cli", () => {
 		await runCli([
 			"node",
 			"birdclaw",
+			"sync",
+			"authored",
+			"--account",
+			"acct_primary",
+			"--mode",
+			"xurl",
+			"--limit",
+			"50",
+			"--max-pages",
+			"2",
+			"--since-id",
+			"100",
+			"--until-id",
+			"200",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
 			"dms",
 			"list",
 			"--min-followers",
@@ -817,6 +1148,14 @@ describe("cli", () => {
 			refresh: true,
 			cacheTtlMs: 30_000,
 			earlyStop: false,
+		});
+		expect(syncAuthoredTweetsMock).toHaveBeenCalledWith({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 50,
+			maxPages: 2,
+			sinceId: "100",
+			untilId: "200",
 		});
 		expect(listDmConversationsMock).toHaveBeenCalledWith({
 			account: undefined,
@@ -1049,6 +1388,21 @@ describe("cli", () => {
 		);
 		expect(process.exitCode).toBe(1);
 		expect(maybeAutoSyncBackupMock).not.toHaveBeenCalled();
+	});
+
+	it("sets exit code 5 when authored sync returns a partial result", async () => {
+		syncAuthoredTweetsMock.mockResolvedValueOnce({
+			ok: false,
+			source: "xurl",
+			kind: "authored",
+			count: 1,
+			partial: true,
+		});
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "sync", "authored", "--max-pages", "1"]);
+
+		expect(process.exitCode).toBe(5);
 	});
 
 	it("rejects invalid follow sync modes as json", async () => {

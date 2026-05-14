@@ -12,6 +12,7 @@ After [installing](install.md) and running [`birdclaw init`](quickstart.md), eve
 # Find and import your Twitter archive (auto-discovered on macOS).
 birdclaw archive find --json
 birdclaw import archive --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select likes,bookmarks --json
 
 # Pull in mentions, likes, bookmarks, and the home timeline.
 birdclaw sync timeline --limit 100 --refresh --json
@@ -31,7 +32,7 @@ Stable `--json` envelopes go to stdout, progress and warnings to stderr — pipe
 ## What birdclaw does
 
 - **One local SQLite database** for tweets, DMs, likes, bookmarks, mentions, follows, blocks, and mutes — multi-account, FTS5-indexed.
-- **Archive-first, live-aware.** Import a Twitter archive when you have one, or stay live-only. Both paths converge on the same canonical tables.
+- **Archive-first, live-aware.** Import a Twitter archive when you have one, selectively re-import stale slices with `--select`, or stay live-only. All paths converge on the same canonical tables.
 - **Cached live reads** through [`xurl`](https://github.com/xdevplatform/xurl) and [`bird`](https://github.com/steipete/bird), so repeated reads do not keep spending the API budget.
 - **Local web app** for `Home`, `Mentions`, `Likes`, `Bookmarks`, `DMs`, `Inbox`, and `Blocks` — light/dark/system theme, focused timeline lane, no dashboard chrome.
 - **AI-ranked inbox** (OpenAI) for low-signal filtering on mentions and DMs.
@@ -41,7 +42,7 @@ Stable `--json` envelopes go to stdout, progress and warnings to stderr — pipe
 ## Pick your path
 
 - **First time using birdclaw.** [Install](install.md) → [Quickstart](quickstart.md). Five minutes from `brew install` to your first authenticated query.
-- **Have a Twitter archive ZIP.** [Archive import](archive.md) walks through autodiscovery, full-DM mode, and idempotent re-runs.
+- **Have a Twitter archive ZIP.** [Archive import](archive.md) walks through autodiscovery, selected re-imports, and idempotent re-runs.
 - **No archive, just want to read live.** [Sync](sync.md) covers likes, bookmarks, timeline, mention threads, and rate-limit-aware resumable runs.
 - **Triaging mentions or DMs.** [Search](search.md), [Mentions](mentions.md), [DMs](dms.md), and [Inbox](inbox.md).
 - **Maintaining a blocklist.** [Moderation](moderation.md) covers blocks, mutes, ban/unban, and bulk imports.

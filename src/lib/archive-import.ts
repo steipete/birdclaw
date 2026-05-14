@@ -46,6 +46,22 @@ interface ImportedArchiveSummary {
 	};
 }
 
+export const ARCHIVE_IMPORT_SLICES = [
+	"tweets",
+	"likes",
+	"bookmarks",
+	"directMessages",
+	"profiles",
+	"followers",
+	"following",
+] as const;
+
+export type ArchiveImportSlice = (typeof ARCHIVE_IMPORT_SLICES)[number];
+
+export interface ImportArchiveOptions {
+	select?: ArchiveImportSlice[];
+}
+
 type ArchiveRecord = Record<string, unknown>;
 type ArchiveMediaKind =
 	| "tweets"
@@ -142,6 +158,19 @@ function getFirstEntry(entries: string[], pattern: RegExp) {
 
 function getMatchingEntries(entries: string[], pattern: RegExp) {
 	return entries.filter((entry) => pattern.test(normalizeArchivePath(entry)));
+}
+
+function selectedSlices(options: ImportArchiveOptions) {
+	return options.select && options.select.length > 0
+		? new Set<ArchiveImportSlice>(options.select)
+		: null;
+}
+
+function includesSlice(
+	selection: Set<ArchiveImportSlice> | null,
+	slice: ArchiveImportSlice,
+) {
+	return selection === null || selection.has(slice);
 }
 
 function parseTwitterDate(value: unknown) {
@@ -541,42 +570,75 @@ function clearImportedData() {
     delete from profiles;
     delete from accounts;
   `);
+	clearAuthoredSyncCursors(db);
+}
+
+function clearAuthoredSyncCursors(db = getNativeDb(), accountId?: string) {
+	if (accountId) {
+		db.prepare("delete from sync_cache where cache_key = ?").run(
+			`authored:xurl:${accountId}:cursor`,
+		);
+		return;
+	}
+	db.prepare(
+		"delete from sync_cache where cache_key like 'authored:xurl:%:cursor'",
+	).run();
+}
+
+function clearMentionSyncState(db = getNativeDb()) {
+	db.prepare(
+		"delete from sync_cache where cache_key like 'mentions:sync:%'",
+	).run();
 }
 
 export async function importArchive(
 	archivePath: string,
+	options: ImportArchiveOptions = {},
 ): Promise<ImportedArchiveSummary> {
 	const entries = await listArchiveEntries(archivePath);
+	const selection = selectedSlices(options);
+	const includeTweets = includesSlice(selection, "tweets");
+	const includeLikes = includesSlice(selection, "likes");
+	const includeBookmarks = includesSlice(selection, "bookmarks");
+	const includeDirectMessages = includesSlice(selection, "directMessages");
+	const includeProfiles = includesSlice(selection, "profiles");
+	const includeFollowers = includesSlice(selection, "followers");
+	const includeFollowing = includesSlice(selection, "following");
 	const accountEntry = getFirstEntry(entries, /(?:^|\/)data\/account\.js$/i);
 	const profileEntry = getFirstEntry(entries, /(?:^|\/)data\/profile\.js$/i);
-	const tweetEntries = getMatchingEntries(
-		entries,
-		/(?:^|\/)data\/(?:tweets|community-tweet)(?:-part\d+)?\.js$/i,
-	);
-	const noteTweetEntries = getMatchingEntries(
-		entries,
-		/(?:^|\/)data\/note-tweet(?:-part\d+)?\.js$/i,
-	);
-	const likeEntries = getMatchingEntries(
-		entries,
-		/(?:^|\/)data\/(?:like|likes)(?:-part\d+)?\.js$/i,
-	);
-	const bookmarkEntries = getMatchingEntries(
-		entries,
-		/(?:^|\/)data\/(?:bookmark|bookmarks)(?:-part\d+)?\.js$/i,
-	);
-	const dmEntries = getMatchingEntries(
-		entries,
-		/(?:^|\/)data\/direct-messages(?:-group)?(?:-part\d+)?\.js$/i,
-	);
-	const followerEntries = getMatchingEntries(
-		entries,
-		/(?:^|\/)data\/follower(?:-part\d+)?\.js$/i,
-	);
-	const followingEntries = getMatchingEntries(
-		entries,
-		/(?:^|\/)data\/following(?:-part\d+)?\.js$/i,
-	);
+	const tweetEntries = includeTweets
+		? getMatchingEntries(
+				entries,
+				/(?:^|\/)data\/(?:tweets|community-tweet)(?:-part\d+)?\.js$/i,
+			)
+		: [];
+	const noteTweetEntries = includeTweets
+		? getMatchingEntries(entries, /(?:^|\/)data\/note-tweet(?:-part\d+)?\.js$/i)
+		: [];
+	const likeEntries = includeLikes
+		? getMatchingEntries(
+				entries,
+				/(?:^|\/)data\/(?:like|likes)(?:-part\d+)?\.js$/i,
+			)
+		: [];
+	const bookmarkEntries = includeBookmarks
+		? getMatchingEntries(
+				entries,
+				/(?:^|\/)data\/(?:bookmark|bookmarks)(?:-part\d+)?\.js$/i,
+			)
+		: [];
+	const dmEntries = includeDirectMessages
+		? getMatchingEntries(
+				entries,
+				/(?:^|\/)data\/direct-messages(?:-group)?(?:-part\d+)?\.js$/i,
+			)
+		: [];
+	const followerEntries = includeFollowers
+		? getMatchingEntries(entries, /(?:^|\/)data\/follower(?:-part\d+)?\.js$/i)
+		: [];
+	const followingEntries = includeFollowing
+		? getMatchingEntries(entries, /(?:^|\/)data\/following(?:-part\d+)?\.js$/i)
+		: [];
 
 	if (!accountEntry) {
 		throw new Error("Archive missing data/account.js");
@@ -801,6 +863,18 @@ export async function importArchive(
 				.all() as ExistingProfileRow[]
 		).map((profile) => [profile.id, profile]),
 	);
+	const existingProfilesByHandle = new Map(
+		[...existingProfiles.values()].map((profile) => [
+			profile.handle.toLowerCase(),
+			profile,
+		]),
+	);
+	const existingPrimaryAccount = getNativeDb()
+		.prepare("select handle, external_user_id from accounts where id = ?")
+		.get("acct_primary") as
+		| { handle: string; external_user_id: string | null }
+		| undefined;
+	const profileIdAliases = new Map<string, string>();
 
 	type ArchiveProfileTier =
 		| "archive_follow_stub"
@@ -882,12 +956,22 @@ export async function importArchive(
 	}
 
 	function mergeArchiveProfile(incoming: ProfileRow) {
+		const existingById = existingProfiles.get(incoming.id);
+		const existingByHandle = selection
+			? existingProfilesByHandle.get(incoming.handle.toLowerCase())
+			: undefined;
+		const targetExisting = existingById ?? existingByHandle;
+		const targetId = targetExisting?.id ?? incoming.id;
+		if (targetId !== incoming.id) {
+			profileIdAliases.set(incoming.id, targetId);
+		}
+		const targetIncoming =
+			targetId === incoming.id ? incoming : { ...incoming, id: targetId };
 		const incomingTier = classifyExistingProfile(incoming);
-		const current = profiles.get(incoming.id);
+		const current = profiles.get(targetId);
 		const currentTier = current ? classifyExistingProfile(current) : null;
-		const existing = existingProfiles.get(incoming.id);
-		const existingProfile = existing
-			? existingProfileToProfileRow(existing)
+		const existingProfile = targetExisting
+			? existingProfileToProfileRow(targetExisting)
 			: null;
 		const existingTier = existingProfile
 			? classifyExistingProfile(existingProfile)
@@ -907,11 +991,45 @@ export async function importArchive(
 			existingTier &&
 			shouldPreserveProfile(existingTier, incomingTier)
 		) {
-			profiles.set(incoming.id, existingProfile);
+			profiles.set(targetId, existingProfile);
 			return;
 		}
 
-		profiles.set(incoming.id, incoming);
+		profiles.set(targetId, targetIncoming);
+	}
+
+	function resolveProfileId(profileId: string) {
+		return profileIdAliases.get(profileId) ?? profileId;
+	}
+
+	function isProfileHandleTakenByOtherId(handle: string, profileId: string) {
+		const normalizedHandle = handle.toLowerCase();
+		const existingProfile = existingProfilesByHandle.get(normalizedHandle);
+		if (existingProfile && existingProfile.id !== profileId) return true;
+		for (const profile of profiles.values()) {
+			if (
+				profile.id !== profileId &&
+				profile.handle.toLowerCase() === normalizedHandle
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	function uniqueArchiveProfileHandle(baseHandle: string, profileId: string) {
+		if (!isProfileHandleTakenByOtherId(baseHandle, profileId)) {
+			return baseHandle;
+		}
+		let index = 1;
+		while (true) {
+			const suffix = index === 1 ? "archive" : `archive_${index}`;
+			const candidate = `${baseHandle}_${suffix}`;
+			if (!isProfileHandleTakenByOtherId(candidate, profileId)) {
+				return candidate;
+			}
+			index += 1;
+		}
 	}
 
 	function addArchiveFollowProfile(profileId: string, externalUserId: string) {
@@ -932,19 +1050,148 @@ export async function importArchive(
 		});
 	}
 
-	const localProfile = {
-		id: "profile_me",
-		handle: accountPayload.username,
-		displayName: accountPayload.displayName,
-		bio: accountPayload.bio,
-		followersCount: 0,
-		followingCount: 0,
-		...defaultProfileMetadata,
-		avatarHue: 18,
-		avatarUrl: null,
-		createdAt: accountPayload.createdAt,
-	};
+	function assertSelectedAccountMatchesArchive() {
+		if (!selection || !existingPrimaryAccount) return;
+		const existingExternalUserId = existingPrimaryAccount.external_user_id;
+		if (
+			existingExternalUserId &&
+			existingExternalUserId !== accountPayload.accountId
+		) {
+			throw new Error(
+				`Existing acct_primary (${existingExternalUserId}) does not match archive account ${accountPayload.accountId}`,
+			);
+		}
+		const existingHandle = existingPrimaryAccount.handle
+			.replace(/^@/, "")
+			.toLowerCase();
+		if (
+			!existingExternalUserId &&
+			existingHandle !== accountPayload.username.toLowerCase()
+		) {
+			throw new Error(
+				`Existing acct_primary (@${existingHandle}) does not match archive account @${accountPayload.username}`,
+			);
+		}
+	}
+
+	assertSelectedAccountMatchesArchive();
+
+	const existingLocalProfile =
+		selection &&
+		(existingProfiles.get("profile_me") ??
+			[...existingProfiles.values()].find(
+				(profile) =>
+					profile.handle.toLowerCase() ===
+					accountPayload.username.toLowerCase(),
+			));
+	const archivedLocalProfile = existingLocalProfile
+		? {
+				...existingProfileToProfileRow(existingLocalProfile),
+				handle: accountPayload.username,
+				displayName: accountPayload.displayName,
+				bio: accountPayload.bio,
+				createdAt: accountPayload.createdAt,
+			}
+		: {
+				id: "profile_me",
+				handle: accountPayload.username,
+				displayName: accountPayload.displayName,
+				bio: accountPayload.bio,
+				followersCount: 0,
+				followingCount: 0,
+				...defaultProfileMetadata,
+				avatarHue: 18,
+				avatarUrl: null,
+				createdAt: accountPayload.createdAt,
+			};
+	const localProfile =
+		existingLocalProfile && !includeProfiles
+			? existingProfileToProfileRow(existingLocalProfile)
+			: archivedLocalProfile;
 	profiles.set(localProfile.id, localProfile);
+
+	const existingDmConversationAccounts = new Map(
+		(
+			getNativeDb()
+				.prepare("select id, account_id from dm_conversations")
+				.all() as Array<{ id: string; account_id: string }>
+		).map((row) => [row.id, row.account_id]),
+	);
+	const existingOtherDmMessageIds = new Set(
+		(
+			getNativeDb()
+				.prepare(
+					`
+          select m.id
+          from dm_messages m
+          join dm_conversations c on c.id = m.conversation_id
+          where c.account_id <> 'acct_primary'
+        `,
+				)
+				.all() as Array<{ id: string }>
+		).map((row) => row.id),
+	);
+	const archiveDmConversationIdAliases = new Map<string, string>();
+	const archiveDmMessageIdAliases = new Map<string, string>();
+
+	function uniquePrimaryArchiveId(
+		baseId: string,
+		isTakenByOtherAccount: (candidate: string) => boolean,
+		isPending: (candidate: string) => boolean,
+	) {
+		let index = 1;
+		while (true) {
+			const suffix = index === 1 ? "" : `:${index}`;
+			const candidate = `acct_primary:${baseId}${suffix}`;
+			if (!isTakenByOtherAccount(candidate) && !isPending(candidate)) {
+				return candidate;
+			}
+			index += 1;
+		}
+	}
+
+	function resolveArchiveDmConversationId(conversationId: string) {
+		const existingAlias = archiveDmConversationIdAliases.get(conversationId);
+		if (existingAlias) return existingAlias;
+		if (!selection) {
+			archiveDmConversationIdAliases.set(conversationId, conversationId);
+			return conversationId;
+		}
+
+		const takenByOtherAccount = (candidate: string) => {
+			const accountId = existingDmConversationAccounts.get(candidate);
+			return accountId !== undefined && accountId !== "acct_primary";
+		};
+		const resolved = takenByOtherAccount(conversationId)
+			? uniquePrimaryArchiveId(
+					conversationId,
+					takenByOtherAccount,
+					(candidate) => conversations.has(candidate),
+				)
+			: conversationId;
+		archiveDmConversationIdAliases.set(conversationId, resolved);
+		return resolved;
+	}
+
+	function resolveArchiveDmMessageId(
+		messageId: string,
+		conversationIdChanged: boolean,
+	) {
+		const existingAlias = archiveDmMessageIdAliases.get(messageId);
+		if (existingAlias) return existingAlias;
+		const shouldRemap =
+			selection &&
+			(conversationIdChanged || existingOtherDmMessageIds.has(messageId));
+		const resolved = shouldRemap
+			? uniquePrimaryArchiveId(
+					messageId,
+					(candidate) => existingOtherDmMessageIds.has(candidate),
+					(candidate) => dmMessages.some((message) => message.id === candidate),
+				)
+			: messageId;
+		archiveDmMessageIdAliases.set(messageId, resolved);
+		return resolved;
+	}
 
 	for (const entry of dmEntries) {
 		const content = await readArchiveEntry(archivePath, entry);
@@ -952,8 +1199,10 @@ export async function importArchive(
 			const dmConversation = asRecord(wrapper.dmConversation);
 			if (!dmConversation) continue;
 
-			const conversationId = String(dmConversation.conversationId ?? "");
-			if (!conversationId) continue;
+			const rawConversationId = String(dmConversation.conversationId ?? "");
+			if (!rawConversationId) continue;
+			const conversationId = resolveArchiveDmConversationId(rawConversationId);
+			const conversationIdChanged = conversationId !== rawConversationId;
 
 			const conversationName = String(dmConversation.name ?? "").trim();
 			const participantIds = new Set<string>();
@@ -1056,9 +1305,12 @@ export async function importArchive(
 				.filter((event): event is Record<string, unknown> => event !== null)
 				.map((messageCreate) => {
 					const senderId = String(messageCreate.senderId ?? "");
+					const rawMessageId = String(
+						messageCreate.id ?? `${rawConversationId}-${senderId}`,
+					);
 					const senderProfileId =
 						senderId === accountPayload.accountId
-							? "profile_me"
+							? localProfile.id
 							: `profile_user_${senderId}`;
 
 					if (senderId && senderId !== accountPayload.accountId) {
@@ -1067,7 +1319,7 @@ export async function importArchive(
 							mentionDirectory,
 						);
 						if (!profiles.has(senderProfileId)) {
-							profiles.set(senderProfileId, {
+							mergeArchiveProfile({
 								id: senderProfileId,
 								handle: inferred.handle,
 								displayName: inferred.displayName,
@@ -1083,9 +1335,9 @@ export async function importArchive(
 					}
 
 					return {
-						id: String(messageCreate.id ?? `${conversationId}-${senderId}`),
+						id: resolveArchiveDmMessageId(rawMessageId, conversationIdChanged),
 						conversationId,
-						senderProfileId,
+						senderProfileId: resolveProfileId(senderProfileId),
 						text: String(messageCreate.text ?? ""),
 						createdAt: parseTwitterDate(messageCreate.createdAt),
 						direction:
@@ -1105,14 +1357,16 @@ export async function importArchive(
 			if (!lastMessage) continue;
 
 			dmMessages.push(...messageEvents);
+			const resolvedParticipantProfileId =
+				resolveProfileId(participantProfileId);
 			conversations.set(conversationId, {
 				id: conversationId,
 				title:
-					profiles.get(participantProfileId)?.displayName ||
+					profiles.get(resolvedParticipantProfileId)?.displayName ||
 					conversationName ||
 					conversationId,
 				accountId: "acct_primary",
-				participantProfileId,
+				participantProfileId: resolvedParticipantProfileId,
 				lastMessageAt: lastMessage.createdAt,
 				unreadCount: 0,
 				needsReply: lastMessage.direction === "inbound" ? 1 : 0,
@@ -1213,8 +1467,12 @@ export async function importArchive(
 	}
 
 	const clearedFollowDirections = new Set<ArchiveFollowDirection>();
-	if (followerEntries.length === 0) clearedFollowDirections.add("followers");
-	if (followingEntries.length === 0) clearedFollowDirections.add("following");
+	if (includeFollowers && followerEntries.length === 0) {
+		clearedFollowDirections.add("followers");
+	}
+	if (includeFollowing && followingEntries.length === 0) {
+		clearedFollowDirections.add("following");
+	}
 	const retainedFollowProfiles = getNativeDb()
 		.prepare(
 			`
@@ -1246,9 +1504,11 @@ export async function importArchive(
 	}
 
 	if (tweetRows.some((tweet) => tweet.authorProfileId === "profile_unknown")) {
-		profiles.set("profile_unknown", {
+		const unknownProfile = {
 			id: "profile_unknown",
-			handle: "unknown",
+			handle: selection
+				? uniqueArchiveProfileHandle("unknown", "profile_unknown")
+				: "unknown",
 			displayName: "Unknown",
 			bio: "Imported from archive collection metadata",
 			followersCount: 0,
@@ -1257,18 +1517,62 @@ export async function importArchive(
 			avatarHue: 210,
 			avatarUrl: null,
 			createdAt: accountPayload.createdAt,
-		});
+		};
+		const existingUnknownProfile = existingProfiles.get("profile_unknown");
+		profiles.set(
+			"profile_unknown",
+			existingUnknownProfile
+				? existingProfileToProfileRow(existingUnknownProfile)
+				: unknownProfile,
+		);
 	}
 
-	clearImportedData();
+	if (!selection) {
+		clearImportedData();
+		clearMentionSyncState();
+	}
 
 	const db = getNativeDb();
 	const insertAccount = db.prepare(`
     insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
     values (?, ?, ?, ?, ?, 1, ?)
+    on conflict(id) do update set
+      name = excluded.name,
+      handle = excluded.handle,
+      external_user_id = excluded.external_user_id,
+      transport = excluded.transport,
+      is_default = 1,
+      created_at = excluded.created_at
+  `);
+	const insertAccountIfMissing = db.prepare(`
+    insert or ignore into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
+    values (?, ?, ?, ?, ?, 1, ?)
   `);
 	const insertProfile = db.prepare(`
 	    insert into profiles (
+	      id, handle, display_name, bio, followers_count, following_count,
+	      public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
+	      entities_json, raw_json, created_at
+	    )
+	    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      on conflict(id) do update set
+        handle = excluded.handle,
+        display_name = excluded.display_name,
+        bio = excluded.bio,
+        followers_count = excluded.followers_count,
+        following_count = excluded.following_count,
+        public_metrics_json = excluded.public_metrics_json,
+        avatar_hue = excluded.avatar_hue,
+        avatar_url = excluded.avatar_url,
+        location = excluded.location,
+        url = excluded.url,
+        verified_type = excluded.verified_type,
+        entities_json = excluded.entities_json,
+        raw_json = excluded.raw_json,
+        created_at = excluded.created_at
+	  `);
+	const insertProfileIfMissing = db.prepare(`
+	    insert or ignore into profiles (
 	      id, handle, display_name, bio, followers_count, following_count,
 	      public_metrics_json, avatar_hue, avatar_url, location, url, verified_type,
 	      entities_json, raw_json, created_at
@@ -1280,10 +1584,52 @@ export async function importArchive(
       id, account_id, author_profile_id, kind, text, created_at, is_replied,
       reply_to_id, like_count, media_count, bookmarked, liked, entities_json, media_json, quoted_tweet_id
     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(id) do update set
+      account_id = tweets.account_id,
+      author_profile_id = case
+        when tweets.author_profile_id = 'profile_unknown' then excluded.author_profile_id
+        else tweets.author_profile_id
+      end,
+      kind = case
+        when tweets.kind in ('home', 'mention', 'authored') and excluded.kind in ('like', 'bookmark')
+          then tweets.kind
+        else excluded.kind
+      end,
+	      text = case
+	        when excluded.kind in ('like', 'bookmark')
+	          and tweets.text <> ''
+	          then tweets.text
+	        when excluded.text <> '' then excluded.text
+	        else tweets.text
+	      end,
+	      created_at = case
+	        when excluded.kind in ('like', 'bookmark')
+	          then tweets.created_at
+	        else excluded.created_at
+	      end,
+      is_replied = max(tweets.is_replied, excluded.is_replied),
+      reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
+      like_count = max(tweets.like_count, excluded.like_count),
+      media_count = max(tweets.media_count, excluded.media_count),
+	      bookmarked = case
+	        when tweets.account_id = excluded.account_id then max(tweets.bookmarked, excluded.bookmarked)
+	        else tweets.bookmarked
+	      end,
+	      liked = case
+	        when tweets.account_id = excluded.account_id then max(tweets.liked, excluded.liked)
+	        else tweets.liked
+	      end,
+      entities_json = case when excluded.entities_json <> '{}' then excluded.entities_json else tweets.entities_json end,
+      media_json = case when excluded.media_json <> '[]' then excluded.media_json else tweets.media_json end,
+      quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id)
   `);
+	const deleteTweetFts = db.prepare(
+		"delete from tweets_fts where tweet_id = ?",
+	);
 	const insertTweetFts = db.prepare(
 		"insert into tweets_fts (tweet_id, text) values (?, ?)",
 	);
+	const selectTweetFtsText = db.prepare("select text from tweets where id = ?");
 	const insertTimelineEdge = db.prepare(`
     insert into tweet_account_edges (
       account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count, source,
@@ -1300,10 +1646,16 @@ export async function importArchive(
     ) values (?, ?, ?, ?, ?, ?, ?)
     on conflict(account_id, tweet_id, kind) do update set
       collected_at = coalesce(excluded.collected_at, tweet_collections.collected_at),
-      source = excluded.source,
-      raw_json = excluded.raw_json,
-      updated_at = excluded.updated_at
-  `);
+      source = case
+        when tweet_collections.source = 'archive' then excluded.source
+        else tweet_collections.source
+      end,
+      raw_json = case
+        when tweet_collections.source = 'archive' then excluded.raw_json
+        else tweet_collections.raw_json
+      end,
+      updated_at = max(tweet_collections.updated_at, excluded.updated_at)
+	  `);
 	const insertConversation = db.prepare(`
     insert into dm_conversations (
       id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
@@ -1402,6 +1754,301 @@ export async function importArchive(
       id, account_id, direction, profile_id, external_user_id, kind, event_at, snapshot_id
     ) values (?, ?, ?, ?, ?, ?, ?, ?)
   `);
+	const clearSelectedLikes = db.prepare(`
+	    delete from tweet_collections
+	    where account_id = ? and kind = 'likes' and source in ('archive', 'legacy')
+	  `);
+	const clearSelectedBookmarks = db.prepare(`
+	    delete from tweet_collections
+	    where account_id = ? and kind = 'bookmarks' and source in ('archive', 'legacy')
+	  `);
+	const clearTweetLikedFlag = db.prepare(`
+		    update tweets
+		    set liked = 0
+	    where account_id = ?
+	      and id in (
+		      select tweet_id
+		      from tweet_collections
+		      where account_id = ? and kind = 'likes' and source in ('archive', 'legacy')
+		    )
+	  `);
+	const clearTweetBookmarkedFlag = db.prepare(`
+		    update tweets
+		    set bookmarked = 0
+	    where account_id = ?
+	      and id in (
+		      select tweet_id
+		      from tweet_collections
+		      where account_id = ? and kind = 'bookmarks' and source in ('archive', 'legacy')
+		    )
+	  `);
+	const clearSelectedArchiveTweetEdges = db.prepare(`
+	    delete from tweet_account_edges
+	    where account_id = ?
+	      and kind in ('home', 'authored')
+	      and (
+	        source = 'archive'
+	        or (
+	          source = 'legacy'
+	          and exists (
+	            select 1
+	            from tweets
+	            where tweets.id = tweet_account_edges.tweet_id
+	              and tweets.account_id = ?
+	              and tweets.author_profile_id = ?
+	          )
+	        )
+	      )
+	  `);
+	const deleteOrphanTweetLinkOccurrences = db.prepare(`
+	    delete from link_occurrences
+	    where source_kind = 'tweet'
+      and source_id not in (select id from tweets)
+	  `);
+	const deleteOrphanArchiveCollectionTweets = db.prepare(`
+    delete from tweets
+    where account_id = ?
+      and kind in ('like', 'bookmark')
+      and not exists (
+        select 1
+        from tweet_collections collection
+        where collection.tweet_id = tweets.id
+      )
+	      and not exists (
+	        select 1
+	        from tweet_account_edges edge
+	        where edge.tweet_id = tweets.id
+	      )
+	      and not exists (
+	        select 1
+	        from tweets referencing_tweet
+	        where referencing_tweet.reply_to_id = tweets.id
+	          or referencing_tweet.quoted_tweet_id = tweets.id
+	      )
+	  `);
+	const demoteSelectedArchiveTweetsWithCollections = db.prepare(`
+    update tweets
+    set kind = case
+      when exists (
+        select 1
+        from tweet_collections collection
+        where collection.account_id = ?
+          and collection.tweet_id = tweets.id
+          and collection.kind = 'likes'
+      ) then 'like'
+      when exists (
+        select 1
+        from tweet_collections collection
+        where collection.account_id = ?
+          and collection.tweet_id = tweets.id
+          and collection.kind = 'bookmarks'
+      ) then 'bookmark'
+      else kind
+    end
+    where account_id = ?
+	      and id in (
+	        select tweet_id
+	        from tweet_account_edges edge
+	        join tweets edge_tweet on edge_tweet.id = edge.tweet_id
+	        where edge.account_id = ?
+	          and edge.kind in ('home', 'authored')
+	          and (
+	            edge.source = 'archive'
+	            or (
+	              edge.source = 'legacy'
+	              and edge_tweet.account_id = ?
+	              and edge_tweet.author_profile_id = ?
+	            )
+	          )
+	      )
+      and id in (
+        select tweet_id
+        from tweet_collections
+        where account_id = ?
+      )
+  `);
+	const preserveSelectedArchiveTweetsReferencedElsewhere = db.prepare(`
+    update tweets
+    set kind = 'archive_stale'
+    where account_id = ?
+	      and id in (
+	        select tweet_id
+	        from tweet_account_edges edge
+	        join tweets edge_tweet on edge_tweet.id = edge.tweet_id
+	        where edge.account_id = ?
+	          and edge.kind in ('home', 'authored')
+	          and (
+	            edge.source = 'archive'
+	            or (
+	              edge.source = 'legacy'
+	              and edge_tweet.account_id = ?
+	              and edge_tweet.author_profile_id = ?
+	            )
+	          )
+	      )
+      and id not in (
+        select tweet_id
+        from tweet_collections
+        where account_id = ?
+      )
+      and exists (
+	        select 1
+	        from tweet_account_edges edge
+	        where edge.tweet_id = tweets.id
+	          and not (
+	            edge.account_id = ?
+	            and edge.kind in ('home', 'authored')
+	            and (
+	              edge.source = 'archive'
+	              or (
+	                edge.source = 'legacy'
+	                and tweets.account_id = ?
+	                and tweets.author_profile_id = ?
+	              )
+	            )
+	          )
+	        union all
+	        select 1
+	        from tweet_collections collection
+	        where collection.tweet_id = tweets.id
+	        union all
+	        select 1
+	        from tweets referencing_tweet
+	        where (
+	          referencing_tweet.reply_to_id = tweets.id
+	          or referencing_tweet.quoted_tweet_id = tweets.id
+	        )
+	          and (
+	            exists (
+	              select 1
+	              from tweet_collections collection
+	              where collection.tweet_id = referencing_tweet.id
+	            )
+	            or exists (
+	              select 1
+	              from tweet_account_edges edge
+	              where edge.tweet_id = referencing_tweet.id
+	                and not (
+	                  edge.account_id = ?
+	                  and edge.kind in ('home', 'authored')
+	                  and (
+	                    edge.source = 'archive'
+	                    or (
+	                      edge.source = 'legacy'
+	                      and referencing_tweet.account_id = ?
+	                      and referencing_tweet.author_profile_id = ?
+	                    )
+	                  )
+	                )
+	            )
+	          )
+	      )
+	  `);
+	const deleteSelectedArchiveTweetsWithoutCollections = db.prepare(`
+    delete from tweets
+    where account_id = ?
+	      and id in (
+	        select tweet_id
+	        from tweet_account_edges edge
+	        join tweets edge_tweet on edge_tweet.id = edge.tweet_id
+	        where edge.account_id = ?
+	          and edge.kind in ('home', 'authored')
+	          and (
+	            edge.source = 'archive'
+	            or (
+	              edge.source = 'legacy'
+	              and edge_tweet.account_id = ?
+	              and edge_tweet.author_profile_id = ?
+	            )
+	          )
+	      )
+      and not exists (
+        select 1
+        from tweet_collections collection
+        where collection.tweet_id = tweets.id
+      )
+      and not exists (
+	        select 1
+	        from tweet_account_edges edge
+	        where edge.tweet_id = tweets.id
+	          and not (
+	            edge.account_id = ?
+	            and edge.kind in ('home', 'authored')
+	            and (
+	              edge.source = 'archive'
+	              or (
+	                edge.source = 'legacy'
+	                and tweets.account_id = ?
+	                and tweets.author_profile_id = ?
+	              )
+	            )
+	          )
+	      )
+	      and not exists (
+	        select 1
+	        from tweets referencing_tweet
+	        where (
+	          referencing_tweet.reply_to_id = tweets.id
+	          or referencing_tweet.quoted_tweet_id = tweets.id
+	        )
+	          and (
+	            exists (
+	              select 1
+	              from tweet_collections collection
+	              where collection.tweet_id = referencing_tweet.id
+	            )
+	            or exists (
+	              select 1
+	              from tweet_account_edges edge
+	              where edge.tweet_id = referencing_tweet.id
+	                and not (
+	                  edge.account_id = ?
+	                  and edge.kind in ('home', 'authored')
+	                  and (
+	                    edge.source = 'archive'
+	                    or (
+	                      edge.source = 'legacy'
+	                      and referencing_tweet.account_id = ?
+	                      and referencing_tweet.author_profile_id = ?
+	                    )
+	                  )
+	                )
+	            )
+	          )
+	      )
+	  `);
+	const deleteOrphanTweetFts = db.prepare(`
+    delete from tweets_fts
+    where tweet_id not in (select id from tweets)
+  `);
+	const clearDmFts = db.prepare(`
+    delete from dm_fts
+    where message_id in (
+      select m.id
+      from dm_messages m
+      join dm_conversations c on c.id = m.conversation_id
+      where c.account_id = ?
+    )
+  `);
+	const clearDmLinkOccurrences = db.prepare(`
+    delete from link_occurrences
+    where source_kind = 'dm'
+      and source_id in (
+        select m.id
+        from dm_messages m
+        join dm_conversations c on c.id = m.conversation_id
+        where c.account_id = ?
+      )
+  `);
+	const clearDmMessages = db.prepare(`
+    delete from dm_messages
+    where conversation_id in (
+      select id from dm_conversations where account_id = ?
+    )
+  `);
+	const clearDmConversations = db.prepare(
+		"delete from dm_conversations where account_id = ?",
+	);
 
 	function importFollowRows(
 		direction: ArchiveFollowDirection,
@@ -1454,21 +2101,22 @@ export async function importArchive(
 			deleteFollowSnapshotMembers.run(snapshotId);
 		}
 		rows.forEach((row, index) => {
-			currentProfileIds.add(row.profileId);
+			const profileId = resolveProfileId(row.profileId);
+			currentProfileIds.add(profileId);
 			if (membersChanged) {
 				insertFollowSnapshotMember.run(
 					snapshotId,
-					row.profileId,
+					profileId,
 					row.externalUserId,
 					index,
 				);
 			}
 
-			const previous = existingEdges.get(row.profileId);
+			const previous = existingEdges.get(profileId);
 			insertFollowEdge.run(
 				"acct_primary",
 				direction,
-				row.profileId,
+				profileId,
 				row.externalUserId,
 				now,
 				now,
@@ -1479,7 +2127,7 @@ export async function importArchive(
 					`follow_event_${randomUUID()}`,
 					"acct_primary",
 					direction,
-					row.profileId,
+					profileId,
 					row.externalUserId,
 					"started",
 					now,
@@ -1520,7 +2168,74 @@ export async function importArchive(
 	}
 
 	db.transaction(() => {
-		insertAccount.run(
+		if (selection) {
+			if (includeTweets) {
+				clearAuthoredSyncCursors(db, "acct_primary");
+				demoteSelectedArchiveTweetsWithCollections.run(
+					"acct_primary",
+					"acct_primary",
+					"acct_primary",
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+					"acct_primary",
+				);
+				preserveSelectedArchiveTweetsReferencedElsewhere.run(
+					"acct_primary",
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+					"acct_primary",
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+				);
+				deleteSelectedArchiveTweetsWithoutCollections.run(
+					"acct_primary",
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+				);
+				deleteOrphanTweetFts.run();
+				deleteOrphanTweetLinkOccurrences.run();
+				clearSelectedArchiveTweetEdges.run(
+					"acct_primary",
+					"acct_primary",
+					localProfile.id,
+				);
+			}
+			if (includeLikes) {
+				clearTweetLikedFlag.run("acct_primary", "acct_primary");
+				clearSelectedLikes.run("acct_primary");
+			}
+			if (includeBookmarks) {
+				clearTweetBookmarkedFlag.run("acct_primary", "acct_primary");
+				clearSelectedBookmarks.run("acct_primary");
+			}
+			if (includeLikes || includeBookmarks) {
+				deleteOrphanArchiveCollectionTweets.run("acct_primary");
+				deleteOrphanTweetFts.run();
+				deleteOrphanTweetLinkOccurrences.run();
+			}
+			if (includeDirectMessages) {
+				clearDmLinkOccurrences.run("acct_primary");
+				clearDmFts.run("acct_primary");
+				clearDmMessages.run("acct_primary");
+				clearDmConversations.run("acct_primary");
+			}
+		}
+
+		const writeAccount = selection ? insertAccountIfMissing : insertAccount;
+		writeAccount.run(
 			"acct_primary",
 			accountPayload.displayName,
 			`@${accountPayload.username}`,
@@ -1529,8 +2244,10 @@ export async function importArchive(
 			accountPayload.createdAt,
 		);
 
+		const writeProfile =
+			!selection || includeProfiles ? insertProfile : insertProfileIfMissing;
 		for (const profile of profiles.values()) {
-			insertProfile.run(
+			writeProfile.run(
 				profile.id,
 				profile.handle,
 				profile.displayName,
@@ -1550,10 +2267,14 @@ export async function importArchive(
 		}
 
 		for (const tweet of tweetRows) {
+			const authorProfileId =
+				tweet.authorProfileId === "profile_me"
+					? localProfile.id
+					: resolveProfileId(tweet.authorProfileId);
 			insertTweet.run(
 				tweet.id,
 				"acct_primary",
-				tweet.authorProfileId,
+				authorProfileId,
 				tweet.kind,
 				tweet.text,
 				tweet.createdAt,
@@ -1567,6 +2288,7 @@ export async function importArchive(
 				tweet.mediaJson,
 				tweet.quotedTweetId,
 			);
+			deleteTweetFts.run(tweet.id);
 			if (tweet.kind === "home") {
 				insertTimelineEdge.run(
 					"acct_primary",
@@ -1577,7 +2299,7 @@ export async function importArchive(
 					new Date().toISOString(),
 				);
 			}
-			if (tweet.authorProfileId === localProfile.id) {
+			if (authorProfileId === localProfile.id) {
 				insertTimelineEdge.run(
 					"acct_primary",
 					tweet.id,
@@ -1587,7 +2309,10 @@ export async function importArchive(
 					new Date().toISOString(),
 				);
 			}
-			insertTweetFts.run(tweet.id, tweet.text);
+			const storedTweet = selectTweetFtsText.get(tweet.id) as
+				| { text: string }
+				| undefined;
+			insertTweetFts.run(tweet.id, storedTweet?.text ?? tweet.text);
 		}
 
 		const importedAt = new Date().toISOString();
@@ -1629,24 +2354,24 @@ export async function importArchive(
 			insertDmFts.run(message.id, message.text);
 		}
 
-		if (followerEntries.length > 0) {
+		if (includeFollowers && followerEntries.length > 0) {
 			importFollowRows(
 				"followers",
 				followerRows,
 				followerEntries.length,
 				importedAt,
 			);
-		} else {
+		} else if (includeFollowers) {
 			clearArchiveFollowRows("followers");
 		}
-		if (followingEntries.length > 0) {
+		if (includeFollowing && followingEntries.length > 0) {
 			importFollowRows(
 				"following",
 				followingRows,
 				followingEntries.length,
 				importedAt,
 			);
-		} else {
+		} else if (includeFollowing) {
 			clearArchiveFollowRows("following");
 		}
 	})();

@@ -1310,7 +1310,7 @@ function getDmSearchMatches({
 }
 
 export function queryResource(
-	resource: "home" | "mentions" | "dms",
+	resource: "home" | "mentions" | "authored" | "dms",
 	filters: (TimelineQuery | DmQuery) & { conversationId?: string },
 ): QueryResponse {
 	if (resource === "dms") {

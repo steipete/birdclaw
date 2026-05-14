@@ -62,13 +62,15 @@ Project config:
 birdclaw init
 birdclaw auth status
 birdclaw auth use <transport>
-birdclaw import archive <path>
+birdclaw import archive [path]
 birdclaw sync all
 birdclaw sync tweets
+birdclaw sync authored
 birdclaw sync dms
 birdclaw sync bookmarks
 birdclaw sync likes
 birdclaw sync timeline
+birdclaw sync mentions
 birdclaw sync mention-threads
 birdclaw sync followers
 birdclaw sync following
@@ -212,7 +214,7 @@ birdclaw backup import ~/Projects/birdclaw-store --json
 birdclaw backup validate ~/Projects/birdclaw-store --json
 ```
 
-### `import archive <path>`
+### `import archive [path]`
 
 - validate archive
 - analyze contents
@@ -221,17 +223,31 @@ birdclaw backup validate ~/Projects/birdclaw-store --json
 - extract `extended_entities.media[].video_info.variants[]` onto each tweet media row for archive video and animated GIFs
 - parse `data/follower.js` and `data/following.js` into the local follow graph
 - idempotent
+- path is optional; without one, macOS archive autodiscovery picks the newest likely ZIP
 
 Flags:
 
-- `--select <kinds>`
-- `--dm-mode metadata|full`
-- `--dry-run`
-- `--force`
+- `--select <kinds>` — comma-separated subset of `tweets,likes,bookmarks,profiles,directMessages,followers,following`
 
-Default:
+`--select` details:
 
-- DMs import in `full` mode
+- selected re-imports preserve unselected slices
+- valid aliases for `directMessages`: `directmessages`, `direct-messages`, `dms`
+- duplicate names are ignored
+- empty values and unknown names exit as invalid usage
+- selected imports validate that existing `acct_primary` matches the archive account before writing
+- selected imports preserve compatible existing profile rows unless `profiles` is selected
+
+Examples:
+
+```bash
+birdclaw import archive --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select tweets --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select likes,bookmarks --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select dms --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,following --json
+```
 
 ### `sync *`
 
@@ -240,8 +256,10 @@ Default:
 - refresh cursors
 - refresh FTS incrementally
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
+- `sync authored` uses `xurl`, includes retweets, and resumes from a stored `since_id`
 - `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
-- `sync mention-threads` fetches conversation context for recent mentions through `bird thread`; use `--delay-ms` and `--timeout-ms` to stay gentle on live X
+- `sync mentions` ingests recent mentions through `xurl` (default) or `bird` and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
+- `sync mention-threads` fetches conversation context for recent mentions through `bird thread` or `xurl`; pass `--mode xurl` when the `bird` CLI is unavailable, otherwise use `--delay-ms` and `--timeout-ms` to stay gentle on live X
 - `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` prefers `bird`, then falls back to `xurl`
 
 Common flags:
@@ -260,13 +278,16 @@ Common flags:
 Examples:
 
 ```bash
+birdclaw sync authored --mode xurl --limit 100 --json
 birdclaw sync likes --mode auto --limit 100 --refresh --json
 birdclaw sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 birdclaw sync timeline --limit 100 --refresh --json
-birdclaw sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
+birdclaw sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
+birdclaw sync mention-threads --mode bird --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
+birdclaw sync mention-threads --mode xurl --limit 30 --json
 ```
 
 Follow graph examples:

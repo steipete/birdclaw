@@ -265,6 +265,7 @@ Principles:
 - tweets
 - likes
 - bookmarks if present
+- profiles
 - direct messages
 - followers
 - following
@@ -283,10 +284,20 @@ Principles:
 - idempotent reruns
 - preserve richer existing data
 - raw source retained optionally
-- support metadata-only vs full-body DM storage policy
+- full import refreshes all supported archive slices together
+- selected import refreshes only requested slices and preserves unselected local data
+- selected import validates `acct_primary` identity before writing
+- selected collection imports preserve live collection rows and local tweet ownership
+- selected DM imports are scoped to `acct_primary` and preserve other accounts
 
-DM default:
-- `full`
+Selected import slices:
+- `tweets`
+- `likes`
+- `bookmarks`
+- `profiles`
+- `directMessages`
+- `followers`
+- `following`
 
 ## Sync Model
 

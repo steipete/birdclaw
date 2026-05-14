@@ -108,7 +108,11 @@ describe("config", () => {
 	});
 
 	it("defaults bird command to PATH lookup", () => {
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-config-"));
+		tempRoots.push(tempRoot);
+		process.env.BIRDCLAW_HOME = tempRoot;
 		process.env.PATH = "";
+
 		expect(getBirdCommand()).toBe("bird");
 	});
 });

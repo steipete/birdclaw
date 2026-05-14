@@ -1,6 +1,6 @@
 ---
 title: Archive Import
-description: "Import a Twitter/X archive into local SQLite — autodiscovery, full DM mode, bundled media extraction, follower/following parsing, idempotent re-runs, and profile hydration."
+description: "Import a Twitter/X archive into local SQLite — autodiscovery, selective re-imports, full DM mode, bundled media extraction, follower/following parsing, idempotent re-runs, and profile hydration."
 ---
 
 # Archive import
@@ -8,6 +8,8 @@ description: "Import a Twitter/X archive into local SQLite — autodiscovery, fu
 `birdclaw import archive` parses a Twitter/X archive ZIP and writes everything into the canonical SQLite tables: tweets, likes, bookmarks, profiles, followers/following edges, DMs, bundled media files, and (when present) blocklists.
 
 It is **idempotent**. Re-running on the same archive replays the import without producing duplicates, so you can import, then re-import after a fresh archive download to top up.
+
+By default, archive import is a full archive replay. It refreshes archive-owned data from the ZIP and rebuilds the local rows for all supported archive slices. Use `--select` when you want to refresh only one or two slices from a newer archive while preserving the rest of your local store.
 
 ## Get an archive
 
@@ -36,17 +38,57 @@ birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 
 Flags:
 
-- `--select <kinds>` — subset of `tweets,likes,bookmarks,profiles,directMessages,blocks`
-- `--dm-mode metadata|full` — default is `full`; `metadata` skips message bodies for speed
-- `--dry-run` — analyze without writing
-- `--force` — re-import even if a manifest hash matches a previous run
+- `--select <kinds>` — comma-separated subset of `tweets,likes,bookmarks,profiles,directMessages,followers,following`
+
+`--select` is for targeted re-imports. It clears and replays only the selected archive slices for `acct_primary`, then leaves unselected local data alone. This matters when you have live-synced likes/bookmarks, local replies, another account in the same DB, or a fresh archive that only needs one stale surface refreshed.
+
+Accepted DM aliases:
+
+- `directMessages`
+- `directmessages`
+- `direct-messages`
+- `dms`
 
 Examples:
 
 ```bash
 birdclaw import archive ~/Downloads/twitter-archive.zip --select tweets,directMessages
-birdclaw import archive ~/Downloads/twitter-archive.zip --dm-mode metadata --json
-birdclaw import archive ~/Downloads/twitter-archive.zip --dry-run --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select likes,bookmarks --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --select dms --json
+```
+
+Use `--select profiles` when you want archive profile metadata refreshed. When selecting only tweets, likes, bookmarks, DMs, followers, or following, birdclaw preserves compatible existing profile rows and only inserts missing stubs needed for references.
+
+Selected imports validate the existing `acct_primary` account before writing. If the local default account does not match the archive account ID or handle, the command fails instead of merging two identities into one account.
+
+## Full import vs selected import
+
+Full import:
+
+- reads every supported archive file
+- refreshes archive-owned tweets, collections, profiles, DMs, and follow edges together
+- best for a clean first import or a deliberate full archive refresh
+
+Selected import:
+
+- reads only the selected archive data plus the small account/profile baseline needed to validate identity and resolve references
+- clears only rows owned by the selected slice
+- preserves unselected tweets, DMs, likes/bookmarks, live collection rows, profile metadata, and other accounts
+
+Typical targeted re-imports:
+
+```bash
+# New archive has fresher original tweets, but keep live likes/bookmarks.
+birdclaw import archive ~/Downloads/twitter-archive.zip --select tweets --json
+
+# Refresh saved-post collections without touching DMs or follow graph.
+birdclaw import archive ~/Downloads/twitter-archive.zip --select likes,bookmarks --json
+
+# Rebuild DM search after downloading a newer archive.
+birdclaw import archive ~/Downloads/twitter-archive.zip --select directMessages --json
+
+# Refresh archive follow graph only.
+birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,following --json
 ```
 
 ## Bundled media files
@@ -80,7 +122,7 @@ Bitrate, content type, and URL fields stay verbatim from the archive, so a fresh
 
 ## Follower and following edges
 
-When the archive ships with `data/follower.js` and `data/following.js`, `import archive` parses both files and writes the rows into the same local follow graph that [`sync followers`](sync.md#sync-followers--following) and `sync following` populate:
+When the archive ships with `data/follower.js` and `data/following.js`, `import archive` parses both files and writes the rows into the same local follow graph that [`sync followers`](sync.md#sync-followers-following) and `sync following` populate:
 
 - each entry becomes a stub `profiles` row plus a current `follow_edges` row
 - counts land in the archive-import result envelope under `counts.followers` and `counts.following`
@@ -96,7 +138,7 @@ The archive ships with stale profile metadata (bios, follower counts, avatars fr
 birdclaw import hydrate-profiles --json
 ```
 
-This walks the imported profiles table and refreshes each entry through whichever transport is available (`xurl` first, `bird` second). Without a live transport, hydration is a no-op and the archive's snapshot stays.
+This walks the imported profiles table and refreshes each entry through whichever transport is available (`xurl` first, `bird` second). On large archives, that can mean hundreds or thousands of live X profile reads and may spend API credits. Without a live transport, hydration is a no-op and the archive's snapshot stays.
 
 Avatars are written to `~/.birdclaw/media/thumbs/avatars/` so the web UI does not re-fetch them on every render.
 
