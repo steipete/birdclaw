@@ -1,11 +1,24 @@
 ---
 title: Mentions
-description: "Cached live mention export for agents — xurl-compatible JSON, replied/unreplied filters, paged scans."
+description: "Mentions ingest, cached live export, and conversation backfill — xurl-compatible JSON, replied/unreplied filters, paged scans."
 ---
 
 # Mentions
 
-`birdclaw mentions export` is the agent-and-script-friendly view onto your mentions queue. It always emits JSON, supports three modes, and caches every live response so repeated reads do not keep spending the API budget.
+There are two commands and they do different things:
+
+- [`birdclaw sync mentions`](sync.md#sync-mentions) is the ingest path. It pulls live mentions through `xurl` (or `bird`), writes them into the canonical local store with `kind='mention'`, and exits. Run this on cron.
+- `birdclaw mentions export` is the read-side, agent-and-script-friendly view onto what `sync mentions` already wrote. It always emits JSON, supports three modes, and caches every live response so repeated reads do not keep spending the API budget.
+
+The full pipeline:
+
+```bash
+birdclaw sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
+birdclaw sync mention-threads --mode xurl --limit 30 --json
+birdclaw mentions export --unreplied --limit 10 --json
+```
+
+`mentions export --refresh` still works as a single-shot ingest-plus-read for one-off agent calls, but `sync mentions` is the cron-friendly canonical path.
 
 ## Three modes
 
@@ -115,6 +128,8 @@ Use this to bucket "definitely a person", "unsure", and "obviously templated" be
 ## Live mention threads
 
 If you want the conversation context for each mention (the parent tweet, the reply chain), run [`sync mention-threads`](sync.md#sync-mention-threads) first. That populates ancestor tweets in the local store so `mentions export` can reference them without an extra live call per mention.
+
+Both `--mode bird` and `--mode xurl` are supported; pick `xurl` if you do not have the `bird` CLI installed. The xurl path uses `/2/tweets/search/recent` keyed on `conversation_id` plus a parent-walk fallback for older threads outside the 7-day search window.
 
 ## See also
 

@@ -44,6 +44,7 @@ import { exportMentionItems } from "#/lib/mentions-export";
 import {
 	exportMentionsViaCachedBird,
 	exportMentionsViaCachedXurl,
+	syncMentions,
 } from "#/lib/mentions-live";
 import {
 	getFollowGraphSummary,
@@ -748,6 +749,48 @@ syncCommand
 	});
 
 syncCommand
+	.command("mentions")
+	.description("Refresh live mentions through xurl or bird")
+	.option("--account <accountId>", "Account id")
+	.option("--mode <mode>", "bird or xurl", "xurl")
+	.option("--limit <n>", "Result limit per page", "20")
+	.option("--max-pages <n>", "Stop after N pages")
+	.option("--since-id <id>", "Fetch mentions newer than this tweet id")
+	.option("--start-time <iso>", "Fetch mentions created at or after this time")
+	.option("--refresh", "Bypass live-cache freshness window")
+	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
+	.action(async (options) => {
+		try {
+			const result = await syncMentions({
+				account: options.account,
+				mode: options.mode,
+				limit: Number(options.limit),
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+				sinceId: options.sinceId,
+				startTime: options.startTime,
+				refresh: Boolean(options.refresh),
+				cacheTtlMs: Number(options.cacheTtl) * 1000,
+			});
+			await autoSyncAfterWrite();
+			print(result, true);
+			if (result.partial) {
+				process.exitCode = 5;
+			}
+		} catch (error) {
+			print(
+				{
+					ok: false,
+					kind: "mentions",
+					mode: options.mode ?? "xurl",
+					error: errorMessage(error),
+				},
+				true,
+			);
+			process.exitCode = 1;
+		}
+	});
+
+syncCommand
 	.command("authored")
 	.description("Refresh authenticated authored tweets through xurl")
 	.option("--account <accountId>", "Account id")
@@ -792,25 +835,43 @@ syncCommand
 syncCommand
 	.command("mention-threads")
 	.description(
-		"Fetch tweet conversation context for recent mentions through bird",
+		"Fetch tweet conversation context for recent mentions through bird or xurl",
 	)
 	.option("--account <accountId>", "Account id")
+	.option("--mode <mode>", "bird or xurl", "bird")
 	.option("--limit <n>", "Recent mentions to inspect", "30")
 	.option("--delay-ms <n>", "Delay between thread fetches", "1500")
 	.option("--timeout-ms <n>", "Per-thread timeout", "15000")
 	.option("--all", "Fetch all retrievable thread pages")
 	.option("--max-pages <n>", "Stop after N pages")
 	.action(async (options) => {
-		const result = await syncMentionThreads({
-			account: options.account,
-			limit: Number(options.limit),
-			delayMs: Number(options.delayMs),
-			timeoutMs: Number(options.timeoutMs),
-			all: Boolean(options.all),
-			maxPages: options.maxPages ? Number(options.maxPages) : undefined,
-		});
-		await autoSyncAfterWrite();
-		print(result, true);
+		try {
+			const result = await syncMentionThreads({
+				account: options.account,
+				mode: options.mode,
+				limit: Number(options.limit),
+				delayMs: Number(options.delayMs),
+				timeoutMs: Number(options.timeoutMs),
+				all: Boolean(options.all),
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+			});
+			await autoSyncAfterWrite();
+			print(result, true);
+			if (result.partial) {
+				process.exitCode = 5;
+			}
+		} catch (error) {
+			print(
+				{
+					ok: false,
+					kind: "mention-threads",
+					mode: options.mode ?? "bird",
+					error: errorMessage(error),
+				},
+				true,
+			);
+			process.exitCode = 1;
+		}
 	});
 
 for (const kind of ["likes", "bookmarks"] as const) {

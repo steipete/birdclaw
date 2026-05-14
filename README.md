@@ -223,7 +223,7 @@ pnpm cli search tweets --liked --limit 20 --json
 pnpm cli search tweets --bookmarked --limit 20 --json
 ```
 
-### Sync authored tweets, likes, bookmarks, and home timeline
+### Sync authored tweets, likes, bookmarks, home timeline, and mentions
 
 `auto` tries `xurl` first for likes/bookmarks, then falls back to `bird`. Use `bird` directly when the API path is unavailable for the account/token you have locally. For repeated xurl collection syncs, add `--early-stop` to stop paging once a whole page already exists locally; without `--all` or `--max-pages`, it caps at 10 pages.
 
@@ -235,8 +235,11 @@ pnpm cli sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh
 pnpm cli sync bookmarks --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 pnpm cli sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 pnpm cli sync timeline --limit 100 --refresh --json
+pnpm cli sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
 pnpm cli sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 ```
+
+Mention context is a two-step sync pipeline: run `sync mentions` to ingest recent mention rows with `kind='mention'`, then run `sync mention-threads --mode xurl` to fill parent/root conversation context.
 
 ### Follow graph queries
 
@@ -260,7 +263,7 @@ Use `--refresh` only when you intentionally want a new live fetch. The `graph` c
 
 ### Export mentions for agents
 
-Default `birdclaw` mode returns normalized items with `text`, `plainText`, `markdown`, author metadata, and canonical URLs:
+Default `birdclaw` mode exports DB-backed mention items with `text`, `plainText`, `markdown`, author metadata, and canonical URLs:
 
 ```bash
 pnpm cli mentions export "agent" --unreplied --limit 10
@@ -302,7 +305,7 @@ Notes:
 - `actions.transport` accepts `auto`, `bird`, or `xurl`
 - `bird` mode uses your local `bird` CLI and caches its mentions output into birdclaw's canonical store
 - filters still work in `xurl` mode; filtered payloads are rebuilt from the local canonical store after sync
-- `sync authored`, `sync likes`, `sync bookmarks`, `sync timeline`, and `sync mention-threads` store live results in the canonical local store; per-account authored/home/mention/like/bookmark membership is kept as edges so shared tweets do not clobber account ownership
+- `sync authored`, `sync mentions`, `sync mention-threads`, `sync likes`, `sync bookmarks`, and `sync timeline` store live results in the canonical local store; per-account authored/home/mention/like/bookmark membership is kept as edges so shared tweets do not clobber account ownership
 
 ### Research bookmarks and threads
 

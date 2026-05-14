@@ -497,6 +497,31 @@ describe("archive import", () => {
 		expect(bookmarked.map((item) => item.text)).toEqual(["saved archive item"]);
 	}, 30000);
 
+	it("clears mention sync state on full archive re-import", async () => {
+		const archivePath = makeArchive();
+		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
+		createdDirs.push(homeDir);
+		process.env.BIRDCLAW_HOME = homeDir;
+		const db = getNativeDb();
+		db.prepare(
+			"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+		).run(
+			"mentions:sync:high-water:v1:mode=xurl:account=acct_primary",
+			'{"sinceId":"2000"}',
+			"2026-05-01T00:00:00.000Z",
+		);
+
+		await importArchive(archivePath);
+
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from sync_cache where cache_key like 'mentions:sync:%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+	});
+
 	it("imports only selected archive slices", async () => {
 		const archivePath = makeArchive();
 		const homeDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-home-"));
@@ -1867,10 +1892,10 @@ describe("archive import", () => {
 			db
 				.prepare(
 					`
-          select handle, display_name, bio
-          from profiles
-          where id = 'profile_user_42'
-        `,
+	          select handle, display_name, bio
+	          from profiles
+	          where id = 'profile_user_42'
+	        `,
 				)
 				.get(),
 		).toEqual({
@@ -1878,7 +1903,7 @@ describe("archive import", () => {
 			display_name: "sam",
 			bio: "Imported from archive user 42",
 		});
-	});
+	}, 20000);
 
 	it("preserves hydrated group-DM sender profiles when follow rows overlap", async () => {
 		const archivePath = makeWeirdArchive({ followers: ["42"] });

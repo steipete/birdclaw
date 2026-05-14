@@ -4,7 +4,7 @@ import type { MentionsDataSource } from "./config";
 import { getNativeDb } from "./db";
 import { serializeMentionItemsAsXurlCompatible } from "./mentions-export";
 import { listTimelineItems } from "./queries";
-import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { deleteSyncCache, readSyncCache, writeSyncCache } from "./sync-cache";
 import type {
 	ReplyFilter,
 	TweetEntities,
@@ -19,21 +19,187 @@ import { listMentionsViaXurl, lookupUsersByHandles } from "./xurl";
 export const DEFAULT_MENTIONS_CACHE_TTL_MS = 2 * 60_000;
 const MIN_XURL_MENTIONS_LIMIT = 5;
 const MAX_XURL_MENTIONS_LIMIT = 100;
+type MentionSyncMode = Exclude<MentionsDataSource, "birdclaw">;
+type MentionScanBoundary =
+	| { kind: "auto" }
+	| { kind: "since"; sinceId: string }
+	| { kind: "start"; startTime: string }
+	| { kind: "unbounded" };
+interface MentionScanShape {
+	endpoint: "mentions";
+	mode: MentionSyncMode;
+	accountId: string;
+	pageSize: number;
+	boundary: MentionScanBoundary;
+}
+interface MentionCursorValue extends XurlMentionsResponse {
+	birdclaw?: {
+		boundary?: MentionScanBoundary;
+		pendingNewestId?: string | null;
+	};
+}
+interface MentionHighWaterValue {
+	sinceId: string;
+}
 
 function getMentionsFetchModeKey({
+	scope,
 	mode,
 	accountId,
 	pageSize,
 	all,
 	maxPages,
+	sinceId,
+	startTime,
 }: {
+	scope: "sync" | "export";
 	mode: MentionsDataSource;
 	accountId: string;
 	pageSize: number;
 	all: boolean;
 	maxPages: number | null;
+	sinceId: string | null;
+	startTime: string | null;
 }) {
-	return `mentions:${mode}:${accountId}:${String(pageSize)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}`;
+	return `mentions:${scope}:${mode}:${accountId}:${String(pageSize)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}:${sinceId ?? "no-since"}:${startTime ?? "no-start"}`;
+}
+
+function getLegacyMentionsFetchModeKeyWithoutStart({
+	scope,
+	mode,
+	accountId,
+	pageSize,
+	all,
+	maxPages,
+	sinceId,
+}: {
+	scope: "sync" | "export";
+	mode: MentionsDataSource;
+	accountId: string;
+	pageSize: number;
+	all: boolean;
+	maxPages: number | null;
+	sinceId: string | null;
+}) {
+	return `mentions:${scope}:${mode}:${accountId}:${String(pageSize)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}:${sinceId ?? "no-since"}`;
+}
+
+function encodeCacheKeyPart(value: string) {
+	return encodeURIComponent(value);
+}
+
+function getMentionScanBoundaryKey(boundary: MentionScanBoundary) {
+	switch (boundary.kind) {
+		case "auto":
+			return "auto";
+		case "since":
+			return `since=${encodeCacheKeyPart(boundary.sinceId)}`;
+		case "start":
+			return `start=${encodeCacheKeyPart(boundary.startTime)}`;
+		case "unbounded":
+			return "unbounded";
+	}
+}
+
+function getMentionScanShapeKey(shape: MentionScanShape) {
+	return [
+		`endpoint=${shape.endpoint}`,
+		`mode=${shape.mode}`,
+		`account=${encodeCacheKeyPart(shape.accountId)}`,
+		`page=${String(shape.pageSize)}`,
+		`boundary=${getMentionScanBoundaryKey(shape.boundary)}`,
+	].join(":");
+}
+
+function getMentionCursorKey(shape: MentionScanShape) {
+	return `mentions:sync:cursor:v2:${getMentionScanShapeKey(shape)}`;
+}
+
+function getMentionResultCacheKey({
+	shape,
+	all,
+	maxPages,
+}: {
+	shape: MentionScanShape;
+	all: boolean;
+	maxPages: number | null;
+}) {
+	return `mentions:sync:result:v2:${getMentionScanShapeKey(shape)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}`;
+}
+
+function getMentionHighWaterKey({
+	mode,
+	accountId,
+}: {
+	mode: MentionSyncMode;
+	accountId: string;
+}) {
+	return `mentions:sync:high-water:v1:mode=${mode}:account=${encodeCacheKeyPart(accountId)}`;
+}
+
+function getMentionCursorBoundary({
+	explicitSinceId,
+	explicitStartTime,
+}: {
+	explicitSinceId?: string;
+	explicitStartTime?: string;
+}): MentionScanBoundary {
+	if (explicitSinceId) {
+		return { kind: "since", sinceId: explicitSinceId };
+	}
+	if (explicitStartTime) {
+		return { kind: "start", startTime: explicitStartTime };
+	}
+	return { kind: "auto" };
+}
+
+function getMentionRequestBoundary({
+	sinceId,
+	startTime,
+}: {
+	sinceId?: string;
+	startTime?: string;
+}): MentionScanBoundary {
+	if (sinceId) {
+		return { kind: "since", sinceId };
+	}
+	if (startTime) {
+		return { kind: "start", startTime };
+	}
+	return { kind: "unbounded" };
+}
+
+function getLegacyMentionCursorKeys(shape: MentionScanShape) {
+	const sinceId =
+		shape.boundary.kind === "since" ? shape.boundary.sinceId : null;
+	const startTime =
+		shape.boundary.kind === "start" ? shape.boundary.startTime : null;
+	const keys = [
+		getMentionsFetchModeKey({
+			scope: "sync",
+			mode: shape.mode,
+			accountId: shape.accountId,
+			pageSize: shape.pageSize,
+			all: false,
+			maxPages: null,
+			sinceId,
+			startTime,
+		}),
+	];
+	if (!startTime) {
+		keys.push(
+			getLegacyMentionsFetchModeKeyWithoutStart({
+				scope: "sync",
+				mode: shape.mode,
+				accountId: shape.accountId,
+				pageSize: shape.pageSize,
+				all: false,
+				maxPages: null,
+				sinceId,
+			}),
+		);
+	}
+	return [...new Set(keys)];
 }
 
 function parseCacheTtlMs(value?: number) {
@@ -65,6 +231,155 @@ function parseMaxPages(value?: number) {
 	return Math.floor(value);
 }
 
+function parseSyncMode(value?: string): MentionSyncMode {
+	const mode = value ?? "xurl";
+	if (mode !== "bird" && mode !== "xurl") {
+		throw new Error("--mode must be bird or xurl");
+	}
+	return mode;
+}
+
+function getCachedPaginationToken(
+	cached?: { value: XurlMentionsResponse } | null,
+) {
+	return typeof cached?.value.meta?.next_token === "string" &&
+		cached.value.meta.next_token.length > 0
+		? cached.value.meta.next_token
+		: undefined;
+}
+
+function parseCachedMentionBoundary(
+	value: MentionCursorValue | XurlMentionsResponse,
+	fallbackBoundary?: MentionScanBoundary,
+) {
+	const boundary = (value as MentionCursorValue).birdclaw?.boundary;
+	if (!boundary || typeof boundary !== "object") {
+		return fallbackBoundary;
+	}
+	if (boundary.kind === "unbounded" || boundary.kind === "auto") {
+		return boundary;
+	}
+	if (boundary.kind === "since" && typeof boundary.sinceId === "string") {
+		return boundary;
+	}
+	if (boundary.kind === "start" && typeof boundary.startTime === "string") {
+		return boundary;
+	}
+	return fallbackBoundary;
+}
+
+function getCachedMentionPendingNewestId(
+	value: MentionCursorValue | XurlMentionsResponse | undefined,
+) {
+	const pendingNewestId = (value as MentionCursorValue | undefined)?.birdclaw
+		?.pendingNewestId;
+	return isNumericTweetId(pendingNewestId) ? pendingNewestId : undefined;
+}
+
+function addMentionCursorState(
+	payload: XurlMentionsResponse,
+	boundary: MentionScanBoundary,
+	pendingNewestId: string | undefined,
+): MentionCursorValue {
+	return {
+		...payload,
+		birdclaw: { boundary, pendingNewestId: pendingNewestId ?? null },
+	};
+}
+
+function readMentionCursor({
+	db,
+	shape,
+	cursorKey,
+	legacyCursorKeys,
+}: {
+	db: Database;
+	shape: MentionScanShape;
+	cursorKey: string;
+	legacyCursorKeys: string[];
+}) {
+	const fallbackBoundary =
+		shape.boundary.kind === "auto" ? undefined : shape.boundary;
+	const current = readSyncCache<MentionCursorValue>(cursorKey, db);
+	const currentToken = getCachedPaginationToken(current);
+	if (current && currentToken) {
+		return {
+			key: cursorKey,
+			token: currentToken,
+			boundary: parseCachedMentionBoundary(current.value, fallbackBoundary),
+			pendingNewestId: getCachedMentionPendingNewestId(current.value),
+			legacyKeys: [] as string[],
+		};
+	}
+
+	for (const legacyKey of legacyCursorKeys) {
+		const legacy = readSyncCache<MentionCursorValue>(legacyKey, db);
+		const legacyToken = getCachedPaginationToken(legacy);
+		if (legacy && legacyToken) {
+			return {
+				key: legacyKey,
+				token: legacyToken,
+				boundary: parseCachedMentionBoundary(legacy.value, fallbackBoundary),
+				pendingNewestId: getCachedMentionPendingNewestId(legacy.value),
+				legacyKeys: [legacyKey],
+			};
+		}
+	}
+
+	return undefined;
+}
+
+function isNumericTweetId(value: string | undefined | null): value is string {
+	return typeof value === "string" && /^[0-9]+$/.test(value);
+}
+
+function maxNumericTweetId(...ids: Array<string | undefined | null>) {
+	return ids.filter(isNumericTweetId).reduce<string | undefined>((max, id) => {
+		if (!max) {
+			return id;
+		}
+		if (id.length !== max.length) {
+			return id.length > max.length ? id : max;
+		}
+		return id > max ? id : max;
+	}, undefined);
+}
+
+function getNewestMentionId(payload: XurlMentionsResponse) {
+	return maxNumericTweetId(
+		typeof payload.meta?.newest_id === "string"
+			? payload.meta.newest_id
+			: undefined,
+		...payload.data.map((tweet) => tweet.id),
+	);
+}
+
+function readMentionHighWaterId(
+	db: Database,
+	mode: MentionSyncMode,
+	accountId: string,
+) {
+	const cached = readSyncCache<MentionHighWaterValue>(
+		getMentionHighWaterKey({ mode, accountId }),
+		db,
+	);
+	return isNumericTweetId(cached?.value.sinceId)
+		? cached.value.sinceId
+		: undefined;
+}
+
+function writeMentionHighWaterId(
+	db: Database,
+	mode: MentionSyncMode,
+	accountId: string,
+	sinceId: string | undefined,
+) {
+	if (!isNumericTweetId(sinceId)) {
+		return;
+	}
+	writeSyncCache(getMentionHighWaterKey({ mode, accountId }), { sinceId }, db);
+}
+
 function resolveAccount(db: Database, accountId?: string) {
 	const row = accountId
 		? (db
@@ -89,6 +404,28 @@ function resolveAccount(db: Database, accountId?: string) {
 		accountId: row.id,
 		username: row.handle.replace(/^@/, ""),
 	};
+}
+
+function findNewestArchiveMentionId(db: Database, accountId: string) {
+	const row = db
+		.prepare(
+			`
+      select t.id
+      from tweets t
+      join tweet_account_edges e
+        on e.tweet_id = t.id
+      where e.account_id = ?
+        and e.kind = 'mention'
+        and e.source in ('archive', 'legacy')
+        and length(t.id) > 0
+        and t.id glob '[0-9]*'
+        and t.id not glob '*[^0-9]*'
+      order by length(t.id) desc, t.id desc
+      limit 1
+      `,
+		)
+		.get(accountId) as { id: string } | undefined;
+	return row?.id;
 }
 
 function toLocalEntities(tweet: XurlMentionData): TweetEntities {
@@ -177,13 +514,20 @@ function mergeMentionsIntoLocalStore(
     on conflict(id) do update set
       account_id = tweets.account_id,
       author_profile_id = excluded.author_profile_id,
-      kind = case when tweets.kind = 'home' then tweets.kind else excluded.kind end,
+      kind = case
+        when tweets.kind in ('authored', 'home', 'mention') then tweets.kind
+        when excluded.kind in ('authored', 'home', 'mention') then excluded.kind
+        else excluded.kind
+      end,
       text = excluded.text,
       created_at = excluded.created_at,
       like_count = excluded.like_count,
-      media_count = excluded.media_count,
+      media_count = max(tweets.media_count, excluded.media_count),
       entities_json = excluded.entities_json,
-      media_json = excluded.media_json,
+      media_json = case
+        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
+        else tweets.media_json
+      end,
       is_replied = max(tweets.is_replied, excluded.is_replied),
       bookmarked = max(tweets.bookmarked, excluded.bookmarked),
       liked = max(tweets.liked, excluded.liked)
@@ -309,11 +653,17 @@ async function fetchMentionsViaXurl({
 	limit,
 	all,
 	parsedMaxPages,
+	sinceId,
+	startPaginationToken,
+	startTime,
 }: {
 	resolvedAccount: ReturnType<typeof resolveAccount>;
 	limit: number;
 	all: boolean;
 	parsedMaxPages: number | null;
+	sinceId?: string;
+	startPaginationToken?: string;
+	startTime?: string;
 }) {
 	const [accountUser] = await lookupUsersByHandles([resolvedAccount.username]);
 	if (!accountUser?.id) {
@@ -323,7 +673,7 @@ async function fetchMentionsViaXurl({
 	}
 
 	const pages: XurlMentionsResponse[] = [];
-	let nextToken: string | undefined;
+	let nextToken: string | undefined = startPaginationToken;
 	let pageCount = 0;
 	do {
 		const payload = await listMentionsViaXurl({
@@ -331,6 +681,8 @@ async function fetchMentionsViaXurl({
 			username: resolvedAccount.username,
 			userId: String(accountUser.id),
 			paginationToken: nextToken,
+			...(sinceId ? { sinceId } : {}),
+			...(startTime ? { startTime } : {}),
 		});
 		pages.push(payload);
 		const metaNextToken =
@@ -346,6 +698,248 @@ async function fetchMentionsViaXurl({
 	);
 
 	return mergeMentionPayloads(pages);
+}
+
+async function fetchMentionsViaBird({ limit }: { limit: number }) {
+	return listMentionsViaBird({ maxResults: limit });
+}
+
+function isMaxPagesPartial({
+	payload,
+	maxPages,
+}: {
+	payload: XurlMentionsResponse;
+	maxPages: number | null;
+}) {
+	return (
+		maxPages !== null &&
+		typeof payload.meta?.next_token === "string" &&
+		payload.meta.next_token.length > 0
+	);
+}
+
+export async function syncMentions({
+	account,
+	mode,
+	limit = 20,
+	maxPages,
+	refresh = false,
+	cacheTtlMs,
+	sinceId,
+	startTime,
+}: {
+	account?: string;
+	mode?: string;
+	limit?: number;
+	maxPages?: number;
+	refresh?: boolean;
+	cacheTtlMs?: number;
+	sinceId?: string;
+	startTime?: string;
+}) {
+	const parsedMode = parseSyncMode(mode);
+	const explicitSinceId = sinceId?.trim() || undefined;
+	const explicitStartTime = startTime?.trim() || undefined;
+	if (parsedMode === "bird" && (explicitSinceId || explicitStartTime)) {
+		throw new Error("bird mode does not support --since-id or --start-time");
+	}
+	if (parsedMode === "xurl") {
+		assertXurlLimit(limit);
+	} else {
+		assertBirdLimit(limit);
+	}
+	const parsedMaxPages = parseMaxPages(maxPages);
+	const fetchAll = parsedMode === "xurl" && parsedMaxPages !== null;
+	const db = getNativeDb();
+	const resolvedAccount = resolveAccount(db, account);
+	const cursorShape: MentionScanShape = {
+		endpoint: "mentions",
+		mode: parsedMode,
+		accountId: resolvedAccount.accountId,
+		pageSize: limit,
+		boundary: getMentionCursorBoundary({
+			explicitSinceId,
+			explicitStartTime,
+		}),
+	};
+	const cursorKey = getMentionCursorKey(cursorShape);
+	const legacyCursorKeys = getLegacyMentionCursorKeys(cursorShape);
+	const cursor =
+		parsedMode === "xurl"
+			? readMentionCursor({
+					db,
+					shape: cursorShape,
+					cursorKey,
+					legacyCursorKeys,
+				})
+			: undefined;
+	const startPaginationToken = cursor?.token;
+	const cursorSinceId =
+		cursor?.boundary?.kind === "since" ? cursor.boundary.sinceId : undefined;
+	const cursorStartTime =
+		cursor?.boundary?.kind === "start" ? cursor.boundary.startTime : undefined;
+	const committedSinceId =
+		parsedMode === "xurl" &&
+		cursorShape.boundary.kind === "auto" &&
+		!startPaginationToken
+			? readMentionHighWaterId(db, parsedMode, resolvedAccount.accountId)
+			: undefined;
+	const seededSinceId =
+		parsedMode === "xurl" &&
+		!explicitSinceId &&
+		!explicitStartTime &&
+		!startPaginationToken
+			? (committedSinceId ??
+				findNewestArchiveMentionId(db, resolvedAccount.accountId))
+			: undefined;
+	const resolvedSinceId = startPaginationToken
+		? cursorSinceId
+		: (explicitSinceId ?? seededSinceId);
+	const resolvedStartTime = startPaginationToken
+		? cursorStartTime
+		: !resolvedSinceId
+			? explicitStartTime
+			: undefined;
+	const resultShape: MentionScanShape = {
+		endpoint: "mentions",
+		mode: parsedMode,
+		accountId: resolvedAccount.accountId,
+		pageSize: limit,
+		boundary: getMentionRequestBoundary({
+			sinceId: resolvedSinceId,
+			startTime: resolvedStartTime,
+		}),
+	};
+	const resultCacheKey = getMentionResultCacheKey({
+		shape: resultShape,
+		all: fetchAll,
+		maxPages: parsedMaxPages,
+	});
+	const ttlMs = parseCacheTtlMs(cacheTtlMs);
+	const cached = startPaginationToken
+		? null
+		: readSyncCache<XurlMentionsResponse>(resultCacheKey, db);
+	const cachedPaginationToken = getCachedPaginationToken(cached);
+	const cacheAgeMs = cached
+		? Date.now() - new Date(cached.updatedAt).getTime()
+		: Number.POSITIVE_INFINITY;
+
+	if (
+		!startPaginationToken &&
+		!cachedPaginationToken &&
+		!refresh &&
+		cached &&
+		cacheAgeMs <= ttlMs
+	) {
+		mergeMentionsIntoLocalStore(
+			db,
+			resolvedAccount.accountId,
+			cached.value,
+			parsedMode,
+		);
+		return {
+			ok: true,
+			source: "cache",
+			kind: "mentions",
+			accountId: resolvedAccount.accountId,
+			count: cached.value.data.length,
+			partial: isMaxPagesPartial({
+				payload: cached.value,
+				maxPages: parsedMaxPages,
+			}),
+			payload: cached.value,
+		};
+	}
+
+	if (
+		parsedMode === "xurl" &&
+		!explicitSinceId &&
+		!explicitStartTime &&
+		!startPaginationToken &&
+		!seededSinceId
+	) {
+		console.error(
+			"No local mention baseline found; syncing mentions from the newest page backwards.",
+		);
+	}
+
+	const payload =
+		parsedMode === "bird"
+			? await fetchMentionsViaBird({ limit })
+			: await fetchMentionsViaXurl({
+					resolvedAccount,
+					limit,
+					all: fetchAll,
+					parsedMaxPages,
+					sinceId: resolvedSinceId,
+					startPaginationToken,
+					startTime: resolvedStartTime,
+				});
+	mergeMentionsIntoLocalStore(
+		db,
+		resolvedAccount.accountId,
+		payload,
+		parsedMode,
+	);
+	const payloadPaginationToken = getCachedPaginationToken({ value: payload });
+	if (parsedMode === "xurl") {
+		if (payloadPaginationToken) {
+			writeSyncCache(
+				cursorKey,
+				addMentionCursorState(
+					payload,
+					getMentionRequestBoundary({
+						sinceId: resolvedSinceId,
+						startTime: resolvedStartTime,
+					}),
+					maxNumericTweetId(resolvedSinceId, getNewestMentionId(payload)),
+				),
+				db,
+			);
+			deleteSyncCache(resultCacheKey, db);
+			deleteSyncCache(
+				getMentionResultCacheKey({
+					shape: cursorShape,
+					all: fetchAll,
+					maxPages: parsedMaxPages,
+				}),
+				db,
+			);
+			for (const legacyKey of cursor?.legacyKeys ?? []) {
+				deleteSyncCache(legacyKey, db);
+			}
+		} else {
+			deleteSyncCache(cursorKey, db);
+			for (const legacyKey of legacyCursorKeys) {
+				deleteSyncCache(legacyKey, db);
+			}
+			if (cursorShape.boundary.kind === "auto") {
+				writeMentionHighWaterId(
+					db,
+					parsedMode,
+					resolvedAccount.accountId,
+					maxNumericTweetId(
+						resolvedSinceId,
+						cursor?.pendingNewestId,
+						getNewestMentionId(payload),
+					),
+				);
+			}
+		}
+	}
+	if (!payloadPaginationToken && !startPaginationToken) {
+		writeSyncCache(resultCacheKey, payload, db);
+	}
+
+	return {
+		ok: true,
+		source: parsedMode,
+		kind: "mentions",
+		accountId: resolvedAccount.accountId,
+		count: payload.data.length,
+		partial: isMaxPagesPartial({ payload, maxPages: parsedMaxPages }),
+		payload,
+	};
 }
 
 async function exportMentionsViaCachedLiveSource({
@@ -380,11 +974,14 @@ async function exportMentionsViaCachedLiveSource({
 	const db = getNativeDb();
 	const resolvedAccount = resolveAccount(db, account);
 	const cacheKey = getMentionsFetchModeKey({
+		scope: "export",
 		mode,
 		accountId: resolvedAccount.accountId,
 		pageSize: limit,
 		all: fetchAll,
 		maxPages: parsedMaxPages,
+		sinceId: null,
+		startTime: null,
 	});
 	const ttlMs = parseCacheTtlMs(cacheTtlMs);
 	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);

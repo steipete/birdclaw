@@ -377,6 +377,12 @@ function clearAuthoredSyncCursors(db = getNativeDb(), accountId?: string) {
 	).run();
 }
 
+function clearMentionSyncState(db = getNativeDb()) {
+	db.prepare(
+		"delete from sync_cache where cache_key like 'mentions:sync:%'",
+	).run();
+}
+
 export async function importArchive(
 	archivePath: string,
 	options: ImportArchiveOptions = {},
@@ -1313,6 +1319,7 @@ export async function importArchive(
 
 	if (!selection) {
 		clearImportedData();
+		clearMentionSyncState();
 	}
 
 	const db = getNativeDb();

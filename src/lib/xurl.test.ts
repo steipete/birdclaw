@@ -223,6 +223,27 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("passes start_time for mention backfills when present", async () => {
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				data: [],
+				meta: { result_count: 0 },
+			}),
+			stderr: "",
+		});
+		const { listMentionsViaXurl } = await import("./xurl");
+
+		await listMentionsViaXurl({
+			maxResults: 100,
+			userId: "25401953",
+			startTime: "2026-03-01T00:00:00Z",
+		});
+
+		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
+			`/2/users/25401953/mentions?max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics&user.fields=${RICH_USER_FIELDS}&start_time=2026-03-01T00%3A00%3A00Z`,
+		]);
+	});
+
 	it("returns null when whoami payload is not an object", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({ data: "not-an-object" }),
@@ -354,6 +375,97 @@ describe("xurl transport wrapper", () => {
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			`/2/tweets?ids=tweet_1&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets&user.fields=${RICH_USER_FIELDS}`,
 		]);
+	});
+
+	it("reads conversation search and individual tweets with parent-walk fields", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({
+					data: [{ id: "tweet_1", author_id: "42", text: "hello" }],
+					meta: { next_token: "next" },
+				}),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({
+					data: {
+						id: "tweet_1",
+						author_id: "42",
+						text: "hello",
+						in_reply_to_user_id: "7",
+					},
+				}),
+				stderr: "",
+			});
+		const { getTweetById, searchRecentByConversationId } =
+			await import("./xurl");
+
+		await searchRecentByConversationId("123", {
+			maxResults: 100,
+			paginationToken: "cursor",
+		});
+		await getTweetById("tweet_1");
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
+			`/2/tweets/search/recent?query=conversation_id%3A123&max_results=100&expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets%2Cin_reply_to_user_id&user.fields=${RICH_USER_FIELDS}&pagination_token=cursor`,
+		]);
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
+			`/2/tweets/tweet_1?expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets%2Cin_reply_to_user_id&user.fields=${RICH_USER_FIELDS}`,
+		]);
+	});
+
+	it("aborts thread lookups when a timeout is provided", async () => {
+		vi.useFakeTimers();
+		try {
+			execFileAsyncMock.mockImplementation(
+				(
+					_command: string,
+					_args: string[],
+					options?: { signal?: AbortSignal },
+				) =>
+					new Promise((_resolve, reject) => {
+						options?.signal?.addEventListener("abort", () => {
+							reject(new Error("aborted"));
+						});
+					}),
+			);
+			const { getTweetById } = await import("./xurl");
+
+			let rejected: unknown;
+			const result = getTweetById("tweet_1", { timeoutMs: 1000 }).catch(
+				(error: unknown) => {
+					rejected = error;
+				},
+			);
+			await vi.advanceTimersByTimeAsync(1000);
+
+			await result;
+			expect(rejected).toEqual(expect.any(Error));
+			expect(String((rejected as Error).message)).toContain("aborted");
+			expect(execFileAsyncMock).toHaveBeenCalledWith(
+				"xurl",
+				[
+					`/2/tweets/tweet_1?expansions=author_id&tweet.fields=created_at%2Cconversation_id%2Centities%2Cpublic_metrics%2Creferenced_tweets%2Cin_reply_to_user_id&user.fields=${RICH_USER_FIELDS}`,
+				],
+				expect.objectContaining({ signal: expect.any(Object) }),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not retry rate-limited thread lookups past the timeout budget", async () => {
+		process.env.BIRDCLAW_XURL_RETRY_BASE_MS = "2000";
+		execFileAsyncMock.mockRejectedValueOnce(
+			Object.assign(new Error("rate limited"), {
+				stdout: JSON.stringify({ status: 429 }),
+			}),
+		);
+		const { getTweetById } = await import("./xurl");
+
+		await expect(getTweetById("tweet_1", { timeoutMs: 1000 })).rejects.toThrow(
+			"rate limited",
+		);
+		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("lists liked and bookmarked tweets through raw Twitter endpoints", async () => {

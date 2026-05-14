@@ -1,6 +1,6 @@
 ---
 title: Sync
-description: "Sync authored tweets, likes, bookmarks, home timeline, and mention threads into local SQLite via xurl or bird."
+description: "Sync authored tweets, likes, bookmarks, home timeline, mentions, and mention threads into local SQLite via xurl or bird."
 ---
 
 # Sync
@@ -82,20 +82,51 @@ birdclaw sync timeline --limit 100 --refresh --json
 
 `sync timeline` defaults to the chronological feed, not the algorithmic For You. The home timeline is stored in the same `tweets` table so search, filters, and the web UI's `Home` lane all see one set of rows.
 
-## sync mention-threads
+## sync mentions
 
-Fetch conversation context for recent mentions through `bird thread`:
+Mirror the authenticated user's mentions feed into local SQLite. This is the cron-friendly ingest path that populates `kind='mention'` rows the rest of the pipeline expects:
 
 ```bash
-birdclaw sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
+birdclaw sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
+birdclaw sync mentions --mode bird --limit 50 --json
 ```
 
-Extra flags:
+Flags:
 
-- `--delay-ms <ms>` — delay between thread fetches; raise this when X starts rate-limiting
+- `--account <accountId>` — pick the account when multiple are configured
+- `--mode bird|xurl` — transport; defaults to `xurl`
+- `--limit <n>` — page size
+- `--max-pages <n>` — cap a paged scan; partial truncation exits with code `5`
+- `--since-id <id>` — explicitly fetch mentions newer than a known tweet ID
+- `--start-time <iso>` — backfill mentions from an explicit UTC timestamp
+- `--refresh` — bypass the live-cache freshness window
+- `--cache-ttl <seconds>` — tune the live-cache freshness window (default `120`)
+
+On a first xurl run without `--since-id` or `--start-time`, Birdclaw seeds `since_id` from the newest archive/legacy mention row for that account so archive-backed stores do not re-fetch old mentions. Live-only mention edges are not used as a baseline because they may be partial. Use `--start-time` for deliberate historical backfills; an explicit `--since-id` always wins.
+
+`sync mentions` and [`mentions export`](mentions.md) are now distinct: `sync mentions` is the ingest, `mentions export` is the DB-backed export-to-script view. Run `sync mentions` first, then [`sync mention-threads`](#sync-mention-threads) to backfill parent/root conversation context.
+
+## sync mention-threads
+
+Fetch conversation context for recent mentions through `bird` or `xurl`:
+
+```bash
+birdclaw sync mention-threads --mode bird --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
+birdclaw sync mention-threads --mode xurl --limit 30 --json
+```
+
+Flags:
+
+- `--mode bird|xurl` — transport; defaults to `bird`
+- `--delay-ms <ms>` — delay between thread fetches; raise this when X starts rate-limiting (bird mode)
 - `--timeout-ms <ms>` — per-thread network timeout
+- `--all`, `--max-pages <n>` — paged thread retrieval
 
 This is the gentlest sync command on purpose. It walks back up the reply chain so the web UI can render quoted ancestors without a separate live call later.
+
+The `xurl` mode is for users who do not have the `bird` CLI installed. It uses `/2/tweets/search/recent` keyed on `conversation_id`, with a 12-hop parent-walk fallback for threads outside the 7-day search window. Output carries a `generalReadTweets` cost counter so cron runs can budget against the X API rate limit.
+
+Prerequisite: run [`sync mentions`](#sync-mentions) first so the recent mention rows exist locally; `sync mention-threads` walks those rows.
 
 ## sync followers / following
 
@@ -134,7 +165,7 @@ See [DMs](dms.md) for the full triage workflow.
 
 ## Mentions
 
-`birdclaw mentions export` is both a live cache fetcher and an agent-friendly export format. See [Mentions](mentions.md).
+`sync mentions` is the canonical ingest path. `mentions export` is the DB-backed export-to-script view that reads what `sync mentions` wrote. See [Mentions](mentions.md) for the full pipeline.
 
 ## Caching model
 

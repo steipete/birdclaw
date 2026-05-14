@@ -1,6 +1,10 @@
 import type { Database } from "./sqlite";
 
-export type TweetAccountEdgeKind = "home" | "mention" | "authored";
+export type TweetAccountEdgeKind =
+	| "home"
+	| "mention"
+	| "authored"
+	| "thread_context";
 
 export function upsertTweetAccountEdge(
 	db: Database,
