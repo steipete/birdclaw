@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
 	Bookmark,
 	BookmarkCheck,
@@ -10,12 +9,12 @@ import {
 } from "lucide-react";
 import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
 import type {
-	EmbeddedTweet,
 	TimelineItem,
 	TweetEntities,
 	TweetMediaItem,
 	TweetUrlEntity,
 } from "#/lib/types";
+import { useConversationSurface } from "#/lib/conversation-surface";
 import {
 	cx,
 	embeddedCardClass,
@@ -158,14 +157,7 @@ export function TimelineCard({
 }) {
 	const canReply =
 		showReplyControls && item.kind !== "like" && item.kind !== "bookmark";
-	const [conversationOpen, setConversationOpen] = useState(false);
-	const [conversationLoading, setConversationLoading] = useState(false);
-	const [conversationError, setConversationError] = useState<string | null>(
-		null,
-	);
-	const [conversationItems, setConversationItems] = useState<EmbeddedTweet[]>(
-		[],
-	);
+	const conversation = useConversationSurface(item.id);
 	const visibleEntities = getVisibleEntities(
 		item.entities,
 		item.media,
@@ -178,47 +170,15 @@ export function TimelineCard({
 	);
 	const hasConversation = Boolean(item.replyToTweet || item.replyToId);
 
-	async function loadConversation() {
-		if (conversationLoading || conversationItems.length > 0) return;
-		setConversationLoading(true);
-		setConversationError(null);
-		try {
-			const response = await fetch(
-				`/api/conversation?tweetId=${encodeURIComponent(item.id)}`,
-			);
-			const data = (await response.json()) as {
-				ok?: boolean;
-				error?: string;
-				items?: EmbeddedTweet[];
-			};
-			if (!response.ok || data.ok === false) {
-				throw new Error(data.error ?? "Conversation unavailable");
-			}
-			setConversationItems((data.items ?? []).filter(Boolean));
-		} catch (error) {
-			setConversationError(
-				error instanceof Error ? error.message : "Conversation unavailable",
-			);
-		} finally {
-			setConversationLoading(false);
-		}
-	}
-
-	function toggleConversation() {
-		const nextOpen = !conversationOpen;
-		setConversationOpen(nextOpen);
-		if (nextOpen) {
-			void loadConversation();
-		}
-	}
-
 	return (
 		<article
 			className={cx(feedRowClass, "cursor-pointer")}
 			data-perf="timeline-card"
+			onFocus={conversation.prefetch}
+			onMouseEnter={conversation.prefetch}
 			onClick={(event) => {
 				if (isInteractiveTarget(event.target)) return;
-				toggleConversation();
+				conversation.toggle();
 			}}
 		>
 			<AvatarChip
@@ -305,14 +265,14 @@ export function TimelineCard({
 				<footer className={feedRowActionsClass}>
 					<div className="flex items-center gap-3 text-[13px] text-[var(--ink-soft)]">
 						<button
-							aria-expanded={conversationOpen}
+							aria-expanded={conversation.isOpen}
 							aria-label={
-								conversationOpen ? "Hide conversation" : "Show conversation"
+								conversation.isOpen ? "Hide conversation" : "Show conversation"
 							}
 							className={feedActionButtonClass}
 							onClick={(event) => {
 								event.stopPropagation();
-								toggleConversation();
+								conversation.toggle();
 							}}
 							type="button"
 						>
@@ -323,7 +283,7 @@ export function TimelineCard({
 								/>
 							</span>
 							<span className="text-[13px]">
-								{conversationOpen ? "Hide thread" : "Thread"}
+								{conversation.isOpen ? "Hide thread" : "Thread"}
 							</span>
 						</button>
 						{canReply ? (
@@ -393,12 +353,12 @@ export function TimelineCard({
 						<span>{item.accountHandle}</span>
 					</div>
 				</footer>
-				{conversationOpen ? (
+				{conversation.isOpen ? (
 					<ConversationThread
 						anchorId={item.id}
-						error={conversationError}
-						items={conversationItems}
-						loading={conversationLoading}
+						error={conversation.error}
+						items={conversation.items}
+						loading={conversation.loading}
 					/>
 				) : null}
 			</div>

@@ -6,6 +6,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resetConversationSurface } from "#/lib/conversation-surface";
 import { TimelineCard } from "./TimelineCard";
 
 const item = {
@@ -105,6 +106,7 @@ const item = {
 describe("TimelineCard", () => {
 	afterEach(() => {
 		cleanup();
+		resetConversationSurface();
 		vi.unstubAllGlobals();
 	});
 
@@ -554,5 +556,68 @@ describe("TimelineCard", () => {
 		expect(await screen.findByText("Parent in thread")).toBeInTheDocument();
 		expect(screen.getByText("2 tweets in conversation")).toBeInTheDocument();
 		expect(screen.getByText("selected")).toBeInTheDocument();
+	});
+
+	it("prefetches conversation context on hover and keeps one thread open", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const tweetId = new URL(
+				String(input),
+				"http://localhost",
+			).searchParams.get("tweetId");
+			return {
+				ok: true,
+				json: async () => ({
+					ok: true,
+					anchorId: tweetId,
+					items: [
+						{
+							id: tweetId,
+							text: `Conversation for ${tweetId}`,
+							createdAt: "2026-03-08T12:00:00.000Z",
+							replyToId: null,
+							author: item.author,
+							entities: {},
+							media: [],
+						},
+						{
+							id: `${tweetId}_reply`,
+							text: `Reply for ${tweetId}`,
+							createdAt: "2026-03-08T12:01:00.000Z",
+							replyToId: tweetId,
+							author: item.author,
+							entities: {},
+							media: [],
+						},
+					],
+				}),
+			};
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const { container } = render(
+			<>
+				<TimelineCard item={{ ...item, id: "tweet_a" }} onReply={vi.fn()} />
+				<TimelineCard item={{ ...item, id: "tweet_b" }} onReply={vi.fn()} />
+			</>,
+		);
+		const rows = container.querySelectorAll("[data-perf='timeline-card']");
+		const first = rows[0];
+		const second = rows[1];
+		if (!first || !second) throw new Error("timeline cards missing");
+
+		fireEvent.mouseEnter(first);
+		expect(fetchMock).toHaveBeenCalledWith("/api/conversation?tweetId=tweet_a");
+
+		fireEvent.click(first);
+		expect(
+			await screen.findByText("Conversation for tweet_a"),
+		).toBeInTheDocument();
+
+		fireEvent.click(second);
+		expect(
+			await screen.findByText("Conversation for tweet_b"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("Conversation for tweet_a"),
+		).not.toBeInTheDocument();
 	});
 });

@@ -66,6 +66,7 @@ test("shows the animated Birdclaw mark while the timeline loads", async ({
 	await expect(
 		page.locator('.birdclaw-mark-animated img[src="/birdclaw-mark.png"]'),
 	).toBeVisible();
+	await expect(page.locator('[data-perf="tweet-skeleton-row"]')).toHaveCount(4);
 	await expect(page.getByText("No posts to show")).toHaveCount(0);
 });
 
@@ -148,7 +149,7 @@ test("browses link insights across links, videos, filters, and comments", async 
 	).toBeVisible();
 
 	await page.getByRole("button", { name: "dm" }).click();
-	await expect(page.getByText("No links in this window.")).toBeVisible();
+	await expect(page.getByText("No links in this window")).toBeVisible();
 });
 
 test("replies to an unreplied mention and clears it from the queue", async ({

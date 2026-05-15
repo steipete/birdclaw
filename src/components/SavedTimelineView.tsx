@@ -1,7 +1,13 @@
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { BirdclawEmpty, BirdclawLoading } from "#/components/BrandMark";
+import {
+	FeedEmpty,
+	FeedError,
+	FeedLoading,
+	TweetSkeletonRows,
+} from "#/components/FeedState";
 import { TimelineCard } from "#/components/TimelineCard";
+import { ConversationSurfaceScope } from "#/lib/conversation-surface";
 import type { QueryEnvelope, QueryResponse, TimelineItem } from "#/lib/types";
 import {
 	feedClass,
@@ -36,6 +42,7 @@ export function SavedTimelineView({
 	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
 	const [items, setItems] = useState<TimelineItem[]>([]);
 	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 	const [search, setSearch] = useState("");
 	const [refreshTick, setRefreshTick] = useState(0);
 
@@ -54,11 +61,42 @@ export function SavedTimelineView({
 			url.searchParams.set("search", search.trim());
 		}
 
+		const controller = new AbortController();
+		let active = true;
+		setError(null);
 		setLoading(true);
-		fetch(url)
+		fetch(url, { signal: controller.signal })
 			.then((response) => response.json())
-			.then((data: QueryResponse) => setItems(data.items as TimelineItem[]))
-			.finally(() => setLoading(false));
+			.then((data: QueryResponse) => {
+				if (active) {
+					setItems(data.items as TimelineItem[]);
+				}
+			})
+			.catch((fetchError: unknown) => {
+				if (
+					fetchError instanceof DOMException &&
+					fetchError.name === "AbortError"
+				) {
+					return;
+				}
+				if (!active) return;
+				setError(
+					fetchError instanceof Error
+						? fetchError.message
+						: `${TITLES[filter]} unavailable`,
+				);
+				setItems([]);
+			})
+			.finally(() => {
+				if (active) {
+					setLoading(false);
+				}
+			});
+
+		return () => {
+			active = false;
+			controller.abort();
+		};
 	}, [filter, refreshTick, search]);
 
 	const subtitle = useMemo(() => {
@@ -110,27 +148,45 @@ export function SavedTimelineView({
 					</label>
 				</div>
 			</header>
-			<section className={feedClass}>
-				{loading ? (
-					<BirdclawLoading
-						detail={`Reading local ${TITLES[filter].toLowerCase()}`}
-						label={loadingLabel}
-					/>
-				) : items.length === 0 ? (
-					<BirdclawEmpty
-						detail="Sync this collection or broaden the search."
-						label="Nothing saved here yet"
-					/>
-				) : null}
-				{items.map((item) => (
-					<TimelineCard
-						key={item.id}
-						item={item}
-						onReply={replyToTweet}
-						showReplyControls={false}
-					/>
-				))}
-			</section>
+			<ConversationSurfaceScope>
+				<section className={feedClass}>
+					{loading ? (
+						<FeedLoading
+							detail={`Reading local ${TITLES[filter].toLowerCase()}`}
+							label={loadingLabel}
+						>
+							<TweetSkeletonRows />
+						</FeedLoading>
+					) : error ? (
+						<FeedError
+							action={
+								<button
+									className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-[14px] font-bold text-white"
+									onClick={() => setRefreshTick((value) => value + 1)}
+									type="button"
+								>
+									Retry
+								</button>
+							}
+							message={error}
+							title={`Could not load ${TITLES[filter].toLowerCase()}`}
+						/>
+					) : items.length === 0 ? (
+						<FeedEmpty
+							detail="Sync this collection or broaden the search."
+							label="Nothing saved here yet"
+						/>
+					) : null}
+					{items.map((item) => (
+						<TimelineCard
+							key={item.id}
+							item={item}
+							onReply={replyToTweet}
+							showReplyControls={false}
+						/>
+					))}
+				</section>
+			</ConversationSurfaceScope>
 		</>
 	);
 }

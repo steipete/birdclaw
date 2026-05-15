@@ -1,8 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { BirdclawEmpty, BirdclawLoading } from "#/components/BrandMark";
+import {
+	FeedEmpty,
+	FeedError,
+	FeedLoading,
+	TweetSkeletonRows,
+} from "#/components/FeedState";
 import { TimelineCard } from "#/components/TimelineCard";
+import { ConversationSurfaceScope } from "#/lib/conversation-surface";
 import type {
 	QueryEnvelope,
 	QueryResponse,
@@ -39,6 +45,7 @@ function MentionsRoute() {
 	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
 	const [items, setItems] = useState<TimelineItem[]>([]);
 	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 	const [replyFilter, setReplyFilter] = useState<ReplyFilter>("unreplied");
 	const [search, setSearch] = useState("");
 	const [refreshTick, setRefreshTick] = useState(0);
@@ -58,11 +65,42 @@ function MentionsRoute() {
 			url.searchParams.set("search", search.trim());
 		}
 
+		const controller = new AbortController();
+		let active = true;
+		setError(null);
 		setLoading(true);
-		fetch(url)
+		fetch(url, { signal: controller.signal })
 			.then((response) => response.json())
-			.then((data: QueryResponse) => setItems(data.items as TimelineItem[]))
-			.finally(() => setLoading(false));
+			.then((data: QueryResponse) => {
+				if (active) {
+					setItems(data.items as TimelineItem[]);
+				}
+			})
+			.catch((fetchError: unknown) => {
+				if (
+					fetchError instanceof DOMException &&
+					fetchError.name === "AbortError"
+				) {
+					return;
+				}
+				if (!active) return;
+				setError(
+					fetchError instanceof Error
+						? fetchError.message
+						: "Mentions unavailable",
+				);
+				setItems([]);
+			})
+			.finally(() => {
+				if (active) {
+					setLoading(false);
+				}
+			});
+
+		return () => {
+			active = false;
+			controller.abort();
+		};
 	}, [refreshTick, replyFilter, search]);
 
 	const subtitle = useMemo(() => {
@@ -128,22 +166,40 @@ function MentionsRoute() {
 					})}
 				</div>
 			</header>
-			<section className={feedClass}>
-				{loading ? (
-					<BirdclawLoading
-						detail="Checking local mentions and reply context"
-						label="Loading mentions"
-					/>
-				) : items.length === 0 ? (
-					<BirdclawEmpty
-						detail="Try All, search less narrowly, or sync mentions."
-						label="No mentions in this view"
-					/>
-				) : null}
-				{items.map((item) => (
-					<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
-				))}
-			</section>
+			<ConversationSurfaceScope>
+				<section className={feedClass}>
+					{loading ? (
+						<FeedLoading
+							detail="Checking local mentions and reply context"
+							label="Loading mentions"
+						>
+							<TweetSkeletonRows />
+						</FeedLoading>
+					) : error ? (
+						<FeedError
+							action={
+								<button
+									className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-[14px] font-bold text-white"
+									onClick={() => setRefreshTick((value) => value + 1)}
+									type="button"
+								>
+									Retry
+								</button>
+							}
+							message={error}
+							title="Could not load mentions"
+						/>
+					) : items.length === 0 ? (
+						<FeedEmpty
+							detail="Try All, search less narrowly, or sync mentions."
+							label="No mentions in this view"
+						/>
+					) : null}
+					{items.map((item) => (
+						<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
+					))}
+				</section>
+			</ConversationSurfaceScope>
 		</>
 	);
 }

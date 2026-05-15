@@ -11,6 +11,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AvatarChip } from "#/components/AvatarChip";
+import {
+	FeedEmpty,
+	FeedError,
+	FeedLoading,
+	LinkSkeletonRows,
+} from "#/components/FeedState";
 import { ProfilePreview } from "#/components/ProfilePreview";
 import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
 import type {
@@ -26,7 +32,6 @@ import type {
 } from "#/lib/types";
 import {
 	cx,
-	emptyStateClass,
 	pageHeaderClass,
 	pageHeaderRowClass,
 	pageSubtitleClass,
@@ -649,6 +654,7 @@ function LinksRoute() {
 	const cacheRef = useRef(new Map<string, LinkInsightResponse>());
 	const inFlightRef = useRef(new Set<string>());
 	const mountedRef = useRef(true);
+	const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
 	const [, bumpCacheVersion] = useState(0);
 	const currentCacheKey = insightCacheKey(
 		kind,
@@ -658,6 +664,8 @@ function LinksRoute() {
 		refreshTick,
 	);
 	const data = cacheRef.current.get(currentCacheKey) ?? null;
+	const error = errorByKey[currentCacheKey] ?? null;
+	const loading = !data && !error;
 
 	useEffect(() => {
 		return () => {
@@ -672,6 +680,11 @@ function LinksRoute() {
 				return;
 			}
 			inFlightRef.current.add(key);
+			setErrorByKey((current) => {
+				const rest = { ...current };
+				delete rest[key];
+				return rest;
+			});
 			fetch(linkInsightsUrl(fetchKind, range, sort, source, refreshTick))
 				.then((response) => response.json())
 				.then((response: LinkInsightResponse) => {
@@ -684,7 +697,17 @@ function LinksRoute() {
 					if (error instanceof DOMException && error.name === "AbortError") {
 						return;
 					}
+					if (!mountedRef.current) {
+						return;
+					}
 					console.warn("Link insights failed", error);
+					setErrorByKey((current) => ({
+						...current,
+						[key]:
+							error instanceof Error
+								? error.message
+								: "Link insights unavailable",
+					}));
 				})
 				.finally(() => {
 					inFlightRef.current.delete(key);
@@ -865,10 +888,32 @@ function LinksRoute() {
 			</header>
 
 			<section className="flex flex-col">
-				{items.length === 0 ? (
-					<div className={emptyStateClass}>
-						{data ? "No links in this window." : "Loading links..."}
-					</div>
+				{loading ? (
+					<FeedLoading
+						detail="Ranking URLs and collecting local discussion"
+						label="Loading links"
+					>
+						<LinkSkeletonRows />
+					</FeedLoading>
+				) : error ? (
+					<FeedError
+						action={
+							<button
+								className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-[14px] font-bold text-white"
+								onClick={() => setRefreshTick((value) => value + 1)}
+								type="button"
+							>
+								Retry
+							</button>
+						}
+						message={error}
+						title="Could not load links"
+					/>
+				) : items.length === 0 ? (
+					<FeedEmpty
+						detail="Try a different range, source, or search term."
+						label="No links in this window"
+					/>
 				) : null}
 				{items.map((item, index) => (
 					<LinkInsightRow
