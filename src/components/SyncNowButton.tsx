@@ -1,5 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { postSync } from "#/lib/api-client";
 import { cx } from "#/lib/ui";
 import type { WebSyncKind, WebSyncResponse } from "#/lib/web-sync";
 
@@ -7,18 +8,6 @@ interface SyncNowButtonProps {
 	kind: WebSyncKind;
 	label: string;
 	onSynced: (result: WebSyncResponse) => void;
-}
-
-function getErrorMessage(data: unknown, fallback: string) {
-	if (data && typeof data === "object") {
-		const message = (data as { message?: unknown; error?: unknown }).message;
-		const error = (data as { error?: unknown }).error;
-		const summary = (data as { summary?: unknown }).summary;
-		if (typeof message === "string") return message;
-		if (typeof error === "string") return error;
-		if (typeof summary === "string") return summary;
-	}
-	return fallback;
 }
 
 export function SyncNowButton({ kind, label, onSynced }: SyncNowButtonProps) {
@@ -31,15 +20,8 @@ export function SyncNowButton({ kind, label, onSynced }: SyncNowButtonProps) {
 		setError(null);
 		setMessage(null);
 		try {
-			const response = await fetch("/api/sync", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ kind }),
-			});
-			const data = (await response.json()) as WebSyncResponse;
-			if (!response.ok || !data.ok) {
-				throw new Error(getErrorMessage(data, "Sync failed"));
-			}
+			const data = await postSync(kind);
+			if (!data.ok) throw new Error(data.summary);
 			setMessage(data.summary);
 			onSynced(data);
 		} catch (syncError) {

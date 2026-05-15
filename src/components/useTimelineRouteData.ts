@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import type {
 	QueryEnvelope,
-	QueryResponse,
 	ReplyFilter,
 	ResourceKind,
 	TimelineItem,
 } from "#/lib/types";
+import {
+	fetchQueryEnvelope,
+	fetchQueryResponse,
+	postAction,
+} from "#/lib/api-client";
 
 interface UseTimelineRouteDataOptions {
 	resource: Exclude<ResourceKind, "dms">;
@@ -31,9 +35,7 @@ export function useTimelineRouteData({
 	const [refreshTick, setRefreshTick] = useState(0);
 
 	async function loadStatus() {
-		const response = await fetch("/api/status");
-		const data = (await response.json()) as QueryEnvelope;
-		setMeta(data);
+		setMeta(await fetchQueryEnvelope());
 	}
 
 	useEffect(() => {
@@ -61,9 +63,8 @@ export function useTimelineRouteData({
 		let active = true;
 		setError(null);
 		setLoading(true);
-		fetch(url, { signal: controller.signal })
-			.then((response) => response.json())
-			.then((data: QueryResponse) => {
+		fetchQueryResponse(url, { signal: controller.signal })
+			.then((data) => {
 				if (active) {
 					setItems(data.items as TimelineItem[]);
 				}
@@ -114,15 +115,11 @@ export function useTimelineRouteData({
 		const text = window.prompt("Reply text");
 		if (!text?.trim()) return;
 
-		await fetch("/api/action", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				kind: "replyTweet",
-				accountId: "acct_primary",
-				tweetId,
-				text,
-			}),
+		await postAction({
+			kind: "replyTweet",
+			accountId: "acct_primary",
+			tweetId,
+			text,
 		});
 
 		retry();

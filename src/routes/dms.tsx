@@ -2,12 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DmWorkspace } from "#/components/DmWorkspace";
+import { FeedEmpty, FeedError, FeedLoading } from "#/components/FeedState";
 import { SyncNowButton } from "#/components/SyncNowButton";
+import {
+	fetchQueryEnvelope,
+	fetchQueryResponse,
+	postAction,
+} from "#/lib/api-client";
 import type {
 	DmConversationItem,
 	DmMessageItem,
 	QueryEnvelope,
-	QueryResponse,
 	ReplyFilter,
 } from "#/lib/types";
 import {
@@ -54,11 +59,11 @@ function DmsRoute() {
 	const [search, setSearch] = useState("");
 	const [replyDraft, setReplyDraft] = useState("");
 	const [refreshTick, setRefreshTick] = useState(0);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 
 	async function loadStatus() {
-		const response = await fetch("/api/status");
-		const data = (await response.json()) as QueryEnvelope;
-		setMeta(data);
+		setMeta(await fetchQueryEnvelope());
 	}
 
 	useEffect(() => {
@@ -67,6 +72,7 @@ function DmsRoute() {
 
 	useEffect(() => {
 		const controller = new AbortController();
+		let active = true;
 		const url = new URL("/api/query", window.location.origin);
 		url.searchParams.set("resource", "dms");
 		url.searchParams.set("replyFilter", replyFilter);
@@ -81,9 +87,11 @@ function DmsRoute() {
 			url.searchParams.set("search", search.trim());
 		}
 
-		fetch(url, { signal: controller.signal })
-			.then((response) => response.json())
-			.then((data: QueryResponse) => {
+		setError(null);
+		setLoading(true);
+		fetchQueryResponse(url, { signal: controller.signal })
+			.then((data) => {
+				if (!active) return;
 				const conversations = data.items as DmConversationItem[];
 				const nextSelected =
 					data.selectedConversation?.conversation.id ?? conversations[0]?.id;
@@ -98,14 +106,30 @@ function DmsRoute() {
 				});
 				setMessages(data.selectedConversation?.messages ?? []);
 			})
-			.catch((error: unknown) => {
-				if (error instanceof DOMException && error.name === "AbortError") {
+			.catch((fetchError: unknown) => {
+				if (
+					fetchError instanceof DOMException &&
+					fetchError.name === "AbortError"
+				) {
 					return;
 				}
-				throw error;
+				if (!active) return;
+				setError(
+					fetchError instanceof Error
+						? fetchError.message
+						: "Messages unavailable",
+				);
+				setItems([]);
+				setMessages([]);
+			})
+			.finally(() => {
+				if (active) {
+					setLoading(false);
+				}
 			});
 
 		return () => {
+			active = false;
 			controller.abort();
 		};
 	}, [
@@ -175,14 +199,10 @@ function DmsRoute() {
 		);
 
 		try {
-			await fetch("/api/action", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					kind: "replyDm",
-					conversationId,
-					text,
-				}),
+			await postAction({
+				kind: "replyDm",
+				conversationId,
+				text,
 			});
 
 			setSelectedConversationId(conversationId);
@@ -275,15 +295,41 @@ function DmsRoute() {
 				</div>
 			</header>
 
-			<DmWorkspace
-				conversations={items}
-				onReplyDraftChange={setReplyDraft}
-				onReplySend={replyToConversation}
-				onSelectConversation={setSelectedConversationId}
-				replyDraft={replyDraft}
-				selectedConversation={selectedConversation}
-				selectedMessages={messages}
-			/>
+			{loading ? (
+				<FeedLoading
+					detail="Reading local conversations and reply state"
+					label="Loading messages"
+				/>
+			) : error ? (
+				<FeedError
+					action={
+						<button
+							className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-[14px] font-bold text-white"
+							onClick={() => setRefreshTick((value) => value + 1)}
+							type="button"
+						>
+							Retry
+						</button>
+					}
+					message={error}
+					title="Could not load messages"
+				/>
+			) : items.length === 0 ? (
+				<FeedEmpty
+					detail="Sync DMs or broaden the filters to find a conversation."
+					label="No conversations in this view"
+				/>
+			) : (
+				<DmWorkspace
+					conversations={items}
+					onReplyDraftChange={setReplyDraft}
+					onReplySend={replyToConversation}
+					onSelectConversation={setSelectedConversationId}
+					replyDraft={replyDraft}
+					selectedConversation={selectedConversation}
+					selectedMessages={messages}
+				/>
+			)}
 		</>
 	);
 }

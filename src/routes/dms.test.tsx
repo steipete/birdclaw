@@ -182,4 +182,74 @@ describe("dms route", () => {
 			expect(queryUrls.at(-1)?.searchParams.get("refresh")).toBe("1");
 		});
 	});
+
+	it("shows an explicit empty state when no conversations match", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/status")) {
+				return new Response(
+					JSON.stringify({
+						stats: { home: 3, mentions: 1, dms: 0, needsReply: 0, inbox: 1 },
+						transport: { statusText: "local" },
+						accounts: [],
+						archives: [],
+					}),
+				);
+			}
+			if (url.includes("/api/query")) {
+				return new Response(
+					JSON.stringify({
+						resource: "dms",
+						items: [],
+						selectedConversation: null,
+					}),
+				);
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<DmsRoute />);
+
+		expect(
+			await screen.findByText("No conversations in this view"),
+		).toBeInTheDocument();
+	});
+
+	it("shows a retryable error when conversations fail to load", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/status")) {
+				return new Response(
+					JSON.stringify({
+						stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+						transport: { statusText: "local" },
+						accounts: [],
+						archives: [],
+					}),
+				);
+			}
+			if (url.includes("/api/query")) {
+				return new Response(
+					JSON.stringify({ message: "DM store unavailable" }),
+					{
+						status: 500,
+					},
+				);
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<DmsRoute />);
+
+		expect(
+			await screen.findByText("Could not load messages"),
+		).toBeInTheDocument();
+		expect(screen.getByText("DM store unavailable")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledTimes(3);
+		});
+	});
 });
