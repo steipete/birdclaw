@@ -49,6 +49,9 @@ function DmsRoute() {
 	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
 	const [items, setItems] = useState<DmConversationItem[]>([]);
 	const [messages, setMessages] = useState<DmMessageItem[]>([]);
+	const [loadedConversationId, setLoadedConversationId] = useState<
+		string | undefined
+	>();
 	const [selectedConversationId, setSelectedConversationId] = useState<
 		string | undefined
 	>();
@@ -95,6 +98,7 @@ function DmsRoute() {
 				const conversations = data.items as DmConversationItem[];
 				const nextSelected =
 					data.selectedConversation?.conversation.id ?? conversations[0]?.id;
+				setLoadedConversationId(data.selectedConversation?.conversation.id);
 				setItems(conversations);
 				setSelectedConversationId((current) => {
 					if (!current) return nextSelected;
@@ -121,6 +125,7 @@ function DmsRoute() {
 				);
 				setItems([]);
 				setMessages([]);
+				setLoadedConversationId(undefined);
 			})
 			.finally(() => {
 				if (active) {
@@ -144,6 +149,13 @@ function DmsRoute() {
 
 	const selectedConversation =
 		items.find((item) => item.id === selectedConversationId) ?? null;
+	const switchingConversation =
+		loading &&
+		Boolean(
+			selectedConversationId &&
+			loadedConversationId &&
+			selectedConversationId !== loadedConversationId,
+		);
 
 	const subtitle = useMemo(() => {
 		if (!meta) return "Loading direct messages...";
@@ -295,7 +307,7 @@ function DmsRoute() {
 				</div>
 			</header>
 
-			{loading ? (
+			{loading && (items.length === 0 || switchingConversation) ? (
 				<FeedLoading
 					detail="Reading local conversations and reply state"
 					label="Loading messages"

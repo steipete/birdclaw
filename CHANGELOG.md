@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Keep the selected DM conversation visible while its thread refreshes so the reply composer no longer flashes away mid-action.
 - Send the selected web account through manual sync controls so multi-account timelines sync the intended profile.
 - Run web sync requests as background jobs with status polling so the UI no longer holds one blocking sync request open.
 - Add typed web API fetch handling and explicit DMs loading/error/empty states so failed local reads surface cleanly.
