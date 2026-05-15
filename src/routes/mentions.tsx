@@ -7,6 +7,7 @@ import {
 	FeedLoading,
 	TweetSkeletonRows,
 } from "#/components/FeedState";
+import { SyncNowButton } from "#/components/SyncNowButton";
 import { TimelineCard } from "#/components/TimelineCard";
 import { ConversationSurfaceScope } from "#/lib/conversation-surface";
 import type {
@@ -50,10 +51,14 @@ function MentionsRoute() {
 	const [search, setSearch] = useState("");
 	const [refreshTick, setRefreshTick] = useState(0);
 
+	async function loadStatus() {
+		const response = await fetch("/api/status");
+		const data = (await response.json()) as QueryEnvelope;
+		setMeta(data);
+	}
+
 	useEffect(() => {
-		fetch("/api/status")
-			.then((response) => response.json())
-			.then((data: QueryEnvelope) => setMeta(data));
+		void loadStatus();
 	}, []);
 
 	useEffect(() => {
@@ -126,6 +131,11 @@ function MentionsRoute() {
 		setRefreshTick((value) => value + 1);
 	}
 
+	function refreshLocalView() {
+		setRefreshTick((value) => value + 1);
+		void loadStatus();
+	}
+
 	return (
 		<>
 			<header className={pageHeaderClass}>
@@ -134,6 +144,11 @@ function MentionsRoute() {
 						<h1 className={pageTitleClass}>Mentions</h1>
 						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
+					<SyncNowButton
+						kind="mentions"
+						label="Sync mentions"
+						onSynced={refreshLocalView}
+					/>
 				</div>
 				<div className="px-4 pb-3">
 					<label className={searchFieldShellClass}>

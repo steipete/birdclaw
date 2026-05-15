@@ -4,25 +4,38 @@ test("navigates across the primary surfaces", async ({ page }) => {
 	await page.goto("/");
 
 	await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
-	await expect(page.getByText("Quiet signal for Twitter.")).toBeVisible();
+	await expect(
+		page.getByText("Fast search for your Twitter archive."),
+	).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Sync timeline" }),
+	).toBeVisible();
 	await expect(
 		page.locator('img[src="/birdclaw-mark.png"]').first(),
 	).toBeVisible();
 
 	await page.getByRole("link", { name: "Mentions" }).click();
 	await expect(page.getByRole("heading", { name: "Mentions" })).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Sync mentions" }),
+	).toBeVisible();
 
 	await page.getByRole("link", { name: "Likes" }).click();
 	await expect(page.getByRole("heading", { name: "Likes" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Sync likes" })).toBeVisible();
 
 	await page.getByRole("link", { name: "Bookmarks" }).click();
 	await expect(page.getByRole("heading", { name: "Bookmarks" })).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Sync bookmarks" }),
+	).toBeVisible();
 
 	await page.getByRole("link", { name: "Links" }).click();
 	await expect(page.getByRole("heading", { name: "Links" })).toBeVisible();
 
 	await page.getByRole("link", { name: "DMs" }).click();
 	await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Sync DMs" })).toBeVisible();
 
 	await page.getByRole("link", { name: "Inbox" }).click();
 	await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
@@ -33,6 +46,46 @@ test("navigates across the primary surfaces", async ({ page }) => {
 			name: "Maintain a clean blocklist locally.",
 		}),
 	).toBeVisible();
+});
+
+test("manual sync controls post to the sync endpoint", async ({ page }) => {
+	const syncKinds: string[] = [];
+	await page.route("**/api/sync**", async (route) => {
+		const body = route.request().postDataJSON() as { kind?: string };
+		syncKinds.push(body.kind ?? "");
+		await route.fulfill({
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify({
+				ok: true,
+				kind: body.kind,
+				summary: "Synced 3 items",
+				steps: [],
+			}),
+		});
+	});
+
+	async function clickSync(path: string, buttonName: string) {
+		await page.goto(path);
+		const button = page.getByRole("button", { name: buttonName });
+		await expect(button).toBeEnabled();
+		await page.waitForTimeout(1500);
+		const request = page.waitForRequest(
+			(req) => req.url().includes("/api/sync") && req.method() === "POST",
+		);
+		await button.click();
+		await request;
+	}
+
+	await clickSync("/", "Sync timeline");
+	await clickSync("/mentions", "Sync mentions");
+	await clickSync("/likes", "Sync likes");
+	await clickSync("/bookmarks", "Sync bookmarks");
+	await clickSync("/dms", "Sync DMs");
+
+	await expect
+		.poll(() => syncKinds)
+		.toEqual(["timeline", "mentions", "likes", "bookmarks", "dms"]);
 });
 
 test("filters the home timeline by reply state", async ({ page }) => {

@@ -256,6 +256,8 @@ Start the app:
 birdclaw serve
 ```
 
+Use the Sync button in Home, Mentions, Likes, Bookmarks, or DMs to run the matching live sync from the web UI and then reload the local view. These controls are explicit because live reads can be slow, auth-dependent, or rate-limited.
+
 When running behind a trusted reverse proxy such as Tailscale Serve, add any extra proxy hostnames to `BIRDCLAW_ALLOWED_HOSTS`. The clawmac Tailscale hostname is allowed by default.
 
 First moderation pass:
@@ -361,6 +363,7 @@ Notes:
 - `bird` mode uses your local `bird` CLI and caches its mentions output into birdclaw's canonical store
 - filters still work in `xurl` mode; filtered payloads are rebuilt from the local canonical store after sync
 - `sync authored`, `sync mentions`, `sync mention-threads`, `sync likes`, `sync bookmarks`, and `sync timeline` store live results in the canonical local store; per-account authored/home/mention/like/bookmark membership is kept as edges so shared tweets do not clobber account ownership
+- the web UI has explicit Sync buttons for home timeline, mentions, likes, bookmarks, and DMs; they call the same sync paths and then reload the local DB-backed view
 
 ### Research bookmarks and threads
 

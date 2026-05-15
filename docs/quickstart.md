@@ -84,7 +84,7 @@ Open <http://localhost:3000>. The default lanes:
 - **Inbox** — let heuristics or OpenAI float likely-important items
 - **Blocks** — maintain a local-first account-scoped blocklist
 
-`serve` background-syncs by default. Pass `--no-sync` to keep the server purely local.
+Use the Sync button in Home, Mentions, Likes, Bookmarks, or DMs when you want fresh live data. Browser reloads only reread local SQLite; explicit sync avoids surprise live reads and rate-limit spend.
 
 ## 6. Run real CLI workflows
 

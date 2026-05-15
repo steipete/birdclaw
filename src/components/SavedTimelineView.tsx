@@ -6,6 +6,7 @@ import {
 	FeedLoading,
 	TweetSkeletonRows,
 } from "#/components/FeedState";
+import { SyncNowButton } from "#/components/SyncNowButton";
 import { TimelineCard } from "#/components/TimelineCard";
 import { ConversationSurfaceScope } from "#/lib/conversation-surface";
 import type { QueryEnvelope, QueryResponse, TimelineItem } from "#/lib/types";
@@ -46,10 +47,14 @@ export function SavedTimelineView({
 	const [search, setSearch] = useState("");
 	const [refreshTick, setRefreshTick] = useState(0);
 
+	async function loadStatus() {
+		const response = await fetch("/api/status");
+		const data = (await response.json()) as QueryEnvelope;
+		setMeta(data);
+	}
+
 	useEffect(() => {
-		fetch("/api/status")
-			.then((response) => response.json())
-			.then((data: QueryEnvelope) => setMeta(data));
+		void loadStatus();
 	}, []);
 
 	useEffect(() => {
@@ -126,6 +131,13 @@ export function SavedTimelineView({
 		setRefreshTick((value) => value + 1);
 	}
 
+	function refreshLocalView() {
+		setRefreshTick((value) => value + 1);
+		void loadStatus();
+	}
+
+	const syncKind = filter === "liked" ? "likes" : "bookmarks";
+
 	return (
 		<>
 			<header className={pageHeaderClass}>
@@ -135,6 +147,11 @@ export function SavedTimelineView({
 						<p className={pageSubtitleClass}>{title}</p>
 						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
+					<SyncNowButton
+						kind={syncKind}
+						label={filter === "liked" ? "Sync likes" : "Sync bookmarks"}
+						onSynced={refreshLocalView}
+					/>
 				</div>
 				<div className="px-4 pb-3">
 					<label className={searchFieldShellClass}>

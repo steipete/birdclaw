@@ -140,6 +140,59 @@ describe("mentions route", () => {
 		);
 	});
 
+	it("runs a live mentions sync and reloads local data", async () => {
+		const queryUrls: URL[] = [];
+		const syncBodies: unknown[] = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+							transport: { statusText: "local" },
+							accounts: [],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/query")) {
+					queryUrls.push(new URL(url));
+					return new Response(
+						JSON.stringify({
+							resource: "mentions",
+							items: [{ id: "mention_sync", text: "@steipete fresh" }],
+						}),
+					);
+				}
+				if (url.endsWith("/api/sync") && init?.body) {
+					syncBodies.push(JSON.parse(String(init.body)));
+					return new Response(
+						JSON.stringify({
+							ok: true,
+							kind: "mentions",
+							summary: "Synced 7 items",
+							steps: [],
+						}),
+					);
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<MentionsRoute />);
+
+		expect(await screen.findByText("@steipete fresh")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Sync mentions" }));
+
+		await waitFor(() => {
+			expect(syncBodies).toEqual([{ kind: "mentions" }]);
+			expect(queryUrls.at(-1)?.searchParams.get("refresh")).toBe("1");
+		});
+		expect(screen.getByText("Synced 7 items")).toBeInTheDocument();
+	});
+
 	it("shows a retryable error when mentions loading fails", async () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);

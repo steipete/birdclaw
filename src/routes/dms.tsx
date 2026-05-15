@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DmWorkspace } from "#/components/DmWorkspace";
+import { SyncNowButton } from "#/components/SyncNowButton";
 import type {
 	DmConversationItem,
 	DmMessageItem,
@@ -54,10 +55,14 @@ function DmsRoute() {
 	const [replyDraft, setReplyDraft] = useState("");
 	const [refreshTick, setRefreshTick] = useState(0);
 
+	async function loadStatus() {
+		const response = await fetch("/api/status");
+		const data = (await response.json()) as QueryEnvelope;
+		setMeta(data);
+	}
+
 	useEffect(() => {
-		fetch("/api/status")
-			.then((response) => response.json())
-			.then((data: QueryEnvelope) => setMeta(data));
+		void loadStatus();
 	}, []);
 
 	useEffect(() => {
@@ -190,6 +195,11 @@ function DmsRoute() {
 		}
 	}
 
+	function refreshLocalView() {
+		setRefreshTick((value) => value + 1);
+		void loadStatus();
+	}
+
 	return (
 		<>
 			<header className={pageHeaderClass}>
@@ -198,6 +208,11 @@ function DmsRoute() {
 						<h1 className={pageTitleClass}>Messages</h1>
 						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
+					<SyncNowButton
+						kind="dms"
+						label="Sync DMs"
+						onSynced={refreshLocalView}
+					/>
 				</div>
 				<div className="flex flex-wrap items-center gap-2 px-4 pb-3">
 					<label className={cx(searchFieldShellClass, "flex-1 min-w-[200px]")}>

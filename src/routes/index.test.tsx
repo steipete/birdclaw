@@ -138,6 +138,59 @@ describe("home route", () => {
 		);
 	});
 
+	it("runs a live timeline sync and reloads local data", async () => {
+		const queryUrls: URL[] = [];
+		const syncBodies: unknown[] = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 2, dms: 4, needsReply: 2, inbox: 4 },
+							transport: { statusText: "local" },
+							accounts: [],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/query")) {
+					queryUrls.push(new URL(url));
+					return new Response(
+						JSON.stringify({
+							resource: "home",
+							items: [{ id: "tweet_sync", text: "Fresh post" }],
+						}),
+					);
+				}
+				if (url.endsWith("/api/sync") && init?.body) {
+					syncBodies.push(JSON.parse(String(init.body)));
+					return new Response(
+						JSON.stringify({
+							ok: true,
+							kind: "timeline",
+							summary: "Synced 12 items",
+							steps: [],
+						}),
+					);
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<HomeRoute />);
+
+		expect(await screen.findByText("Fresh post")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Sync timeline" }));
+
+		await waitFor(() => {
+			expect(syncBodies).toEqual([{ kind: "timeline" }]);
+			expect(queryUrls.at(-1)?.searchParams.get("refresh")).toBe("1");
+		});
+		expect(screen.getByText("Synced 12 items")).toBeInTheDocument();
+	});
+
 	it("shows a retryable error when timeline loading fails", async () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);

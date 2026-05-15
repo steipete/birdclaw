@@ -114,4 +114,72 @@ describe("dms route", () => {
 			);
 		});
 	});
+
+	it("runs a live dm sync and reloads conversations", async () => {
+		const queryUrls: URL[] = [];
+		const syncBodies: unknown[] = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+							transport: { statusText: "local" },
+							accounts: [],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/query")) {
+					queryUrls.push(new URL(url));
+					return new Response(
+						JSON.stringify({
+							resource: "dms",
+							items: [
+								{
+									id: "dm_1",
+									title: "Sam Altman",
+									accountId: "acct_primary",
+									accountHandle: "@steipete",
+								},
+							],
+							selectedConversation: {
+								conversation: {
+									id: "dm_1",
+									title: "Sam Altman",
+									accountId: "acct_primary",
+									accountHandle: "@steipete",
+								},
+								messages: [],
+							},
+						}),
+					);
+				}
+				if (url.endsWith("/api/sync") && init?.body) {
+					syncBodies.push(JSON.parse(String(init.body)));
+					return new Response(
+						JSON.stringify({
+							ok: true,
+							kind: "dms",
+							summary: "Synced 9 items",
+							steps: [],
+						}),
+					);
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<DmsRoute />);
+
+		expect(await screen.findByText("Sam Altman")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Sync DMs" }));
+
+		await waitFor(() => {
+			expect(syncBodies).toEqual([{ kind: "dms" }]);
+			expect(queryUrls.at(-1)?.searchParams.get("refresh")).toBe("1");
+		});
+	});
 });
