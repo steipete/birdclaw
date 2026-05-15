@@ -227,4 +227,44 @@ describe("SavedTimelineView", () => {
 		});
 		expect(promptSpy).toHaveBeenCalledTimes(2);
 	});
+
+	it("shows a retryable error when saved posts fail to load", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/status")) {
+				return new Response(
+					JSON.stringify({
+						stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+						transport: { statusText: "local" },
+						accounts: [],
+						archives: [],
+					}),
+				);
+			}
+			if (url.includes("/api/query")) {
+				throw new Error("Saved store unavailable");
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(
+			<SavedTimelineView
+				eyebrow="bookmarks"
+				filter="bookmarked"
+				loadingLabel="Loading bookmarks..."
+				searchPlaceholder="Search bookmarks"
+				title="Bookmarks"
+			/>,
+		);
+
+		expect(
+			await screen.findByText("Could not load bookmarks"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Saved store unavailable")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledTimes(3);
+		});
+	});
 });

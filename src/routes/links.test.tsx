@@ -223,4 +223,25 @@ describe("links route", () => {
 			).toBe(true);
 		});
 	});
+
+	it("shows a retryable error when link insights fail", async () => {
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const fetchMock = vi.fn(async () => {
+			throw new Error("Insights unavailable");
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<LinksRoute />);
+
+		expect(await screen.findByText("Could not load links")).toBeInTheDocument();
+		expect(screen.getByText("Insights unavailable")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+		});
+		expect(warnSpy).toHaveBeenCalledWith(
+			"Link insights failed",
+			expect.any(Error),
+		);
+	});
 });

@@ -137,4 +137,34 @@ describe("home route", () => {
 			expect.anything(),
 		);
 	});
+
+	it("shows a retryable error when timeline loading fails", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/status")) {
+				return new Response(
+					JSON.stringify({
+						stats: { home: 3, mentions: 2, dms: 4, needsReply: 2, inbox: 4 },
+						transport: { statusText: "local" },
+						accounts: [],
+						archives: [],
+					}),
+				);
+			}
+			if (url.includes("/api/query")) {
+				throw "Timeline unavailable";
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<HomeRoute />);
+
+		expect(await screen.findByText("Could not load posts")).toBeInTheDocument();
+		expect(screen.getByText("Timeline unavailable")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledTimes(3);
+		});
+	});
 });

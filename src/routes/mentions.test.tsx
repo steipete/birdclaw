@@ -139,4 +139,36 @@ describe("mentions route", () => {
 			expect.anything(),
 		);
 	});
+
+	it("shows a retryable error when mentions loading fails", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/status")) {
+				return new Response(
+					JSON.stringify({
+						stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+						transport: { statusText: "local" },
+						accounts: [],
+						archives: [],
+					}),
+				);
+			}
+			if (url.includes("/api/query")) {
+				throw new Error("Mentions store unavailable");
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<MentionsRoute />);
+
+		expect(
+			await screen.findByText("Could not load mentions"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Mentions store unavailable")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledTimes(3);
+		});
+	});
 });
