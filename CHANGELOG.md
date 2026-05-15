@@ -5,6 +5,7 @@
 ### Fixed
 
 - Harden the published CLI wrapper and release checks so the packaged `birdclaw` binary avoids `tsx` CLI IPC startup and stays covered by lint, format, and smoke tests.
+- Forward shutdown signals through the published CLI and bundled web server, and include referenced script helpers in npm packages.
 - Keep the selected DM conversation visible while its thread refreshes so the reply composer no longer flashes away mid-action.
 - Send the selected web account through manual sync controls so multi-account timelines sync the intended profile.
 - Run web sync requests as background jobs with status polling so the UI no longer holds one blocking sync request open.

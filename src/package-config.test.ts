@@ -14,6 +14,7 @@ const packageJson = JSON.parse(
 	version: string;
 	bin: Record<string, string>;
 	scripts: Record<string, string>;
+	files: string[];
 };
 
 function resolvedVitestConfig() {
@@ -50,6 +51,23 @@ describe("package configuration", () => {
 		expect(packageJson.scripts.coverage).toBe(
 			"node ./scripts/run-vitest.mjs run --coverage",
 		);
+	});
+
+	it("publishes script helpers referenced by package scripts", () => {
+		const isPublished = (filePath: string) =>
+			packageJson.files.some(
+				(entry) =>
+					!entry.startsWith("!") &&
+					(entry === filePath ||
+						(entry.endsWith("/") && filePath.startsWith(entry))),
+			);
+
+		for (const script of Object.values(packageJson.scripts)) {
+			for (const match of script.matchAll(/(?:^|\s)(\.\/scripts\/\S+)/g)) {
+				const scriptPath = match[1]?.replace(/^\.\//, "");
+				expect(scriptPath && isPublished(scriptPath)).toBe(true);
+			}
+		}
 	});
 
 	it("preserves Vitest default excludes while adding project excludes", () => {

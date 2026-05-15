@@ -13,6 +13,7 @@
 	},
 	"files": [
 		"bin/",
+		"scripts/",
 		"src/",
 		"!src/**/*.test.ts",
 		"!src/**/*.test.tsx",

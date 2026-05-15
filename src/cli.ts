@@ -1474,9 +1474,54 @@ program
 			{
 				cwd: packageRoot,
 				stdio: "inherit",
+				detached: process.platform !== "win32",
 			},
 		);
-		child.on("exit", (code) => {
+		const forwardedSignals = [
+			"SIGINT",
+			"SIGTERM",
+			"SIGHUP",
+			"SIGQUIT",
+		] as const;
+		const forwardSignal = (signal: NodeJS.Signals) => {
+			if (child.exitCode === null && child.signalCode === null) {
+				signalChild(signal);
+			}
+		};
+		const signalChild = (signal: NodeJS.Signals) => {
+			if (child.pid === undefined) {
+				return;
+			}
+			const targetPid = process.platform === "win32" ? child.pid : -child.pid;
+			try {
+				process.kill(targetPid, signal);
+			} catch (error) {
+				if (
+					!(
+						typeof error === "object" &&
+						error !== null &&
+						"code" in error &&
+						error.code === "ESRCH"
+					)
+				) {
+					throw error;
+				}
+			}
+		};
+		const removeSignalHandlers = () => {
+			for (const signal of forwardedSignals) {
+				process.removeListener(signal, forwardSignal);
+			}
+		};
+		for (const signal of forwardedSignals) {
+			process.on(signal, forwardSignal);
+		}
+		child.on("exit", (code, signal) => {
+			removeSignalHandlers();
+			if (signal) {
+				process.kill(process.pid, signal);
+				return;
+			}
 			process.exit(code ?? 0);
 		});
 	});
