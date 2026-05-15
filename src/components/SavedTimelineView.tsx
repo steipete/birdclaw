@@ -1,5 +1,5 @@
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	FeedEmpty,
 	FeedError,
@@ -8,8 +8,8 @@ import {
 } from "#/components/FeedState";
 import { SyncNowButton } from "#/components/SyncNowButton";
 import { TimelineCard } from "#/components/TimelineCard";
+import { useTimelineRouteData } from "#/components/useTimelineRouteData";
 import { ConversationSurfaceScope } from "#/lib/conversation-surface";
-import type { QueryEnvelope, QueryResponse, TimelineItem } from "#/lib/types";
 import {
 	feedClass,
 	pageHeaderClass,
@@ -40,69 +40,15 @@ export function SavedTimelineView({
 	loadingLabel,
 	searchPlaceholder,
 }: SavedTimelineViewProps) {
-	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
-	const [items, setItems] = useState<TimelineItem[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
 	const [search, setSearch] = useState("");
-	const [refreshTick, setRefreshTick] = useState(0);
-
-	async function loadStatus() {
-		const response = await fetch("/api/status");
-		const data = (await response.json()) as QueryEnvelope;
-		setMeta(data);
-	}
-
-	useEffect(() => {
-		void loadStatus();
-	}, []);
-
-	useEffect(() => {
-		const url = new URL("/api/query", window.location.origin);
-		url.searchParams.set("resource", "home");
-		url.searchParams.set(filter, "true");
-		url.searchParams.set("refresh", String(refreshTick));
-		if (search.trim()) {
-			url.searchParams.set("search", search.trim());
-		}
-
-		const controller = new AbortController();
-		let active = true;
-		setError(null);
-		setLoading(true);
-		fetch(url, { signal: controller.signal })
-			.then((response) => response.json())
-			.then((data: QueryResponse) => {
-				if (active) {
-					setItems(data.items as TimelineItem[]);
-				}
-			})
-			.catch((fetchError: unknown) => {
-				if (
-					fetchError instanceof DOMException &&
-					fetchError.name === "AbortError"
-				) {
-					return;
-				}
-				if (!active) return;
-				setError(
-					fetchError instanceof Error
-						? fetchError.message
-						: `${TITLES[filter]} unavailable`,
-				);
-				setItems([]);
-			})
-			.finally(() => {
-				if (active) {
-					setLoading(false);
-				}
-			});
-
-		return () => {
-			active = false;
-			controller.abort();
-		};
-	}, [filter, refreshTick, search]);
+	const { meta, items, loading, error, retry, refreshLocalView, replyToTweet } =
+		useTimelineRouteData({
+			resource: "home",
+			search,
+			errorFallback: `${TITLES[filter]} unavailable`,
+			likedOnly: filter === "liked",
+			bookmarkedOnly: filter === "bookmarked",
+		});
 
 	const subtitle = useMemo(() => {
 		if (!meta) {
@@ -112,29 +58,6 @@ export function SavedTimelineView({
 		}
 		return `${String(items.length)} visible · ${meta.transport.statusText}`;
 	}, [items.length, loadingLabel, meta]);
-
-	async function replyToTweet(tweetId: string) {
-		const text = window.prompt("Reply text");
-		if (!text?.trim()) return;
-
-		await fetch("/api/action", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				kind: "replyTweet",
-				accountId: "acct_primary",
-				tweetId,
-				text,
-			}),
-		});
-
-		setRefreshTick((value) => value + 1);
-	}
-
-	function refreshLocalView() {
-		setRefreshTick((value) => value + 1);
-		void loadStatus();
-	}
 
 	const syncKind = filter === "liked" ? "likes" : "bookmarks";
 
@@ -179,7 +102,7 @@ export function SavedTimelineView({
 							action={
 								<button
 									className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-[14px] font-bold text-white"
-									onClick={() => setRefreshTick((value) => value + 1)}
+									onClick={retry}
 									type="button"
 								>
 									Retry
