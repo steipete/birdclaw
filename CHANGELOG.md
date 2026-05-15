@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Send the selected web account through manual sync controls so multi-account timelines sync the intended profile.
 - Run web sync requests as background jobs with status polling so the UI no longer holds one blocking sync request open.
 - Add typed web API fetch handling and explicit DMs loading/error/empty states so failed local reads surface cleanly.
 - Add explicit web app sync controls for home timeline, mentions, likes, bookmarks, and DMs so fresh live data can be pulled without leaving the UI.

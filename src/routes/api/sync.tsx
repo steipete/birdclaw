@@ -11,6 +11,10 @@ function json(data: unknown, init?: ResponseInit) {
 	});
 }
 
+function parseAccountId(value: unknown) {
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 export const Route = createFileRoute("/api/sync")({
 	server: {
 		handlers: {
@@ -47,7 +51,7 @@ export const Route = createFileRoute("/api/sync")({
 					);
 				}
 
-				const job = startWebSync(kind);
+				const job = startWebSync(kind, parseAccountId(body.accountId));
 				return json(job, { status: job.inProgress ? 202 : 200 });
 			},
 		},

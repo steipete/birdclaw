@@ -71,6 +71,7 @@ export function SavedTimelineView({
 						<p className={pageSubtitleClass}>{subtitle}</p>
 					</div>
 					<SyncNowButton
+						accounts={meta?.accounts}
 						kind={syncKind}
 						label={filter === "liked" ? "Sync likes" : "Sync bookmarks"}
 						onSynced={refreshLocalView}

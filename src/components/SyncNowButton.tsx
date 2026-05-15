@@ -1,26 +1,51 @@
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { postSync } from "#/lib/api-client";
-import { cx } from "#/lib/ui";
+import type { AccountRecord } from "#/lib/types";
+import { cx, selectFieldClass } from "#/lib/ui";
 import type { WebSyncKind, WebSyncResponse } from "#/lib/web-sync";
 
 interface SyncNowButtonProps {
 	kind: WebSyncKind;
 	label: string;
+	accounts?: AccountRecord[];
 	onSynced: (result: WebSyncResponse) => void;
 }
 
-export function SyncNowButton({ kind, label, onSynced }: SyncNowButtonProps) {
+export function SyncNowButton({
+	kind,
+	label,
+	accounts = [],
+	onSynced,
+}: SyncNowButtonProps) {
 	const [syncing, setSyncing] = useState(false);
 	const [message, setMessage] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [selectedAccountId, setSelectedAccountId] = useState<
+		string | undefined
+	>();
+	const defaultAccountId = useMemo(
+		() => accounts.find((account) => account.isDefault)?.id ?? accounts[0]?.id,
+		[accounts],
+	);
+	const accountId = selectedAccountId ?? defaultAccountId;
+
+	useEffect(() => {
+		if (!accounts.length) {
+			setSelectedAccountId(undefined);
+			return;
+		}
+		if (!accountId || !accounts.some((account) => account.id === accountId)) {
+			setSelectedAccountId(defaultAccountId);
+		}
+	}, [accountId, accounts, defaultAccountId]);
 
 	async function syncNow() {
 		setSyncing(true);
 		setError(null);
 		setMessage(null);
 		try {
-			const data = await postSync(kind);
+			const data = await postSync(kind, accountId);
 			if (!data.ok) throw new Error(data.summary);
 			setMessage(data.summary);
 			onSynced(data);
@@ -33,6 +58,21 @@ export function SyncNowButton({ kind, label, onSynced }: SyncNowButtonProps) {
 
 	return (
 		<div className="flex shrink-0 items-center gap-2">
+			{accounts.length > 1 ? (
+				<select
+					aria-label="Sync account"
+					className={cx(selectFieldClass, "h-9 w-[132px]")}
+					disabled={syncing}
+					onChange={(event) => setSelectedAccountId(event.target.value)}
+					value={accountId ?? ""}
+				>
+					{accounts.map((account) => (
+						<option key={account.id} value={account.id}>
+							{account.handle}
+						</option>
+					))}
+				</select>
+			) : null}
 			<button
 				type="button"
 				className={cx(

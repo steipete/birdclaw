@@ -29,6 +29,7 @@ describe("api sync route", () => {
 		startWebSyncMock.mockReturnValue({
 			id: "sync_timeline_1",
 			kind: "timeline",
+			accountId: "acct_primary",
 			status: "running",
 			startedAt: "2026-05-15T12:00:00.000Z",
 			summary: "Syncing Home timeline",
@@ -38,14 +39,15 @@ describe("api sync route", () => {
 		const response = await POST({
 			request: new Request("http://localhost/api/sync", {
 				method: "POST",
-				body: JSON.stringify({ kind: "timeline" }),
+				body: JSON.stringify({ kind: "timeline", accountId: "acct_primary" }),
 			}),
 		});
 
 		expect(response.status).toBe(202);
-		expect(startWebSyncMock).toHaveBeenCalledWith("timeline");
+		expect(startWebSyncMock).toHaveBeenCalledWith("timeline", "acct_primary");
 		expect(await response.json()).toMatchObject({
 			id: "sync_timeline_1",
+			accountId: "acct_primary",
 			status: "running",
 			summary: "Syncing Home timeline",
 		});

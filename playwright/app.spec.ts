@@ -49,16 +49,20 @@ test("navigates across the primary surfaces", async ({ page }) => {
 });
 
 test("manual sync controls post to the sync endpoint", async ({ page }) => {
-	const syncKinds: string[] = [];
+	const syncBodies: Array<{ kind?: string; accountId?: string }> = [];
 	await page.route("**/api/sync**", async (route) => {
-		const body = route.request().postDataJSON() as { kind?: string };
-		syncKinds.push(body.kind ?? "");
+		const body = route.request().postDataJSON() as {
+			kind?: string;
+			accountId?: string;
+		};
+		syncBodies.push(body);
 		await route.fulfill({
 			status: 200,
 			contentType: "application/json",
 			body: JSON.stringify({
 				id: `sync_${body.kind ?? "unknown"}_1`,
 				kind: body.kind,
+				accountId: body.accountId,
 				status: "succeeded",
 				startedAt: "2026-05-15T12:00:00.000Z",
 				summary: "Synced 3 items",
@@ -66,6 +70,7 @@ test("manual sync controls post to the sync endpoint", async ({ page }) => {
 				result: {
 					ok: true,
 					kind: body.kind,
+					accountId: body.accountId,
 					summary: "Synced 3 items",
 					steps: [],
 				},
@@ -92,8 +97,14 @@ test("manual sync controls post to the sync endpoint", async ({ page }) => {
 	await clickSync("/dms", "Sync DMs");
 
 	await expect
-		.poll(() => syncKinds)
-		.toEqual(["timeline", "mentions", "likes", "bookmarks", "dms"]);
+		.poll(() => syncBodies)
+		.toEqual([
+			{ kind: "timeline" },
+			{ kind: "mentions", accountId: "acct_primary" },
+			{ kind: "likes", accountId: "acct_primary" },
+			{ kind: "bookmarks", accountId: "acct_primary" },
+			{ kind: "dms" },
+		]);
 });
 
 test("filters the home timeline by reply state", async ({ page }) => {

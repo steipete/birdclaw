@@ -86,6 +86,7 @@ export function TimelineRouteFrame({
 						<p className={pageSubtitleClass}>{subtitleText}</p>
 					</div>
 					<SyncNowButton
+						accounts={syncKind === "mentions" ? meta?.accounts : undefined}
 						kind={syncKind}
 						label={syncLabel}
 						onSynced={refreshLocalView}

@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
 import { maybeAutoSyncBackup } from "./backup";
+import { getBirdclawPaths } from "./config";
 import { syncDirectMessagesViaCachedBird } from "./dms-live";
 import { syncMentionThreads } from "./mention-threads-live";
 import { syncMentions } from "./mentions-live";
+import NativeSqliteDatabase from "./sqlite";
 import { syncTimelineCollection } from "./timeline-collections-live";
 import { syncHomeTimeline } from "./timeline-live";
 
@@ -24,6 +27,7 @@ export interface WebSyncStep {
 export interface WebSyncResponse {
 	ok: boolean;
 	kind: WebSyncKind;
+	accountId?: string;
 	startedAt: string;
 	finishedAt?: string;
 	summary: string;
@@ -38,6 +42,7 @@ export type WebSyncJobStatus = "running" | "succeeded" | "failed";
 export interface WebSyncJobSnapshot {
 	id: string;
 	kind: WebSyncKind;
+	accountId?: string;
 	status: WebSyncJobStatus;
 	startedAt: string;
 	finishedAt?: string;
@@ -49,11 +54,13 @@ export interface WebSyncJobSnapshot {
 
 interface WebSyncPlan {
 	label: string;
-	run: () => Promise<WebSyncStep[]>;
+	accountAware: boolean;
+	run: (accountId: string | undefined) => Promise<WebSyncStep[]>;
 }
 
-const runningSyncs = new Map<WebSyncKind, WebSyncJobSnapshot>();
+const runningSyncs = new Map<string, WebSyncJobSnapshot>();
 const webSyncJobs = new Map<string, WebSyncJobSnapshot>();
+const webSyncJobKeys = new Map<string, string>();
 const completedJobCleanupTimers = new Map<
 	string,
 	ReturnType<typeof setTimeout>
@@ -106,8 +113,10 @@ function summarizeSteps(steps: WebSyncStep[]) {
 const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	timeline: {
 		label: "Home timeline",
-		run: async () => {
+		accountAware: false,
+		run: async (account) => {
 			const result = await syncHomeTimeline({
+				account,
 				limit: 100,
 				following: true,
 				refresh: true,
@@ -124,8 +133,10 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	},
 	mentions: {
 		label: "Mentions",
-		run: async () => {
+		accountAware: true,
+		run: async (account) => {
 			const mentions = await syncMentions({
+				account,
 				mode: "xurl",
 				limit: 100,
 				maxPages: 3,
@@ -142,6 +153,7 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 			];
 
 			const threads = await syncMentionThreads({
+				account,
 				mode: "xurl",
 				limit: 30,
 				delayMs: 1500,
@@ -163,16 +175,20 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	},
 	likes: {
 		label: "Likes",
-		run: () => syncSavedCollection("likes"),
+		accountAware: true,
+		run: (account) => syncSavedCollection("likes", account),
 	},
 	bookmarks: {
 		label: "Bookmarks",
-		run: () => syncSavedCollection("bookmarks"),
+		accountAware: true,
+		run: (account) => syncSavedCollection("bookmarks", account),
 	},
 	dms: {
 		label: "Direct messages",
-		run: async () => {
+		accountAware: false,
+		run: async (account) => {
 			const result = await syncDirectMessagesViaCachedBird({
+				account,
 				limit: 50,
 				refresh: true,
 			});
@@ -188,10 +204,16 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	},
 };
 
-async function syncSavedCollection(kind: "likes" | "bookmarks") {
+async function syncSavedCollection(
+	kind: "likes" | "bookmarks",
+	account: string | undefined,
+) {
+	const isNonDefaultAccount =
+		account !== undefined && account !== resolveDefaultSyncAccountId();
 	const result = await syncTimelineCollection({
 		kind,
-		mode: "auto",
+		account,
+		mode: isNonDefaultAccount ? "xurl" : "auto",
 		limit: 100,
 		maxPages: 5,
 		refresh: true,
@@ -207,15 +229,19 @@ async function syncSavedCollection(kind: "likes" | "bookmarks") {
 	];
 }
 
-async function performWebSync(kind: WebSyncKind): Promise<WebSyncResponse> {
+async function performWebSync(
+	kind: WebSyncKind,
+	accountId?: string,
+): Promise<WebSyncResponse> {
 	const startedAt = new Date().toISOString();
-	const steps = await WEB_SYNC_PLANS[kind].run();
+	const steps = await WEB_SYNC_PLANS[kind].run(accountId);
 
 	const backup = await maybeAutoSyncBackup();
 	const finishedAt = new Date().toISOString();
 	return {
 		ok: true,
 		kind,
+		...(accountId ? { accountId } : {}),
 		startedAt,
 		finishedAt,
 		summary: summarizeSteps(steps),
@@ -228,19 +254,64 @@ function createWebSyncJobId(kind: WebSyncKind) {
 	return `sync_${kind}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function resolveDefaultSyncAccountId() {
+	const dbPath = getBirdclawPaths().dbPath;
+	if (!existsSync(dbPath)) {
+		return "acct_primary";
+	}
+
+	let db: NativeSqliteDatabase | undefined;
+	try {
+		db = new NativeSqliteDatabase(dbPath, { readonly: true });
+		const row = db
+			.prepare(
+				`
+        select id
+        from accounts
+        order by is_default desc, created_at asc
+        limit 1
+        `,
+			)
+			.get() as { id: string } | undefined;
+		return row?.id ?? "acct_primary";
+	} catch {
+		return "acct_primary";
+	} finally {
+		db?.close();
+	}
+}
+
+function getRunningSyncKey(kind: WebSyncKind, accountId: string | undefined) {
+	if (!WEB_SYNC_PLANS[kind].accountAware) {
+		return kind;
+	}
+	return `${kind}:${accountId ?? resolveDefaultSyncAccountId()}`;
+}
+
+function getEffectiveAccountId(
+	kind: WebSyncKind,
+	accountId: string | undefined,
+) {
+	return WEB_SYNC_PLANS[kind].accountAware ? accountId : undefined;
+}
+
 function setJobSnapshot(snapshot: WebSyncJobSnapshot) {
 	webSyncJobs.set(snapshot.id, snapshot);
+	const syncKey =
+		webSyncJobKeys.get(snapshot.id) ??
+		getRunningSyncKey(snapshot.kind, snapshot.accountId);
 	const cleanupTimer = completedJobCleanupTimers.get(snapshot.id);
 	if (cleanupTimer) {
 		clearTimeout(cleanupTimer);
 		completedJobCleanupTimers.delete(snapshot.id);
 	}
 	if (snapshot.inProgress) {
-		runningSyncs.set(snapshot.kind, snapshot);
-	} else if (runningSyncs.get(snapshot.kind)?.id === snapshot.id) {
-		runningSyncs.delete(snapshot.kind);
+		runningSyncs.set(syncKey, snapshot);
+	} else if (runningSyncs.get(syncKey)?.id === snapshot.id) {
+		runningSyncs.delete(syncKey);
 		const timer = setTimeout(() => {
 			webSyncJobs.delete(snapshot.id);
+			webSyncJobKeys.delete(snapshot.id);
 			completedJobCleanupTimers.delete(snapshot.id);
 		}, COMPLETED_JOB_TTL_MS);
 		timer.unref?.();
@@ -252,12 +323,14 @@ function toFailedResponse(
 	kind: WebSyncKind,
 	startedAt: string,
 	error: unknown,
+	accountId?: string,
 ): WebSyncResponse {
 	const finishedAt = new Date().toISOString();
 	const message = error instanceof Error ? error.message : "Sync failed";
 	return {
 		ok: false,
 		kind,
+		...(accountId ? { accountId } : {}),
 		startedAt,
 		finishedAt,
 		summary: message,
@@ -266,8 +339,13 @@ function toFailedResponse(
 	};
 }
 
-export function startWebSync(kind: WebSyncKind): WebSyncJobSnapshot {
-	const current = runningSyncs.get(kind);
+export function startWebSync(
+	kind: WebSyncKind,
+	accountId?: string,
+): WebSyncJobSnapshot {
+	const effectiveAccountId = getEffectiveAccountId(kind, accountId);
+	const syncKey = getRunningSyncKey(kind, effectiveAccountId);
+	const current = runningSyncs.get(syncKey);
 	if (current) {
 		return current;
 	}
@@ -276,14 +354,16 @@ export function startWebSync(kind: WebSyncKind): WebSyncJobSnapshot {
 	const job: WebSyncJobSnapshot = {
 		id: createWebSyncJobId(kind),
 		kind,
+		...(effectiveAccountId ? { accountId: effectiveAccountId } : {}),
 		status: "running",
 		startedAt,
 		summary: `Syncing ${WEB_SYNC_PLANS[kind].label}`,
 		inProgress: true,
 	};
+	webSyncJobKeys.set(job.id, syncKey);
 	setJobSnapshot(job);
 
-	void performWebSync(kind)
+	void performWebSync(kind, effectiveAccountId)
 		.then((result) => {
 			setJobSnapshot({
 				...job,
@@ -295,7 +375,12 @@ export function startWebSync(kind: WebSyncKind): WebSyncJobSnapshot {
 			});
 		})
 		.catch((error: unknown) => {
-			const result = toFailedResponse(kind, startedAt, error);
+			const result = toFailedResponse(
+				kind,
+				startedAt,
+				error,
+				effectiveAccountId,
+			);
 			setJobSnapshot({
 				...job,
 				status: "failed",
@@ -314,13 +399,18 @@ export function getWebSyncJob(id: string): WebSyncJobSnapshot | null {
 	return webSyncJobs.get(id) ?? null;
 }
 
-export async function runWebSync(kind: WebSyncKind): Promise<WebSyncResponse> {
-	const current = runningSyncs.get(kind);
+export async function runWebSync(
+	kind: WebSyncKind,
+	accountId?: string,
+): Promise<WebSyncResponse> {
+	const effectiveAccountId = getEffectiveAccountId(kind, accountId);
+	const current = runningSyncs.get(getRunningSyncKey(kind, effectiveAccountId));
 	const startedAt = new Date().toISOString();
 	if (current) {
 		return {
 			ok: false,
 			kind,
+			...(effectiveAccountId ? { accountId: effectiveAccountId } : {}),
 			startedAt,
 			summary: "Sync already running",
 			steps: [],
@@ -328,7 +418,7 @@ export async function runWebSync(kind: WebSyncKind): Promise<WebSyncResponse> {
 		};
 	}
 
-	const job = startWebSync(kind);
+	const job = startWebSync(kind, effectiveAccountId);
 	while (job.inProgress) {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 		const latest = getWebSyncJob(job.id);
@@ -345,6 +435,7 @@ export async function runWebSync(kind: WebSyncKind): Promise<WebSyncResponse> {
 export function clearWebSyncLocksForTests() {
 	runningSyncs.clear();
 	webSyncJobs.clear();
+	webSyncJobKeys.clear();
 	for (const timer of completedJobCleanupTimers.values()) {
 		clearTimeout(timer);
 	}

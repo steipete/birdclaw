@@ -81,6 +81,79 @@ describe("SyncNowButton", () => {
 		).toHaveAttribute("aria-label", "Sync timeline");
 	});
 
+	it("posts the selected account id when multiple accounts are available", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body)) as {
+					kind: string;
+					accountId?: string;
+				};
+				return new Response(
+					JSON.stringify({
+						id: "sync_mentions_1",
+						kind: body.kind,
+						accountId: body.accountId,
+						status: "succeeded",
+						startedAt: "2026-05-15T12:00:00.000Z",
+						summary: "Synced 5 items",
+						inProgress: false,
+						result: {
+							ok: true,
+							kind: body.kind,
+							accountId: body.accountId,
+							summary: "Synced 5 items",
+							steps: [],
+						},
+					}),
+				);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(
+			<SyncNowButton
+				accounts={[
+					{
+						id: "acct_primary",
+						name: "Peter",
+						handle: "@steipete",
+						transport: "xurl",
+						isDefault: 1,
+						createdAt: "2026-05-15T12:00:00.000Z",
+					},
+					{
+						id: "acct_studio",
+						name: "Studio",
+						handle: "@studio",
+						transport: "xurl",
+						isDefault: 0,
+						createdAt: "2026-05-15T12:00:00.000Z",
+					},
+				]}
+				kind="mentions"
+				label="Sync mentions"
+				onSynced={vi.fn()}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText("Sync account"), {
+			target: { value: "acct_studio" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Sync mentions" }));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/sync",
+				expect.objectContaining({
+					body: JSON.stringify({
+						kind: "mentions",
+						accountId: "acct_studio",
+					}),
+				}),
+			);
+		});
+	});
+
 	it("surfaces sync failures", async () => {
 		vi.stubGlobal(
 			"fetch",

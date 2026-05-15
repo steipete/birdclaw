@@ -74,6 +74,7 @@ const webSyncResponseSchema = z
 	.object({
 		ok: z.boolean(),
 		kind: webSyncKindSchema,
+		accountId: z.string().optional(),
 		summary: z.string(),
 		steps: z.array(jsonRecordSchema),
 		startedAt: z.string().optional(),
@@ -88,6 +89,7 @@ const webSyncJobSchema = z
 	.object({
 		id: z.string(),
 		kind: webSyncKindSchema,
+		accountId: z.string().optional(),
 		status: z.enum(["running", "succeeded", "failed"]),
 		startedAt: z.string(),
 		finishedAt: z.string().optional(),
@@ -184,13 +186,16 @@ export function postAction(body: Record<string, unknown>) {
 	);
 }
 
-export function postSync(kind: WebSyncKind) {
+export function postSync(kind: WebSyncKind, accountId?: string) {
 	return fetchJson(
 		"/api/sync",
 		{
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ kind }),
+			body: JSON.stringify({
+				kind,
+				...(accountId ? { accountId } : {}),
+			}),
 		},
 		webSyncJobSchema,
 		"Sync failed",

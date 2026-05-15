@@ -1,5 +1,8 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const maybeAutoSyncBackupMock = vi.fn();
 const syncDirectMessagesViaCachedBirdMock = vi.fn();
@@ -34,6 +37,8 @@ vi.mock("./timeline-live", () => ({
 	syncHomeTimeline: (...args: unknown[]) => syncHomeTimelineMock(...args),
 }));
 
+import { resetBirdclawPathsForTests } from "./config";
+import { getNativeDb, resetDatabaseForTests } from "./db";
 import {
 	clearWebSyncLocksForTests,
 	getWebSyncJob,
@@ -48,6 +53,25 @@ function deferred<T>() {
 		resolve = innerResolve;
 	});
 	return { promise, resolve };
+}
+
+const originalBirdclawHome = process.env.BIRDCLAW_HOME;
+const tempRoots: string[] = [];
+
+function setupDefaultAccount(accountId: string) {
+	const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-web-sync-"));
+	tempRoots.push(tempRoot);
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	getNativeDb({ seedDemoData: false })
+		.prepare(
+			`
+      insert into accounts (id, name, handle, transport, is_default, created_at)
+      values (?, ?, ?, ?, ?, ?)
+      `,
+		)
+		.run(accountId, "Studio", "@studio", "bird", 1, "2026-01-01T00:00:00.000Z");
 }
 
 describe("web sync dispatcher", () => {
@@ -65,6 +89,19 @@ describe("web sync dispatcher", () => {
 			enabled: false,
 			skipped: true,
 		});
+	});
+
+	afterEach(() => {
+		resetDatabaseForTests();
+		resetBirdclawPathsForTests();
+		if (originalBirdclawHome === undefined) {
+			delete process.env.BIRDCLAW_HOME;
+		} else {
+			process.env.BIRDCLAW_HOME = originalBirdclawHome;
+		}
+		for (const tempRoot of tempRoots.splice(0)) {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
 	});
 
 	it("syncs the home timeline with a live refresh and backup pass", async () => {
@@ -146,6 +183,47 @@ describe("web sync dispatcher", () => {
 		});
 	});
 
+	it("uses account-targeted xurl mode for selected saved collection syncs", async () => {
+		syncTimelineCollectionMock.mockResolvedValue({
+			ok: true,
+			source: "xurl",
+			count: 7,
+		});
+
+		await runWebSync("likes", "acct_studio");
+
+		expect(syncTimelineCollectionMock).toHaveBeenCalledWith({
+			kind: "likes",
+			account: "acct_studio",
+			mode: "xurl",
+			limit: 100,
+			maxPages: 5,
+			refresh: true,
+			earlyStop: true,
+		});
+	});
+
+	it("keeps auto fallback for default-account saved collection syncs", async () => {
+		setupDefaultAccount("acct_studio");
+		syncTimelineCollectionMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			count: 7,
+		});
+
+		await runWebSync("likes", "acct_studio");
+
+		expect(syncTimelineCollectionMock).toHaveBeenCalledWith({
+			kind: "likes",
+			account: "acct_studio",
+			mode: "auto",
+			limit: 100,
+			maxPages: 5,
+			refresh: true,
+			earlyStop: true,
+		});
+	});
+
 	it("returns an in-progress response for duplicate sync clicks", async () => {
 		const pending = deferred<{ ok: boolean; source: string; count: number }>();
 		syncHomeTimelineMock.mockReturnValue(pending.promise);
@@ -162,6 +240,93 @@ describe("web sync dispatcher", () => {
 			summary: "Sync already running",
 		});
 		expect(syncHomeTimelineMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps account-aware running locks scoped by account", async () => {
+		const primary = deferred<{ ok: boolean; source: string; count: number }>();
+		const studio = deferred<{ ok: boolean; source: string; count: number }>();
+		syncMentionsMock
+			.mockReturnValueOnce(primary.promise)
+			.mockReturnValueOnce(studio.promise);
+		syncMentionThreadsMock.mockResolvedValue({
+			ok: true,
+			source: "xurl",
+			mergedTweets: 0,
+			partial: false,
+		});
+
+		const primaryJob = startWebSync("mentions", "acct_primary");
+		const studioJob = startWebSync("mentions", "acct_studio");
+
+		expect(primaryJob.id).not.toBe(studioJob.id);
+		expect(syncMentionsMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ account: "acct_primary" }),
+		);
+		expect(syncMentionsMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ account: "acct_studio" }),
+		);
+
+		primary.resolve({ ok: true, source: "bird", count: 1 });
+		studio.resolve({ ok: true, source: "bird", count: 2 });
+		await vi.waitFor(() => {
+			expect(getWebSyncJob(primaryJob.id)).toMatchObject({
+				status: "succeeded",
+				accountId: "acct_primary",
+			});
+			expect(getWebSyncJob(studioJob.id)).toMatchObject({
+				status: "succeeded",
+				accountId: "acct_studio",
+			});
+		});
+	});
+
+	it("ignores selected accounts for bird-only sync plans", async () => {
+		const pending = deferred<{ ok: boolean; source: string; count: number }>();
+		syncHomeTimelineMock.mockReturnValue(pending.promise);
+
+		const defaultJob = startWebSync("timeline");
+		const selectedJob = startWebSync("timeline", "acct_studio");
+
+		expect(selectedJob.id).toBe(defaultJob.id);
+		expect(selectedJob.accountId).toBeUndefined();
+		expect(syncHomeTimelineMock).toHaveBeenCalledTimes(1);
+		expect(syncHomeTimelineMock).toHaveBeenCalledWith(
+			expect.objectContaining({ account: undefined }),
+		);
+
+		pending.resolve({ ok: true, source: "bird", count: 1 });
+		await vi.waitFor(() => {
+			expect(getWebSyncJob(defaultJob.id)).toMatchObject({
+				status: "succeeded",
+			});
+		});
+	});
+
+	it("treats omitted account and the default account as the same running sync", async () => {
+		setupDefaultAccount("acct_studio");
+		const pending = deferred<{ ok: boolean; source: string; count: number }>();
+		syncMentionsMock.mockReturnValue(pending.promise);
+		syncMentionThreadsMock.mockResolvedValue({
+			ok: true,
+			source: "xurl",
+			mergedTweets: 0,
+			partial: false,
+		});
+
+		const defaultJob = startWebSync("mentions");
+		const explicitDefaultJob = startWebSync("mentions", "acct_studio");
+
+		expect(explicitDefaultJob.id).toBe(defaultJob.id);
+		expect(syncMentionsMock).toHaveBeenCalledTimes(1);
+
+		pending.resolve({ ok: true, source: "bird", count: 1 });
+		await vi.waitFor(() => {
+			expect(getWebSyncJob(defaultJob.id)).toMatchObject({
+				status: "succeeded",
+			});
+		});
 	});
 
 	it("tracks background sync jobs through completion", async () => {
