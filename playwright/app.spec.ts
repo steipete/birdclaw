@@ -89,8 +89,14 @@ test("manual sync controls post to the sync endpoint", async ({ page }) => {
 				response.request().method() === "GET" &&
 				response.ok(),
 		);
+		const routeDataReady = page.waitForResponse(
+			(response) =>
+				response.url().includes("/api/query") &&
+				response.request().method() === "GET" &&
+				response.ok(),
+		);
 		await page.goto(path);
-		await statusReady;
+		await Promise.all([statusReady, routeDataReady]);
 		if (expectedAccountId) {
 			await expect(page.getByLabel("Sync account")).toHaveValue(
 				expectedAccountId,
