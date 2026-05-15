@@ -321,31 +321,38 @@ function countTimelineEdges(db: Database, kind: "home" | "mention") {
 	const row = db
 		.prepare(
 			`
-      with timeline_edges as (
-        select account_id, tweet_id, kind
-        from tweet_account_edges
-        where kind = ?
-        union all
-        select legacy.account_id, legacy.id as tweet_id, legacy.kind
-        from tweets legacy
-        where legacy.kind = ?
-          and not exists (
-            select 1
-            from tweet_account_edges edge
-            where edge.account_id = legacy.account_id
-              and edge.tweet_id = legacy.id
-              and edge.kind = legacy.kind
-          )
-      )
-      select count(*) as count
-      from timeline_edges e
-      join tweets t on t.id = e.tweet_id
-      where e.kind = ?
+      select (
+	        (
+	          select count(*)
+	          from tweet_account_edges edge
+	          where edge.kind = ?
+	            and exists (
+	              select 1
+	              from tweets t
+	              where t.id = edge.tweet_id
+	            )
+	        )
+        +
+        (
+          select count(*)
+          from tweets legacy
+          where legacy.kind = ?
+            and not exists (
+              select 1
+              from tweet_account_edges edge
+              where edge.account_id = legacy.account_id
+                and edge.tweet_id = legacy.id
+                and edge.kind = legacy.kind
+            )
+        )
+      ) as count
       `,
 		)
-		.get(kind, kind, kind) as { count: number | bigint } | undefined;
+		.get(kind, kind) as { count: number | bigint } | undefined;
 	return Number(row?.count ?? 0);
 }
+
+const RECENT_TIMELINE_EDGE_CANDIDATES = 5000;
 
 export async function getQueryEnvelope(): Promise<QueryEnvelope> {
 	const db = getDb();
@@ -432,9 +439,22 @@ export function listTimelineItems({
           )
       )
     `;
+	const unwindowedTimelineEdgesCte = timelineEdgesCte;
+	let usedRecentEdgeWindow = false;
 	let join = "";
 	let where = "where t.kind = ?";
 	let searchSnippetSelect = "";
+
+	const canUseRecentEdgeWindow =
+		!likedOnly &&
+		!bookmarkedOnly &&
+		!account &&
+		!search?.trim() &&
+		replyFilter === "all" &&
+		!since?.trim() &&
+		!until?.trim() &&
+		includeReplies &&
+		qualityFilter === "all";
 
 	if (likedOnly || bookmarkedOnly) {
 		if (likedOnly && bookmarkedOnly) {
@@ -481,10 +501,49 @@ export function listTimelineItems({
                 and collection.kind = ?
             )
         )
-      `;
+			`;
 			params.push(collectionKind, collectionKind);
 		}
 		where = "where 1 = 1";
+	} else if (canUseRecentEdgeWindow) {
+		usedRecentEdgeWindow = true;
+		timelineEdgesCte = `
+      with timeline_edges as (
+        select account_id, tweet_id, kind
+        from tweet_account_edges
+        where kind = ?
+          and tweet_id in (
+            select id
+            from tweets
+            order by created_at desc
+            limit ?
+          )
+        union all
+        select legacy.account_id, legacy.id as tweet_id, legacy.kind
+        from tweets legacy
+        where legacy.kind = ?
+          and legacy.id in (
+            select id
+            from tweets
+            order by created_at desc
+            limit ?
+          )
+          and not exists (
+            select 1
+            from tweet_account_edges edge
+            where edge.account_id = legacy.account_id
+              and edge.tweet_id = legacy.id
+              and edge.kind = legacy.kind
+          )
+      )
+    `;
+		const candidateLimit = Math.max(
+			RECENT_TIMELINE_EDGE_CANDIDATES,
+			limit * 50,
+		);
+		params.push(kind, candidateLimit, kind, candidateLimit);
+		where = "where e.kind = ?";
+		params.push(kind);
 	} else {
 		params.push(kind, kind);
 		where = "where e.kind = ?";
@@ -532,10 +591,8 @@ export function listTimelineItems({
 
 	params.push(limit);
 
-	const rows = db
-		.prepare(
-			`
-      ${timelineEdgesCte}
+	const buildTimelineSelectSql = (timelineEdgesSql: string) => `
+      ${timelineEdgesSql}
       select
         t.id,
         e.account_id,
@@ -626,9 +683,17 @@ export function listTimelineItems({
       ${where}
       order by t.created_at desc
       limit ?
-      `,
-		)
+      `;
+
+	let rows = db
+		.prepare(buildTimelineSelectSql(timelineEdgesCte))
 		.all(...params) as Array<Record<string, unknown>>;
+
+	if (usedRecentEdgeWindow && rows.length < limit) {
+		rows = db
+			.prepare(buildTimelineSelectSql(unwindowedTimelineEdgesCte))
+			.all(kind, kind, kind, limit) as Array<Record<string, unknown>>;
+	}
 
 	const urlExpansionCache: UrlExpansionCache = new Map();
 	return rows.map((row) => {

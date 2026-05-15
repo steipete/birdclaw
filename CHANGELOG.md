@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Speed up the default home timeline load on large local databases and keep malformed archived media URL entities from crashing the web timeline.
 - Preserve tweet media aspect ratios, open timeline media in an inline viewer, and suppress duplicate media URL cards.
 
 ## 0.5.0 - 2026-05-15

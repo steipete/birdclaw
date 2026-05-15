@@ -96,27 +96,31 @@ export async function findArchives(): Promise<ArchiveCandidate[]> {
 		'kMDItemDisplayName == "*archive*.zip" && kMDItemKind == "Zip archive"',
 	];
 
-	for (const query of queries) {
-		try {
-			const { stdout } = await execAsync(`mdfind -onlyin ~ '${query}'`, {
-				timeout: 5000,
-			});
+	const spotlightCandidates = await Promise.all(
+		queries.map(async (query) => {
+			try {
+				const { stdout } = await execAsync(`mdfind -onlyin ~ '${query}'`, {
+					timeout: 5000,
+				});
 
-			const paths = stdout
-				.split("\n")
-				.map((item) => item.trim())
-				.filter((item) => item.length > 0 && item.endsWith(".zip"));
+				const paths = stdout
+					.split("\n")
+					.map((item) => item.trim())
+					.filter((item) => item.length > 0 && item.endsWith(".zip"));
 
-			const candidates = await Promise.all(
-				paths.map((filePath) => getCandidate(filePath)),
-			);
-			for (const candidate of candidates) {
-				if (candidate) {
-					found.set(candidate.path, candidate);
-				}
+				return Promise.all(paths.map((filePath) => getCandidate(filePath)));
+			} catch {
+				// Best-effort only.
+				return [];
 			}
-		} catch {
-			// Best-effort only.
+		}),
+	);
+
+	for (const candidates of spotlightCandidates) {
+		for (const candidate of candidates) {
+			if (candidate) {
+				found.set(candidate.path, candidate);
+			}
 		}
 	}
 

@@ -351,6 +351,87 @@ describe("TimelineCard", () => {
 		).toBeNull();
 	});
 
+	it("tolerates archived media URL entities without display URLs", () => {
+		render(
+			<TimelineCard
+				item={{
+					...item,
+					id: "tweet_missing_display_url",
+					text: "Photo https://t.co/pic",
+					entities: {
+						urls: [
+							{
+								url: "https://t.co/pic",
+								expandedUrl:
+									"https://x.com/ava/status/tweet_missing_display_url/photo/1",
+								displayUrl: undefined as unknown as string,
+								start: 6,
+								end: 22,
+							},
+						],
+					},
+					media: [
+						{
+							url: "https://pbs.twimg.com/media/missing-display.jpg",
+							type: "image",
+							altText: "Archived media",
+						},
+					],
+					mediaCount: 1,
+					replyToTweet: null,
+					quotedTweet: null,
+				}}
+				onReply={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByText("Photo")).toBeInTheDocument();
+		expect(screen.getByAltText("Archived media")).toBeInTheDocument();
+		expect(screen.queryByText("undefined")).not.toBeInTheDocument();
+		expect(screen.queryByRole("link", { name: /x\.com\/ava/ })).toBeNull();
+	});
+
+	it("keeps self-permalink URL entities on media tweets", () => {
+		render(
+			<TimelineCard
+				item={{
+					...item,
+					id: "tweet_self_permalink",
+					text: "Thread https://t.co/self",
+					entities: {
+						urls: [
+							{
+								url: "https://t.co/self",
+								expandedUrl: "https://x.com/ava/status/tweet_self_permalink",
+								displayUrl: "x.com/ava/status/tweet_self_permalink",
+								start: 7,
+								end: 24,
+							},
+						],
+					},
+					media: [
+						{
+							url: "https://pbs.twimg.com/media/self-permalink.jpg",
+							type: "image",
+							altText: "Attached media",
+						},
+					],
+					mediaCount: 1,
+					replyToTweet: null,
+					quotedTweet: null,
+				}}
+				onReply={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByAltText("Attached media")).toBeInTheDocument();
+		expect(
+			screen.getAllByRole("link", {
+				name: /x\.com\/ava\/status\/tweet_self_permalink/,
+			}).length,
+		).toBeGreaterThan(0);
+	});
+
 	it("keeps external status media links when the tweet has its own media", () => {
 		render(
 			<TimelineCard

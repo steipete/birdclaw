@@ -372,6 +372,56 @@ describe("birdclaw queries", () => {
 		expect(items[0]).not.toHaveProperty("searchSnippet");
 	});
 
+	it("falls back when recent non-timeline tweets fill the fast window", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.exec(`
+      delete from tweet_account_edges;
+      delete from tweet_collections;
+      delete from tweets_fts;
+      delete from tweets;
+    `);
+		const insertTweet = db.prepare(`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at,
+        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+        entities_json, media_json, quoted_tweet_id
+      ) values (?, 'acct_primary', 'profile_me', ?, ?, ?, 0, null, 0, 0, 0, 0, '{}', '[]', null)
+    `);
+		const insertEdge = db.prepare(`
+      insert into tweet_account_edges (
+        account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
+        source, raw_json, updated_at
+      ) values ('acct_primary', ?, 'home', ?, ?, 1, 'test', '{}', ?)
+    `);
+		insertTweet.run(
+			"tweet_old_home",
+			"home",
+			"old but valid home item",
+			"2026-01-01T00:00:00.000Z",
+		);
+		insertEdge.run(
+			"tweet_old_home",
+			"2026-01-01T00:00:00.000Z",
+			"2026-01-01T00:00:00.000Z",
+			"2026-01-01T00:00:00.000Z",
+		);
+		db.transaction(() => {
+			for (let index = 0; index < 5000; index += 1) {
+				insertTweet.run(
+					`tweet_new_like_${String(index)}`,
+					"like",
+					`newer non-timeline tweet ${String(index)}`,
+					`2026-02-${String(Math.floor(index / 200) + 1).padStart(2, "0")}T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+				);
+			}
+		})();
+
+		const items = listTimelineItems({ resource: "home", limit: 18 });
+
+		expect(items.map((item) => item.id)).toEqual(["tweet_old_home"]);
+	});
+
 	it("filters timeline items by liked and bookmarked state across collections", () => {
 		setupTempHome();
 		const db = getNativeDb();
@@ -768,6 +818,29 @@ describe("birdclaw queries", () => {
 			mentions: 3,
 			inbox: 5,
 		});
+	});
+
+	it("ignores stale timeline edges when counting envelope stats", async () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`
+      insert into tweet_account_edges (
+        account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
+        source, raw_json, updated_at
+      ) values (
+        'acct_primary', 'tweet_missing', 'home', '2026-03-08T12:00:00.000Z',
+        '2026-03-08T12:00:00.000Z', 1, 'test', '{}',
+        '2026-03-08T12:00:00.000Z'
+      )
+      `,
+		).run();
+
+		const envelope = await getQueryEnvelope();
+
+		expect(envelope.stats.home).toBe(
+			listTimelineItems({ resource: "home", limit: 20 }).length,
+		);
 	});
 
 	it("hydrates selected dms inside queryResource", () => {

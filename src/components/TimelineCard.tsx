@@ -41,7 +41,7 @@ import { ProfilePreview } from "./ProfilePreview";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
 
-function comparableUrl(value: string | undefined) {
+function comparableUrl(value: string | null | undefined) {
 	if (!value) return null;
 	try {
 		const parsed = new URL(value);
@@ -67,11 +67,7 @@ function isMediaUrlEntity(
 	mediaUrls: Set<string>,
 	tweetId: string,
 ) {
-	if (
-		mediaUrls.size > 0 &&
-		isPicTwitterDisplayUrl(entry.displayUrl) &&
-		isOwnStatusMediaUrl(entry.expandedUrl, tweetId)
-	) {
+	if (mediaUrls.size > 0 && isOwnStatusMediaUrl(entry.expandedUrl, tweetId)) {
 		return true;
 	}
 	for (const url of [entry.url, entry.expandedUrl, entry.displayUrl]) {
@@ -83,17 +79,22 @@ function isMediaUrlEntity(
 	return false;
 }
 
-function isPicTwitterDisplayUrl(value: string) {
-	const normalized = value.toLowerCase().replace(/^https?:\/\//, "");
-	return normalized.startsWith("pic.twitter.com/");
-}
-
-function isOwnStatusMediaUrl(value: string, tweetId: string) {
+function isOwnStatusMediaUrl(
+	value: string | null | undefined,
+	tweetId: string,
+) {
+	if (!value) return false;
 	try {
 		const parsed = new URL(value);
 		const host = parsed.hostname.replace(/^www\./, "");
 		if (host !== "x.com" && host !== "twitter.com") return false;
-		return parsed.pathname.split("/").includes(tweetId);
+		const segments = parsed.pathname.split("/").filter(Boolean);
+		const statusIndex = segments.indexOf("status");
+		if (statusIndex < 0 || segments[statusIndex + 1] !== tweetId) {
+			return false;
+		}
+		const mediaSegment = segments[statusIndex + 2];
+		return mediaSegment === "photo" || mediaSegment === "video";
 	} catch {
 		return false;
 	}

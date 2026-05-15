@@ -574,11 +574,13 @@ const BASE_SCHEMA_SQL = `
 
 const INDEX_SQL = `
   create index if not exists idx_tweets_kind_created on tweets(kind, created_at desc);
+  create index if not exists idx_tweets_created on tweets(created_at desc);
   create index if not exists idx_tweets_account_created on tweets(account_id, created_at desc);
   create index if not exists idx_tweets_quoted on tweets(quoted_tweet_id);
   create index if not exists idx_tweet_collections_kind_account on tweet_collections(kind, account_id, collected_at desc, tweet_id);
   create index if not exists idx_tweet_collections_tweet on tweet_collections(tweet_id);
   create index if not exists idx_tweet_account_edges_kind_account on tweet_account_edges(kind, account_id, last_seen_at desc, tweet_id);
+  create index if not exists idx_tweet_account_edges_kind_tweet on tweet_account_edges(kind, tweet_id, account_id);
   create index if not exists idx_tweet_account_edges_tweet on tweet_account_edges(tweet_id);
   create index if not exists idx_dm_conversations_account on dm_conversations(account_id, last_message_at desc);
   create index if not exists idx_dm_messages_conversation on dm_messages(conversation_id, created_at asc);
