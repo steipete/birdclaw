@@ -2,16 +2,16 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(import.meta.url);
-const tsxCli = require.resolve("tsx/cli");
+const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
 const birdclawCli = join(packageRoot, "src", "cli.ts");
 
 const result = spawnSync(
 	process.execPath,
-	[tsxCli, birdclawCli, ...process.argv.slice(2)],
+	["--import", tsxLoader, birdclawCli, ...process.argv.slice(2)],
 	{
 		stdio: "inherit",
 		env: process.env,
