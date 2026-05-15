@@ -167,10 +167,18 @@ describe("home route", () => {
 					syncBodies.push(JSON.parse(String(init.body)));
 					return new Response(
 						JSON.stringify({
-							ok: true,
+							id: "sync_timeline_1",
 							kind: "timeline",
+							status: "succeeded",
+							startedAt: "2026-05-15T12:00:00.000Z",
 							summary: "Synced 12 items",
-							steps: [],
+							inProgress: false,
+							result: {
+								ok: true,
+								kind: "timeline",
+								summary: "Synced 12 items",
+								steps: [],
+							},
 						}),
 					);
 				}

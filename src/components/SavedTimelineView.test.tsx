@@ -194,10 +194,18 @@ describe("SavedTimelineView", () => {
 					syncBodies.push(JSON.parse(String(init.body)));
 					return new Response(
 						JSON.stringify({
-							ok: true,
+							id: "sync_likes_1",
 							kind: "likes",
+							status: "succeeded",
+							startedAt: "2026-05-15T12:00:00.000Z",
 							summary: "Synced 4 items",
-							steps: [],
+							inProgress: false,
+							result: {
+								ok: true,
+								kind: "likes",
+								summary: "Synced 4 items",
+								steps: [],
+							},
 						}),
 					);
 				}

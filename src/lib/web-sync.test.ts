@@ -36,8 +36,10 @@ vi.mock("./timeline-live", () => ({
 
 import {
 	clearWebSyncLocksForTests,
+	getWebSyncJob,
 	parseWebSyncKind,
 	runWebSync,
+	startWebSync,
 } from "./web-sync";
 
 function deferred<T>() {
@@ -51,6 +53,7 @@ function deferred<T>() {
 describe("web sync dispatcher", () => {
 	beforeEach(() => {
 		clearWebSyncLocksForTests();
+		vi.useRealTimers();
 		maybeAutoSyncBackupMock.mockReset();
 		syncDirectMessagesViaCachedBirdMock.mockReset();
 		syncMentionThreadsMock.mockReset();
@@ -159,6 +162,50 @@ describe("web sync dispatcher", () => {
 			summary: "Sync already running",
 		});
 		expect(syncHomeTimelineMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("tracks background sync jobs through completion", async () => {
+		const pending = deferred<{ ok: boolean; source: string; count: number }>();
+		syncHomeTimelineMock.mockReturnValue(pending.promise);
+
+		const job = startWebSync("timeline");
+
+		expect(job).toMatchObject({
+			kind: "timeline",
+			status: "running",
+			inProgress: true,
+		});
+		expect(getWebSyncJob(job.id)).toMatchObject({ status: "running" });
+
+		pending.resolve({ ok: true, source: "bird", count: 5 });
+		await vi.waitFor(() => {
+			expect(getWebSyncJob(job.id)).toMatchObject({
+				status: "succeeded",
+				inProgress: false,
+				summary: "Synced 5 items",
+			});
+		});
+	});
+
+	it("expires completed background sync jobs after the polling window", async () => {
+		vi.useFakeTimers();
+		syncHomeTimelineMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			count: 5,
+		});
+
+		const job = startWebSync("timeline");
+		await vi.waitFor(() => {
+			expect(getWebSyncJob(job.id)).toMatchObject({
+				status: "succeeded",
+				inProgress: false,
+			});
+		});
+
+		await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+
+		expect(getWebSyncJob(job.id)).toBeNull();
 	});
 
 	it("parses only supported sync kinds", () => {

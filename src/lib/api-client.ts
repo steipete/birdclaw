@@ -6,7 +6,11 @@ import type {
 	QueryResponse,
 	TimelineItem,
 } from "./types";
-import type { WebSyncKind, WebSyncResponse } from "./web-sync";
+import type {
+	WebSyncJobSnapshot,
+	WebSyncKind,
+	WebSyncResponse,
+} from "./web-sync";
 
 const jsonRecordSchema = z.object({}).passthrough();
 const resourceKindSchema = z.enum(["home", "mentions", "authored", "dms"]);
@@ -80,7 +84,22 @@ const webSyncResponseSchema = z
 	})
 	.transform((value) => value as unknown as WebSyncResponse);
 
+const webSyncJobSchema = z
+	.object({
+		id: z.string(),
+		kind: webSyncKindSchema,
+		status: z.enum(["running", "succeeded", "failed"]),
+		startedAt: z.string(),
+		finishedAt: z.string().optional(),
+		summary: z.string(),
+		inProgress: z.boolean(),
+		result: webSyncResponseSchema.optional(),
+		error: z.string().optional(),
+	})
+	.transform((value) => value as unknown as WebSyncJobSnapshot);
+
 const actionResponseSchema = jsonRecordSchema;
+const SYNC_POLL_INTERVAL_MS = 500;
 
 export class ApiFetchError extends Error {
 	constructor(
@@ -173,7 +192,33 @@ export function postSync(kind: WebSyncKind) {
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ kind }),
 		},
-		webSyncResponseSchema,
+		webSyncJobSchema,
 		"Sync failed",
-	);
+	).then(waitForWebSyncJob);
+}
+
+function fetchSyncJob(id: string) {
+	const url = new URL("/api/sync", window.location.origin);
+	url.searchParams.set("id", id);
+	return fetchJson(url, undefined, webSyncJobSchema, "Sync status unavailable");
+}
+
+function delay(ms: number) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForWebSyncJob(job: WebSyncJobSnapshot) {
+	let current = job;
+	while (current.inProgress) {
+		await delay(SYNC_POLL_INTERVAL_MS);
+		current = await fetchSyncJob(current.id);
+	}
+
+	if (!current.result) {
+		throw new ApiFetchError(current.error ?? current.summary);
+	}
+	if (!current.result.ok) {
+		throw new ApiFetchError(current.result.error ?? current.result.summary);
+	}
+	return current.result;
 }

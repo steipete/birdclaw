@@ -16,6 +16,7 @@ describe("SyncNowButton", () => {
 	afterEach(() => {
 		cleanup();
 		vi.unstubAllGlobals();
+		vi.useRealTimers();
 	});
 
 	it("posts the sync kind and reports success", async () => {
@@ -24,10 +25,18 @@ describe("SyncNowButton", () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						ok: true,
+						id: "sync_timeline_1",
 						kind: "timeline",
+						status: "succeeded",
+						startedAt: "2026-05-15T12:00:00.000Z",
 						summary: "Synced 12 items",
-						steps: [],
+						inProgress: false,
+						result: {
+							ok: true,
+							kind: "timeline",
+							summary: "Synced 12 items",
+							steps: [],
+						},
 					}),
 				),
 		);
@@ -96,6 +105,59 @@ describe("SyncNowButton", () => {
 		expect(await screen.findByText("Rate limited")).toBeInTheDocument();
 	});
 
+	it("polls running sync jobs until completion", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/sync")) {
+				return new Response(
+					JSON.stringify({
+						id: "sync_timeline_poll",
+						kind: "timeline",
+						status: "running",
+						startedAt: "2026-05-15T12:00:00.000Z",
+						summary: "Syncing Home timeline",
+						inProgress: true,
+					}),
+					{ status: 202 },
+				);
+			}
+			if (url.includes("/api/sync?id=sync_timeline_poll")) {
+				return new Response(
+					JSON.stringify({
+						id: "sync_timeline_poll",
+						kind: "timeline",
+						status: "succeeded",
+						startedAt: "2026-05-15T12:00:00.000Z",
+						finishedAt: "2026-05-15T12:00:03.000Z",
+						summary: "Synced 4 items",
+						inProgress: false,
+						result: {
+							ok: true,
+							kind: "timeline",
+							summary: "Synced 4 items",
+							steps: [],
+						},
+					}),
+				);
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(
+			<SyncNowButton
+				kind="timeline"
+				label="Sync timeline"
+				onSynced={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Sync timeline" }));
+
+		expect(await screen.findByText("Synced 4 items")).toBeInTheDocument();
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
 	it("surfaces in-progress sync summaries", async () => {
 		vi.stubGlobal(
 			"fetch",
@@ -103,13 +165,20 @@ describe("SyncNowButton", () => {
 				async () =>
 					new Response(
 						JSON.stringify({
-							ok: false,
+							id: "sync_timeline_1",
 							kind: "timeline",
+							status: "failed",
+							startedAt: "2026-05-15T12:00:00.000Z",
 							summary: "Sync already running",
-							steps: [],
-							inProgress: true,
+							inProgress: false,
+							result: {
+								ok: false,
+								kind: "timeline",
+								summary: "Sync already running",
+								steps: [],
+								inProgress: true,
+							},
 						}),
-						{ status: 409 },
 					),
 			),
 		);

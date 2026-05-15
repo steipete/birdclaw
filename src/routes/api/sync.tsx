@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { parseWebSyncKind, runWebSync } from "#/lib/web-sync";
+import { getWebSyncJob, parseWebSyncKind, startWebSync } from "#/lib/web-sync";
 
 function json(data: unknown, init?: ResponseInit) {
 	return new Response(JSON.stringify(data), {
@@ -14,6 +14,26 @@ function json(data: unknown, init?: ResponseInit) {
 export const Route = createFileRoute("/api/sync")({
 	server: {
 		handlers: {
+			GET: ({ request }) => {
+				const url = new URL(request.url);
+				const id = url.searchParams.get("id");
+				if (!id) {
+					return json(
+						{ ok: false, message: "Missing sync job id" },
+						{ status: 400 },
+					);
+				}
+
+				const job = getWebSyncJob(id);
+				if (!job) {
+					return json(
+						{ ok: false, message: "Sync job not found" },
+						{ status: 404 },
+					);
+				}
+
+				return json(job);
+			},
 			POST: async ({ request }) => {
 				const body = (await request.json().catch(() => ({}))) as Record<
 					string,
@@ -27,19 +47,8 @@ export const Route = createFileRoute("/api/sync")({
 					);
 				}
 
-				try {
-					const result = await runWebSync(kind);
-					return json(result, { status: result.inProgress ? 409 : 200 });
-				} catch (error) {
-					return json(
-						{
-							ok: false,
-							kind,
-							message: error instanceof Error ? error.message : "Sync failed",
-						},
-						{ status: 500 },
-					);
-				}
+				const job = startWebSync(kind);
+				return json(job, { status: job.inProgress ? 202 : 200 });
 			},
 		},
 	},

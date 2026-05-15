@@ -160,10 +160,18 @@ describe("dms route", () => {
 					syncBodies.push(JSON.parse(String(init.body)));
 					return new Response(
 						JSON.stringify({
-							ok: true,
+							id: "sync_dms_1",
 							kind: "dms",
+							status: "succeeded",
+							startedAt: "2026-05-15T12:00:00.000Z",
 							summary: "Synced 9 items",
-							steps: [],
+							inProgress: false,
+							result: {
+								ok: true,
+								kind: "dms",
+								summary: "Synced 9 items",
+								steps: [],
+							},
 						}),
 					);
 				}

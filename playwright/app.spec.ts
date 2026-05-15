@@ -57,10 +57,18 @@ test("manual sync controls post to the sync endpoint", async ({ page }) => {
 			status: 200,
 			contentType: "application/json",
 			body: JSON.stringify({
-				ok: true,
+				id: `sync_${body.kind ?? "unknown"}_1`,
 				kind: body.kind,
+				status: "succeeded",
+				startedAt: "2026-05-15T12:00:00.000Z",
 				summary: "Synced 3 items",
-				steps: [],
+				inProgress: false,
+				result: {
+					ok: true,
+					kind: body.kind,
+					summary: "Synced 3 items",
+					steps: [],
+				},
 			}),
 		});
 	});
