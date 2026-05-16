@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
-import { listFollowUsersViaBird } from "./bird";
+import { listFollowUsersViaBirdEffect } from "./bird";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import type { Database } from "./sqlite";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type {
@@ -37,6 +39,17 @@ export interface SyncFollowGraphOptions {
 
 type FollowGraphSyncMode = "auto" | "bird" | "xurl";
 type FollowGraphLiveSource = "bird" | "xurl";
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
 
 interface ResolvedAccount {
 	accountId: string;
@@ -238,7 +251,7 @@ function mergePages(
 	};
 }
 
-async function fetchFollowGraphViaXurl({
+function fetchFollowGraphViaXurlEffect({
 	direction,
 	username,
 	userId,
@@ -252,37 +265,41 @@ async function fetchFollowGraphViaXurl({
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
-}): Promise<MergedFollowPayload> {
-	const pages: XurlFollowUsersResponse[] = [];
-	let nextToken: string | undefined;
-	let pageCount = 0;
-	let collectedCount = 0;
+}): Effect.Effect<MergedFollowPayload, unknown> {
+	return Effect.gen(function* () {
+		const pages: XurlFollowUsersResponse[] = [];
+		let nextToken: string | undefined;
+		let pageCount = 0;
+		let collectedCount = 0;
 
-	do {
-		const payload = await listFollowUsersViaXurl({
-			direction,
-			username,
-			userId,
-			maxResults: limit,
-			paginationToken: nextToken,
-		});
-		pages.push(payload);
-		collectedCount += payload.data.length;
-		nextToken =
-			typeof payload.meta?.next_token === "string"
-				? String(payload.meta.next_token)
-				: undefined;
-		pageCount += 1;
-	} while (
-		nextToken &&
-		(maxPages === undefined || pageCount < maxPages) &&
-		(maxResources === undefined || collectedCount < maxResources)
-	);
+		do {
+			const payload = yield* tryPromise(() =>
+				listFollowUsersViaXurl({
+					direction,
+					username,
+					userId,
+					maxResults: limit,
+					paginationToken: nextToken,
+				}),
+			);
+			pages.push(payload);
+			collectedCount += payload.data.length;
+			nextToken =
+				typeof payload.meta?.next_token === "string"
+					? String(payload.meta.next_token)
+					: undefined;
+			pageCount += 1;
+		} while (
+			nextToken &&
+			(maxPages === undefined || pageCount < maxPages) &&
+			(maxResources === undefined || collectedCount < maxResources)
+		);
 
-	return mergePages(pages, nextToken, maxResources);
+		return mergePages(pages, nextToken, maxResources);
+	});
 }
 
-async function fetchFollowGraphViaBird({
+function fetchFollowGraphViaBirdEffect({
 	direction,
 	userId,
 	limit,
@@ -294,32 +311,34 @@ async function fetchFollowGraphViaBird({
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
-}): Promise<MergedFollowPayload> {
-	const birdLimit = Math.min(limit, BIRD_FOLLOW_PAGE_LIMIT);
-	const cappedMaxPages =
-		maxResources === undefined
-			? maxPages
-			: Math.min(
-					maxPages ?? Number.POSITIVE_INFINITY,
-					Math.ceil(maxResources / birdLimit),
-				);
-	const payload = await listFollowUsersViaBird({
-		direction,
-		userId,
-		maxResults: Math.min(birdLimit, maxResources ?? birdLimit),
-		all: true,
-		maxPages: Number.isFinite(cappedMaxPages) ? cappedMaxPages : undefined,
+}): Effect.Effect<MergedFollowPayload, unknown> {
+	return Effect.gen(function* () {
+		const birdLimit = Math.min(limit, BIRD_FOLLOW_PAGE_LIMIT);
+		const cappedMaxPages =
+			maxResources === undefined
+				? maxPages
+				: Math.min(
+						maxPages ?? Number.POSITIVE_INFINITY,
+						Math.ceil(maxResources / birdLimit),
+					);
+		const payload = yield* listFollowUsersViaBirdEffect({
+			direction,
+			userId,
+			maxResults: Math.min(birdLimit, maxResources ?? birdLimit),
+			all: true,
+			maxPages: Number.isFinite(cappedMaxPages) ? cappedMaxPages : undefined,
+		});
+		return mergePages(
+			[payload],
+			typeof payload.meta?.next_token === "string"
+				? String(payload.meta.next_token)
+				: undefined,
+			maxResources,
+		);
 	});
-	return mergePages(
-		[payload],
-		typeof payload.meta?.next_token === "string"
-			? String(payload.meta.next_token)
-			: undefined,
-		maxResources,
-	);
 }
 
-async function fetchFollowGraph({
+function fetchFollowGraphEffect({
 	mode,
 	direction,
 	username,
@@ -335,49 +354,27 @@ async function fetchFollowGraph({
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
-}): Promise<{ source: FollowGraphLiveSource; payload: MergedFollowPayload }> {
-	if (mode === "bird") {
-		return {
-			source: "bird",
-			payload: await fetchFollowGraphViaBird({
-				direction,
-				userId,
-				limit,
-				maxPages,
-				maxResources,
-			}),
-		};
-	}
-	if (mode === "xurl") {
-		return {
-			source: "xurl",
-			payload: await fetchFollowGraphViaXurl({
-				direction,
-				username,
-				userId,
-				limit,
-				maxPages,
-				maxResources,
-			}),
-		};
-	}
-
-	try {
-		return {
-			source: "bird",
-			payload: await fetchFollowGraphViaBird({
-				direction,
-				userId,
-				limit,
-				maxPages,
-				maxResources,
-			}),
-		};
-	} catch (birdError) {
-		try {
+}): Effect.Effect<
+	{ source: FollowGraphLiveSource; payload: MergedFollowPayload },
+	unknown
+> {
+	return Effect.gen(function* () {
+		if (mode === "bird") {
+			return {
+				source: "bird",
+				payload: yield* fetchFollowGraphViaBirdEffect({
+					direction,
+					userId,
+					limit,
+					maxPages,
+					maxResources,
+				}),
+			};
+		}
+		if (mode === "xurl") {
 			return {
 				source: "xurl",
-				payload: await fetchFollowGraphViaXurl({
+				payload: yield* fetchFollowGraphViaXurlEffect({
 					direction,
 					username,
 					userId,
@@ -386,14 +383,51 @@ async function fetchFollowGraph({
 					maxResources,
 				}),
 			};
-		} catch (xurlError) {
-			throw new Error(
-				`follow graph sync failed via bird and xurl: bird: ${errorMessage(
-					birdError,
-				)}; xurl: ${errorMessage(xurlError)}`,
-			);
 		}
-	}
+
+		const birdResult = yield* fetchFollowGraphViaBirdEffect({
+			direction,
+			userId,
+			limit,
+			maxPages,
+			maxResources,
+		}).pipe(
+			Effect.map((payload) => ({ ok: true as const, payload })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (birdResult.ok) {
+			return {
+				source: "bird",
+				payload: birdResult.payload,
+			};
+		}
+
+		const xurlResult = yield* fetchFollowGraphViaXurlEffect({
+			direction,
+			username,
+			userId,
+			limit,
+			maxPages,
+			maxResources,
+		}).pipe(
+			Effect.map((payload) => ({ ok: true as const, payload })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (xurlResult.ok) {
+			return {
+				source: "xurl",
+				payload: xurlResult.payload,
+			};
+		}
+
+		return yield* Effect.fail(
+			new Error(
+				`follow graph sync failed via bird and xurl: bird: ${errorMessage(
+					birdResult.error,
+				)}; xurl: ${errorMessage(xurlResult.error)}`,
+			),
+		);
+	});
 }
 
 function getExistingEdges(
@@ -620,98 +654,108 @@ function errorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export async function syncFollowGraph(options: SyncFollowGraphOptions) {
-	const db = getNativeDb();
-	const mode = parseMode(options.mode);
-	const limit = parseLimit(options.limit);
-	const maxPages = parseOptionalPositiveInteger(
-		"--max-pages",
-		options.maxPages,
-	);
-	const maxResources = parseOptionalPositiveInteger(
-		"--max-resources",
-		options.maxResources,
-	);
-	const cacheTtlMs = parseCacheTtlMs(options.cacheTtlMs);
-	const account = resolveAccount(db, options.account);
-	const cacheKey = buildCacheKey({
-		direction: options.direction,
-		accountId: account.accountId,
-		mode,
-		limit,
-		maxPages,
-		maxResources,
-	});
-
-	if (!options.yes) {
-		return makeDryRunResponse({
-			db,
-			account,
+export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const mode = yield* trySync(() => parseMode(options.mode));
+		const limit = yield* trySync(() => parseLimit(options.limit));
+		const maxPages = yield* trySync(() =>
+			parseOptionalPositiveInteger("--max-pages", options.maxPages),
+		);
+		const maxResources = yield* trySync(() =>
+			parseOptionalPositiveInteger("--max-resources", options.maxResources),
+		);
+		const cacheTtlMs = parseCacheTtlMs(options.cacheTtlMs);
+		const account = yield* trySync(() => resolveAccount(db, options.account));
+		const cacheKey = buildCacheKey({
 			direction: options.direction,
+			accountId: account.accountId,
 			mode,
 			limit,
 			maxPages,
 			maxResources,
-			cacheKey,
-			cacheTtlMs,
 		});
-	}
 
-	const cached = readSyncCache<MergedFollowPayload>(cacheKey, db);
-	const cacheAgeMs = cached
-		? Date.now() - new Date(cached.updatedAt).getTime()
-		: Number.POSITIVE_INFINITY;
-	const useCache = Boolean(
-		!options.refresh && cached && cacheAgeMs <= cacheTtlMs,
-	);
+		if (!options.yes) {
+			return yield* trySync(() =>
+				makeDryRunResponse({
+					db,
+					account,
+					direction: options.direction,
+					mode,
+					limit,
+					maxPages,
+					maxResources,
+					cacheKey,
+					cacheTtlMs,
+				}),
+			);
+		}
 
-	const liveResult = useCache
-		? undefined
-		: await fetchFollowGraph({
-				mode,
+		const cached = yield* trySync(() =>
+			readSyncCache<MergedFollowPayload>(cacheKey, db),
+		);
+		const cacheAgeMs = cached
+			? Date.now() - new Date(cached.updatedAt).getTime()
+			: Number.POSITIVE_INFINITY;
+		const useCache = Boolean(
+			!options.refresh && cached && cacheAgeMs <= cacheTtlMs,
+		);
+
+		const liveResult = useCache
+			? undefined
+			: yield* fetchFollowGraphEffect({
+					mode,
+					direction: options.direction,
+					username: account.username,
+					userId: account.externalUserId,
+					limit,
+					maxPages,
+					maxResources,
+				});
+		const payload = useCache ? cached!.value : liveResult!.payload;
+
+		if (!useCache) {
+			yield* trySync(() => writeSyncCache(cacheKey, payload, db));
+		}
+
+		const mergeResult = yield* trySync(() =>
+			mergeFollowPayloadIntoLocalStore({
+				db,
+				accountId: account.accountId,
 				direction: options.direction,
-				username: account.username,
-				userId: account.externalUserId,
-				limit,
-				maxPages,
-				maxResources,
-			});
-	const payload = useCache ? cached!.value : liveResult!.payload;
+				payload,
+				source: useCache ? "cache" : liveResult!.source,
+			}),
+		);
 
-	if (!useCache) {
-		writeSyncCache(cacheKey, payload, db);
-	}
-
-	const mergeResult = mergeFollowPayloadIntoLocalStore({
-		db,
-		accountId: account.accountId,
-		direction: options.direction,
-		payload,
-		source: useCache ? "cache" : liveResult!.source,
+		return {
+			ok: true,
+			dryRun: false,
+			source: useCache ? "cache" : liveResult!.source,
+			mode,
+			direction: options.direction,
+			accountId: account.accountId,
+			status: mergeResult.status,
+			count: mergeResult.count,
+			pageCount: mergeResult.pageCount,
+			snapshotId: mergeResult.snapshotId,
+			partial: mergeResult.status === "incomplete",
+			cache: {
+				key: cacheKey,
+				reused: useCache,
+				updatedAt: useCache ? cached?.updatedAt : new Date().toISOString(),
+			},
+			warning:
+				mergeResult.status === "incomplete" && !options.allowPartial
+					? "Snapshot is incomplete because a page/resource cap stopped pagination. It was recorded but not used for churn events."
+					: undefined,
+		};
 	});
+}
 
-	return {
-		ok: true,
-		dryRun: false,
-		source: useCache ? "cache" : liveResult!.source,
-		mode,
-		direction: options.direction,
-		accountId: account.accountId,
-		status: mergeResult.status,
-		count: mergeResult.count,
-		pageCount: mergeResult.pageCount,
-		snapshotId: mergeResult.snapshotId,
-		partial: mergeResult.status === "incomplete",
-		cache: {
-			key: cacheKey,
-			reused: useCache,
-			updatedAt: useCache ? cached?.updatedAt : new Date().toISOString(),
-		},
-		warning:
-			mergeResult.status === "incomplete" && !options.allowPartial
-				? "Snapshot is incomplete because a page/resource cap stopped pagination. It was recorded but not used for churn events."
-				: undefined,
-	};
+export function syncFollowGraph(options: SyncFollowGraphOptions) {
+	return runEffectPromise(syncFollowGraphEffect(options));
 }
 
 function toGraphProfile(row: Record<string, unknown>): FollowGraphProfile {

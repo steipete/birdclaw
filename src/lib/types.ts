@@ -359,6 +359,8 @@ export interface DmQuery {
 	participant?: string;
 	search?: string;
 	replyFilter?: ReplyFilter;
+	since?: string;
+	until?: string;
 	minFollowers?: number;
 	maxFollowers?: number;
 	minInfluenceScore?: number;

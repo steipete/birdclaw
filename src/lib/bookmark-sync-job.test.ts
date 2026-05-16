@@ -3,11 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	buildBookmarkSyncLaunchAgentPlist,
 	installBookmarkSyncLaunchAgent,
+	installBookmarkSyncLaunchAgentEffect,
 	runBookmarkSyncJob,
+	runBookmarkSyncJobEffect,
 } from "./bookmark-sync-job";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -28,6 +31,11 @@ Object.defineProperty(
 vi.mock("./timeline-collections-live", () => ({
 	syncTimelineCollection: (...args: unknown[]) =>
 		syncTimelineCollectionMock(...args),
+	syncTimelineCollectionEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => syncTimelineCollectionMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./backup", async (importOriginal) => {
@@ -36,6 +44,11 @@ vi.mock("./backup", async (importOriginal) => {
 		...actual,
 		maybeAutoSyncBackup: (...args: unknown[]) =>
 			maybeAutoSyncBackupMock(...args),
+		maybeAutoSyncBackupEffect: (...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => maybeAutoSyncBackupMock(...args),
+				catch: (error) => error,
+			}),
 	};
 });
 
@@ -64,6 +77,36 @@ afterEach(() => {
 });
 
 describe("bookmark sync job", () => {
+	it("builds bookmark sync jobs lazily as Effect programs", async () => {
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-job-lazy-");
+		resetBirdclawPathsForTests();
+		const logPath = path.join(process.env.BIRDCLAW_HOME, "audit.jsonl");
+		syncTimelineCollectionMock.mockResolvedValue({
+			ok: true,
+			source: "xurl",
+			kind: "bookmarks",
+			accountId: "acct_primary",
+			count: 1,
+			payload: { data: [] },
+		});
+		maybeAutoSyncBackupMock.mockResolvedValue({
+			ok: true,
+			enabled: false,
+			skipped: true,
+		});
+
+		const effect = runBookmarkSyncJobEffect({ logPath, limit: 5 });
+
+		expect(existsSync(logPath)).toBe(false);
+		expect(syncTimelineCollectionMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			sync: { count: 1 },
+		});
+		expect(syncTimelineCollectionMock).toHaveBeenCalledTimes(1);
+		expect(readFileSync(logPath, "utf8")).toContain('"ok":true');
+	});
+
 	it("writes a successful JSONL audit entry", async () => {
 		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-job-");
 		resetBirdclawPathsForTests();
@@ -186,6 +229,31 @@ describe("bookmark sync job", () => {
 		expect(existsSync(result.plistPath)).toBe(true);
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
 		expect(getNativeDb({ seedDemoData: false })).toBeTruthy();
+	});
+
+	it("builds launchd install effects lazily", async () => {
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-launchd-lazy-home-");
+		resetBirdclawPathsForTests();
+		const launchAgentsDir = makeTempDir("birdclaw-launchagents-lazy-");
+		const effect = installBookmarkSyncLaunchAgentEffect({
+			launchAgentsDir,
+			program: "/opt/homebrew/bin/birdclaw",
+			load: false,
+		});
+
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+		expect(
+			existsSync(
+				path.join(
+					launchAgentsDir,
+					"com.steipete.birdclaw.bookmarks-sync.plist",
+				),
+			),
+		).toBe(false);
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			loaded: false,
+		});
 	});
 
 	it("can source an env file before running the launchd command", () => {

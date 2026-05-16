@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -114,6 +115,23 @@ describe("blocklist", () => {
 				public_metrics: { followers_count: 632000 },
 			},
 		]);
+	});
+
+	it("builds block write effects lazily", async () => {
+		setupTempHome();
+		const { addBlockEffect } = await import("./blocks");
+
+		const effect = addBlockEffect("acct_primary", "@amelia");
+
+		expect(mocks.lookupUsersByHandles).not.toHaveBeenCalled();
+		expect(mocks.blockUserViaBird).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			action: "block",
+			accountId: "acct_primary",
+		});
+		expect(mocks.lookupUsersByHandles).toHaveBeenCalledWith(["amelia"]);
+		expect(mocks.blockUserViaBird).toHaveBeenCalledWith("7");
 	});
 
 	it("blocks, lists, searches, and unblocks profiles", async () => {
@@ -314,6 +332,33 @@ describe("blocklist", () => {
 		expect(
 			listed.find((item) => item.profile.handle === "amelia")?.source,
 		).toBe("manual");
+	});
+
+	it("exposes remote block sync as an Effect program", async () => {
+		setupTempHome();
+		mocks.listBlockedUsers.mockResolvedValueOnce({
+			items: [
+				{
+					id: "8",
+					username: "avawires",
+					name: "Ava Wires",
+					description: "Infra reporter",
+					profile_image_url:
+						"https://pbs.twimg.com/profile_images/8/avatar_bigger.jpg",
+					public_metrics: { followers_count: 632000 },
+				},
+			],
+			nextToken: null,
+		});
+		const { syncBlocksEffect } = await import("./blocks");
+
+		await expect(
+			Effect.runPromise(syncBlocksEffect("acct_primary")),
+		).resolves.toMatchObject({
+			ok: true,
+			synced: true,
+			syncedCount: 1,
+		});
 	});
 
 	it("skips remote sync when the authenticated xurl account does not match", async () => {

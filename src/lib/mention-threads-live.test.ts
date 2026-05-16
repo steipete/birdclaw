@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -15,11 +16,29 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	listThreadViaBird: mocks.listThreadViaBird,
+	listThreadViaBirdEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listThreadViaBird(options),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./xurl", () => ({
 	searchRecentByConversationId: mocks.searchRecentByConversationId,
+	searchRecentByConversationIdEffect: (
+		conversationId: string,
+		options: unknown,
+	) =>
+		Effect.tryPromise({
+			try: () => mocks.searchRecentByConversationId(conversationId, options),
+			catch: (error) => error,
+		}),
 	getTweetById: mocks.getTweetById,
+	getTweetByIdEffect: (id: string, options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.getTweetById(id, options),
+			catch: (error) => error,
+		}),
 }));
 
 const tempRoots: string[] = [];
@@ -94,6 +113,49 @@ afterEach(() => {
 });
 
 describe("mention thread sync", () => {
+	it("builds mention thread sync effects lazily", async () => {
+		setupTempHome();
+		const { syncMentionThreadsEffect } = await import("./mention-threads-live");
+
+		const effect = syncMentionThreadsEffect({
+			limit: 1,
+			delayMs: 0,
+			timeoutMs: 5000,
+		});
+
+		expect(mocks.listThreadViaBird).not.toHaveBeenCalled();
+		mocks.listThreadViaBird.mockResolvedValue({
+			data: [
+				{
+					id: "mention_1",
+					author_id: "42",
+					text: "mention text",
+					created_at: "2026-05-04T07:00:00.000Z",
+				},
+			],
+			meta: { result_count: 1 },
+		});
+
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			source: "bird",
+			threads: 1,
+		});
+		expect(mocks.listThreadViaBird).toHaveBeenCalledTimes(1);
+	});
+
+	it("validates mention thread sync effects only when run", async () => {
+		setupTempHome();
+		const { syncMentionThreadsEffect } = await import("./mention-threads-live");
+
+		const effect = syncMentionThreadsEffect({ limit: 0 });
+
+		await expect(Effect.runPromise(effect)).rejects.toThrow(
+			"--limit must be at least 1",
+		);
+		expect(mocks.listThreadViaBird).not.toHaveBeenCalled();
+	});
+
 	it("fetches recent mention threads with timeout and stores conversation context", async () => {
 		setupTempHome();
 		mocks.listThreadViaBird.mockResolvedValue({
@@ -343,6 +405,53 @@ describe("mention thread sync", () => {
 			media_count: 0,
 			author_profile_id: "profile_user_77",
 		});
+	});
+
+	it("keeps merge failures isolated to the current mention", async () => {
+		setupTempHome();
+		insertMention("mention_2", "second mention", "2026-05-04T08:00:00.000Z");
+		mocks.listThreadViaBird
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "bad_thread_row",
+						author_id: "42",
+						text: null,
+						created_at: "2026-05-04T08:00:00.000Z",
+					},
+				],
+				meta: { result_count: 1 },
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "mention_1",
+						author_id: "42",
+						text: "good thread row",
+						created_at: "2026-05-04T07:00:00.000Z",
+					},
+				],
+				meta: { result_count: 1 },
+			});
+		const { syncMentionThreads } = await import("./mention-threads-live");
+
+		const result = await syncMentionThreads({
+			limit: 2,
+			delayMs: 0,
+			timeoutMs: 5000,
+		});
+
+		expect(result).toMatchObject({
+			threads: 2,
+			succeeded: 1,
+			failed: 1,
+			mergedTweets: 1,
+		});
+		expect(result.failures[0]).toMatchObject({
+			tweetId: "mention_2",
+			ok: false,
+		});
+		expect(mocks.listThreadViaBird).toHaveBeenCalledTimes(2);
 	});
 
 	it("fetches xurl conversation search results and writes thread context edges", async () => {

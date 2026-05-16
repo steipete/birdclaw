@@ -3,6 +3,8 @@ import { existsSync, promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { Effect } from "effect";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import type { ArchiveCandidate } from "./types";
 
 const execAsync = promisify(exec);
@@ -37,11 +39,9 @@ function formatRelativeDate(date: Date): string {
 	return `${Math.floor(days / 365)} years ago`;
 }
 
-async function getCandidate(
-	filePath: string,
-): Promise<ArchiveCandidate | null> {
-	try {
-		const stats = await fs.stat(filePath);
+function getCandidateEffect(filePath: string) {
+	return Effect.gen(function* () {
+		const stats = yield* tryPromise(() => fs.stat(filePath));
 		if (!stats.isFile() || stats.size < 1024 * 1024) {
 			return null;
 		}
@@ -54,79 +54,94 @@ async function getCandidate(
 			modifiedTime: stats.mtime.toISOString(),
 			dateFormatted: formatRelativeDate(stats.mtime),
 		};
-	} catch {
-		return null;
-	}
+	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
-async function searchDirectory(
-	directoryPath: string,
-): Promise<ArchiveCandidate[]> {
+function searchDirectoryEffect(directoryPath: string) {
 	if (!existsSync(directoryPath)) {
-		return [];
+		return Effect.succeed([]);
 	}
 
-	const entries = await fs.readdir(directoryPath);
-	const matches = entries.filter((entry) =>
-		ARCHIVE_NAME_PATTERNS.some((pattern) => pattern.test(entry)),
-	);
+	return Effect.gen(function* () {
+		const entries = yield* tryPromise(() => fs.readdir(directoryPath));
+		const matches = entries.filter((entry) =>
+			ARCHIVE_NAME_PATTERNS.some((pattern) => pattern.test(entry)),
+		);
 
-	const candidates = await Promise.all(
-		matches.map((entry) => getCandidate(path.join(directoryPath, entry))),
-	);
+		const candidates = yield* Effect.forEach(
+			matches,
+			(entry) => getCandidateEffect(path.join(directoryPath, entry)),
+			{ concurrency: "unbounded" },
+		);
 
-	return candidates.filter((item) => item !== null);
+		return candidates.filter((item) => item !== null);
+	});
 }
 
-export async function findArchives(): Promise<ArchiveCandidate[]> {
+function searchSpotlightEffect(query: string) {
+	return Effect.gen(function* () {
+		const { stdout } = yield* tryPromise(() =>
+			execAsync(`mdfind -onlyin ~ '${query}'`, {
+				timeout: 5000,
+			}),
+		);
+		const paths = stdout
+			.split("\n")
+			.map((item) => item.trim())
+			.filter((item) => item.length > 0 && item.endsWith(".zip"));
+
+		return yield* Effect.forEach(paths, getCandidateEffect, {
+			concurrency: "unbounded",
+		});
+	}).pipe(Effect.catchAll(() => Effect.succeed([])));
+}
+
+export function findArchivesEffect(): Effect.Effect<
+	ArchiveCandidate[],
+	unknown
+> {
 	if (process.platform !== "darwin") {
-		return [];
+		return Effect.succeed([]);
 	}
 
-	const found = new Map<string, ArchiveCandidate>();
-	const downloads = await searchDirectory(path.join(homedir(), "Downloads"));
+	return Effect.gen(function* () {
+		const found = new Map<string, ArchiveCandidate>();
+		const downloads = yield* searchDirectoryEffect(
+			path.join(homedir(), "Downloads"),
+		);
 
-	for (const candidate of downloads) {
-		found.set(candidate.path, candidate);
-	}
+		for (const candidate of downloads) {
+			found.set(candidate.path, candidate);
+		}
 
-	const queries = [
-		'kMDItemDisplayName == "twitter-*.zip"',
-		'kMDItemDisplayName == "x-*.zip"',
-		'kMDItemDisplayName == "*archive*.zip" && kMDItemKind == "Zip archive"',
-	];
+		const queries = [
+			'kMDItemDisplayName == "twitter-*.zip"',
+			'kMDItemDisplayName == "x-*.zip"',
+			'kMDItemDisplayName == "*archive*.zip" && kMDItemKind == "Zip archive"',
+		];
 
-	const spotlightCandidates = await Promise.all(
-		queries.map(async (query) => {
-			try {
-				const { stdout } = await execAsync(`mdfind -onlyin ~ '${query}'`, {
-					timeout: 5000,
-				});
+		const spotlightCandidates = yield* Effect.forEach(
+			queries,
+			searchSpotlightEffect,
+			{ concurrency: "unbounded" },
+		);
 
-				const paths = stdout
-					.split("\n")
-					.map((item) => item.trim())
-					.filter((item) => item.length > 0 && item.endsWith(".zip"));
-
-				return Promise.all(paths.map((filePath) => getCandidate(filePath)));
-			} catch {
-				// Best-effort only.
-				return [];
-			}
-		}),
-	);
-
-	for (const candidates of spotlightCandidates) {
-		for (const candidate of candidates) {
-			if (candidate) {
-				found.set(candidate.path, candidate);
+		for (const candidates of spotlightCandidates) {
+			for (const candidate of candidates) {
+				if (candidate) {
+					found.set(candidate.path, candidate);
+				}
 			}
 		}
-	}
 
-	return [...found.values()].sort(
-		(left, right) =>
-			new Date(right.modifiedTime).getTime() -
-			new Date(left.modifiedTime).getTime(),
-	);
+		return [...found.values()].sort(
+			(left, right) =>
+				new Date(right.modifiedTime).getTime() -
+				new Date(left.modifiedTime).getTime(),
+		);
+	});
+}
+
+export function findArchives(): Promise<ArchiveCandidate[]> {
+	return runEffectPromise(findArchivesEffect());
 }

@@ -10,15 +10,20 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	exportBackup,
+	exportBackupEffect,
 	getBackupDatabaseFingerprint,
 	importBackup,
+	importBackupEffect,
 	maybeAutoSyncBackup,
 	maybeAutoUpdateBackup,
 	syncBackup,
+	updateBackupFromGitEffect,
 	validateBackup,
+	validateBackupEffect,
 } from "./backup";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -267,6 +272,72 @@ afterEach(() => {
 });
 
 describe("text backup", () => {
+	it("builds backup Git update effects lazily", async () => {
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-lazy-home-");
+		resetDatabaseForTests();
+		resetBirdclawPathsForTests();
+		const repoPath = path.join(
+			makeTempDir("birdclaw-backup-lazy-parent-"),
+			"repo",
+		);
+
+		const effect = updateBackupFromGitEffect({ repoPath });
+
+		expect(existsSync(repoPath)).toBe(false);
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			repoPath,
+			pulled: false,
+			imported: false,
+		});
+		expect(existsSync(path.join(repoPath, ".git"))).toBe(true);
+	}, 20000);
+
+	it("exposes backup export, import, and validation as Effects", async () => {
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-effect-src-");
+		seedBackupFixture();
+		const repoPath = makeTempDir("birdclaw-backup-effect-store-");
+
+		const exported = await Effect.runPromise(exportBackupEffect({ repoPath }));
+		const validation = await Effect.runPromise(validateBackupEffect(repoPath));
+
+		resetDatabaseForTests();
+		resetBirdclawPathsForTests();
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-effect-dst-");
+		const imported = await Effect.runPromise(
+			importBackupEffect({ repoPath, mode: "replace" }),
+		);
+
+		expect(exported.validation.ok).toBe(true);
+		expect(validation.ok).toBe(true);
+		expect(imported.ok).toBe(true);
+		expect(imported.mode).toBe("replace");
+	}, 20000);
+
+	it("builds backup import effects lazily", async () => {
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-import-src-");
+		seedBackupFixture();
+		const repoPath = makeTempDir("birdclaw-backup-import-store-");
+
+		const effect = importBackupEffect({ repoPath, mode: "replace" });
+
+		expect(existsSync(path.join(repoPath, "manifest.json"))).toBe(false);
+		await exportBackup({ repoPath });
+
+		resetDatabaseForTests();
+		resetBirdclawPathsForTests();
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-import-dst-");
+		const imported = await Effect.runPromise(effect);
+
+		expect(imported.ok).toBe(true);
+		expect(imported.mode).toBe("replace");
+		expect(
+			getNativeDb({ seedDemoData: false })
+				.prepare("select count(*) as count from tweets where id = 'tweet_2025'")
+				.get(),
+		).toEqual({ count: 1 });
+	}, 20000);
+
 	it("exports JSONL shards and imports them without changing the portable fingerprint", async () => {
 		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-src-");
 		seedBackupFixture();
@@ -521,6 +592,28 @@ describe("text backup", () => {
 		).toBe("1");
 	}, 20000);
 
+	it("does not inherit commit signing for generated backup commits", async () => {
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-sync-signing-src-");
+		seedBackupFixture();
+		const repoPath = makeTempDir("birdclaw-sync-signing-work-");
+		execFileSync("git", ["init", repoPath]);
+		execFileSync("git", ["-C", repoPath, "config", "commit.gpgsign", "true"]);
+		execFileSync("git", ["-C", repoPath, "config", "gpg.program", "false"]);
+
+		const result = await exportBackup({
+			repoPath,
+			commit: true,
+			message: "archive: unsigned backup",
+		});
+
+		expect(result.git?.committed).toBe(true);
+		expect(
+			execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "HEAD"], {
+				encoding: "utf8",
+			}).trim(),
+		).toBe(result.git?.commit);
+	}, 20000);
+
 	it("reports validation errors for missing or corrupt backup files", async () => {
 		const missingManifest = await validateBackup(
 			makeTempDir("birdclaw-empty-"),
@@ -683,6 +776,25 @@ describe("text backup", () => {
 				ok: true,
 				enabled: false,
 				skipped: true,
+			});
+
+			resetDatabaseForTests();
+			process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-auto-bad-config-");
+			writeFileSync(
+				path.join(process.env.BIRDCLAW_HOME, "config.json"),
+				"{bad",
+			);
+			resetBirdclawPathsForTests();
+
+			await expect(maybeAutoUpdateBackup()).resolves.toMatchObject({
+				ok: false,
+				enabled: true,
+				skipped: false,
+			});
+			await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+				ok: false,
+				enabled: true,
+				skipped: false,
 			});
 
 			resetDatabaseForTests();

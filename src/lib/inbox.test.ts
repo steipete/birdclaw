@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -9,9 +10,14 @@ import { listInboxItems, scoreInbox } from "./inbox";
 
 const scoreMock = vi.fn();
 
-vi.mock("./openai", () => ({
-	scoreInboxItemWithOpenAI: (...args: unknown[]) => scoreMock(...args),
-}));
+vi.mock("./openai", async () => {
+	const { Effect } = await import("effect");
+	return {
+		scoreInboxItemWithOpenAI: (...args: unknown[]) => scoreMock(...args),
+		scoreInboxItemWithOpenAIEffect: (...args: unknown[]) =>
+			Effect.tryPromise(() => scoreMock(...args)),
+	};
+});
 
 const tempRoots: string[] = [];
 
@@ -103,6 +109,24 @@ describe("inbox", () => {
 			score: 66,
 			summary: "Worth it",
 			reasoning: "Specific ask",
+		});
+	});
+
+	it("exposes inbox scoring as a lazy Effect program", async () => {
+		setupTempHome();
+		scoreMock.mockResolvedValue({
+			model: "gpt-test",
+			score: 66,
+			summary: "Worth it",
+			reasoning: "Specific ask",
+		});
+		const { scoreInboxEffect } = await import("./inbox");
+
+		const effect = scoreInboxEffect({ kind: "mentions", limit: 1 });
+		expect(scoreMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			scored: 1,
 		});
 	});
 });

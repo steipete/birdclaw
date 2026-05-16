@@ -4,9 +4,11 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { Data, Effect } from "effect";
 import type { Database } from "./sqlite";
 import { getBirdclawConfig } from "./config";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 
 const execFileAsync = promisify(execFile);
 const BACKUP_SCHEMA_VERSION = 1;
@@ -99,6 +101,61 @@ export interface BackupDatabaseFingerprint {
 }
 
 export type BackupImportMode = "merge" | "replace";
+
+export interface BackupImportOptions {
+	repoPath: string;
+	db?: Database;
+	validate?: boolean;
+	mode?: BackupImportMode;
+}
+
+export class BackupGitCommandError extends Data.TaggedError(
+	"BackupGitCommandError",
+)<{
+	readonly message: string;
+	readonly args: readonly string[];
+	readonly stdout?: string;
+	readonly stderr?: string;
+	readonly cause?: unknown;
+}> {}
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
+
+function getErrorOutput(error: unknown, key: "stdout" | "stderr") {
+	if (!error || typeof error !== "object" || !(key in error)) {
+		return undefined;
+	}
+	const output = (error as Record<"stdout" | "stderr", unknown>)[key];
+	return typeof output === "string" ? output : undefined;
+}
+
+function gitCommandError(args: readonly string[], cause: unknown) {
+	const command = `git ${args.join(" ")}`;
+	const message = cause instanceof Error ? cause.message : `${command} failed`;
+	return new BackupGitCommandError({
+		message,
+		args,
+		stdout: getErrorOutput(cause, "stdout"),
+		stderr: getErrorOutput(cause, "stderr"),
+		cause,
+	});
+}
+
+function gitEffect(args: string[]) {
+	return Effect.tryPromise({
+		try: () => execFileAsync("git", args),
+		catch: (cause) => gitCommandError(args, cause),
+	});
+}
 
 function canonicalStringify(value: JsonValue): string {
 	if (value === null || typeof value !== "object") {
@@ -523,61 +580,73 @@ function buildShards(db: Database) {
 	return shards;
 }
 
-async function writeJsonlFile(
+function writeJsonlFileEffect(
 	repoPath: string,
 	relativePath: string,
 	rows: JsonRecord[],
-) {
-	const fullPath = path.join(repoPath, relativePath);
-	const content = `${rows.map((row) => jsonlStringify(row)).join("\n")}\n`;
-	await fs.mkdir(path.dirname(fullPath), { recursive: true });
-	let shouldWrite = true;
-	try {
-		shouldWrite = (await fs.readFile(fullPath, "utf8")) !== content;
-	} catch {
-		shouldWrite = true;
-	}
-	if (shouldWrite) {
-		await fs.writeFile(fullPath, content, "utf8");
-	}
-	return {
-		path: relativePath,
-		rows: rows.length,
-		sha256: sha256(content),
-		bytes: Buffer.byteLength(content),
-	};
+): Effect.Effect<BackupFileManifest, unknown> {
+	return Effect.gen(function* () {
+		const fullPath = yield* trySync(() => path.join(repoPath, relativePath));
+		const content = yield* trySync(
+			() => `${rows.map((row) => jsonlStringify(row)).join("\n")}\n`,
+		);
+		yield* tryPromise(() =>
+			fs.mkdir(path.dirname(fullPath), { recursive: true }),
+		);
+		const current = yield* tryPromise(() => fs.readFile(fullPath, "utf8")).pipe(
+			Effect.option,
+		);
+		if (current._tag === "None" || current.value !== content) {
+			yield* tryPromise(() => fs.writeFile(fullPath, content, "utf8"));
+		}
+		return {
+			path: relativePath,
+			rows: rows.length,
+			sha256: sha256(content),
+			bytes: Buffer.byteLength(content),
+		};
+	});
 }
 
-async function removeStaleBackupFiles(
+function removeStaleBackupFilesEffect(
 	repoPath: string,
 	expectedPaths: Set<string>,
 	directory = DATA_DIR,
-) {
-	const fullDirectory = path.join(repoPath, directory);
-	let entries: Array<{ name: string; isDirectory: () => boolean }> = [];
-	try {
-		entries = await fs.readdir(fullDirectory, { withFileTypes: true });
-	} catch {
-		return;
-	}
+): Effect.Effect<void, unknown> {
+	return Effect.gen(function* () {
+		const fullDirectory = yield* trySync(() => path.join(repoPath, directory));
+		const entries = yield* tryPromise(() =>
+			fs.readdir(fullDirectory, { withFileTypes: true }),
+		).pipe(Effect.catchAll(() => Effect.succeed([])));
 
-	await Promise.all(
-		entries.map(async (entry) => {
-			const relativePath = path.posix.join(directory, entry.name);
-			const fullPath = path.join(repoPath, relativePath);
-			if (entry.isDirectory()) {
-				await removeStaleBackupFiles(repoPath, expectedPaths, relativePath);
-				const remaining = await fs.readdir(fullPath);
-				if (remaining.length === 0) {
-					await fs.rmdir(fullPath);
-				}
-				return;
-			}
-			if (relativePath.endsWith(".jsonl") && !expectedPaths.has(relativePath)) {
-				await fs.rm(fullPath, { force: true });
-			}
-		}),
-	);
+		yield* Effect.forEach(
+			entries,
+			(entry) =>
+				Effect.gen(function* () {
+					const relativePath = path.posix.join(directory, entry.name);
+					const fullPath = path.join(repoPath, relativePath);
+					if (entry.isDirectory()) {
+						yield* removeStaleBackupFilesEffect(
+							repoPath,
+							expectedPaths,
+							relativePath,
+						);
+						const remaining = yield* tryPromise(() => fs.readdir(fullPath));
+						if (remaining.length === 0) {
+							yield* tryPromise(() => fs.rmdir(fullPath));
+						}
+						return;
+					}
+					if (
+						relativePath.endsWith(".jsonl") &&
+						!expectedPaths.has(relativePath)
+					) {
+						yield* tryPromise(() => fs.rm(fullPath, { force: true }));
+					}
+				}),
+			{ concurrency: "unbounded" },
+		);
+	});
 }
 
 function computeBackupHash(files: BackupFileManifest[]) {
@@ -622,14 +691,18 @@ function computeCounts(files: BackupFileManifest[]) {
 	return counts;
 }
 
-async function ensureBackupReadme(repoPath: string) {
-	const readmePath = path.join(repoPath, "README.md");
-	if (existsSync(readmePath)) {
-		return;
-	}
-	await fs.writeFile(
-		readmePath,
-		`# Birdclaw Store
+function ensureBackupReadmeEffect(
+	repoPath: string,
+): Effect.Effect<void, unknown> {
+	return Effect.gen(function* () {
+		const readmePath = yield* trySync(() => path.join(repoPath, "README.md"));
+		if (yield* trySync(() => existsSync(readmePath))) {
+			return;
+		}
+		yield* tryPromise(() =>
+			fs.writeFile(
+				readmePath,
+				`# Birdclaw Store
 
 Private text backup for Birdclaw data. The committed files are canonical JSONL shards that can rebuild the local SQLite index.
 
@@ -665,32 +738,42 @@ The links shard stores expanded short URLs and their source tweet/DM occurrences
 
 Never commit live tokens, browser cookies, raw SQLite WAL/SHM sidecars, or temporary cache files here.
 `,
-		"utf8",
+				"utf8",
+			),
+		);
+	});
+}
+
+function writeManifestEffect(
+	repoPath: string,
+	manifest: BackupManifest,
+): Effect.Effect<void, unknown> {
+	return Effect.gen(function* () {
+		const manifestPath = yield* trySync(() =>
+			path.join(repoPath, MANIFEST_PATH),
+		);
+		const content = yield* trySync(
+			() => `${canonicalStringify(manifest as unknown as JsonRecord)}\n`,
+		);
+		const current = yield* tryPromise(() =>
+			fs.readFile(manifestPath, "utf8"),
+		).pipe(Effect.option);
+		if (current._tag === "Some" && current.value === content) {
+			return;
+		}
+		yield* tryPromise(() => fs.writeFile(manifestPath, content, "utf8"));
+	});
+}
+
+function readPreviousManifestEffect(
+	repoPath: string,
+): Effect.Effect<BackupManifest | undefined, never> {
+	return readManifestEffect(repoPath).pipe(
+		Effect.catchAll(() => Effect.succeed(undefined)),
 	);
 }
 
-async function writeManifest(repoPath: string, manifest: BackupManifest) {
-	const manifestPath = path.join(repoPath, MANIFEST_PATH);
-	const content = `${canonicalStringify(manifest as unknown as JsonRecord)}\n`;
-	try {
-		if ((await fs.readFile(manifestPath, "utf8")) === content) {
-			return;
-		}
-	} catch {
-		// New backup repo.
-	}
-	await fs.writeFile(manifestPath, content, "utf8");
-}
-
-async function readPreviousManifest(repoPath: string) {
-	try {
-		return await readManifest(repoPath);
-	} catch {
-		return undefined;
-	}
-}
-
-async function maybeCommitAndPush({
+function maybeCommitAndPushEffect({
 	repoPath,
 	message,
 	commit,
@@ -702,211 +785,200 @@ async function maybeCommitAndPush({
 	push: boolean;
 }) {
 	if (!commit && !push) {
-		return undefined;
+		return Effect.succeed(undefined);
 	}
 
-	try {
-		await execFileAsync("git", [
+	return Effect.gen(function* () {
+		yield* gitEffect([
 			"-C",
 			repoPath,
 			"rev-parse",
 			"--is-inside-work-tree",
-		]);
-	} catch {
-		await execFileAsync("git", ["-C", repoPath, "init"]);
-	}
+		]).pipe(
+			Effect.catchAll(() =>
+				gitEffect(["-C", repoPath, "init"]).pipe(Effect.asVoid),
+			),
+		);
 
-	await execFileAsync("git", [
-		"-C",
-		repoPath,
-		"add",
-		"README.md",
-		MANIFEST_PATH,
-		DATA_DIR,
-	]);
-
-	try {
-		await execFileAsync("git", ["-C", repoPath, "config", "user.email"]);
-	} catch {
-		await execFileAsync("git", [
+		yield* gitEffect([
 			"-C",
 			repoPath,
-			"config",
-			"user.email",
-			"birdclaw@example.invalid",
+			"add",
+			"README.md",
+			MANIFEST_PATH,
+			DATA_DIR,
 		]);
-	}
-	try {
-		await execFileAsync("git", ["-C", repoPath, "config", "user.name"]);
-	} catch {
-		await execFileAsync("git", [
+
+		yield* gitEffect(["-C", repoPath, "config", "user.email"]).pipe(
+			Effect.catchAll(() =>
+				gitEffect([
+					"-C",
+					repoPath,
+					"config",
+					"user.email",
+					"birdclaw@example.invalid",
+				]),
+			),
+		);
+		yield* gitEffect(["-C", repoPath, "config", "user.name"]).pipe(
+			Effect.catchAll(() =>
+				gitEffect(["-C", repoPath, "config", "user.name", "Birdclaw Backup"]),
+			),
+		);
+
+		const commitResult = yield* gitEffect([
 			"-C",
 			repoPath,
-			"config",
-			"user.name",
-			"Birdclaw Backup",
-		]);
-	}
+			"diff",
+			"--cached",
+			"--quiet",
+		]).pipe(
+			Effect.as({ committed: false as const, commitHash: undefined }),
+			Effect.catchAll(() =>
+				Effect.gen(function* () {
+					yield* gitEffect([
+						"-C",
+						repoPath,
+						"-c",
+						"commit.gpgsign=false",
+						"commit",
+						"-m",
+						message,
+					]);
+					const { stdout } = yield* gitEffect([
+						"-C",
+						repoPath,
+						"rev-parse",
+						"HEAD",
+					]);
+					return {
+						committed: true as const,
+						commitHash: stdout.trim(),
+					};
+				}),
+			),
+		);
 
-	let committed = false;
-	let commitHash: string | undefined;
-	try {
-		await execFileAsync("git", ["-C", repoPath, "diff", "--cached", "--quiet"]);
-	} catch {
-		await execFileAsync("git", ["-C", repoPath, "commit", "-m", message]);
-		committed = true;
-		const { stdout } = await execFileAsync("git", [
-			"-C",
-			repoPath,
-			"rev-parse",
-			"HEAD",
-		]);
-		commitHash = stdout.trim();
-	}
-
-	if (push) {
-		try {
-			await execFileAsync("git", ["-C", repoPath, "push"]);
-		} catch {
-			await execFileAsync("git", [
-				"-C",
-				repoPath,
-				"push",
-				"-u",
-				"origin",
-				"HEAD:main",
-			]);
+		if (push) {
+			yield* gitEffect(["-C", repoPath, "push"]).pipe(
+				Effect.catchAll(() =>
+					gitEffect(["-C", repoPath, "push", "-u", "origin", "HEAD:main"]),
+				),
+			);
 		}
-	}
 
-	return { committed, pushed: push, commit: commitHash };
+		return {
+			committed: commitResult.committed,
+			pushed: push,
+			commit: commitResult.commitHash,
+		};
+	});
 }
 
-async function isGitRepo(repoPath: string) {
-	try {
-		await execFileAsync("git", [
-			"-C",
-			repoPath,
-			"rev-parse",
-			"--is-inside-work-tree",
-		]);
-		return true;
-	} catch {
-		return false;
-	}
+function isGitRepoEffect(repoPath: string) {
+	return gitEffect(["-C", repoPath, "rev-parse", "--is-inside-work-tree"]).pipe(
+		Effect.as(true),
+		Effect.catchAll(() => Effect.succeed(false)),
+	);
 }
 
-async function hasGitCommits(repoPath: string) {
-	try {
-		await execFileAsync("git", [
-			"-C",
-			repoPath,
-			"rev-parse",
-			"--verify",
-			"HEAD",
-		]);
-		return true;
-	} catch {
-		return false;
-	}
+function hasGitCommitsEffect(repoPath: string) {
+	return gitEffect(["-C", repoPath, "rev-parse", "--verify", "HEAD"]).pipe(
+		Effect.as(true),
+		Effect.catchAll(() => Effect.succeed(false)),
+	);
 }
 
-async function ensureBackupGitRepo({
+function ensureBackupGitRepoEffect({
 	repoPath,
 	remote,
 }: {
 	repoPath: string;
 	remote?: string;
 }) {
-	if (!(await isGitRepo(repoPath))) {
-		if (remote && !existsSync(repoPath)) {
-			await execFileAsync("git", ["clone", remote, repoPath]);
-		} else {
-			await fs.mkdir(repoPath, { recursive: true });
-			await execFileAsync("git", ["-C", repoPath, "init"]);
+	return Effect.gen(function* () {
+		if (!(yield* isGitRepoEffect(repoPath))) {
+			if (remote && !existsSync(repoPath)) {
+				yield* gitEffect(["clone", remote, repoPath]);
+			} else {
+				yield* tryPromise(() => fs.mkdir(repoPath, { recursive: true }));
+				yield* gitEffect(["-C", repoPath, "init"]);
+			}
 		}
-	}
 
-	if (remote) {
-		try {
-			const { stdout } = await execFileAsync("git", [
+		if (remote) {
+			const origin = yield* gitEffect([
 				"-C",
 				repoPath,
 				"remote",
 				"get-url",
 				"origin",
-			]);
-			if (stdout.trim() !== remote) {
-				await execFileAsync("git", [
-					"-C",
-					repoPath,
-					"remote",
-					"set-url",
-					"origin",
-					remote,
-				]);
+			]).pipe(
+				Effect.map(({ stdout }) => ({ ok: true as const, stdout })),
+				Effect.catchAll(() => Effect.succeed({ ok: false as const })),
+			);
+			if (origin.ok) {
+				if (origin.stdout.trim() !== remote) {
+					yield* gitEffect([
+						"-C",
+						repoPath,
+						"remote",
+						"set-url",
+						"origin",
+						remote,
+					]);
+				}
+			} else {
+				yield* gitEffect(["-C", repoPath, "remote", "add", "origin", remote]);
 			}
-		} catch {
-			await execFileAsync("git", [
+		}
+
+		if (remote && !(yield* hasGitCommitsEffect(repoPath))) {
+			const fetched = yield* gitEffect([
 				"-C",
 				repoPath,
-				"remote",
-				"add",
+				"fetch",
 				"origin",
-				remote,
-			]);
-		}
-	}
-
-	if (remote && !(await hasGitCommits(repoPath))) {
-		try {
-			await execFileAsync("git", ["-C", repoPath, "fetch", "origin", "main"]);
-			await execFileAsync("git", [
-				"-C",
-				repoPath,
-				"checkout",
-				"-B",
 				"main",
-				"origin/main",
-			]);
-			return;
-		} catch {
-			// Empty remote or no main branch yet; create the first main commit locally.
+			]).pipe(
+				Effect.flatMap(() =>
+					gitEffect(["-C", repoPath, "checkout", "-B", "main", "origin/main"]),
+				),
+				Effect.as(true),
+				Effect.catchAll(() => Effect.succeed(false)),
+			);
+			if (fetched) return;
 		}
-	}
 
-	if (!(await hasGitCommits(repoPath))) {
-		await execFileAsync("git", ["-C", repoPath, "checkout", "-B", "main"]);
-	}
+		if (!(yield* hasGitCommitsEffect(repoPath))) {
+			yield* gitEffect(["-C", repoPath, "checkout", "-B", "main"]);
+		}
+	});
 }
 
-async function pullBackupGitRepo(repoPath: string) {
-	if (!(await isGitRepo(repoPath)) || !(await hasGitCommits(repoPath))) {
-		return false;
-	}
-	try {
-		await execFileAsync("git", ["-C", repoPath, "pull", "--ff-only"]);
-		return true;
-	} catch {
-		try {
-			await execFileAsync("git", [
-				"-C",
-				repoPath,
-				"pull",
-				"--ff-only",
-				"origin",
-				"main",
-			]);
-			return true;
-		} catch {
+function pullBackupGitRepoEffect(repoPath: string) {
+	return Effect.gen(function* () {
+		if (
+			!(yield* isGitRepoEffect(repoPath)) ||
+			!(yield* hasGitCommitsEffect(repoPath))
+		) {
 			return false;
 		}
-	}
+		return yield* gitEffect(["-C", repoPath, "pull", "--ff-only"]).pipe(
+			Effect.as(true),
+			Effect.catchAll(() =>
+				gitEffect(["-C", repoPath, "pull", "--ff-only", "origin", "main"]).pipe(
+					Effect.as(true),
+					Effect.catchAll(() => Effect.succeed(false)),
+				),
+			),
+		);
+	});
 }
 
-export async function exportBackup({
+export function exportBackupEffect({
 	repoPath,
-	db = getNativeDb({ seedDemoData: false }),
+	db,
 	commit = false,
 	push = false,
 	message = "archive: update birdclaw backup",
@@ -918,100 +990,181 @@ export async function exportBackup({
 	push?: boolean;
 	message?: string;
 	validate?: boolean;
-}): Promise<BackupExportResult> {
-	const resolvedRepoPath = path.resolve(repoPath);
-	await fs.mkdir(resolvedRepoPath, { recursive: true });
-	await ensureBackupReadme(resolvedRepoPath);
+}): Effect.Effect<BackupExportResult, unknown> {
+	return Effect.gen(function* () {
+		const resolvedRepoPath = yield* trySync(() => path.resolve(repoPath));
+		const database =
+			db ?? (yield* trySync(() => getNativeDb({ seedDemoData: false })));
+		yield* tryPromise(() => fs.mkdir(resolvedRepoPath, { recursive: true }));
+		yield* ensureBackupReadmeEffect(resolvedRepoPath);
 
-	const shards = buildShards(db);
-	const shardEntries = [...shards.entries()].sort(([left], [right]) =>
-		left.localeCompare(right),
-	);
-	const expectedPaths = new Set(
-		shardEntries.map(([relativePath]) => relativePath),
-	);
-	const files = await Promise.all(
-		shardEntries.map(([relativePath, rows]) =>
-			writeJsonlFile(resolvedRepoPath, relativePath, rows),
-		),
-	);
-	await removeStaleBackupFiles(resolvedRepoPath, expectedPaths);
-
-	const counts = computeCounts(files);
-	const backupHash = computeBackupHash(files);
-	const previousManifest = await readPreviousManifest(resolvedRepoPath);
-	const manifest: BackupManifest = {
-		app: "birdclaw",
-		schemaVersion: BACKUP_SCHEMA_VERSION,
-		generatedAt:
-			previousManifest?.backupHash === backupHash
-				? previousManifest.generatedAt
-				: new Date().toISOString(),
-		counts,
-		files,
-		backupHash,
-	};
-	await writeManifest(resolvedRepoPath, manifest);
-
-	const validation = validate
-		? await validateBackup(resolvedRepoPath)
-		: {
-				ok: true,
-				repoPath: resolvedRepoPath,
-				files,
-				counts,
-				backupHash: manifest.backupHash,
-				errors: [],
-			};
-	if (!validation.ok) {
-		throw new Error(
-			`Backup validation failed: ${validation.errors.join("; ")}`,
+		const shards = yield* trySync(() => buildShards(database));
+		const shardEntries = yield* trySync(() =>
+			[...shards.entries()].sort(([left], [right]) =>
+				left.localeCompare(right),
+			),
 		);
-	}
+		const expectedPaths = yield* trySync(
+			() => new Set(shardEntries.map(([relativePath]) => relativePath)),
+		);
+		const files = yield* Effect.forEach(
+			shardEntries,
+			([relativePath, rows]) =>
+				writeJsonlFileEffect(resolvedRepoPath, relativePath, rows),
+			{ concurrency: "unbounded" },
+		);
+		yield* removeStaleBackupFilesEffect(resolvedRepoPath, expectedPaths);
 
-	const git = await maybeCommitAndPush({
-		repoPath: resolvedRepoPath,
-		message,
-		commit,
-		push,
+		const counts = yield* trySync(() => computeCounts(files));
+		const backupHash = yield* trySync(() => computeBackupHash(files));
+		const previousManifest =
+			yield* readPreviousManifestEffect(resolvedRepoPath);
+		const manifest: BackupManifest = {
+			app: "birdclaw",
+			schemaVersion: BACKUP_SCHEMA_VERSION,
+			generatedAt:
+				previousManifest?.backupHash === backupHash
+					? previousManifest.generatedAt
+					: new Date().toISOString(),
+			counts,
+			files,
+			backupHash,
+		};
+		yield* writeManifestEffect(resolvedRepoPath, manifest);
+
+		const validation = validate
+			? yield* validateBackupEffect(resolvedRepoPath)
+			: {
+					ok: true,
+					repoPath: resolvedRepoPath,
+					files,
+					counts,
+					backupHash: manifest.backupHash,
+					errors: [],
+				};
+		if (!validation.ok) {
+			return yield* Effect.fail(
+				new Error(`Backup validation failed: ${validation.errors.join("; ")}`),
+			);
+		}
+
+		const git = yield* maybeCommitAndPushEffect({
+			repoPath: resolvedRepoPath,
+			message,
+			commit,
+			push,
+		});
+
+		return {
+			ok: true,
+			repoPath: resolvedRepoPath,
+			manifest,
+			validation,
+			...(git ? { git } : {}),
+		};
 	});
-
-	return {
-		ok: true,
-		repoPath: resolvedRepoPath,
-		manifest,
-		validation,
-		...(git ? { git } : {}),
-	};
 }
 
-async function readManifest(repoPath: string): Promise<BackupManifest> {
-	const content = await fs.readFile(path.join(repoPath, MANIFEST_PATH), "utf8");
-	const parsed = JSON.parse(content) as BackupManifest;
-	if (parsed.app !== "birdclaw") {
-		throw new Error("Backup manifest is not a birdclaw backup");
-	}
-	if (parsed.schemaVersion !== BACKUP_SCHEMA_VERSION) {
-		throw new Error(
-			`Unsupported backup schema version ${String(parsed.schemaVersion)}`,
+export function exportBackup(
+	options: Parameters<typeof exportBackupEffect>[0],
+): Promise<BackupExportResult> {
+	return runEffectPromise(exportBackupEffect(options));
+}
+
+function readManifestEffect(
+	repoPath: string,
+): Effect.Effect<BackupManifest, unknown> {
+	return Effect.gen(function* () {
+		const content = yield* tryPromise(() =>
+			fs.readFile(path.join(repoPath, MANIFEST_PATH), "utf8"),
 		);
-	}
-	return parsed;
+		const parsed = yield* trySync(() => JSON.parse(content) as BackupManifest);
+		if (parsed.app !== "birdclaw") {
+			return yield* Effect.fail(
+				new Error("Backup manifest is not a birdclaw backup"),
+			);
+		}
+		if (parsed.schemaVersion !== BACKUP_SCHEMA_VERSION) {
+			return yield* Effect.fail(
+				new Error(
+					`Unsupported backup schema version ${String(parsed.schemaVersion)}`,
+				),
+			);
+		}
+		return parsed;
+	});
 }
 
-async function readJsonlFile(repoPath: string, relativePath: string) {
-	const content = await fs.readFile(path.join(repoPath, relativePath), "utf8");
-	return content
-		.split("\n")
-		.filter((line) => line.length > 0)
-		.map((line) => JSON.parse(line) as JsonRecord);
+function readJsonlFileEffect(
+	repoPath: string,
+	relativePath: string,
+): Effect.Effect<JsonRecord[], unknown> {
+	return Effect.gen(function* () {
+		const content = yield* tryPromise(() =>
+			fs.readFile(path.join(repoPath, relativePath), "utf8"),
+		);
+		return yield* trySync(() =>
+			content
+				.split("\n")
+				.filter((line) => line.length > 0)
+				.map((line) => JSON.parse(line) as JsonRecord),
+		);
+	});
 }
 
-async function readJsonlFiles(repoPath: string, relativePaths: string[]) {
-	const nestedRows = await Promise.all(
-		relativePaths.map((relativePath) => readJsonlFile(repoPath, relativePath)),
+function readJsonlFilesEffect(
+	repoPath: string,
+	relativePaths: string[],
+): Effect.Effect<JsonRecord[], unknown> {
+	return Effect.gen(function* () {
+		const nestedRows = yield* Effect.forEach(
+			relativePaths,
+			(relativePath) => readJsonlFileEffect(repoPath, relativePath),
+			{ concurrency: "unbounded" },
+		);
+		return nestedRows.flat();
+	});
+}
+
+function readBackupImportRowsEffect(
+	resolvedRepoPath: string,
+	manifest: BackupManifest,
+): Effect.Effect<JsonRecord[][], unknown> {
+	const readRows = (predicate: (relativePath: string) => boolean) =>
+		readJsonlFilesEffect(
+			resolvedRepoPath,
+			rowsForManifestPath(manifest, predicate),
+		);
+
+	return Effect.all(
+		[
+			readRows((file) => file === "data/accounts.jsonl"),
+			readRows((file) => file === "data/profiles.jsonl"),
+			readRows((file) => file === "data/profile_affiliations.jsonl"),
+			readRows((file) => file === "data/profile_snapshots.jsonl"),
+			readRows((file) => file === "data/profile_bio_entities.jsonl"),
+			readRows((file) => file.startsWith("data/tweets/")),
+			readRows((file) => file.startsWith("data/collections/")),
+			readRows((file) => file.startsWith("data/timeline_edges/")),
+			readRows((file) => file === "data/dms/conversations.jsonl"),
+			readRows(
+				(file) =>
+					file.startsWith("data/dms/") &&
+					file !== "data/dms/conversations.jsonl",
+			),
+			readRows((file) => file === "data/moderation/blocks.jsonl"),
+			readRows((file) => file === "data/moderation/mutes.jsonl"),
+			readRows((file) => file === "data/actions/tweet_actions.jsonl"),
+			readRows((file) => file === "data/ai_scores.jsonl"),
+			readRows((file) => file === "data/links/url_expansions.jsonl"),
+			readRows((file) => file === "data/links/occurrences.jsonl"),
+			readRows((file) => file === "data/follow_snapshots.jsonl"),
+			readRows((file) => file === "data/follow_snapshot_members.jsonl"),
+			readRows((file) => file === "data/follow_edges.jsonl"),
+			readRows((file) => file === "data/follow_events.jsonl"),
+		],
+		{ concurrency: "unbounded" },
 	);
-	return nestedRows.flat();
 }
 
 function rowsForManifestPath(
@@ -1098,93 +1251,66 @@ function clearBackupImportData(db: Database) {
   `);
 }
 
-export async function importBackup({
+export function importBackupEffect({
 	repoPath,
-	db = getNativeDb({ seedDemoData: false }),
+	db: providedDb,
 	validate = true,
 	mode = "merge",
-}: {
-	repoPath: string;
-	db?: Database;
-	validate?: boolean;
-	mode?: BackupImportMode;
-}): Promise<BackupImportResult> {
-	const resolvedRepoPath = path.resolve(repoPath);
-	const manifest = await readManifest(resolvedRepoPath);
-	const validation = validate
-		? await validateBackup(resolvedRepoPath)
-		: undefined;
-	if (validation && !validation.ok) {
-		throw new Error(
-			`Backup validation failed: ${validation.errors.join("; ")}`,
-		);
-	}
-
-	const readRows = (predicate: (relativePath: string) => boolean) =>
-		readJsonlFiles(resolvedRepoPath, rowsForManifestPath(manifest, predicate));
-
-	const [
-		accounts,
-		profiles,
-		profileAffiliations,
-		profileSnapshots,
-		profileBioEntities,
-		tweets,
-		collections,
-		timelineEdges,
-		conversations,
-		messages,
-		blocks,
-		mutes,
-		actions,
-		scores,
-		urlExpansions,
-		linkOccurrences,
-		followSnapshots,
-		followSnapshotMembers,
-		followEdges,
-		followEvents,
-	] = await Promise.all([
-		readRows((file) => file === "data/accounts.jsonl"),
-		readRows((file) => file === "data/profiles.jsonl"),
-		readRows((file) => file === "data/profile_affiliations.jsonl"),
-		readRows((file) => file === "data/profile_snapshots.jsonl"),
-		readRows((file) => file === "data/profile_bio_entities.jsonl"),
-		readRows((file) => file.startsWith("data/tweets/")),
-		readRows((file) => file.startsWith("data/collections/")),
-		readRows((file) => file.startsWith("data/timeline_edges/")),
-		readRows((file) => file === "data/dms/conversations.jsonl"),
-		readRows(
-			(file) =>
-				file.startsWith("data/dms/") && file !== "data/dms/conversations.jsonl",
-		),
-		readRows((file) => file === "data/moderation/blocks.jsonl"),
-		readRows((file) => file === "data/moderation/mutes.jsonl"),
-		readRows((file) => file === "data/actions/tweet_actions.jsonl"),
-		readRows((file) => file === "data/ai_scores.jsonl"),
-		readRows((file) => file === "data/links/url_expansions.jsonl"),
-		readRows((file) => file === "data/links/occurrences.jsonl"),
-		readRows((file) => file === "data/follow_snapshots.jsonl"),
-		readRows((file) => file === "data/follow_snapshot_members.jsonl"),
-		readRows((file) => file === "data/follow_edges.jsonl"),
-		readRows((file) => file === "data/follow_events.jsonl"),
-	]);
-
-	db.transaction(() => {
-		if (mode === "replace") {
-			clearBackupImportData(db);
+}: BackupImportOptions): Effect.Effect<BackupImportResult, unknown> {
+	return Effect.gen(function* () {
+		const resolvedRepoPath = yield* trySync(() => path.resolve(repoPath));
+		const db =
+			providedDb ??
+			(yield* trySync(() => getNativeDb({ seedDemoData: false })));
+		const manifest = yield* readManifestEffect(resolvedRepoPath);
+		const validation = validate
+			? yield* validateBackupEffect(resolvedRepoPath)
+			: undefined;
+		if (validation && !validation.ok) {
+			return yield* Effect.fail(
+				new Error(`Backup validation failed: ${validation.errors.join("; ")}`),
+			);
 		}
-		const tweetFtsIds =
-			mode === "replace"
-				? new Set<string>()
-				: readFtsIds(db, "tweets_fts", "tweet_id");
-		const dmFtsIds =
-			mode === "replace"
-				? new Set<string>()
-				: readFtsIds(db, "dm_fts", "message_id");
-		insertRows(
-			db,
-			`
+
+		const [
+			accounts,
+			profiles,
+			profileAffiliations,
+			profileSnapshots,
+			profileBioEntities,
+			tweets,
+			collections,
+			timelineEdges,
+			conversations,
+			messages,
+			blocks,
+			mutes,
+			actions,
+			scores,
+			urlExpansions,
+			linkOccurrences,
+			followSnapshots,
+			followSnapshotMembers,
+			followEdges,
+			followEvents,
+		] = yield* readBackupImportRowsEffect(resolvedRepoPath, manifest);
+
+		const fingerprint = yield* trySync(() => {
+			db.transaction(() => {
+				if (mode === "replace") {
+					clearBackupImportData(db);
+				}
+				const tweetFtsIds =
+					mode === "replace"
+						? new Set<string>()
+						: readFtsIds(db, "tweets_fts", "tweet_id");
+				const dmFtsIds =
+					mode === "replace"
+						? new Set<string>()
+						: readFtsIds(db, "dm_fts", "message_id");
+				insertRows(
+					db,
+					`
       insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
       values (?, ?, ?, ?, ?, ?, ?)
       on conflict(id) do update set
@@ -1195,20 +1321,20 @@ export async function importBackup({
         is_default = max(accounts.is_default, excluded.is_default),
         created_at = min(accounts.created_at, excluded.created_at)
       `,
-			accounts,
-			[
-				"id",
-				"name",
-				"handle",
-				"external_user_id",
-				"transport",
-				"is_default",
-				"created_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					accounts,
+					[
+						"id",
+						"name",
+						"handle",
+						"external_user_id",
+						"transport",
+						"is_default",
+						"created_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into profile_snapshots (
         profile_id, snapshot_hash, observed_at, last_seen_at, source, handle,
         display_name, bio, location, url, verified_type, followers_count,
@@ -1222,28 +1348,28 @@ export async function importBackup({
           else profile_snapshots.raw_json
         end
       `,
-			profileSnapshots,
-			[
-				"profile_id",
-				"snapshot_hash",
-				"observed_at",
-				"last_seen_at",
-				"source",
-				"handle",
-				"display_name",
-				"bio",
-				"location",
-				"url",
-				"verified_type",
-				"followers_count",
-				"following_count",
-				"affiliations_json",
-				"raw_json",
-			],
-		);
-		insertRows(
-			db,
-			`
+					profileSnapshots,
+					[
+						"profile_id",
+						"snapshot_hash",
+						"observed_at",
+						"last_seen_at",
+						"source",
+						"handle",
+						"display_name",
+						"bio",
+						"location",
+						"url",
+						"verified_type",
+						"followers_count",
+						"following_count",
+						"affiliations_json",
+						"raw_json",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into profile_bio_entities (
         profile_id, kind, value, source, is_active, first_seen_at, last_seen_at, raw_json
       ) values (?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, coalesce(?, '{}'))
@@ -1256,21 +1382,21 @@ export async function importBackup({
           else profile_bio_entities.raw_json
         end
       `,
-			profileBioEntities,
-			[
-				"profile_id",
-				"kind",
-				"value",
-				"source",
-				"is_active",
-				"first_seen_at",
-				"last_seen_at",
-				"raw_json",
-			],
-		);
-		insertRows(
-			db,
-			`
+					profileBioEntities,
+					[
+						"profile_id",
+						"kind",
+						"value",
+						"source",
+						"is_active",
+						"first_seen_at",
+						"last_seen_at",
+						"raw_json",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into profiles (
         id, handle, display_name, bio, followers_count, following_count,
         public_metrics_json, avatar_hue, avatar_url, location, url,
@@ -1301,28 +1427,28 @@ export async function importBackup({
         end,
         created_at = min(profiles.created_at, excluded.created_at)
       `,
-			profiles,
-			[
-				"id",
-				"handle",
-				"display_name",
-				"bio",
-				"followers_count",
-				"following_count",
-				"public_metrics_json",
-				"avatar_hue",
-				"avatar_url",
-				"location",
-				"url",
-				"verified_type",
-				"entities_json",
-				"raw_json",
-				"created_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					profiles,
+					[
+						"id",
+						"handle",
+						"display_name",
+						"bio",
+						"followers_count",
+						"following_count",
+						"public_metrics_json",
+						"avatar_hue",
+						"avatar_url",
+						"location",
+						"url",
+						"verified_type",
+						"entities_json",
+						"raw_json",
+						"created_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into profile_affiliations (
         subject_profile_id, organization_profile_id, organization_name,
         organization_handle, badge_url, url, label, source, is_active,
@@ -1343,26 +1469,26 @@ export async function importBackup({
         end,
         updated_at = excluded.updated_at
       `,
-			profileAffiliations,
-			[
-				"subject_profile_id",
-				"organization_profile_id",
-				"organization_name",
-				"organization_handle",
-				"badge_url",
-				"url",
-				"label",
-				"source",
-				"is_active",
-				"first_seen_at",
-				"last_seen_at",
-				"raw_json",
-				"updated_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					profileAffiliations,
+					[
+						"subject_profile_id",
+						"organization_profile_id",
+						"organization_name",
+						"organization_handle",
+						"badge_url",
+						"url",
+						"label",
+						"source",
+						"is_active",
+						"first_seen_at",
+						"last_seen_at",
+						"raw_json",
+						"updated_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into follow_snapshots (
         id, account_id, direction, source, status, page_count, result_count,
         started_at, completed_at, raw_meta_json
@@ -1381,23 +1507,23 @@ export async function importBackup({
           else follow_snapshots.raw_meta_json
         end
       `,
-			followSnapshots,
-			[
-				"id",
-				"account_id",
-				"direction",
-				"source",
-				"status",
-				"page_count",
-				"result_count",
-				"started_at",
-				"completed_at",
-				"raw_meta_json",
-			],
-		);
-		insertRows(
-			db,
-			`
+					followSnapshots,
+					[
+						"id",
+						"account_id",
+						"direction",
+						"source",
+						"status",
+						"page_count",
+						"result_count",
+						"started_at",
+						"completed_at",
+						"raw_meta_json",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into follow_snapshot_members (
         snapshot_id, profile_id, external_user_id, position
       ) values (?, ?, ?, coalesce(?, 0))
@@ -1405,12 +1531,12 @@ export async function importBackup({
         external_user_id = coalesce(nullif(excluded.external_user_id, ''), follow_snapshot_members.external_user_id),
         position = excluded.position
       `,
-			followSnapshotMembers,
-			["snapshot_id", "profile_id", "external_user_id", "position"],
-		);
-		insertRows(
-			db,
-			`
+					followSnapshotMembers,
+					["snapshot_id", "profile_id", "external_user_id", "position"],
+				);
+				insertRows(
+					db,
+					`
       insert into follow_edges (
         account_id, direction, profile_id, external_user_id, source, current,
         first_seen_at, last_seen_at, ended_at, updated_at
@@ -1430,23 +1556,23 @@ export async function importBackup({
         end,
         updated_at = max(follow_edges.updated_at, excluded.updated_at)
       `,
-			followEdges,
-			[
-				"account_id",
-				"direction",
-				"profile_id",
-				"external_user_id",
-				"source",
-				"current",
-				"first_seen_at",
-				"last_seen_at",
-				"ended_at",
-				"updated_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					followEdges,
+					[
+						"account_id",
+						"direction",
+						"profile_id",
+						"external_user_id",
+						"source",
+						"current",
+						"first_seen_at",
+						"last_seen_at",
+						"ended_at",
+						"updated_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into follow_events (
         id, account_id, direction, profile_id, external_user_id, kind, event_at,
         snapshot_id
@@ -1460,21 +1586,21 @@ export async function importBackup({
         event_at = coalesce(nullif(excluded.event_at, ''), follow_events.event_at),
         snapshot_id = coalesce(nullif(excluded.snapshot_id, ''), follow_events.snapshot_id)
       `,
-			followEvents,
-			[
-				"id",
-				"account_id",
-				"direction",
-				"profile_id",
-				"external_user_id",
-				"kind",
-				"event_at",
-				"snapshot_id",
-			],
-		);
-		insertRows(
-			db,
-			`
+					followEvents,
+					[
+						"id",
+						"account_id",
+						"direction",
+						"profile_id",
+						"external_user_id",
+						"kind",
+						"event_at",
+						"snapshot_id",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into tweets (
         id, account_id, author_profile_id, kind, text, created_at, is_replied,
         reply_to_id, like_count, media_count, bookmarked, liked, entities_json,
@@ -1506,37 +1632,37 @@ export async function importBackup({
         end,
         quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id)
       `,
-			tweets,
-			[
-				"id",
-				"account_id",
-				"author_profile_id",
-				"kind",
-				"text",
-				"created_at",
-				"is_replied",
-				"reply_to_id",
-				"like_count",
-				"media_count",
-				"bookmarked",
-				"liked",
-				"entities_json",
-				"media_json",
-				"quoted_tweet_id",
-			],
-		);
-		insertFtsRows(
-			db,
-			"tweets_fts",
-			"tweet_id",
-			tweets,
-			"id",
-			"text",
-			tweetFtsIds,
-		);
-		insertRows(
-			db,
-			`
+					tweets,
+					[
+						"id",
+						"account_id",
+						"author_profile_id",
+						"kind",
+						"text",
+						"created_at",
+						"is_replied",
+						"reply_to_id",
+						"like_count",
+						"media_count",
+						"bookmarked",
+						"liked",
+						"entities_json",
+						"media_json",
+						"quoted_tweet_id",
+					],
+				);
+				insertFtsRows(
+					db,
+					"tweets_fts",
+					"tweet_id",
+					tweets,
+					"id",
+					"text",
+					tweetFtsIds,
+				);
+				insertRows(
+					db,
+					`
       insert into tweet_collections (
         account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
       ) values (?, ?, ?, ?, ?, ?, ?)
@@ -1549,20 +1675,20 @@ export async function importBackup({
         end,
         updated_at = max(tweet_collections.updated_at, excluded.updated_at)
       `,
-			collections,
-			[
-				"account_id",
-				"tweet_id",
-				"kind",
-				"collected_at",
-				"source",
-				"raw_json",
-				"updated_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					collections,
+					[
+						"account_id",
+						"tweet_id",
+						"kind",
+						"collected_at",
+						"source",
+						"raw_json",
+						"updated_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into tweet_account_edges (
         account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
         source, raw_json, updated_at
@@ -1578,22 +1704,22 @@ export async function importBackup({
         end,
         updated_at = max(tweet_account_edges.updated_at, excluded.updated_at)
       `,
-			timelineEdges,
-			[
-				"account_id",
-				"tweet_id",
-				"kind",
-				"first_seen_at",
-				"last_seen_at",
-				"seen_count",
-				"source",
-				"raw_json",
-				"updated_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					timelineEdges,
+					[
+						"account_id",
+						"tweet_id",
+						"kind",
+						"first_seen_at",
+						"last_seen_at",
+						"seen_count",
+						"source",
+						"raw_json",
+						"updated_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into dm_conversations (
         id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
       ) values (?, ?, ?, ?, ?, ?, ?)
@@ -1605,20 +1731,20 @@ export async function importBackup({
         unread_count = max(dm_conversations.unread_count, excluded.unread_count),
         needs_reply = max(dm_conversations.needs_reply, excluded.needs_reply)
       `,
-			conversations,
-			[
-				"id",
-				"account_id",
-				"participant_profile_id",
-				"title",
-				"last_message_at",
-				"unread_count",
-				"needs_reply",
-			],
-		);
-		insertRows(
-			db,
-			`
+					conversations,
+					[
+						"id",
+						"account_id",
+						"participant_profile_id",
+						"title",
+						"last_message_at",
+						"unread_count",
+						"needs_reply",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into dm_messages (
         id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
       ) values (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1631,22 +1757,30 @@ export async function importBackup({
         is_replied = max(dm_messages.is_replied, excluded.is_replied),
         media_count = max(dm_messages.media_count, excluded.media_count)
       `,
-			messages,
-			[
-				"id",
-				"conversation_id",
-				"sender_profile_id",
-				"text",
-				"created_at",
-				"direction",
-				"is_replied",
-				"media_count",
-			],
-		);
-		insertFtsRows(db, "dm_fts", "message_id", messages, "id", "text", dmFtsIds);
-		insertRows(
-			db,
-			`
+					messages,
+					[
+						"id",
+						"conversation_id",
+						"sender_profile_id",
+						"text",
+						"created_at",
+						"direction",
+						"is_replied",
+						"media_count",
+					],
+				);
+				insertFtsRows(
+					db,
+					"dm_fts",
+					"message_id",
+					messages,
+					"id",
+					"text",
+					dmFtsIds,
+				);
+				insertRows(
+					db,
+					`
       insert into url_expansions (
         short_url, expanded_url, final_url, status, expanded_tweet_id,
         expanded_handle, title, description, image_url, site_name, error, source,
@@ -1666,26 +1800,26 @@ export async function importBackup({
         source = excluded.source,
         updated_at = excluded.updated_at
       `,
-			urlExpansions,
-			[
-				"short_url",
-				"expanded_url",
-				"final_url",
-				"status",
-				"expanded_tweet_id",
-				"expanded_handle",
-				"title",
-				"description",
-				"image_url",
-				"site_name",
-				"error",
-				"source",
-				"updated_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					urlExpansions,
+					[
+						"short_url",
+						"expanded_url",
+						"final_url",
+						"status",
+						"expanded_tweet_id",
+						"expanded_handle",
+						"title",
+						"description",
+						"image_url",
+						"site_name",
+						"error",
+						"source",
+						"updated_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into link_occurrences (
         source_kind, source_id, source_position, short_url, account_id,
         conversation_id, direction, created_at
@@ -1696,45 +1830,45 @@ export async function importBackup({
         direction = excluded.direction,
         created_at = excluded.created_at
       `,
-			linkOccurrences,
-			[
-				"source_kind",
-				"source_id",
-				"source_position",
-				"short_url",
-				"account_id",
-				"conversation_id",
-				"direction",
-				"created_at",
-			],
-		);
-		insertRows(
-			db,
-			`
+					linkOccurrences,
+					[
+						"source_kind",
+						"source_id",
+						"source_position",
+						"short_url",
+						"account_id",
+						"conversation_id",
+						"direction",
+						"created_at",
+					],
+				);
+				insertRows(
+					db,
+					`
       insert into blocks (account_id, profile_id, source, created_at)
       values (?, ?, ?, ?)
       on conflict(account_id, profile_id) do update set
         source = coalesce(nullif(excluded.source, ''), blocks.source),
         created_at = min(blocks.created_at, excluded.created_at)
       `,
-			blocks,
-			["account_id", "profile_id", "source", "created_at"],
-		);
-		insertRows(
-			db,
-			`
+					blocks,
+					["account_id", "profile_id", "source", "created_at"],
+				);
+				insertRows(
+					db,
+					`
       insert into mutes (account_id, profile_id, source, created_at)
       values (?, ?, ?, ?)
       on conflict(account_id, profile_id) do update set
         source = coalesce(nullif(excluded.source, ''), mutes.source),
         created_at = min(mutes.created_at, excluded.created_at)
       `,
-			mutes,
-			["account_id", "profile_id", "source", "created_at"],
-		);
-		insertRows(
-			db,
-			`
+					mutes,
+					["account_id", "profile_id", "source", "created_at"],
+				);
+				insertRows(
+					db,
+					`
       insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at)
       values (?, ?, ?, ?, ?, ?)
       on conflict(id) do update set
@@ -1744,12 +1878,12 @@ export async function importBackup({
         body = coalesce(nullif(excluded.body, ''), tweet_actions.body),
         created_at = min(tweet_actions.created_at, excluded.created_at)
       `,
-			actions,
-			["id", "account_id", "tweet_id", "kind", "body", "created_at"],
-		);
-		insertRows(
-			db,
-			`
+					actions,
+					["id", "account_id", "tweet_id", "kind", "body", "created_at"],
+				);
+				insertRows(
+					db,
+					`
       insert into ai_scores (
         entity_kind, entity_id, model, score, summary, reasoning, updated_at
       ) values (?, ?, ?, ?, ?, ?, ?)
@@ -1760,106 +1894,148 @@ export async function importBackup({
         reasoning = coalesce(nullif(excluded.reasoning, ''), ai_scores.reasoning),
         updated_at = max(ai_scores.updated_at, excluded.updated_at)
       `,
-			scores,
-			[
-				"entity_kind",
-				"entity_id",
-				"model",
-				"score",
-				"summary",
-				"reasoning",
-				"updated_at",
-			],
-		);
-	})();
+					scores,
+					[
+						"entity_kind",
+						"entity_id",
+						"model",
+						"score",
+						"summary",
+						"reasoning",
+						"updated_at",
+					],
+				);
+			})();
+			return getBackupDatabaseFingerprint(db);
+		});
 
-	return {
-		ok: true,
-		repoPath: resolvedRepoPath,
-		mode,
-		manifest,
-		...(validation ? { validation } : {}),
-		fingerprint: getBackupDatabaseFingerprint(db),
-	};
+		return {
+			ok: true,
+			repoPath: resolvedRepoPath,
+			mode,
+			manifest,
+			...(validation ? { validation } : {}),
+			fingerprint,
+		};
+	});
 }
 
-export async function syncBackup({
-	repoPath,
-	remote,
-	db = getNativeDb({ seedDemoData: false }),
-	message = "archive: sync birdclaw backup",
-}: {
+export function importBackup(
+	options: BackupImportOptions,
+): Promise<BackupImportResult> {
+	return runEffectPromise(importBackupEffect(options));
+}
+
+export interface SyncBackupOptions {
 	repoPath: string;
 	remote?: string;
 	db?: Database;
 	message?: string;
-}): Promise<BackupSyncResult> {
-	const resolvedRepoPath = path.resolve(repoPath);
-	await ensureBackupGitRepo({ repoPath: resolvedRepoPath, remote });
-	const pulled = await pullBackupGitRepo(resolvedRepoPath);
-	const manifestExists = existsSync(path.join(resolvedRepoPath, MANIFEST_PATH));
-	const importResult = manifestExists
-		? await importBackup({
-				repoPath: resolvedRepoPath,
-				db,
-				mode: "merge",
-			})
-		: undefined;
-	const exportResult = await exportBackup({
-		repoPath: resolvedRepoPath,
-		db,
-		commit: true,
-		push: true,
-		message,
-	});
-
-	return {
-		ok: true,
-		repoPath: resolvedRepoPath,
-		...(remote ? { remote } : {}),
-		pulled,
-		imported: Boolean(importResult),
-		...(importResult ? { importResult } : {}),
-		exportResult,
-	};
 }
 
-export async function updateBackupFromGit({
+export function syncBackupEffect({
 	repoPath,
 	remote,
-	db = getNativeDb({ seedDemoData: false }),
-}: {
+	message = "archive: sync birdclaw backup",
+	db,
+}: SyncBackupOptions): Effect.Effect<BackupSyncResult, unknown> {
+	return Effect.gen(function* () {
+		const resolvedRepoPath = path.resolve(repoPath);
+		const database =
+			db ?? (yield* trySync(() => getNativeDb({ seedDemoData: false })));
+		yield* ensureBackupGitRepoEffect({ repoPath: resolvedRepoPath, remote });
+		const pulled = yield* pullBackupGitRepoEffect(resolvedRepoPath);
+		const manifestExists = yield* trySync(() =>
+			existsSync(path.join(resolvedRepoPath, MANIFEST_PATH)),
+		);
+		const importResult = manifestExists
+			? yield* importBackupEffect({
+					repoPath: resolvedRepoPath,
+					db: database,
+					mode: "merge",
+				})
+			: undefined;
+		const exportResult = yield* exportBackupEffect({
+			repoPath: resolvedRepoPath,
+			db: database,
+			commit: true,
+			push: true,
+			message,
+		});
+
+		return {
+			ok: true,
+			repoPath: resolvedRepoPath,
+			...(remote ? { remote } : {}),
+			pulled,
+			imported: Boolean(importResult),
+			...(importResult ? { importResult } : {}),
+			exportResult,
+		};
+	});
+}
+
+export function syncBackup(
+	options: SyncBackupOptions,
+): Promise<BackupSyncResult> {
+	return runEffectPromise(syncBackupEffect(options));
+}
+
+export interface UpdateBackupFromGitOptions {
 	repoPath: string;
 	remote?: string;
 	db?: Database;
-}): Promise<{
+}
+
+export interface UpdateBackupFromGitResult {
 	ok: true;
 	repoPath: string;
 	remote?: string;
 	pulled: boolean;
 	imported: boolean;
 	importResult?: BackupImportResult;
-}> {
-	const resolvedRepoPath = path.resolve(repoPath);
-	await ensureBackupGitRepo({ repoPath: resolvedRepoPath, remote });
-	const pulled = await pullBackupGitRepo(resolvedRepoPath);
-	const manifestExists = existsSync(path.join(resolvedRepoPath, MANIFEST_PATH));
-	const importResult = manifestExists
-		? await importBackup({
-				repoPath: resolvedRepoPath,
-				db,
-				mode: "merge",
-			})
-		: undefined;
+}
 
-	return {
-		ok: true,
-		repoPath: resolvedRepoPath,
-		...(remote ? { remote } : {}),
-		pulled,
-		imported: Boolean(importResult),
-		...(importResult ? { importResult } : {}),
-	};
+export function updateBackupFromGitEffect({
+	repoPath,
+	remote,
+	db,
+}: UpdateBackupFromGitOptions): Effect.Effect<
+	UpdateBackupFromGitResult,
+	unknown
+> {
+	return Effect.gen(function* () {
+		const resolvedRepoPath = path.resolve(repoPath);
+		const database =
+			db ?? (yield* trySync(() => getNativeDb({ seedDemoData: false })));
+		yield* ensureBackupGitRepoEffect({ repoPath: resolvedRepoPath, remote });
+		const pulled = yield* pullBackupGitRepoEffect(resolvedRepoPath);
+		const manifestExists = yield* trySync(() =>
+			existsSync(path.join(resolvedRepoPath, MANIFEST_PATH)),
+		);
+		const importResult = manifestExists
+			? yield* importBackupEffect({
+					repoPath: resolvedRepoPath,
+					db: database,
+					mode: "merge",
+				})
+			: undefined;
+
+		return {
+			ok: true,
+			repoPath: resolvedRepoPath,
+			...(remote ? { remote } : {}),
+			pulled,
+			imported: Boolean(importResult),
+			...(importResult ? { importResult } : {}),
+		};
+	});
+}
+
+export function updateBackupFromGit(
+	options: UpdateBackupFromGitOptions,
+): Promise<UpdateBackupFromGitResult> {
+	return runEffectPromise(updateBackupFromGitEffect(options));
 }
 
 function readAutoSyncState(db: Database) {
@@ -1921,62 +2097,99 @@ function resolveAutoSyncConfig() {
 	};
 }
 
-export async function maybeAutoUpdateBackup(
+function autoSyncConfigError(error: unknown): BackupAutoUpdateResult {
+	return {
+		ok: false,
+		enabled: true,
+		skipped: false,
+		error: error instanceof Error ? error.message : String(error),
+	};
+}
+
+export function maybeAutoUpdateBackupEffect(
 	db?: Database,
-): Promise<BackupAutoUpdateResult> {
-	if (process.env.BIRDCLAW_BACKUP_AUTO_SYNC === "0") {
-		return {
-			ok: true,
-			enabled: false,
-			skipped: true,
-			reason: "disabled by BIRDCLAW_BACKUP_AUTO_SYNC=0",
-		};
-	}
-	const config = resolveAutoSyncConfig();
-	if (!config) {
-		return {
-			ok: true,
-			enabled: false,
-			skipped: true,
-			reason: "backup auto-sync is not configured",
-		};
-	}
+): Effect.Effect<BackupAutoUpdateResult, never> {
+	return Effect.gen(function* () {
+		if (process.env.BIRDCLAW_BACKUP_AUTO_SYNC === "0") {
+			return {
+				ok: true,
+				enabled: false,
+				skipped: true,
+				reason: "disabled by BIRDCLAW_BACKUP_AUTO_SYNC=0",
+			};
+		}
+		const configResult = yield* trySync(() => resolveAutoSyncConfig()).pipe(
+			Effect.map((config) => ({ ok: true as const, config })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (!configResult.ok) return autoSyncConfigError(configResult.error);
+		const { config } = configResult;
+		if (!config) {
+			return {
+				ok: true,
+				enabled: false,
+				skipped: true,
+				reason: "backup auto-sync is not configured",
+			};
+		}
 
-	const database = db ?? getNativeDb({ seedDemoData: false });
-	const state = readAutoSyncState(database);
-	const checkedAt = state?.checkedAt ? new Date(state.checkedAt).getTime() : 0;
-	const ageMs = Date.now() - checkedAt;
-	if (ageMs >= 0 && ageMs < config.staleAfterSeconds * 1000) {
-		return {
-			ok: true,
-			enabled: true,
-			skipped: true,
-			reason: "backup auto-sync is fresh",
-			repoPath: config.repoPath,
-			...(config.remote ? { remote: config.remote } : {}),
-		};
-	}
+		const database = yield* trySync(
+			() => db ?? getNativeDb({ seedDemoData: false }),
+		).pipe(Effect.orDie);
+		const state = yield* trySync(() => readAutoSyncState(database)).pipe(
+			Effect.catchAll(() => Effect.succeed(null)),
+		);
+		const checkedAt = state?.checkedAt
+			? new Date(state.checkedAt).getTime()
+			: 0;
+		const ageMs = Date.now() - checkedAt;
+		if (ageMs >= 0 && ageMs < config.staleAfterSeconds * 1000) {
+			return {
+				ok: true,
+				enabled: true,
+				skipped: true,
+				reason: "backup auto-sync is fresh",
+				repoPath: config.repoPath,
+				...(config.remote ? { remote: config.remote } : {}),
+			};
+		}
 
-	const now = new Date().toISOString();
-	try {
-		const result = await updateBackupFromGit({
+		const now = new Date().toISOString();
+		const result = yield* updateBackupFromGitEffect({
 			repoPath: config.repoPath,
 			remote: config.remote,
 			db: database,
-		});
-		writeAutoSyncState(database, { checkedAt: now, ok: true });
-		return {
-			ok: true,
-			enabled: true,
-			skipped: false,
-			repoPath: result.repoPath,
-			...(result.remote ? { remote: result.remote } : {}),
-			pulled: result.pulled,
-			imported: result.imported,
-		};
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		writeAutoSyncState(database, { checkedAt: now, ok: false, error: message });
+		}).pipe(
+			Effect.map((value) => ({ ok: true as const, value })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+
+		if (result.ok) {
+			yield* trySync(() =>
+				writeAutoSyncState(database, { checkedAt: now, ok: true }),
+			).pipe(Effect.orDie);
+			return {
+				ok: true,
+				enabled: true,
+				skipped: false,
+				repoPath: result.value.repoPath,
+				...(result.value.remote ? { remote: result.value.remote } : {}),
+				pulled: result.value.pulled,
+				imported: result.value.imported,
+			};
+		}
+
+		const message =
+			result.error instanceof Error
+				? result.error.message
+				: String(result.error);
+		yield* trySync(() =>
+			writeAutoSyncState(database, {
+				checkedAt: now,
+				ok: false,
+				error: message,
+			}),
+		).pipe(Effect.orDie);
 		return {
 			ok: false,
 			enabled: true,
@@ -1985,54 +2198,80 @@ export async function maybeAutoUpdateBackup(
 			...(config.remote ? { remote: config.remote } : {}),
 			error: message,
 		};
-	}
+	});
 }
 
-export async function maybeAutoSyncBackup(
+export function maybeAutoUpdateBackup(
 	db?: Database,
 ): Promise<BackupAutoUpdateResult> {
-	if (process.env.BIRDCLAW_BACKUP_AUTO_SYNC === "0") {
-		return {
-			ok: true,
-			enabled: false,
-			skipped: true,
-			reason: "disabled by BIRDCLAW_BACKUP_AUTO_SYNC=0",
-		};
-	}
-	const config = resolveAutoSyncConfig();
-	if (!config) {
-		return {
-			ok: true,
-			enabled: false,
-			skipped: true,
-			reason: "backup auto-sync is not configured",
-		};
-	}
-	const database = db ?? getNativeDb({ seedDemoData: false });
-	const now = new Date().toISOString();
-	try {
-		const result = await syncBackup({
+	return runEffectPromise(maybeAutoUpdateBackupEffect(db));
+}
+
+export function maybeAutoSyncBackupEffect(
+	db?: Database,
+): Effect.Effect<BackupAutoUpdateResult, never> {
+	return Effect.gen(function* () {
+		if (process.env.BIRDCLAW_BACKUP_AUTO_SYNC === "0") {
+			return {
+				ok: true,
+				enabled: false,
+				skipped: true,
+				reason: "disabled by BIRDCLAW_BACKUP_AUTO_SYNC=0",
+			};
+		}
+		const configResult = yield* trySync(() => resolveAutoSyncConfig()).pipe(
+			Effect.map((config) => ({ ok: true as const, config })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (!configResult.ok) return autoSyncConfigError(configResult.error);
+		const { config } = configResult;
+		if (!config) {
+			return {
+				ok: true,
+				enabled: false,
+				skipped: true,
+				reason: "backup auto-sync is not configured",
+			};
+		}
+		const database = yield* trySync(
+			() => db ?? getNativeDb({ seedDemoData: false }),
+		).pipe(Effect.orDie);
+		const now = new Date().toISOString();
+		const result = yield* syncBackupEffect({
 			repoPath: config.repoPath,
 			remote: config.remote,
 			db: database,
-		});
-		writeAutoSyncState(database, { checkedAt: now, ok: true });
-		return {
-			ok: true,
-			enabled: true,
-			skipped: false,
-			repoPath: result.repoPath,
-			...(result.remote ? { remote: result.remote } : {}),
-			pulled: result.pulled,
-			imported: result.imported,
-		};
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		writeAutoSyncState(database, {
-			checkedAt: now,
-			ok: false,
-			error: message,
-		});
+		}).pipe(
+			Effect.map((value) => ({ ok: true as const, value })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+
+		if (result.ok) {
+			yield* trySync(() =>
+				writeAutoSyncState(database, { checkedAt: now, ok: true }),
+			).pipe(Effect.orDie);
+			return {
+				ok: true,
+				enabled: true,
+				skipped: false,
+				repoPath: result.value.repoPath,
+				...(result.value.remote ? { remote: result.value.remote } : {}),
+				pulled: result.value.pulled,
+				imported: result.value.imported,
+			};
+		}
+
+		const message =
+			result.error instanceof Error
+				? result.error.message
+				: String(result.error);
+		yield* trySync(() =>
+			writeAutoSyncState(database, {
+				checkedAt: now,
+				ok: false,
+				error: message,
+			}),
+		).pipe(Effect.orDie);
 		return {
 			ok: false,
 			enabled: true,
@@ -2041,105 +2280,144 @@ export async function maybeAutoSyncBackup(
 			...(config.remote ? { remote: config.remote } : {}),
 			error: message,
 		};
-	}
+	});
 }
 
-export async function validateBackup(
+export function maybeAutoSyncBackup(
+	db?: Database,
+): Promise<BackupAutoUpdateResult> {
+	return runEffectPromise(maybeAutoSyncBackupEffect(db));
+}
+
+export function validateBackupEffect(
 	repoPath: string,
-): Promise<BackupValidationResult> {
-	const resolvedRepoPath = path.resolve(repoPath);
-	const errors: string[] = [];
-	let manifest: BackupManifest;
-	try {
-		manifest = await readManifest(resolvedRepoPath);
-	} catch (error) {
-		return {
-			ok: false,
-			repoPath: resolvedRepoPath,
-			files: [],
-			counts: {},
-			backupHash: "",
-			errors: [error instanceof Error ? error.message : String(error)],
-		};
-	}
+): Effect.Effect<BackupValidationResult, unknown> {
+	return Effect.gen(function* () {
+		const resolvedRepoPath = yield* trySync(() => path.resolve(repoPath));
+		const errors: string[] = [];
+		const manifestResult = yield* readManifestEffect(resolvedRepoPath).pipe(
+			Effect.match({
+				onFailure: (error) => ({ ok: false as const, error }),
+				onSuccess: (manifest) => ({ ok: true as const, manifest }),
+			}),
+		);
+		if (!manifestResult.ok) {
+			return {
+				ok: false,
+				repoPath: resolvedRepoPath,
+				files: [],
+				counts: {},
+				backupHash: "",
+				errors: [
+					manifestResult.error instanceof Error
+						? manifestResult.error.message
+						: String(manifestResult.error),
+				],
+			};
+		}
+		const { manifest } = manifestResult;
 
-	const results = await Promise.all(
-		manifest.files.map(async (expected) => {
-			const fileErrors: string[] = [];
-			let file: BackupFileManifest | undefined;
-			try {
-				const content = await fs.readFile(
-					path.join(resolvedRepoPath, expected.path),
-				);
-				const text = content.toString("utf8");
-				const rows = text.split("\n").filter((line) => line.length > 0);
-				for (const [index, line] of rows.entries()) {
-					try {
-						JSON.parse(line);
-					} catch (error) {
-						fileErrors.push(
-							`${expected.path}:${index + 1}: ${
-								error instanceof Error ? error.message : String(error)
-							}`,
-						);
+		const results = yield* Effect.forEach(
+			manifest.files,
+			(expected) =>
+				Effect.gen(function* () {
+					const fileErrors: string[] = [];
+					let file: BackupFileManifest | undefined;
+					const content = yield* tryPromise(() =>
+						fs.readFile(path.join(resolvedRepoPath, expected.path)),
+					).pipe(
+						Effect.match({
+							onFailure: (error) => {
+								fileErrors.push(
+									`${expected.path}: ${error instanceof Error ? error.message : String(error)}`,
+								);
+								return undefined;
+							},
+							onSuccess: (value) => value,
+						}),
+					);
+					if (content) {
+						const text = content.toString("utf8");
+						const rows = text.split("\n").filter((line) => line.length > 0);
+						for (const [index, line] of rows.entries()) {
+							const parseError = yield* trySync(() => JSON.parse(line)).pipe(
+								Effect.match({
+									onFailure: (error) => error,
+									onSuccess: () => undefined,
+								}),
+							);
+							if (parseError) {
+								fileErrors.push(
+									`${expected.path}:${index + 1}: ${
+										parseError instanceof Error
+											? parseError.message
+											: String(parseError)
+									}`,
+								);
+							}
+						}
+						file = {
+							path: expected.path,
+							rows: rows.length,
+							sha256: sha256(content),
+							bytes: content.byteLength,
+						};
 					}
-				}
-				file = {
-					path: expected.path,
-					rows: rows.length,
-					sha256: sha256(content),
-					bytes: content.byteLength,
-				};
-			} catch (error) {
-				fileErrors.push(
-					`${expected.path}: ${error instanceof Error ? error.message : String(error)}`,
+					return { file, errors: fileErrors };
+				}),
+			{ concurrency: "unbounded" },
+		);
+
+		const files: BackupFileManifest[] = [];
+		for (const result of results) {
+			errors.push(...result.errors);
+			if (result.file) {
+				files.push(result.file);
+			}
+		}
+
+		for (const expected of manifest.files) {
+			const file = files.find((entry) => entry.path === expected.path);
+			if (!file) {
+				continue;
+			}
+			if (file.rows !== expected.rows) {
+				errors.push(`${file.path}: row count ${file.rows} != ${expected.rows}`);
+			}
+			if (file.sha256 !== expected.sha256) {
+				errors.push(
+					`${file.path}: sha256 ${file.sha256} != ${expected.sha256}`,
 				);
 			}
-			return { file, errors: fileErrors };
-		}),
-	);
+			if (file.bytes !== expected.bytes) {
+				errors.push(`${file.path}: bytes ${file.bytes} != ${expected.bytes}`);
+			}
+		}
 
-	const files: BackupFileManifest[] = [];
-	for (const result of results) {
-		errors.push(...result.errors);
-		if (result.file) {
-			files.push(result.file);
+		const counts = computeCounts(files);
+		const backupHash = computeBackupHash(files);
+		if (backupHash !== manifest.backupHash) {
+			errors.push(`backup hash ${backupHash} != ${manifest.backupHash}`);
 		}
-	}
+		if (canonicalStringify(counts) !== canonicalStringify(manifest.counts)) {
+			errors.push("manifest counts do not match backup files");
+		}
 
-	for (const expected of manifest.files) {
-		const file = files.find((entry) => entry.path === expected.path);
-		if (!file) {
-			continue;
-		}
-		if (file.rows !== expected.rows) {
-			errors.push(`${file.path}: row count ${file.rows} != ${expected.rows}`);
-		}
-		if (file.sha256 !== expected.sha256) {
-			errors.push(`${file.path}: sha256 ${file.sha256} != ${expected.sha256}`);
-		}
-		if (file.bytes !== expected.bytes) {
-			errors.push(`${file.path}: bytes ${file.bytes} != ${expected.bytes}`);
-		}
-	}
+		return {
+			ok: errors.length === 0,
+			repoPath: resolvedRepoPath,
+			files,
+			counts,
+			backupHash,
+			errors,
+		};
+	});
+}
 
-	const counts = computeCounts(files);
-	const backupHash = computeBackupHash(files);
-	if (backupHash !== manifest.backupHash) {
-		errors.push(`backup hash ${backupHash} != ${manifest.backupHash}`);
-	}
-	if (canonicalStringify(counts) !== canonicalStringify(manifest.counts)) {
-		errors.push("manifest counts do not match backup files");
-	}
-
-	return {
-		ok: errors.length === 0,
-		repoPath: resolvedRepoPath,
-		files,
-		counts,
-		backupHash,
-		errors,
-	};
+export function validateBackup(
+	repoPath: string,
+): Promise<BackupValidationResult> {
+	return runEffectPromise(validateBackupEffect(repoPath));
 }
 
 export function getBackupDatabaseFingerprint(

@@ -1,12 +1,14 @@
 import { existsSync } from "node:fs";
-import { maybeAutoSyncBackup } from "./backup";
+import { Effect } from "effect";
+import { maybeAutoSyncBackupEffect } from "./backup";
 import { getBirdclawPaths } from "./config";
-import { syncDirectMessagesViaCachedBird } from "./dms-live";
-import { syncMentionThreads } from "./mention-threads-live";
-import { syncMentions } from "./mentions-live";
+import { syncDirectMessagesViaCachedBirdEffect } from "./dms-live";
+import { runEffectPromise } from "./effect-runtime";
+import { syncMentionThreadsEffect } from "./mention-threads-live";
+import { syncMentionsEffect } from "./mentions-live";
 import NativeSqliteDatabase from "./sqlite";
-import { syncTimelineCollection } from "./timeline-collections-live";
-import { syncHomeTimeline } from "./timeline-live";
+import { syncTimelineCollectionEffect } from "./timeline-collections-live";
+import { syncHomeTimelineEffect } from "./timeline-live";
 
 export type WebSyncKind =
 	| "timeline"
@@ -33,7 +35,7 @@ export interface WebSyncResponse {
 	summary: string;
 	steps: WebSyncStep[];
 	inProgress?: boolean;
-	backup?: Awaited<ReturnType<typeof maybeAutoSyncBackup>>;
+	backup?: Effect.Effect.Success<ReturnType<typeof maybeAutoSyncBackupEffect>>;
 	error?: string;
 }
 
@@ -55,7 +57,7 @@ export interface WebSyncJobSnapshot {
 interface WebSyncPlan {
 	label: string;
 	accountAware: boolean;
-	run: (accountId: string | undefined) => Promise<WebSyncStep[]>;
+	run: (accountId: string | undefined) => Effect.Effect<WebSyncStep[], unknown>;
 }
 
 const runningSyncs = new Map<string, WebSyncJobSnapshot>();
@@ -114,64 +116,66 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	timeline: {
 		label: "Home timeline",
 		accountAware: false,
-		run: async (account) => {
-			const result = await syncHomeTimeline({
-				account,
-				limit: 100,
-				following: true,
-				refresh: true,
-			});
-			return [
-				{
-					kind: "timeline",
-					label: "Home timeline",
-					count: readNumber(result, "count"),
-					source: readString(result, "source"),
-				},
-			];
-		},
+		run: (account) =>
+			Effect.gen(function* () {
+				const result = yield* syncHomeTimelineEffect({
+					account,
+					limit: 100,
+					following: true,
+					refresh: true,
+				});
+				return [
+					{
+						kind: "timeline",
+						label: "Home timeline",
+						count: readNumber(result, "count"),
+						source: readString(result, "source"),
+					},
+				];
+			}),
 	},
 	mentions: {
 		label: "Mentions",
 		accountAware: true,
-		run: async (account) => {
-			const mentions = await syncMentions({
-				account,
-				mode: "xurl",
-				limit: 100,
-				maxPages: 3,
-				refresh: true,
-			});
-			const steps: WebSyncStep[] = [
-				{
-					kind: "mentions",
-					label: "Mentions",
-					count: readNumber(mentions, "count"),
-					source: readString(mentions, "source"),
-					partial: readBoolean(mentions, "partial"),
-				},
-			];
+		run: (account) =>
+			Effect.gen(function* () {
+				const mentions = yield* syncMentionsEffect({
+					account,
+					mode: "xurl",
+					limit: 100,
+					maxPages: 3,
+					refresh: true,
+				});
+				const steps: WebSyncStep[] = [
+					{
+						kind: "mentions",
+						label: "Mentions",
+						count: readNumber(mentions, "count"),
+						source: readString(mentions, "source"),
+						partial: readBoolean(mentions, "partial"),
+					},
+				];
 
-			const threads = await syncMentionThreads({
-				account,
-				mode: "xurl",
-				limit: 30,
-				delayMs: 1500,
-				timeoutMs: 15000,
-			});
-			steps.push({
-				kind: "mention-threads",
-				label: "Mention threads",
-				count: readNumber(threads, "mergedTweets"),
-				source: readString(threads, "source"),
-				partial: readBoolean(threads, "partial"),
-				warnings:
-					Array.isArray(threads.warnings) && threads.warnings.length > 0
-						? threads.warnings.map(String)
-						: undefined,
-			});
-			return steps;
-		},
+				const threads = yield* syncMentionThreadsEffect({
+					account,
+					mode: "xurl",
+					limit: 30,
+					delayMs: 1500,
+					timeoutMs: 15000,
+				});
+				steps.push({
+					kind: "mention-threads",
+					label: "Mention threads",
+					count: readNumber(threads, "mergedTweets"),
+					source: readString(threads, "source"),
+					partial: readBoolean(threads, "partial"),
+					warnings:
+						Array.isArray(threads.warnings) && threads.warnings.length > 0
+							? threads.warnings.map(String)
+							: undefined,
+				});
+				return steps;
+			}),
 	},
 	likes: {
 		label: "Likes",
@@ -186,68 +190,77 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	dms: {
 		label: "Direct messages",
 		accountAware: false,
-		run: async (account) => {
-			const result = await syncDirectMessagesViaCachedBird({
-				account,
-				limit: 50,
-				refresh: true,
-			});
-			return [
-				{
-					kind: "dms",
-					label: "Direct messages",
-					count: readNumber(result, "messages"),
-					source: readString(result, "source"),
-				},
-			];
-		},
+		run: (account) =>
+			Effect.gen(function* () {
+				const result = yield* syncDirectMessagesViaCachedBirdEffect({
+					account,
+					limit: 50,
+					refresh: true,
+				});
+				return [
+					{
+						kind: "dms",
+						label: "Direct messages",
+						count: readNumber(result, "messages"),
+						source: readString(result, "source"),
+					},
+				];
+			}),
 	},
 };
 
-async function syncSavedCollection(
+function syncSavedCollection(
 	kind: "likes" | "bookmarks",
 	account: string | undefined,
-) {
-	const isNonDefaultAccount =
-		account !== undefined && account !== resolveDefaultSyncAccountId();
-	const result = await syncTimelineCollection({
-		kind,
-		account,
-		mode: isNonDefaultAccount ? "xurl" : "auto",
-		limit: 100,
-		maxPages: 5,
-		refresh: true,
-		earlyStop: true,
-	});
-	return [
-		{
+): Effect.Effect<WebSyncStep[], unknown> {
+	return Effect.gen(function* () {
+		const isNonDefaultAccount =
+			account !== undefined && account !== resolveDefaultSyncAccountId();
+		const result = yield* syncTimelineCollectionEffect({
 			kind,
-			label: kind === "likes" ? "Likes" : "Bookmarks",
-			count: readNumber(result, "count"),
-			source: readString(result, "source"),
-		},
-	];
+			account,
+			mode: isNonDefaultAccount ? "xurl" : "auto",
+			limit: 100,
+			maxPages: 5,
+			refresh: true,
+			earlyStop: true,
+		});
+		return [
+			{
+				kind,
+				label: kind === "likes" ? "Likes" : "Bookmarks",
+				count: readNumber(result, "count"),
+				source: readString(result, "source"),
+			},
+		];
+	});
 }
 
-async function performWebSync(
+export function performWebSyncEffect(kind: WebSyncKind, accountId?: string) {
+	return Effect.gen(function* () {
+		const startedAt = new Date().toISOString();
+		const steps = yield* WEB_SYNC_PLANS[kind].run(accountId);
+
+		const backup = yield* maybeAutoSyncBackupEffect();
+		const finishedAt = new Date().toISOString();
+		return {
+			ok: true,
+			kind,
+			...(accountId ? { accountId } : {}),
+			startedAt,
+			finishedAt,
+			summary: summarizeSteps(steps),
+			steps,
+			backup,
+		} satisfies WebSyncResponse;
+	});
+}
+
+function performWebSync(
 	kind: WebSyncKind,
 	accountId?: string,
 ): Promise<WebSyncResponse> {
-	const startedAt = new Date().toISOString();
-	const steps = await WEB_SYNC_PLANS[kind].run(accountId);
-
-	const backup = await maybeAutoSyncBackup();
-	const finishedAt = new Date().toISOString();
-	return {
-		ok: true,
-		kind,
-		...(accountId ? { accountId } : {}),
-		startedAt,
-		finishedAt,
-		summary: summarizeSteps(steps),
-		steps,
-		backup,
-	};
+	return runEffectPromise(performWebSyncEffect(kind, accountId));
 }
 
 function createWebSyncJobId(kind: WebSyncKind) {
@@ -399,37 +412,50 @@ export function getWebSyncJob(id: string): WebSyncJobSnapshot | null {
 	return webSyncJobs.get(id) ?? null;
 }
 
-export async function runWebSync(
+export function runWebSyncEffect(
+	kind: WebSyncKind,
+	accountId?: string,
+): Effect.Effect<WebSyncResponse, Error> {
+	return Effect.gen(function* () {
+		const effectiveAccountId = getEffectiveAccountId(kind, accountId);
+		const current = runningSyncs.get(
+			getRunningSyncKey(kind, effectiveAccountId),
+		);
+		const startedAt = new Date().toISOString();
+		if (current) {
+			return {
+				ok: false,
+				kind,
+				...(effectiveAccountId ? { accountId: effectiveAccountId } : {}),
+				startedAt,
+				summary: "Sync already running",
+				steps: [],
+				inProgress: true,
+			} satisfies WebSyncResponse;
+		}
+
+		const job = startWebSync(kind, effectiveAccountId);
+		while (job.inProgress) {
+			yield* Effect.sleep(25);
+			const latest = getWebSyncJob(job.id);
+			if (!latest?.inProgress) {
+				if (!latest?.result)
+					return yield* Effect.fail(new Error("Sync job disappeared"));
+				return latest.result;
+			}
+		}
+
+		if (!job.result)
+			return yield* Effect.fail(new Error("Sync job did not finish"));
+		return job.result;
+	});
+}
+
+export function runWebSync(
 	kind: WebSyncKind,
 	accountId?: string,
 ): Promise<WebSyncResponse> {
-	const effectiveAccountId = getEffectiveAccountId(kind, accountId);
-	const current = runningSyncs.get(getRunningSyncKey(kind, effectiveAccountId));
-	const startedAt = new Date().toISOString();
-	if (current) {
-		return {
-			ok: false,
-			kind,
-			...(effectiveAccountId ? { accountId: effectiveAccountId } : {}),
-			startedAt,
-			summary: "Sync already running",
-			steps: [],
-			inProgress: true,
-		};
-	}
-
-	const job = startWebSync(kind, effectiveAccountId);
-	while (job.inProgress) {
-		await new Promise((resolve) => setTimeout(resolve, 25));
-		const latest = getWebSyncJob(job.id);
-		if (!latest?.inProgress) {
-			if (!latest?.result) throw new Error("Sync job disappeared");
-			return latest.result;
-		}
-	}
-
-	if (!job.result) throw new Error("Sync job did not finish");
-	return job.result;
+	return runEffectPromise(runWebSyncEffect(kind, accountId));
 }
 
 export function clearWebSyncLocksForTests() {

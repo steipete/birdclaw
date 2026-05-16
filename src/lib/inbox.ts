@@ -1,5 +1,7 @@
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
-import { scoreInboxItemWithOpenAI } from "./openai";
+import { runEffectPromise } from "./effect-runtime";
+import { scoreInboxItemWithOpenAIEffect } from "./openai";
 import { listDmConversations, listTimelineItems } from "./queries";
 import type { InboxItem, InboxQuery, InboxResponse } from "./types";
 
@@ -151,30 +153,44 @@ export function listInboxItems({
 	};
 }
 
-export async function scoreInbox({
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
+
+export function scoreInboxEffect({
 	kind = "mixed",
 	limit = 8,
 }: Pick<InboxQuery, "kind" | "limit"> = {}) {
-	const db = getNativeDb();
-	const items = listInboxItems({ kind, limit }).items;
-	const results = [];
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const items = yield* trySync(() => listInboxItems({ kind, limit }).items);
+		const results = [];
 
-	for (const item of items) {
-		const scored = await scoreInboxItemWithOpenAI({
-			entityKind: item.entityKind,
-			title: item.title,
-			text: item.text,
-			influenceScore: item.influenceScore,
-			participant: {
-				handle: item.participant.handle,
-				displayName: item.participant.displayName,
-				bio: item.participant.bio,
-				followersCount: item.participant.followersCount,
-			},
-		});
+		for (const item of items) {
+			const scored = yield* scoreInboxItemWithOpenAIEffect({
+				entityKind: item.entityKind,
+				title: item.title,
+				text: item.text,
+				influenceScore: item.influenceScore,
+				participant: {
+					handle: item.participant.handle,
+					displayName: item.participant.displayName,
+					bio: item.participant.bio,
+					followersCount: item.participant.followersCount,
+				},
+			});
 
-		db.prepare(
-			`
+			yield* trySync(() =>
+				db
+					.prepare(
+						`
       insert into ai_scores (
         entity_kind, entity_id, model, score, summary, reasoning, updated_at
       ) values (?, ?, ?, ?, ?, ?, ?)
@@ -185,26 +201,33 @@ export async function scoreInbox({
         reasoning = excluded.reasoning,
         updated_at = excluded.updated_at
       `,
-		).run(
-			item.entityKind,
-			item.entityId,
-			scored.model,
-			scored.score,
-			scored.summary,
-			scored.reasoning,
-			new Date().toISOString(),
-		);
+					)
+					.run(
+						item.entityKind,
+						item.entityId,
+						scored.model,
+						scored.score,
+						scored.summary,
+						scored.reasoning,
+						new Date().toISOString(),
+					),
+			);
 
-		results.push({
-			id: item.id,
-			score: scored.score,
-			source: "openai",
-		});
-	}
+			results.push({
+				id: item.id,
+				score: scored.score,
+				source: "openai",
+			});
+		}
 
-	return {
-		ok: true,
-		scored: results.length,
-		items: results,
-	};
+		return {
+			ok: true,
+			scored: results.length,
+			items: results,
+		};
+	});
+}
+
+export function scoreInbox(options: Pick<InboxQuery, "kind" | "limit"> = {}) {
+	return runEffectPromise(scoreInboxEffect(options));
 }

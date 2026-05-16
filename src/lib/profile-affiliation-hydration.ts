@@ -1,5 +1,7 @@
 import type { Database } from "./sqlite";
-import { lookupProfileViaBird } from "./bird";
+import { Effect } from "effect";
+import { lookupProfileViaBirdEffect } from "./bird";
+import { runEffectPromise } from "./effect-runtime";
 import { syncIdentitySearchIndexForProfileIds } from "./identity-search-index";
 import { syncProfileBioEntitiesForProfileId } from "./profile-bio-entities";
 import { recordProfileSnapshot } from "./profile-history";
@@ -22,6 +24,17 @@ interface SyntheticAffiliationRow {
 	label: string | null;
 	source: string;
 	raw_json: string;
+}
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
 }
 
 function normalizeHandle(value: string | null) {
@@ -112,13 +125,16 @@ function findLocalOrganizationProfileId(db: Database, handle: string) {
 	return row?.id ?? null;
 }
 
-export async function hydrateProfileAffiliationOrganizations(
+export function hydrateProfileAffiliationOrganizationsEffect(
 	db: Database,
 	subjectProfileId: string,
-): Promise<ProfileAffiliationHydrationResult> {
-	const rows = db
-		.prepare(
-			`
+): Effect.Effect<ProfileAffiliationHydrationResult, unknown> {
+	return Effect.gen(function* () {
+		const rows = yield* trySync(
+			() =>
+				db
+					.prepare(
+						`
       select subject_profile_id, organization_profile_id, organization_name,
         organization_handle, badge_url, url, label, source, raw_json
       from profile_affiliations
@@ -128,62 +144,85 @@ export async function hydrateProfileAffiliationOrganizations(
         and organization_handle is not null
       order by last_seen_at desc
       `,
-		)
-		.all(subjectProfileId) as SyntheticAffiliationRow[];
+					)
+					.all(subjectProfileId) as SyntheticAffiliationRow[],
+		);
 
-	const result: ProfileAffiliationHydrationResult = {
-		checked: rows.length,
-		hydrated: 0,
-		skipped: 0,
-		errors: [],
-	};
+		const result: ProfileAffiliationHydrationResult = {
+			checked: rows.length,
+			hydrated: 0,
+			skipped: 0,
+			errors: [],
+		};
 
-	for (const row of rows) {
-		const handle = normalizeHandle(row.organization_handle);
-		if (!handle) {
-			result.skipped += 1;
-			continue;
-		}
-		try {
-			const localOrganizationProfileId = findLocalOrganizationProfileId(
-				db,
-				handle,
-			);
-			if (localOrganizationProfileId) {
-				db.transaction(() => {
-					replaceSyntheticAffiliation(db, row, localOrganizationProfileId);
-				})();
+		for (const row of rows) {
+			const handle = normalizeHandle(row.organization_handle);
+			if (!handle) {
+				result.skipped += 1;
+				continue;
+			}
+			const hydrated = yield* Effect.gen(function* () {
+				const localOrganizationProfileId = yield* trySync(() =>
+					findLocalOrganizationProfileId(db, handle),
+				);
+				if (localOrganizationProfileId) {
+					yield* trySync(() =>
+						db.transaction(() => {
+							replaceSyntheticAffiliation(db, row, localOrganizationProfileId);
+						})(),
+					);
+					result.hydrated += 1;
+					return true;
+				}
+
+				const user = yield* lookupProfileViaBirdEffect(handle);
+				if (!user) {
+					result.skipped += 1;
+					return true;
+				}
+				const resolved = yield* trySync(() => upsertProfileFromXUser(db, user));
+				if (resolved.profile.id === row.organization_profile_id) {
+					result.skipped += 1;
+					return true;
+				}
+				yield* trySync(() =>
+					db.transaction(() => {
+						replaceSyntheticAffiliation(db, row, resolved.profile.id);
+					})(),
+				);
 				result.hydrated += 1;
+				return true;
+			}).pipe(
+				Effect.catchAll((error) => {
+					result.errors.push({
+						handle,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					return Effect.succeed(false);
+				}),
+			);
+			if (!hydrated) {
 				continue;
 			}
+		}
 
-			const user = await lookupProfileViaBird(handle);
-			if (!user) {
-				result.skipped += 1;
-				continue;
-			}
-			const resolved = upsertProfileFromXUser(db, user);
-			if (resolved.profile.id === row.organization_profile_id) {
-				result.skipped += 1;
-				continue;
-			}
-			db.transaction(() => {
-				replaceSyntheticAffiliation(db, row, resolved.profile.id);
-			})();
-			result.hydrated += 1;
-		} catch (error) {
-			result.errors.push({
-				handle,
-				error: error instanceof Error ? error.message : String(error),
+		if (result.hydrated > 0) {
+			yield* trySync(() => {
+				recordProfileSnapshot(db, subjectProfileId, "affiliation_hydration");
+				syncProfileBioEntitiesForProfileId(db, subjectProfileId);
+				syncIdentitySearchIndexForProfileIds(db, [subjectProfileId]);
 			});
 		}
-	}
 
-	if (result.hydrated > 0) {
-		recordProfileSnapshot(db, subjectProfileId, "affiliation_hydration");
-		syncProfileBioEntitiesForProfileId(db, subjectProfileId);
-		syncIdentitySearchIndexForProfileIds(db, [subjectProfileId]);
-	}
+		return result;
+	});
+}
 
-	return result;
+export function hydrateProfileAffiliationOrganizations(
+	db: Database,
+	subjectProfileId: string,
+): Promise<ProfileAffiliationHydrationResult> {
+	return runEffectPromise(
+		hydrateProfileAffiliationOrganizationsEffect(db, subjectProfileId),
+	);
 }

@@ -11,8 +11,9 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { __test__, importArchive } from "./archive-import";
+import { __test__, importArchive, importArchiveEffect } from "./archive-import";
 import { getBirdclawPaths, resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listFollowEvents, listUnfollowedSince } from "./follow-graph";
@@ -679,6 +680,17 @@ describe("archive import", () => {
 
 		await importArchive(archivePath);
 		expect(statSync(tweetMediaPath).mtimeMs).toBe(tweetMediaMtime);
+	});
+
+	it("exposes archive import as a lazy Effect", async () => {
+		const archivePath = makeArchiveWithoutAccount();
+
+		const effect = importArchiveEffect(archivePath);
+
+		expect(() => effect).not.toThrow();
+		await expect(Effect.runPromise(effect)).rejects.toThrow(
+			"Archive missing data/account.js",
+		);
 	});
 
 	it("skips archive media extraction for unrelated selected slices", async () => {

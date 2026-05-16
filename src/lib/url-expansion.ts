@@ -1,4 +1,6 @@
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type { UrlExpansionItem } from "./types";
 import {
@@ -40,6 +42,17 @@ function trimTrailingPunctuation(url: string) {
 	return url.replace(/[.,;:!?]+$/g, "");
 }
 
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
+
 export function extractUrls(text: string) {
 	return Array.from(
 		new Set(
@@ -76,28 +89,32 @@ function persistExpansion(item: UrlExpansionItem) {
 	upsertUrlExpansion(db, normalizeUrlExpansionForIndex(item));
 }
 
-async function fetchExpansion(
+function fetchExpansionEffect(
 	url: string,
 	fetchImpl: typeof fetch,
 	timeoutMs: number,
-): Promise<CachedUrlExpansion> {
+): Effect.Effect<CachedUrlExpansion, never> {
 	const requestInit = {
 		redirect: "follow",
 		headers: { "user-agent": "birdclaw/0.3 url-expander" },
 		signal: AbortSignal.timeout(timeoutMs),
 	} satisfies RequestInit;
 
-	try {
-		let response = await fetchImpl(url, {
-			...requestInit,
-			method: "HEAD",
-		});
+	return Effect.gen(function* () {
+		let response = yield* tryPromise(() =>
+			fetchImpl(url, {
+				...requestInit,
+				method: "HEAD",
+			}),
+		);
 
 		if (!response.url || response.url === url || response.status >= 400) {
-			response = await fetchImpl(url, {
-				...requestInit,
-				method: "GET",
-			});
+			response = yield* tryPromise(() =>
+				fetchImpl(url, {
+					...requestInit,
+					method: "GET",
+				}),
+			);
 		}
 
 		const finalUrl = response.url || url;
@@ -106,64 +123,86 @@ async function fetchExpansion(
 			finalUrl,
 			status: response.ok || finalUrl !== url ? "hit" : "miss",
 			...(response.ok ? {} : { error: `HTTP ${response.status}` }),
-		};
-	} catch (error) {
-		return {
-			expandedUrl: url,
-			finalUrl: url,
-			status: "error",
-			error: error instanceof Error ? error.message : String(error),
-		};
-	}
+		} satisfies CachedUrlExpansion;
+	}).pipe(
+		Effect.catchAll((error) =>
+			Effect.succeed({
+				expandedUrl: url,
+				finalUrl: url,
+				status: "error" as const,
+				error: error instanceof Error ? error.message : String(error),
+			}),
+		),
+	);
 }
 
-export async function expandUrls(
+export function expandUrlsEffect(
+	urls: string[],
+	options: ExpandUrlsOptions = {},
+): Effect.Effect<UrlExpansionItem[], unknown> {
+	return Effect.gen(function* () {
+		const uniqueUrls = Array.from(new Set(urls));
+		const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+		const timeoutMs = options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+		const results: UrlExpansionItem[] = [];
+
+		for (const url of uniqueUrls) {
+			const cached = yield* trySync(() =>
+				readSyncCache<CachedUrlExpansion>(cacheKeyForUrl(url)),
+			);
+			if (cached && !options.refresh) {
+				const maxAge =
+					cached.value.status === "hit"
+						? (options.successMaxAgeMs ?? SUCCESS_CACHE_TTL_MS)
+						: (options.failureMaxAgeMs ?? FAILURE_CACHE_TTL_MS);
+				if (isFresh(cached.updatedAt, maxAge)) {
+					const item = toExpansionItem(
+						url,
+						cached.value,
+						"cache",
+						cached.updatedAt,
+					);
+					yield* trySync(() => persistExpansion(item));
+					results.push(item);
+					continue;
+				}
+			}
+
+			const value = yield* fetchExpansionEffect(url, fetchImpl, timeoutMs);
+			const updatedAt = yield* trySync(() =>
+				writeSyncCache(cacheKeyForUrl(url), value),
+			);
+			const item = toExpansionItem(url, value, "network", updatedAt);
+			yield* trySync(() => persistExpansion(item));
+			results.push(item);
+		}
+
+		return results;
+	});
+}
+
+export function expandUrls(
 	urls: string[],
 	options: ExpandUrlsOptions = {},
 ): Promise<UrlExpansionItem[]> {
-	const uniqueUrls = Array.from(new Set(urls));
-	const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-	const timeoutMs = options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
-	const results: UrlExpansionItem[] = [];
-
-	for (const url of uniqueUrls) {
-		const cached = readSyncCache<CachedUrlExpansion>(cacheKeyForUrl(url));
-		if (cached && !options.refresh) {
-			const maxAge =
-				cached.value.status === "hit"
-					? (options.successMaxAgeMs ?? SUCCESS_CACHE_TTL_MS)
-					: (options.failureMaxAgeMs ?? FAILURE_CACHE_TTL_MS);
-			if (isFresh(cached.updatedAt, maxAge)) {
-				const item = toExpansionItem(
-					url,
-					cached.value,
-					"cache",
-					cached.updatedAt,
-				);
-				persistExpansion(item);
-				results.push(item);
-				continue;
-			}
-		}
-
-		const value = await fetchExpansion(url, fetchImpl, timeoutMs);
-		const updatedAt = writeSyncCache(cacheKeyForUrl(url), value);
-		const item = toExpansionItem(url, value, "network", updatedAt);
-		persistExpansion(item);
-		results.push(item);
-	}
-
-	return results;
+	return runEffectPromise(expandUrlsEffect(urls, options));
 }
 
-export async function expandUrlsFromTexts(
+export function expandUrlsFromTextsEffect(
 	texts: string[],
 	options: ExpandUrlsOptions = {},
 ) {
-	return expandUrls(
+	return expandUrlsEffect(
 		texts.flatMap((text) => extractUrls(text)),
 		options,
 	);
+}
+
+export function expandUrlsFromTexts(
+	texts: string[],
+	options: ExpandUrlsOptions = {},
+) {
+	return runEffectPromise(expandUrlsFromTextsEffect(texts, options));
 }
 
 export const __test__ = {

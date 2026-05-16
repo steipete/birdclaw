@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { Effect } from "effect";
 import type { Database } from "./sqlite";
-import { findArchives } from "./archive-finder";
+import { findArchivesEffect } from "./archive-finder";
 import { getDb, getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { fetchProfileAffiliations } from "./profile-affiliations";
 import { displayUrlForLink, enrichFallbackUrlEntities } from "./tweet-render";
 import type {
@@ -23,11 +25,22 @@ import type {
 	TweetUrlEntity,
 } from "./types";
 import {
-	dmViaXurl,
-	getTransportStatus,
-	postViaXurl,
-	replyViaXurl,
+	dmViaXurlEffect,
+	getTransportStatusEffect,
+	postViaXurlEffect,
+	replyViaXurlEffect,
 } from "./xurl";
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
 
 function getInfluenceScore(followersCount: number) {
 	return Math.round(Math.log10(followersCount + 10) * 24);
@@ -354,51 +367,70 @@ function countTimelineEdges(db: Database, kind: "home" | "mention") {
 
 const RECENT_TIMELINE_EDGE_CANDIDATES = 5000;
 
-export async function getQueryEnvelope(): Promise<QueryEnvelope> {
-	const db = getDb();
-	const nativeDb = getNativeDb();
-	const homeCount = countTimelineEdges(nativeDb, "home");
-	const mentionCount = countTimelineEdges(nativeDb, "mention");
-	const counts = await Promise.all([
-		db
-			.selectFrom("dm_conversations")
-			.select((eb) => eb.fn.countAll().as("count"))
-			.executeTakeFirstOrThrow(),
-		db
-			.selectFrom("dm_conversations")
-			.select((eb) => eb.fn.countAll().as("count"))
-			.where("needs_reply", "=", 1)
-			.executeTakeFirstOrThrow(),
-		db
-			.selectFrom("accounts")
-			.selectAll()
-			.orderBy("is_default", "desc")
-			.orderBy("name", "asc")
-			.execute(),
-		findArchives(),
-		getTransportStatus(),
-	]);
+export function getQueryEnvelopeEffect(): Effect.Effect<
+	QueryEnvelope,
+	unknown
+> {
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getDb());
+		const nativeDb = yield* trySync(() => getNativeDb());
+		const homeCount = yield* trySync(() =>
+			countTimelineEdges(nativeDb, "home"),
+		);
+		const mentionCount = yield* trySync(() =>
+			countTimelineEdges(nativeDb, "mention"),
+		);
+		const counts = yield* Effect.all({
+			dms: tryPromise(() =>
+				db
+					.selectFrom("dm_conversations")
+					.select((eb) => eb.fn.countAll().as("count"))
+					.executeTakeFirstOrThrow(),
+			),
+			needsReply: tryPromise(() =>
+				db
+					.selectFrom("dm_conversations")
+					.select((eb) => eb.fn.countAll().as("count"))
+					.where("needs_reply", "=", 1)
+					.executeTakeFirstOrThrow(),
+			),
+			accounts: tryPromise(() =>
+				db
+					.selectFrom("accounts")
+					.selectAll()
+					.orderBy("is_default", "desc")
+					.orderBy("name", "asc")
+					.execute(),
+			),
+			archives: findArchivesEffect(),
+			transport: getTransportStatusEffect(),
+		});
 
-	return {
-		stats: {
-			home: homeCount,
-			mentions: mentionCount,
-			dms: Number(counts[0].count),
-			needsReply: Number(counts[1].count),
-			inbox: mentionCount + Number(counts[1].count),
-		},
-		accounts: counts[2].map((row) => ({
-			id: row.id,
-			name: row.name,
-			handle: row.handle,
-			externalUserId: row.external_user_id,
-			transport: row.transport,
-			isDefault: row.is_default,
-			createdAt: row.created_at,
-		})) satisfies AccountRecord[],
-		archives: counts[3],
-		transport: counts[4],
-	};
+		return {
+			stats: {
+				home: homeCount,
+				mentions: mentionCount,
+				dms: Number(counts.dms.count),
+				needsReply: Number(counts.needsReply.count),
+				inbox: mentionCount + Number(counts.needsReply.count),
+			},
+			accounts: counts.accounts.map((row) => ({
+				id: row.id,
+				name: row.name,
+				handle: row.handle,
+				externalUserId: row.external_user_id,
+				transport: row.transport,
+				isDefault: row.is_default,
+				createdAt: row.created_at,
+			})) satisfies AccountRecord[],
+			archives: counts.archives,
+			transport: counts.transport,
+		};
+	});
+}
+
+export function getQueryEnvelope(): Promise<QueryEnvelope> {
+	return runEffectPromise(getQueryEnvelopeEffect());
 }
 
 export function listTimelineItems({
@@ -924,6 +956,8 @@ export function listDmConversations({
 	participant,
 	search,
 	replyFilter = "all",
+	since,
+	until,
 	minFollowers,
 	maxFollowers,
 	minInfluenceScore,
@@ -960,6 +994,15 @@ export function listDmConversations({
 		where += " and c.needs_reply = 0";
 	} else if (replyFilter === "unreplied") {
 		where += " and c.needs_reply = 1";
+	}
+
+	if (since?.trim()) {
+		where += " and c.last_message_at >= ?";
+		params.push(since);
+	}
+	if (until?.trim()) {
+		where += " and c.last_message_at < ?";
+		params.push(until);
 	}
 
 	if (typeof minFollowers === "number") {
@@ -1435,105 +1478,136 @@ function getLocalAuthorProfileId(accountId: string) {
 	return row?.id;
 }
 
-export async function createPost(accountId: string, text: string) {
-	const db = getNativeDb();
-	const authorProfileId = getLocalAuthorProfileId(accountId);
-	if (!authorProfileId) {
-		throw new Error("No local author profile for account");
-	}
+export function createPostEffect(accountId: string, text: string) {
+	return Effect.gen(function* () {
+		const { tweetId } = yield* trySync(() => {
+			const db = getNativeDb();
+			const authorProfileId = getLocalAuthorProfileId(accountId);
+			if (!authorProfileId) {
+				throw new Error("No local author profile for account");
+			}
 
-	const now = new Date().toISOString();
-	const tweetId = `tweet_${randomUUID()}`;
+			const now = new Date().toISOString();
+			const tweetId = `tweet_${randomUUID()}`;
 
-	db.prepare(
-		`
+			db.prepare(
+				`
     insert into tweets (
       id, account_id, author_profile_id, kind, text, created_at,
       is_replied, reply_to_id, like_count, media_count, bookmarked, liked
     ) values (?, ?, ?, 'home', ?, ?, 0, null, 0, 0, 0, 0)
     `,
-	).run(tweetId, accountId, authorProfileId, text, now);
+			).run(tweetId, accountId, authorProfileId, text, now);
 
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-	db.prepare(
-		"insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?)",
-	).run(randomUUID(), accountId, tweetId, "post", text, now);
+			db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
+				tweetId,
+				text,
+			);
+			db.prepare(
+				"insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?)",
+			).run(randomUUID(), accountId, tweetId, "post", text, now);
+			return { tweetId };
+		});
 
-	const transport = await postViaXurl(text);
-	return { ok: true, transport, tweetId };
+		const transport = yield* postViaXurlEffect(text);
+		return { ok: true, transport, tweetId };
+	});
 }
 
-export async function createTweetReply(
+export function createPost(accountId: string, text: string) {
+	return runEffectPromise(createPostEffect(accountId, text));
+}
+
+export function createTweetReplyEffect(
 	accountId: string,
 	tweetId: string,
 	text: string,
 ) {
-	const db = getNativeDb();
-	const authorProfileId = getLocalAuthorProfileId(accountId);
-	if (!authorProfileId) {
-		throw new Error("No local author profile for account");
-	}
+	return Effect.gen(function* () {
+		const { replyId } = yield* trySync(() => {
+			const db = getNativeDb();
+			const authorProfileId = getLocalAuthorProfileId(accountId);
+			if (!authorProfileId) {
+				throw new Error("No local author profile for account");
+			}
 
-	const now = new Date().toISOString();
-	db.prepare("update tweets set is_replied = 1 where id = ?").run(tweetId);
+			const now = new Date().toISOString();
+			db.prepare("update tweets set is_replied = 1 where id = ?").run(tweetId);
 
-	const replyId = `tweet_${randomUUID()}`;
-	db.prepare(
-		`
+			const replyId = `tweet_${randomUUID()}`;
+			db.prepare(
+				`
     insert into tweets (
       id, account_id, author_profile_id, kind, text, created_at,
       is_replied, reply_to_id, like_count, media_count, bookmarked, liked
     ) values (?, ?, ?, 'home', ?, ?, 1, ?, 0, 0, 0, 0)
     `,
-	).run(replyId, accountId, authorProfileId, text, now, tweetId);
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		replyId,
-		text,
-	);
+			).run(replyId, accountId, authorProfileId, text, now, tweetId);
+			db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
+				replyId,
+				text,
+			);
 
-	db.prepare(
-		"insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?)",
-	).run(randomUUID(), accountId, tweetId, "reply", text, now);
+			db.prepare(
+				"insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?)",
+			).run(randomUUID(), accountId, tweetId, "reply", text, now);
+			return { replyId };
+		});
 
-	const transport = await replyViaXurl(tweetId, text);
-	return { ok: true, transport, replyId };
+		const transport = yield* replyViaXurlEffect(tweetId, text);
+		return { ok: true, transport, replyId };
+	});
 }
 
-export async function createDmReply(conversationId: string, text: string) {
-	const db = getNativeDb();
-	const conversation = getConversationThread(conversationId);
-	if (!conversation) {
-		throw new Error("Conversation not found");
-	}
-	const authorProfileId = getLocalAuthorProfileId(
-		conversation.conversation.accountId,
-	);
-	if (!authorProfileId) {
-		throw new Error("No local author profile for account");
-	}
+export function createTweetReply(
+	accountId: string,
+	tweetId: string,
+	text: string,
+) {
+	return runEffectPromise(createTweetReplyEffect(accountId, tweetId, text));
+}
 
-	const now = new Date().toISOString();
-	const outboundId = `msg_${randomUUID()}`;
+export function createDmReplyEffect(conversationId: string, text: string) {
+	return Effect.gen(function* () {
+		const { handle, outboundId } = yield* trySync(() => {
+			const db = getNativeDb();
+			const conversation = getConversationThread(conversationId);
+			if (!conversation) {
+				throw new Error("Conversation not found");
+			}
+			const authorProfileId = getLocalAuthorProfileId(
+				conversation.conversation.accountId,
+			);
+			if (!authorProfileId) {
+				throw new Error("No local author profile for account");
+			}
 
-	db.prepare(
-		`
+			const now = new Date().toISOString();
+			const outboundId = `msg_${randomUUID()}`;
+
+			db.prepare(
+				`
     insert into dm_messages (
       id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
     ) values (?, ?, ?, ?, ?, 'outbound', 1, 0)
     `,
-	).run(outboundId, conversationId, authorProfileId, text, now);
-	db.prepare("insert into dm_fts (message_id, text) values (?, ?)").run(
-		outboundId,
-		text,
-	);
+			).run(outboundId, conversationId, authorProfileId, text, now);
+			db.prepare("insert into dm_fts (message_id, text) values (?, ?)").run(
+				outboundId,
+				text,
+			);
 
-	refreshDmConversationState(db, conversationId, now);
-	const transport = await dmViaXurl(
-		conversation.conversation.participant.handle,
-		text,
-	);
-	return { ok: true, transport, messageId: outboundId };
+			refreshDmConversationState(db, conversationId, now);
+			return {
+				handle: conversation.conversation.participant.handle,
+				outboundId,
+			};
+		});
+		const transport = yield* dmViaXurlEffect(handle, text);
+		return { ok: true, transport, messageId: outboundId };
+	});
+}
+
+export function createDmReply(conversationId: string, text: string) {
+	return runEffectPromise(createDmReplyEffect(conversationId, text));
 }

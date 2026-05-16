@@ -78,6 +78,12 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - CI disables live writes
 - app has no auth layer because it is a local-only tool
 
+### Runtime Architecture
+
+Birdclaw uses [Effect](https://effect.website/) for new and migrated I/O-heavy internals. The current Effect boundary covers browser API fetches, web sync orchestration, sync-job polling, `bird`/`xurl` subprocess helpers and public adapters, backup export/import/validation and Git orchestration, moderation action transport and target resolution, `bird` action/profile adapters, blocks/mutes write helpers, remote block sync, batch blocklist imports, x-web mutations, authored/mentions/mention-thread sync including xurl recent-search and parent-walk fallback internals, conversation loading, home timeline, saved collection, DM live sync, profile hydration/resolution/affiliation/reply inspection, shared tweet lookup, research and whois report generation, follow graph live sync, link preview/index fetches, archive discovery/import subprocesses, avatar/URL caches, OpenAI/inbox scoring, scheduled bookmark sync locking/audit/launchd install, and the paced/concurrent `media fetch` archive-reuse and HTTP download pipeline.
+
+Public CLI and React call sites still expose plain `Promise` wrappers where that keeps the surrounding framework code simple. New core code should prefer `Effect` programs with typed error values, then add a Promise wrapper only at the outer CLI, route, or component boundary.
+
 ## Still In Progress
 
 - broader resumable live sync beyond the targeted paths already wired

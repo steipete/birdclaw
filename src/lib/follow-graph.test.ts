@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -14,6 +15,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	listFollowUsersViaBird: mocks.listFollowUsersViaBird,
+	listFollowUsersViaBirdEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listFollowUsersViaBird(options),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./xurl", () => ({
@@ -118,6 +124,31 @@ describe("follow graph sync and cache-only queries", () => {
 			all: true,
 			maxPages: undefined,
 		});
+		expect(mocks.listFollowUsersViaXurl).not.toHaveBeenCalled();
+	});
+
+	it("builds live sync effects lazily", async () => {
+		setupTempHome();
+		mocks.listFollowUsersViaBird.mockReset();
+		mocks.listFollowUsersViaBird.mockResolvedValueOnce({
+			data: [user("1", "alice", 100)],
+			meta: { result_count: 1, page_count: 1, next_token: null },
+		});
+		const { syncFollowGraphEffect } = await import("./follow-graph");
+
+		const effect = syncFollowGraphEffect({
+			direction: "followers",
+			yes: true,
+			refresh: true,
+		});
+
+		expect(mocks.listFollowUsersViaBird).not.toHaveBeenCalled();
+		expect(await Effect.runPromise(effect)).toMatchObject({
+			ok: true,
+			source: "bird",
+			count: 1,
+		});
+		expect(mocks.listFollowUsersViaBird).toHaveBeenCalledTimes(1);
 		expect(mocks.listFollowUsersViaXurl).not.toHaveBeenCalled();
 	});
 

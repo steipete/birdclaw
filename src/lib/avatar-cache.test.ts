@@ -2,12 +2,14 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	__test__,
 	getAvatarCachePath,
 	normalizeAvatarUrl,
 	readCachedAvatar,
+	readCachedAvatarEffect,
 } from "./avatar-cache";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -212,6 +214,16 @@ describe("avatar cache", () => {
 		);
 
 		await expect(readCachedAvatar("profile_blank")).resolves.toBeNull();
+	});
+
+	it("exposes cached avatar reads as Effects", async () => {
+		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-avatar-"));
+		tempDirs.push(tempDir);
+		process.env.BIRDCLAW_HOME = tempDir;
+
+		const effect = readCachedAvatarEffect("missing");
+
+		await expect(Effect.runPromise(effect)).resolves.toBeNull();
 	});
 
 	it("throws when remote avatar fetch fails", async () => {

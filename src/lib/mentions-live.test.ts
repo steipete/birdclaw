@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -11,9 +12,18 @@ const listMentionsViaBirdMock = vi.fn();
 const listMentionsViaXurlMock = vi.fn();
 const lookupUsersByHandlesMock = vi.fn();
 
-vi.mock("./bird", () => ({
-	listMentionsViaBird: (...args: unknown[]) => listMentionsViaBirdMock(...args),
-}));
+vi.mock("./bird", async () => {
+	const { Effect } = await import("effect");
+	return {
+		listMentionsViaBird: (...args: unknown[]) =>
+			listMentionsViaBirdMock(...args),
+		listMentionsViaBirdEffect: (...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => listMentionsViaBirdMock(...args),
+				catch: (error) => error,
+			}),
+	};
+});
 
 vi.mock("./xurl", () => ({
 	listMentionsViaXurl: (...args: unknown[]) => listMentionsViaXurlMock(...args),
@@ -92,6 +102,53 @@ describe("cached live mentions", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("builds mention sync effects lazily", async () => {
+		makeTempHome();
+		insertLocalMentionBaseline();
+		const { syncMentionsEffect } = await import("./mentions-live");
+
+		const effect = syncMentionsEffect({
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(listMentionsViaXurlMock).not.toHaveBeenCalled();
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "tweet_lazy_mention",
+					author_id: "42",
+					text: "lazy mention",
+					created_at: "2026-03-09T02:00:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam" }],
+			},
+			meta: { result_count: 1 },
+		});
+
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			source: "xurl",
+			count: 1,
+		});
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("validates mention sync effects only when run", async () => {
+		makeTempHome();
+		const { syncMentionsEffect } = await import("./mentions-live");
+
+		const effect = syncMentionsEffect({ mode: "xurl", limit: 4 });
+
+		await expect(Effect.runPromise(effect)).rejects.toThrow(
+			"xurl mode requires --limit between 5 and 100",
+		);
+		expect(listMentionsViaXurlMock).not.toHaveBeenCalled();
 	});
 
 	it("fetches live mentions, caches them, and syncs them into the local timeline", async () => {
@@ -1564,6 +1621,76 @@ describe("cached live mentions", () => {
 					id: "tweet_live_4",
 					author_id: "11",
 					text: "Old but still useful",
+					created_at: "2026-03-09T02:03:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "11", username: "des", name: "Des" }],
+			},
+			meta: {
+				result_count: 1,
+				page_count: 1,
+				next_token: null,
+			},
+		});
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("falls back to stale cache when live merge fails", async () => {
+		makeTempHome();
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "tweet_live_cached_before_merge_error",
+					author_id: "11",
+					text: "Cached before merge error",
+					created_at: "2026-03-09T02:03:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "11", username: "des", name: "Des" }],
+			},
+			meta: {
+				result_count: 1,
+				page_count: 1,
+				next_token: null,
+			},
+		});
+		const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+
+		await exportMentionsViaCachedXurl({
+			account: "acct_primary",
+			limit: 5,
+			refresh: true,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: null,
+					author_id: "11",
+					text: "bad live row",
+					created_at: "2026-03-09T02:04:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "11", username: "des", name: "Des" }],
+			},
+			meta: { result_count: 1 },
+		});
+
+		const payload = await exportMentionsViaCachedXurl({
+			account: "acct_primary",
+			limit: 5,
+			cacheTtlMs: 0,
+		});
+
+		expect(payload).toEqual({
+			data: [
+				{
+					id: "tweet_live_cached_before_merge_error",
+					author_id: "11",
+					text: "Cached before merge error",
 					created_at: "2026-03-09T02:03:00.000Z",
 				},
 			],

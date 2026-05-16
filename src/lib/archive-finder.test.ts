@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -33,7 +34,7 @@ vi.mock("node:os", () => ({
 	homedir: mocks.homedir,
 }));
 
-import { findArchives } from "./archive-finder";
+import { findArchives, findArchivesEffect } from "./archive-finder";
 
 const originalPlatform = process.platform;
 
@@ -186,5 +187,17 @@ describe("archive finder", () => {
 
 		await expect(findArchives()).resolves.toEqual([]);
 		expect(mocks.execAsync).not.toHaveBeenCalled();
+	});
+
+	it("builds archive discovery effects lazily", async () => {
+		mocks.existsSync.mockReturnValue(false);
+		mocks.execAsync.mockResolvedValue({ stdout: "" });
+
+		const effect = findArchivesEffect();
+
+		expect(mocks.homedir).not.toHaveBeenCalled();
+		expect(mocks.existsSync).not.toHaveBeenCalled();
+		expect(mocks.execAsync).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toEqual([]);
 	});
 });

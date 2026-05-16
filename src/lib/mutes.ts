@@ -2,7 +2,14 @@ import { getNativeDb } from "./db";
 import { toProfile } from "./moderation-target";
 import type { BlockItem } from "./types";
 
-export { addMute, recordMute, removeMute } from "./mutes-write";
+export {
+	addMute,
+	addMuteEffect,
+	recordMute,
+	recordMuteEffect,
+	removeMute,
+	removeMuteEffect,
+} from "./mutes-write";
 
 export interface MuteItem {
 	accountId: string;

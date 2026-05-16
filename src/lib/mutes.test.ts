@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -106,6 +107,22 @@ describe("mutes", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("builds mute write effects lazily", async () => {
+		makeTempHome();
+		const { addMuteEffect } = await import("./mutes");
+
+		const effect = addMuteEffect("acct_primary", "@amelia");
+
+		expect(mocks.lookupUsersByHandles).not.toHaveBeenCalled();
+		expect(mocks.muteUserViaBird).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			action: "mute",
+			accountId: "acct_primary",
+		});
+		expect(mocks.muteUserViaBird).toHaveBeenCalledWith("7");
 	});
 
 	it("mutes, lists, and unmutes profiles", async () => {

@@ -1,11 +1,13 @@
 import type { Database } from "./sqlite";
+import { Effect } from "effect";
 import type { ActionsTransport } from "./config";
 import { getNativeDb } from "./db";
+import { runEffectPromise } from "./effect-runtime";
 import {
 	getAccountHandle,
 	getDefaultAccountId,
 	normalizeProfileQuery,
-	resolveProfile,
+	resolveProfileEffect,
 } from "./moderation-target";
 
 export interface ModerationActionOptions {
@@ -18,28 +20,46 @@ interface ResolveModerationTargetParams {
 	selfActionError: string;
 }
 
-export async function resolveModerationTarget({
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
+
+export function resolveModerationTargetEffect({
 	accountId,
 	query,
 	selfActionError,
 }: ResolveModerationTargetParams) {
-	const db = getNativeDb();
-	const resolvedAccountId = accountId || getDefaultAccountId(db);
-	const accountHandle = getAccountHandle(db, resolvedAccountId);
-	if (normalizeProfileQuery(query) === accountHandle) {
-		throw new Error(selfActionError);
-	}
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const resolvedAccountId = accountId || getDefaultAccountId(db);
+		const accountHandle = yield* trySync(() =>
+			getAccountHandle(db, resolvedAccountId),
+		);
+		const normalizedQuery = normalizeProfileQuery(query);
+		if (normalizedQuery === accountHandle) {
+			return yield* Effect.fail(new Error(selfActionError));
+		}
 
-	const resolved = await resolveProfile(query);
-	return {
-		db,
-		resolved,
-		resolvedAccountId,
-		actionQuery:
-			resolved.externalUserId ??
-			resolved.profile.handle ??
-			normalizeProfileQuery(query),
-	};
+		const resolved = yield* resolveProfileEffect(query);
+		return {
+			db,
+			resolved,
+			resolvedAccountId,
+			actionQuery:
+				resolved.externalUserId ?? resolved.profile.handle ?? normalizedQuery,
+		};
+	});
+}
+
+export function resolveModerationTarget(params: ResolveModerationTargetParams) {
+	return runEffectPromise(resolveModerationTargetEffect(params));
 }
 
 export function writeModerationRow(

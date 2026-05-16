@@ -14,8 +14,10 @@ import {
 } from "node:fs";
 import { appendFile, copyFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Effect } from "effect";
 import { getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
+import { runEffectPromise } from "./effect-runtime";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type Row = { id: string; media_json: string };
@@ -98,6 +100,24 @@ const packageVersion = (
 
 function defaultSleep(ms: number) {
 	return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function toMediaError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function tryMediaSync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toMediaError,
+	});
+}
+
+function tryMediaPromise<T>(try_: () => Promise<T>) {
+	return Effect.tryPromise({
+		try: try_,
+		catch: toMediaError,
+	});
 }
 
 function fileSize(filePath: string) {
@@ -454,24 +474,26 @@ function archivePathFor(item: Candidate, mediaOriginalsDir: string) {
 	);
 }
 
-async function reuseFromArchive(
+function reuseFromArchiveEffect(
 	item: Candidate,
 	mediaOriginalsDir: string,
 	maxBytes: number,
-) {
-	const archivePath = archivePathFor(item, mediaOriginalsDir);
-	if (!archivePath || !existsSync(archivePath)) return null;
-	const bytes = fileSize(archivePath);
-	if (bytes > maxBytes) return fail(item, "max-bytes");
-	await copyFile(archivePath, item.tmpPath);
-	await rename(item.tmpPath, item.path);
-	return {
-		fetched: 1,
-		bytes,
-		rateLimited: false,
-		kind: item.kind,
-		reusedFromArchive: true,
-	} satisfies FetchOneResult;
+): Effect.Effect<FetchOneResult | null, Error> {
+	return Effect.gen(function* () {
+		const archivePath = archivePathFor(item, mediaOriginalsDir);
+		if (!archivePath || !existsSync(archivePath)) return null;
+		const bytes = fileSize(archivePath);
+		if (bytes > maxBytes) return fail(item, "max-bytes");
+		yield* tryMediaPromise(() => copyFile(archivePath, item.tmpPath));
+		yield* tryMediaPromise(() => rename(item.tmpPath, item.path));
+		return {
+			fetched: 1,
+			bytes,
+			rateLimited: false,
+			kind: item.kind,
+			reusedFromArchive: true,
+		} satisfies FetchOneResult;
+	});
 }
 
 function contentLength(response: Response) {
@@ -486,49 +508,61 @@ function contentRangeTotal(response: Response) {
 	return total ? Number(total) : null;
 }
 
-async function writeResponseBody(
+function writeResponseBodyEffect(
 	response: Response,
 	tmpPath: string,
 	append: boolean,
 	maxBytes: number,
 	initialBytes: number,
-) {
-	if (!response.body) throw new Error("missing response body");
-	let bytes = 0;
-	if (!append) {
-		await writeFile(tmpPath, Buffer.alloc(0));
-	}
-	const reader = response.body.getReader();
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) {
-				break;
+): Effect.Effect<number, Error> {
+	return Effect.gen(function* () {
+		if (!response.body)
+			return yield* Effect.fail(new Error("missing response body"));
+		let bytes = 0;
+		if (!append) {
+			yield* tryMediaPromise(() => writeFile(tmpPath, Buffer.alloc(0)));
+		}
+		const reader = response.body.getReader();
+		const result = yield* Effect.gen(function* () {
+			for (;;) {
+				const { done, value } = yield* tryMediaPromise(() => reader.read());
+				if (done) {
+					break;
+				}
+				const chunk = Buffer.from(value);
+				bytes += chunk.length;
+				if (initialBytes + bytes > maxBytes) {
+					yield* tryMediaPromise(() => rm(tmpPath, { force: true })).pipe(
+						Effect.catchAll(() => Effect.void),
+					);
+					return yield* Effect.fail(new Error("max-bytes"));
+				}
+				yield* tryMediaPromise(() => appendFile(tmpPath, chunk));
 			}
-			const chunk = Buffer.from(value);
-			bytes += chunk.length;
-			if (initialBytes + bytes > maxBytes) {
-				throw new Error("max-bytes");
-			}
-			await appendFile(tmpPath, chunk);
-		}
-	} catch (error) {
-		if (error instanceof Error && error.message === "max-bytes") {
-			await rm(tmpPath, { force: true });
-		}
-		try {
-			await reader.cancel(error);
-		} catch {
-			// The stream may already be errored; preserving the original failure matters.
-		}
-		throw error;
-	} finally {
-		reader.releaseLock();
-	}
-	return bytes;
+			return bytes;
+		}).pipe(
+			Effect.map((writtenBytes) => ({ ok: true as const, writtenBytes })),
+			Effect.catchAll((error) =>
+				Effect.gen(function* () {
+					if (error.message === "max-bytes") {
+						yield* tryMediaPromise(() => rm(tmpPath, { force: true })).pipe(
+							Effect.catchAll(() => Effect.void),
+						);
+					}
+					yield* tryMediaPromise(() => reader.cancel(error)).pipe(
+						Effect.catchAll(() => Effect.void),
+					);
+					return { error, ok: false as const };
+				}),
+			),
+			Effect.ensuring(Effect.sync(() => reader.releaseLock())),
+		);
+		if (!result.ok) return yield* Effect.fail(result.error);
+		return result.writtenBytes;
+	});
 }
 
-async function fetchOne({
+function fetchOneEffect({
 	item,
 	fetchImpl,
 	sleep,
@@ -542,74 +576,85 @@ async function fetchOne({
 	retryMax: number;
 	userAgent: string;
 	maxBytes: number;
-}): Promise<FetchOneResult> {
-	let rateLimited = false;
-	for (let attempt = 0; attempt <= retryMax; attempt += 1) {
-		const partialBytes = item.kind === "image" ? 0 : fileSize(item.tmpPath);
-		if (partialBytes > maxBytes) {
-			await rm(item.tmpPath, { force: true });
-			return fail(item, "max-bytes");
-		}
-		let response: Response;
-		try {
-			response = await fetchImpl(item.url, {
-				headers: {
-					"user-agent": userAgent,
-					...(partialBytes > 0 ? { range: `bytes=${partialBytes}-` } : {}),
-				},
-			});
-		} catch (error) {
-			return fail(
-				item,
-				error instanceof Error ? error.message : String(error),
-				rateLimited,
-			);
-		}
-		if (response.status === 429) {
-			rateLimited = true;
-			if (attempt < retryMax) {
-				await sleep(1000 * 2 ** attempt);
-				continue;
+}): Effect.Effect<FetchOneResult, Error> {
+	return Effect.gen(function* () {
+		let rateLimited = false;
+		for (let attempt = 0; attempt <= retryMax; attempt += 1) {
+			const partialBytes = item.kind === "image" ? 0 : fileSize(item.tmpPath);
+			if (partialBytes > maxBytes) {
+				yield* tryMediaPromise(() => rm(item.tmpPath, { force: true })).pipe(
+					Effect.catchAll(() => Effect.void),
+				);
+				return fail(item, "max-bytes");
 			}
-			return fail(item, "429", true);
-		}
-		if (!response.ok && response.status !== 206) {
-			return fail(item, String(response.status), rateLimited);
-		}
+			const responseResult = yield* tryMediaPromise(() =>
+				fetchImpl(item.url, {
+					headers: {
+						"user-agent": userAgent,
+						...(partialBytes > 0 ? { range: `bytes=${partialBytes}-` } : {}),
+					},
+				}),
+			).pipe(
+				Effect.map((response) => ({ ok: true as const, response })),
+				Effect.catchAll((error) =>
+					Effect.succeed({ error, ok: false as const }),
+				),
+			);
+			if (!responseResult.ok) {
+				return fail(item, responseResult.error.message, rateLimited);
+			}
+			const { response } = responseResult;
+			if (response.status === 429) {
+				rateLimited = true;
+				if (attempt < retryMax) {
+					yield* tryMediaPromise(() => sleep(1000 * 2 ** attempt)).pipe(
+						Effect.catchAll(() => Effect.void),
+					);
+					continue;
+				}
+				return fail(item, "429", true);
+			}
+			if (!response.ok && response.status !== 206) {
+				return fail(item, String(response.status), rateLimited);
+			}
 
-		const expectedTotal =
-			contentRangeTotal(response) ??
-			(contentLength(response) ?? 0) +
-				(response.status === 206 ? partialBytes : 0);
-		if (expectedTotal > maxBytes) {
-			await rm(item.tmpPath, { force: true });
-			return fail(item, "max-bytes");
-		}
+			const expectedTotal =
+				contentRangeTotal(response) ??
+				(contentLength(response) ?? 0) +
+					(response.status === 206 ? partialBytes : 0);
+			if (expectedTotal > maxBytes) {
+				yield* tryMediaPromise(() => rm(item.tmpPath, { force: true })).pipe(
+					Effect.catchAll(() => Effect.void),
+				);
+				return fail(item, "max-bytes");
+			}
 
-		const append = partialBytes > 0 && response.status === 206;
-		let bytes = 0;
-		try {
-			bytes = await writeResponseBody(
+			const append = partialBytes > 0 && response.status === 206;
+			const bytesResult = yield* writeResponseBodyEffect(
 				response,
 				item.tmpPath,
 				append,
 				maxBytes,
 				append ? partialBytes : 0,
+			).pipe(
+				Effect.map((bytes) => ({ bytes, ok: true as const })),
+				Effect.catchAll((error) =>
+					Effect.succeed({ error, ok: false as const }),
+				),
 			);
-		} catch (error) {
-			if (error instanceof Error && error.message === "max-bytes") {
-				return fail(item, "max-bytes", rateLimited);
+			if (!bytesResult.ok) {
+				return fail(item, bytesResult.error.message, rateLimited);
 			}
-			return fail(
-				item,
-				error instanceof Error ? error.message : String(error),
+			yield* tryMediaPromise(() => rename(item.tmpPath, item.path));
+			return {
+				fetched: 1,
+				bytes: bytesResult.bytes,
 				rateLimited,
-			);
+				kind: item.kind,
+			};
 		}
-		await rename(item.tmpPath, item.path);
-		return { fetched: 1, bytes, rateLimited, kind: item.kind };
-	}
-	return fail(item, "retry exhausted", rateLimited);
+		return fail(item, "retry exhausted", rateLimited);
+	});
 }
 
 function applyFetched(result: MediaFetchResult, fetched: FetchOneResult) {
@@ -632,7 +677,7 @@ function applyFetched(result: MediaFetchResult, fetched: FetchOneResult) {
 	if (fetched.failure) result.failures.push(fetched.failure);
 }
 
-async function runGroup(
+function runGroupEffect(
 	items: Candidate[],
 	parallel: number,
 	pacingMs: number,
@@ -640,127 +685,155 @@ async function runGroup(
 	sleep: (ms: number) => Promise<void>,
 	worker: (item: Candidate) => Promise<void>,
 ) {
-	let next = 0;
 	let lastStart: number | null = null;
 	let pace = Promise.resolve();
-	const runPaced = async (item: Candidate) => {
+	const pacedItems = items.map((item) => {
 		const previous = pace;
 		let release = () => {};
 		pace = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		await previous;
-		let work: Promise<void>;
-		try {
-			const waitMs =
-				lastStart !== null ? Math.max(0, lastStart + pacingMs - now()) : 0;
-			if (waitMs > 0) await sleep(waitMs);
-			lastStart = now();
-			work = worker(item);
-		} finally {
-			release();
-		}
-		await work;
-	};
-	await Promise.all(
-		Array.from({ length: Math.min(parallel, items.length) }, async () => {
-			for (;;) {
-				const item = items[next++];
-				if (!item) return;
-				await runPaced(item);
-			}
-		}),
-	);
+		return { item, previous, release };
+	});
+	const runPaced = ({
+		item,
+		previous,
+		release,
+	}: {
+		item: Candidate;
+		previous: Promise<void>;
+		release: () => void;
+	}) =>
+		tryMediaPromise(() =>
+			previous.then(() => {
+				const waitMs =
+					lastStart !== null ? Math.max(0, lastStart + pacingMs - now()) : 0;
+				const wait = waitMs > 0 ? sleep(waitMs) : Promise.resolve();
+				return wait.then(
+					() => {
+						let work: Promise<void>;
+						try {
+							lastStart = now();
+							work = worker(item);
+						} finally {
+							release();
+						}
+						return work;
+					},
+					(error: unknown) => {
+						release();
+						throw error;
+					},
+				);
+			}),
+		);
+	return Effect.forEach(pacedItems, runPaced, {
+		concurrency: Math.min(parallel, items.length),
+		discard: true,
+	});
 }
 
-export async function fetchTweetMedia(options: MediaFetchOptions = {}) {
-	const now = options.now ?? Date.now;
-	const startedAt = now();
-	const sleep = options.sleep ?? defaultSleep;
-	const fetchImpl = options.fetchImpl ?? fetch;
-	const retryMax = Math.max(0, Math.floor(options.retryMax ?? 3));
-	const parallel = Math.min(5, Math.max(1, Math.floor(options.parallel ?? 1)));
-	const pacingMs = Math.max(0, Math.floor(options.pacingMs ?? 250));
-	const videoPacingMs = Math.max(
-		0,
-		Math.floor(options.videoPacingMs ?? pacingMs),
-	);
-	const maxBytes = Math.max(
-		0,
-		Math.floor(options.maxBytes ?? DEFAULT_MAX_BYTES),
-	);
-	const userAgent =
-		options.userAgent ??
-		`birdclaw/${packageVersion ?? "0.0.0"} (https://github.com/steipete/birdclaw)`;
-	const { mediaOriginalsDir } = getBirdclawPaths();
-	mkdirSync(mediaOriginalsDir, { recursive: true });
+export function fetchTweetMedia(options: MediaFetchOptions = {}) {
+	return runEffectPromise(fetchTweetMediaEffect(options));
+}
 
-	const { candidates, skipped_cached, would_fetch } = collect(
-		options,
-		mediaOriginalsDir,
-	);
-	const result: MediaFetchResult = {
-		ok: true,
-		fetched: 0,
-		images_fetched: 0,
-		videos_fetched: 0,
-		gifs_fetched: 0,
-		reused_from_archive: 0,
-		skipped_cached,
-		failed: 0,
-		rate_limited: 0,
-		bytes: 0,
-		image_bytes: 0,
-		video_bytes: 0,
-		gif_bytes: 0,
-		duration_ms: 0,
-		failures: [],
-		...(options.dryRun ? { dry_run: true as const, would_fetch } : {}),
-	};
+export function fetchTweetMediaEffect(options: MediaFetchOptions = {}) {
+	return Effect.gen(function* () {
+		const now = options.now ?? Date.now;
+		const startedAt = now();
+		const sleep = options.sleep ?? defaultSleep;
+		const fetchImpl = options.fetchImpl ?? fetch;
+		const retryMax = Math.max(0, Math.floor(options.retryMax ?? 3));
+		const parallel = Math.min(
+			5,
+			Math.max(1, Math.floor(options.parallel ?? 1)),
+		);
+		const pacingMs = Math.max(0, Math.floor(options.pacingMs ?? 250));
+		const videoPacingMs = Math.max(
+			0,
+			Math.floor(options.videoPacingMs ?? pacingMs),
+		);
+		const maxBytes = Math.max(
+			0,
+			Math.floor(options.maxBytes ?? DEFAULT_MAX_BYTES),
+		);
+		const userAgent =
+			options.userAgent ??
+			`birdclaw/${packageVersion ?? "0.0.0"} (https://github.com/steipete/birdclaw)`;
+		const { mediaOriginalsDir } = getBirdclawPaths();
+		yield* tryMediaSync(() =>
+			mkdirSync(mediaOriginalsDir, { recursive: true }),
+		);
 
-	if (!options.dryRun) {
-		const httpCandidates: Candidate[] = [];
-		for (const item of candidates) {
-			const reused = await reuseFromArchive(item, mediaOriginalsDir, maxBytes);
-			if (reused) {
-				applyFetched(result, reused);
-			} else {
-				httpCandidates.push(item);
-			}
-		}
-		const fetchCandidate = async (item: Candidate) =>
-			applyFetched(
-				result,
-				await fetchOne({
+		const { candidates, skipped_cached, would_fetch } = yield* tryMediaSync(
+			() => collect(options, mediaOriginalsDir),
+		);
+		const result: MediaFetchResult = {
+			ok: true,
+			fetched: 0,
+			images_fetched: 0,
+			videos_fetched: 0,
+			gifs_fetched: 0,
+			reused_from_archive: 0,
+			skipped_cached,
+			failed: 0,
+			rate_limited: 0,
+			bytes: 0,
+			image_bytes: 0,
+			video_bytes: 0,
+			gif_bytes: 0,
+			duration_ms: 0,
+			failures: [],
+			...(options.dryRun ? { dry_run: true as const, would_fetch } : {}),
+		};
+
+		if (!options.dryRun) {
+			const httpCandidates: Candidate[] = [];
+			for (const item of candidates) {
+				const reused = yield* reuseFromArchiveEffect(
 					item,
-					fetchImpl,
-					sleep,
-					retryMax,
-					userAgent,
+					mediaOriginalsDir,
 					maxBytes,
-				}),
+				);
+				if (reused) {
+					applyFetched(result, reused);
+				} else {
+					httpCandidates.push(item);
+				}
+			}
+			const fetchCandidate = (item: Candidate) =>
+				runEffectPromise(
+					fetchOneEffect({
+						item,
+						fetchImpl,
+						sleep,
+						retryMax,
+						userAgent,
+						maxBytes,
+					}).pipe(Effect.map((fetched) => applyFetched(result, fetched))),
+				);
+			yield* runGroupEffect(
+				httpCandidates.filter((item) => item.kind === "image"),
+				parallel,
+				pacingMs,
+				now,
+				sleep,
+				fetchCandidate,
 			);
-		await runGroup(
-			httpCandidates.filter((item) => item.kind === "image"),
-			parallel,
-			pacingMs,
-			now,
-			sleep,
-			fetchCandidate,
-		);
-		await runGroup(
-			httpCandidates.filter((item) => item.kind !== "image"),
-			1,
-			videoPacingMs,
-			now,
-			sleep,
-			fetchCandidate,
-		);
-	}
+			yield* runGroupEffect(
+				httpCandidates.filter((item) => item.kind !== "image"),
+				1,
+				videoPacingMs,
+				now,
+				sleep,
+				fetchCandidate,
+			);
+		}
 
-	result.failed = result.failures.length;
-	result.duration_ms = Math.max(0, Math.round(now() - startedAt));
-	return result;
+		result.failed = result.failures.length;
+		result.duration_ms = Math.max(0, Math.round(now() - startedAt));
+		return result;
+	});
 }
 
 export function formatMediaFetchResult(result: MediaFetchResult) {

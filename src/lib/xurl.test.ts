@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execFileAsyncMock = vi.fn();
@@ -72,6 +73,21 @@ describe("xurl transport wrapper", () => {
 			rawStatus: "ok",
 		});
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", ["version"]);
+	});
+
+	it("exposes transport status as a lazy Effect program", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({ stdout: "xurl 1.0", stderr: "" })
+			.mockResolvedValueOnce({ stdout: "ok", stderr: "" });
+		const { getTransportStatusEffect } = await import("./xurl");
+
+		const effect = getTransportStatusEffect();
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			installed: true,
+			availableTransport: "xurl",
+			rawStatus: "ok",
+		});
 	});
 
 	it("falls back to local mode when xurl has no registered apps", async () => {
@@ -164,6 +180,32 @@ describe("xurl transport wrapper", () => {
 			{ id: "42", username: "sam" },
 		]);
 		await expect(lookupAuthenticatedUser()).resolves.toEqual({
+			id: "1",
+			username: "steipete",
+		});
+	});
+
+	it("exposes xurl lookup helpers as lazy Effect programs", async () => {
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: [{ id: "42", username: "sam" }] }),
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ data: { id: "1", username: "steipete" } }),
+				stderr: "",
+			});
+		const { lookupAuthenticatedUserEffect, lookupUsersByIdsEffect } =
+			await import("./xurl");
+
+		const usersEffect = lookupUsersByIdsEffect(["42"]);
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(usersEffect)).resolves.toEqual([
+			{ id: "42", username: "sam" },
+		]);
+		await expect(
+			Effect.runPromise(lookupAuthenticatedUserEffect()),
+		).resolves.toEqual({
 			id: "1",
 			username: "steipete",
 		});
@@ -511,6 +553,56 @@ describe("xurl transport wrapper", () => {
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("starts timeout budgets when xurl effects run", async () => {
+		vi.useFakeTimers();
+		try {
+			process.env.BIRDCLAW_XURL_RETRY_BASE_MS = "500";
+			execFileAsyncMock
+				.mockRejectedValueOnce(
+					Object.assign(new Error("rate limited"), {
+						stdout: JSON.stringify({ status: 429 }),
+					}),
+				)
+				.mockResolvedValueOnce({
+					stdout: JSON.stringify({
+						data: { id: "tweet_1", author_id: "42", text: "hello" },
+					}),
+					stderr: "",
+				});
+			const { getTweetByIdEffect } = await import("./xurl");
+
+			const effect = getTweetByIdEffect("tweet_1", { timeoutMs: 1000 });
+			await vi.advanceTimersByTimeAsync(5000);
+			const result = Effect.runPromise(effect);
+			await vi.advanceTimersByTimeAsync(500);
+
+			await expect(result).resolves.toEqual({
+				data: [{ id: "tweet_1", author_id: "42", text: "hello" }],
+			});
+			expect(execFileAsyncMock).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("checks live-write disable when xurl effects run", async () => {
+		const { dmViaXurlEffect, muteUserViaXurlEffect } = await import("./xurl");
+
+		const dmEffect = dmViaXurlEffect("sam", "hello");
+		const muteEffect = muteUserViaXurlEffect("1", "2");
+		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
+
+		await expect(Effect.runPromise(dmEffect)).resolves.toEqual({
+			ok: true,
+			output: "live writes disabled",
+		});
+		await expect(Effect.runPromise(muteEffect)).resolves.toEqual({
+			ok: true,
+			output: "live writes disabled",
+		});
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+	});
+
 	it("lists liked and bookmarked tweets through raw Twitter endpoints", async () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({
@@ -844,6 +936,28 @@ describe("xurl transport wrapper", () => {
 		await expect(lookupAuthenticatedUser()).rejects.toThrow(
 			'Command failed: xurl whoami\n{"title":"Unauthorized","detail":"OAuth token expired"}\nrun xurl auth oauth2',
 		);
+	});
+
+	it("preserves formatted xurl errors without FiberFailure wrappers", async () => {
+		execFileAsyncMock.mockRejectedValueOnce(
+			Object.assign(new Error("Command failed: xurl whoami"), {
+				stdout: '{"detail":"OAuth token expired"}',
+				stderr: "run xurl auth oauth2",
+			}),
+		);
+		const { lookupAuthenticatedUser } = await import("./xurl");
+
+		let rejected: unknown;
+		try {
+			await lookupAuthenticatedUser();
+		} catch (error) {
+			rejected = error;
+		}
+
+		expect(rejected).toBeInstanceOf(Error);
+		expect((rejected as Error).message).toContain("OAuth token expired");
+		expect((rejected as Error).name).not.toContain("FiberFailure");
+		expect(String(rejected)).not.toContain("(FiberFailure)");
 	});
 
 	it("does not retry malformed or exhausted rate limit failures", async () => {

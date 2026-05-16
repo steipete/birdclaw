@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -9,10 +10,18 @@ import { listTimelineItems } from "./queries";
 
 const listHomeTimelineViaBirdMock = vi.fn();
 
-vi.mock("./bird", () => ({
-	listHomeTimelineViaBird: (...args: unknown[]) =>
-		listHomeTimelineViaBirdMock(...args),
-}));
+vi.mock("./bird", async () => {
+	const { Effect } = await import("effect");
+	return {
+		listHomeTimelineViaBird: (...args: unknown[]) =>
+			listHomeTimelineViaBirdMock(...args),
+		listHomeTimelineViaBirdEffect: (...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => listHomeTimelineViaBirdMock(...args),
+				catch: (error) => error,
+			}),
+	};
+});
 
 const tempDirs: string[] = [];
 
@@ -37,6 +46,28 @@ afterEach(() => {
 });
 
 describe("live home timeline sync", () => {
+	it("keeps home timeline sync effects lazy", async () => {
+		makeTempHome();
+		listHomeTimelineViaBirdMock.mockResolvedValueOnce({
+			data: [],
+			meta: { result_count: 0 },
+		});
+		const { syncHomeTimelineEffect } = await import("./timeline-live");
+
+		const effect = syncHomeTimelineEffect({
+			account: "acct_primary",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(listHomeTimelineViaBirdMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			source: "bird",
+			count: 0,
+		});
+		expect(listHomeTimelineViaBirdMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("stores account-scoped home timeline edges without moving canonical tweets", async () => {
 		makeTempHome();
 		const db = getNativeDb();

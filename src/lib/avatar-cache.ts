@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import { getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 
 const AVATAR_SIZE_SUFFIX =
 	/(?:(?:_normal|_bigger|_mini))(?=\.(?:jpg|jpeg|png|webp|gif)(?:$|\?))/i;
@@ -84,6 +86,17 @@ function getAvatarUrlForProfile(profileId: string) {
 	return row?.avatar_url ?? null;
 }
 
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
+
 export function normalizeAvatarUrl(value: unknown) {
 	if (typeof value !== "string" || value.trim().length === 0) {
 		return null;
@@ -122,57 +135,75 @@ export function getAvatarCachePath(profileId: string, avatarUrl: string) {
 	);
 }
 
-async function fetchRemoteAvatar(avatarUrl: string) {
-	const response = await fetch(avatarUrl, {
-		headers: {
-			"user-agent": "birdclaw/avatar-cache",
-		},
-	});
-	if (!response.ok) {
-		throw new Error(`Avatar fetch failed with ${response.status}`);
-	}
+function fetchRemoteAvatarEffect(avatarUrl: string) {
+	return Effect.gen(function* () {
+		const response = yield* tryPromise(() =>
+			fetch(avatarUrl, {
+				headers: {
+					"user-agent": "birdclaw/avatar-cache",
+				},
+			}),
+		);
+		if (!response.ok) {
+			return yield* Effect.fail(
+				new Error(`Avatar fetch failed with ${response.status}`),
+			);
+		}
 
-	const buffer = Buffer.from(await response.arrayBuffer());
-	return {
-		contentType: response.headers.get("content-type") ?? "image/jpeg",
-		buffer,
-	};
+		const buffer = Buffer.from(yield* tryPromise(() => response.arrayBuffer()));
+		return {
+			contentType: response.headers.get("content-type") ?? "image/jpeg",
+			buffer,
+		};
+	});
 }
 
-export async function readCachedAvatar(profileId: string) {
-	const avatarUrl = getAvatarUrlForProfile(profileId);
-	if (!avatarUrl) {
-		return null;
-	}
+export function readCachedAvatarEffect(profileId: string) {
+	return Effect.gen(function* () {
+		const avatarUrl = yield* trySync(() => getAvatarUrlForProfile(profileId));
+		if (!avatarUrl) {
+			return null;
+		}
 
-	const normalizedAvatarUrl = normalizeAvatarUrl(avatarUrl);
-	if (!normalizedAvatarUrl) {
-		return null;
-	}
+		const normalizedAvatarUrl = normalizeAvatarUrl(avatarUrl);
+		if (!normalizedAvatarUrl) {
+			return null;
+		}
 
-	const cachePath = getAvatarCachePath(profileId, normalizedAvatarUrl);
-	const cachedExtension = path.extname(cachePath);
+		const cachePath = yield* trySync(() =>
+			getAvatarCachePath(profileId, normalizedAvatarUrl),
+		);
+		const cachedExtension = path.extname(cachePath);
 
-	try {
-		return {
-			buffer: readFileSync(cachePath),
-			contentType: getContentTypeFromExtension(cachedExtension),
-			cachePath,
-			avatarUrl: normalizedAvatarUrl,
-		};
-	} catch {
+		const cached = yield* trySync(() => readFileSync(cachePath)).pipe(
+			Effect.map((buffer) => ({ ok: true as const, buffer })),
+			Effect.catchAll(() => Effect.succeed({ ok: false as const })),
+		);
+		if (cached.ok) {
+			return {
+				buffer: cached.buffer,
+				contentType: getContentTypeFromExtension(cachedExtension),
+				cachePath,
+				avatarUrl: normalizedAvatarUrl,
+			};
+		}
+
 		const payload = normalizedAvatarUrl.startsWith("data:")
-			? decodeDataUrl(normalizedAvatarUrl)
-			: await fetchRemoteAvatar(normalizedAvatarUrl);
+			? yield* trySync(() => decodeDataUrl(normalizedAvatarUrl))
+			: yield* fetchRemoteAvatarEffect(normalizedAvatarUrl);
 
-		writeFileSync(cachePath, payload.buffer);
+		yield* trySync(() => writeFileSync(cachePath, payload.buffer));
 		return {
 			buffer: payload.buffer,
 			contentType: payload.contentType,
 			cachePath,
 			avatarUrl: normalizedAvatarUrl,
 		};
-	}
+	});
+}
+
+export function readCachedAvatar(profileId: string) {
+	return runEffectPromise(readCachedAvatarEffect(profileId));
 }
 
 export const __test__ = {

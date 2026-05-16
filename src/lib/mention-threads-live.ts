@@ -1,6 +1,8 @@
 import type { Database } from "./sqlite";
-import { listThreadViaBird } from "./bird";
+import { Effect } from "effect";
+import { listThreadViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
+import { runEffectPromise } from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import type {
 	XurlMentionData,
@@ -11,7 +13,7 @@ import type {
 } from "./types";
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
 import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
-import { getTweetById, searchRecentByConversationId } from "./xurl";
+import { getTweetByIdEffect, searchRecentByConversationIdEffect } from "./xurl";
 
 const DEFAULT_LIMIT = 30;
 const DEFAULT_DELAY_MS = 1500;
@@ -21,12 +23,30 @@ const DEFAULT_FALLBACK_DEPTH = 12;
 const MAX_XURL_SEARCH_RESULTS = 100;
 
 export type MentionThreadsMode = "bird" | "xurl";
+export interface SyncMentionThreadsOptions {
+	account?: string;
+	mode?: string;
+	limit?: number;
+	delayMs?: number;
+	timeoutMs?: number;
+	all?: boolean;
+	maxPages?: number;
+}
 
 interface LocalMention {
 	id: string;
 	replyToId?: string;
 	conversationId?: string;
 	rawTweet?: XurlMentionData;
+}
+interface ThreadFetchResult {
+	strategy: string;
+	payload: XurlMentionsResponse;
+	pages?: number;
+	fallbackDepth?: number;
+	generalReadTweets: number;
+	truncated?: boolean;
+	warnings: string[];
 }
 
 function assertPositiveInteger(value: number, name: string) {
@@ -54,8 +74,15 @@ function parseMode(value: string | undefined): MentionThreadsMode {
 	return mode;
 }
 
-function sleep(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
 }
 
 function getRemainingThreadTimeoutMs(
@@ -341,7 +368,7 @@ function mergeMentionThreadIntoLocalStore({
 	})();
 }
 
-async function fetchConversationViaRecentSearch({
+function fetchConversationViaRecentSearchEffect({
 	conversationId,
 	all,
 	maxPages,
@@ -354,39 +381,46 @@ async function fetchConversationViaRecentSearch({
 	timeoutMs: number;
 	deadlineMs: number;
 }) {
-	const pages: XurlTweetsResponse[] = [];
-	let nextToken: string | undefined;
-	let pageCount = 0;
+	return Effect.gen(function* () {
+		const pages: XurlTweetsResponse[] = [];
+		let nextToken: string | undefined;
+		let pageCount = 0;
 
-	do {
-		const payload = await searchRecentByConversationId(conversationId, {
-			maxResults: MAX_XURL_SEARCH_RESULTS,
-			paginationToken: nextToken,
-			timeoutMs: getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
-		});
-		pages.push(payload);
-		nextToken =
-			typeof payload.meta?.next_token === "string"
-				? payload.meta.next_token
-				: undefined;
-		pageCount += 1;
-	} while (
-		(all || maxPages !== undefined) &&
-		nextToken &&
-		(maxPages === undefined || pageCount < maxPages)
-	);
+		do {
+			const payload = yield* searchRecentByConversationIdEffect(
+				conversationId,
+				{
+					maxResults: MAX_XURL_SEARCH_RESULTS,
+					paginationToken: nextToken,
+					timeoutMs: yield* trySync(() =>
+						getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
+					),
+				},
+			);
+			pages.push(payload);
+			nextToken =
+				typeof payload.meta?.next_token === "string"
+					? payload.meta.next_token
+					: undefined;
+			pageCount += 1;
+		} while (
+			(all || maxPages !== undefined) &&
+			nextToken &&
+			(maxPages === undefined || pageCount < maxPages)
+		);
 
-	const payload = mergePayloads(pages);
-	const paginationRequested = all || maxPages !== undefined;
-	return {
-		payload,
-		pages: pageCount,
-		truncated: paginationRequested && Boolean(nextToken),
-		generalReadTweets: payload.data.length,
-	};
+		const payload = mergePayloads(pages);
+		const paginationRequested = all || maxPages !== undefined;
+		return {
+			payload,
+			pages: pageCount,
+			truncated: paginationRequested && Boolean(nextToken),
+			generalReadTweets: payload.data.length,
+		};
+	});
 }
 
-async function fetchParentChainViaXurl({
+function fetchParentChainViaXurlEffect({
 	mention,
 	maxDepth,
 	timeoutMs,
@@ -397,76 +431,82 @@ async function fetchParentChainViaXurl({
 	timeoutMs: number;
 	deadlineMs: number;
 }) {
-	const pages: XurlTweetsResponse[] = [];
-	const warnings: string[] = [];
-	const seenTweetIds = new Set([mention.id]);
-	let nextParentId = mention.replyToId;
-	let fallbackDepth = 0;
-	let generalReadTweets = 0;
+	return Effect.gen(function* () {
+		const pages: XurlTweetsResponse[] = [];
+		const warnings: string[] = [];
+		const seenTweetIds = new Set([mention.id]);
+		let nextParentId = mention.replyToId;
+		let fallbackDepth = 0;
+		let generalReadTweets = 0;
 
-	const rawAnchorPayload =
-		mention.rawTweet && mention.rawTweet.id === mention.id
-			? ({ data: [mention.rawTweet] } satisfies XurlTweetsResponse)
-			: undefined;
-	let shouldUseRawAnchor = Boolean(rawAnchorPayload);
+		const rawAnchorPayload =
+			mention.rawTweet && mention.rawTweet.id === mention.id
+				? ({ data: [mention.rawTweet] } satisfies XurlTweetsResponse)
+				: undefined;
+		let shouldUseRawAnchor = Boolean(rawAnchorPayload);
 
-	if (!nextParentId) {
-		const anchorPayload = await getTweetById(mention.id, {
-			timeoutMs: getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
-		});
-		pages.push(anchorPayload);
-		generalReadTweets += anchorPayload.data.length;
-		const anchorTweet = anchorPayload.data[0];
-		if (anchorTweet) {
-			shouldUseRawAnchor = false;
-			seenTweetIds.add(anchorTweet.id);
-			nextParentId = anchorTweet.in_reply_to_user_id
-				? getReplyToId(anchorTweet)
+		if (!nextParentId) {
+			const anchorPayload = yield* getTweetByIdEffect(mention.id, {
+				timeoutMs: yield* trySync(() =>
+					getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
+				),
+			});
+			pages.push(anchorPayload);
+			generalReadTweets += anchorPayload.data.length;
+			const anchorTweet = anchorPayload.data[0];
+			if (anchorTweet) {
+				shouldUseRawAnchor = false;
+				seenTweetIds.add(anchorTweet.id);
+				nextParentId = anchorTweet.in_reply_to_user_id
+					? getReplyToId(anchorTweet)
+					: undefined;
+			}
+		}
+
+		if (shouldUseRawAnchor && rawAnchorPayload) {
+			pages.unshift(rawAnchorPayload);
+		}
+
+		while (nextParentId) {
+			if (fallbackDepth >= maxDepth) {
+				warnings.push(
+					`fallback parent-chain depth cap reached for ${mention.id} after ${maxDepth} hops`,
+				);
+				break;
+			}
+			if (seenTweetIds.has(nextParentId)) {
+				warnings.push(
+					`fallback parent-chain cycle detected for ${mention.id} at ${nextParentId}`,
+				);
+				break;
+			}
+
+			fallbackDepth += 1;
+			const parentPayload = yield* getTweetByIdEffect(nextParentId, {
+				timeoutMs: yield* trySync(() =>
+					getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
+				),
+			});
+			pages.push(parentPayload);
+			generalReadTweets += parentPayload.data.length;
+			const parentTweet = parentPayload.data[0];
+			if (!parentTweet) {
+				break;
+			}
+			seenTweetIds.add(parentTweet.id);
+			nextParentId = parentTweet.in_reply_to_user_id
+				? getReplyToId(parentTweet)
 				: undefined;
 		}
-	}
 
-	if (shouldUseRawAnchor && rawAnchorPayload) {
-		pages.unshift(rawAnchorPayload);
-	}
-
-	while (nextParentId) {
-		if (fallbackDepth >= maxDepth) {
-			warnings.push(
-				`fallback parent-chain depth cap reached for ${mention.id} after ${maxDepth} hops`,
-			);
-			break;
-		}
-		if (seenTweetIds.has(nextParentId)) {
-			warnings.push(
-				`fallback parent-chain cycle detected for ${mention.id} at ${nextParentId}`,
-			);
-			break;
-		}
-
-		fallbackDepth += 1;
-		const parentPayload = await getTweetById(nextParentId, {
-			timeoutMs: getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
-		});
-		pages.push(parentPayload);
-		generalReadTweets += parentPayload.data.length;
-		const parentTweet = parentPayload.data[0];
-		if (!parentTweet) {
-			break;
-		}
-		seenTweetIds.add(parentTweet.id);
-		nextParentId = parentTweet.in_reply_to_user_id
-			? getReplyToId(parentTweet)
-			: undefined;
-	}
-
-	const payload = mergePayloads(pages);
-	return {
-		payload,
-		fallbackDepth,
-		warnings,
-		generalReadTweets,
-	};
+		const payload = mergePayloads(pages);
+		return {
+			payload,
+			fallbackDepth,
+			warnings,
+			generalReadTweets,
+		};
+	});
 }
 
 function findMissingAncestorId(
@@ -505,7 +545,7 @@ function findMissingAncestorId(
 	return undefined;
 }
 
-async function fetchThreadContextViaXurl({
+function fetchThreadContextViaXurlEffect({
 	mention,
 	all,
 	maxPages,
@@ -518,98 +558,100 @@ async function fetchThreadContextViaXurl({
 	maxFallbackDepth: number;
 	timeoutMs: number;
 }) {
-	const deadlineMs = Date.now() + timeoutMs;
-	if (!mention.conversationId) {
-		if (mention.replyToId) {
-			const fallback = await fetchParentChainViaXurl({
-				mention,
-				maxDepth: maxFallbackDepth,
-				timeoutMs,
-				deadlineMs,
-			});
+	return Effect.gen(function* () {
+		const deadlineMs = Date.now() + timeoutMs;
+		if (!mention.conversationId) {
+			if (mention.replyToId) {
+				const fallback = yield* fetchParentChainViaXurlEffect({
+					mention,
+					maxDepth: maxFallbackDepth,
+					timeoutMs,
+					deadlineMs,
+				});
+				return {
+					strategy: "parent_walk" as const,
+					pages: 0,
+					truncated: false,
+					payload: fallback.payload,
+					fallbackDepth: fallback.fallbackDepth,
+					generalReadTweets: fallback.generalReadTweets,
+					warnings: [
+						`missing conversation_id for ${mention.id}; used parent walk`,
+						...fallback.warnings,
+					],
+				};
+			}
 			return {
-				strategy: "parent_walk" as const,
+				strategy: "skipped:no_conversation_id" as const,
+				payload: { data: [] } satisfies XurlMentionsResponse,
 				pages: 0,
+				fallbackDepth: 0,
+				generalReadTweets: 0,
+				warnings: [`skipped ${mention.id}: missing conversation_id`],
 				truncated: false,
-				payload: fallback.payload,
-				fallbackDepth: fallback.fallbackDepth,
-				generalReadTweets: fallback.generalReadTweets,
-				warnings: [
-					`missing conversation_id for ${mention.id}; used parent walk`,
-					...fallback.warnings,
-				],
 			};
 		}
-		return {
-			strategy: "skipped:no_conversation_id" as const,
-			payload: { data: [] } satisfies XurlMentionsResponse,
-			pages: 0,
-			fallbackDepth: 0,
-			generalReadTweets: 0,
-			warnings: [`skipped ${mention.id}: missing conversation_id`],
-			truncated: false,
-		};
-	}
 
-	const search = await fetchConversationViaRecentSearch({
-		conversationId: mention.conversationId,
-		all,
-		maxPages,
-		timeoutMs,
-		deadlineMs,
-	});
-	if (search.payload.data.length > 0) {
-		const missingAncestorId = findMissingAncestorId(mention, search.payload);
-		if (missingAncestorId) {
-			const fallback = await fetchParentChainViaXurl({
-				mention,
-				maxDepth: maxFallbackDepth,
-				timeoutMs,
-				deadlineMs,
-			});
+		const search = yield* fetchConversationViaRecentSearchEffect({
+			conversationId: mention.conversationId,
+			all,
+			maxPages,
+			timeoutMs,
+			deadlineMs,
+		});
+		if (search.payload.data.length > 0) {
+			const missingAncestorId = findMissingAncestorId(mention, search.payload);
+			if (missingAncestorId) {
+				const fallback = yield* fetchParentChainViaXurlEffect({
+					mention,
+					maxDepth: maxFallbackDepth,
+					timeoutMs,
+					deadlineMs,
+				});
+				return {
+					strategy: "conversation_search+parent_walk" as const,
+					pages: search.pages,
+					truncated: search.truncated,
+					payload: mergePayloads([search.payload, fallback.payload]),
+					fallbackDepth: fallback.fallbackDepth,
+					generalReadTweets:
+						search.generalReadTweets + fallback.generalReadTweets,
+					warnings: [
+						`recent search missed ancestor ${missingAncestorId} for conversation ${mention.conversationId}; used parent walk`,
+						...fallback.warnings,
+					],
+				};
+			}
 			return {
-				strategy: "conversation_search+parent_walk" as const,
-				pages: search.pages,
-				truncated: search.truncated,
-				payload: mergePayloads([search.payload, fallback.payload]),
-				fallbackDepth: fallback.fallbackDepth,
-				generalReadTweets:
-					search.generalReadTweets + fallback.generalReadTweets,
-				warnings: [
-					`recent search missed ancestor ${missingAncestorId} for conversation ${mention.conversationId}; used parent walk`,
-					...fallback.warnings,
-				],
+				strategy: "conversation_search" as const,
+				fallbackDepth: 0,
+				warnings: [] as string[],
+				...search,
 			};
 		}
-		return {
-			strategy: "conversation_search" as const,
-			fallbackDepth: 0,
-			warnings: [] as string[],
-			...search,
-		};
-	}
 
-	const fallback = await fetchParentChainViaXurl({
-		mention,
-		maxDepth: maxFallbackDepth,
-		timeoutMs,
-		deadlineMs,
+		const fallback = yield* fetchParentChainViaXurlEffect({
+			mention,
+			maxDepth: maxFallbackDepth,
+			timeoutMs,
+			deadlineMs,
+		});
+		return {
+			strategy: "parent_walk" as const,
+			pages: search.pages,
+			truncated: search.truncated,
+			payload: fallback.payload,
+			fallbackDepth: fallback.fallbackDepth,
+			generalReadTweets: search.generalReadTweets + fallback.generalReadTweets,
+			warnings: [
+				`recent search returned no tweets for conversation ${mention.conversationId}; used parent walk`,
+				...fallback.warnings,
+			],
+		};
 	});
-	return {
-		strategy: "parent_walk" as const,
-		pages: search.pages,
-		truncated: search.truncated,
-		payload: fallback.payload,
-		fallbackDepth: fallback.fallbackDepth,
-		generalReadTweets: search.generalReadTweets + fallback.generalReadTweets,
-		warnings: [
-			`recent search returned no tweets for conversation ${mention.conversationId}; used parent walk`,
-			...fallback.warnings,
-		],
-	};
 }
 
-export async function syncMentionThreads({
+export function syncMentionThreadsEffect({
 	account,
 	mode = DEFAULT_MODE,
 	limit = DEFAULT_LIMIT,
@@ -617,84 +659,111 @@ export async function syncMentionThreads({
 	timeoutMs = DEFAULT_TIMEOUT_MS,
 	all = false,
 	maxPages,
-}: {
-	account?: string;
-	mode?: string;
-	limit?: number;
-	delayMs?: number;
-	timeoutMs?: number;
-	all?: boolean;
-	maxPages?: number;
-}) {
-	const parsedMode = parseMode(mode);
-	const parsedLimit = assertPositiveInteger(limit, "--limit");
-	const parsedDelayMs = parseNonNegativeInteger(delayMs, "--delay-ms") ?? 0;
-	const parsedTimeoutMs = assertPositiveInteger(timeoutMs, "--timeout-ms");
-	const parsedMaxPages = parseNonNegativeInteger(maxPages, "--max-pages");
-	const db = getNativeDb();
-	const resolvedAccount = resolveAccount(db, account);
-	const mentions = listRecentMentions(
-		db,
-		resolvedAccount.accountId,
-		parsedLimit,
-	);
-	const mentionIds = mentions.map((mention) => mention.id);
-	const mentionIdSet = new Set(mentionIds);
-	const results: Array<{
-		tweetId: string;
-		conversationId?: string | null;
-		ok: boolean;
-		count: number;
-		strategy?: string;
-		pages?: number;
-		fallbackDepth?: number;
-		truncated?: boolean;
-		warnings?: string[];
-		error?: string;
-	}> = [];
-	let mergedTweets = 0;
-	let generalReadTweets = 0;
-	const uniqueTweetIds = new Set<string>();
-	const warnings: string[] = [];
+}: SyncMentionThreadsOptions) {
+	return Effect.gen(function* () {
+		const parsedMode = yield* trySync(() => parseMode(mode));
+		const parsedLimit = yield* trySync(() =>
+			assertPositiveInteger(limit, "--limit"),
+		);
+		const parsedDelayMs =
+			(yield* trySync(() => parseNonNegativeInteger(delayMs, "--delay-ms"))) ??
+			0;
+		const parsedTimeoutMs = yield* trySync(() =>
+			assertPositiveInteger(timeoutMs, "--timeout-ms"),
+		);
+		const parsedMaxPages = yield* trySync(() =>
+			parseNonNegativeInteger(maxPages, "--max-pages"),
+		);
+		const db = yield* trySync(() => getNativeDb());
+		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const mentions = yield* trySync(() =>
+			listRecentMentions(db, resolvedAccount.accountId, parsedLimit),
+		);
+		const mentionIds = mentions.map((mention) => mention.id);
+		const mentionIdSet = new Set(mentionIds);
+		const results: Array<{
+			tweetId: string;
+			conversationId?: string | null;
+			ok: boolean;
+			count: number;
+			strategy?: string;
+			pages?: number;
+			fallbackDepth?: number;
+			truncated?: boolean;
+			warnings?: string[];
+			error?: string;
+		}> = [];
+		let mergedTweets = 0;
+		let generalReadTweets = 0;
+		const uniqueTweetIds = new Set<string>();
+		const warnings: string[] = [];
 
-	for (const [index, mention] of mentions.entries()) {
-		if (index > 0 && parsedDelayMs > 0) {
-			await sleep(parsedDelayMs);
-		}
-		try {
-			const fetchResult =
+		for (const [index, mention] of mentions.entries()) {
+			if (index > 0 && parsedDelayMs > 0) {
+				yield* Effect.sleep(parsedDelayMs);
+			}
+			const fetchEffect: Effect.Effect<ThreadFetchResult, unknown, never> =
 				parsedMode === "bird"
-					? {
-							strategy: "bird" as const,
-							payload: await listThreadViaBird({
-								tweetId: mention.id,
-								all,
-								maxPages: parsedMaxPages,
-								timeoutMs: parsedTimeoutMs,
-							}),
-							pages: undefined,
-							fallbackDepth: undefined,
-							generalReadTweets: 0,
-							truncated: undefined,
-							warnings: [] as string[],
-						}
-					: await fetchThreadContextViaXurl({
+					? listThreadViaBirdEffect({
+							tweetId: mention.id,
+							all,
+							maxPages: parsedMaxPages,
+							timeoutMs: parsedTimeoutMs,
+						}).pipe(
+							Effect.map((payload) => ({
+								strategy: "bird" as const,
+								payload,
+								pages: undefined,
+								fallbackDepth: undefined,
+								generalReadTweets: 0,
+								truncated: undefined,
+								warnings: [] as string[],
+							})),
+						)
+					: fetchThreadContextViaXurlEffect({
 							mention,
 							all,
 							maxPages: parsedMaxPages,
 							maxFallbackDepth: DEFAULT_FALLBACK_DEPTH,
 							timeoutMs: parsedTimeoutMs,
 						});
+			const fetched = yield* fetchEffect.pipe(
+				Effect.flatMap((fetchResult) =>
+					trySync(() =>
+						mergeMentionThreadIntoLocalStore({
+							db,
+							accountId: resolvedAccount.accountId,
+							accountHandle: resolvedAccount.handle,
+							mentionIds: mentionIdSet,
+							payload: fetchResult.payload,
+							source: parsedMode,
+							writeThreadContextEdges: parsedMode === "xurl",
+						}),
+					).pipe(Effect.as(fetchResult)),
+				),
+				Effect.map((fetchResult) => ({ ok: true as const, fetchResult })),
+				Effect.catchAll((error) =>
+					Effect.succeed({ ok: false as const, error }),
+				),
+			);
+
+			if (!fetched.ok) {
+				results.push({
+					tweetId: mention.id,
+					conversationId: mention.conversationId ?? null,
+					ok: false,
+					count: 0,
+					strategy: parsedMode,
+					error:
+						fetched.error instanceof Error
+							? fetched.error.message
+							: String(fetched.error),
+				});
+				continue;
+			}
+
+			const { fetchResult } = fetched;
 			const { payload } = fetchResult;
-			mergeMentionThreadIntoLocalStore({
-				db,
-				accountId: resolvedAccount.accountId,
-				accountHandle: resolvedAccount.handle,
-				mentionIds: mentionIdSet,
-				payload,
-				source: parsedMode,
-				writeThreadContextEdges: parsedMode === "xurl",
-			});
 			for (const tweet of payload.data) {
 				uniqueTweetIds.add(tweet.id);
 			}
@@ -713,47 +782,42 @@ export async function syncMentionThreads({
 				warnings:
 					fetchResult.warnings.length > 0 ? fetchResult.warnings : undefined,
 			});
-		} catch (error) {
-			results.push({
-				tweetId: mention.id,
-				conversationId: mention.conversationId ?? null,
-				ok: false,
-				count: 0,
-				strategy: parsedMode,
-				error: error instanceof Error ? error.message : String(error),
-			});
 		}
-	}
 
-	const failures = results.filter((item) => !item.ok);
-	const skipped = results.filter((item) =>
-		item.strategy?.startsWith("skipped:"),
-	);
-	const partial = results.some((item) => item.truncated === true);
-	return {
-		ok: true,
-		source: parsedMode,
-		accountId: resolvedAccount.accountId,
-		mentions: mentionIds.length,
-		threads: results.length,
-		succeeded: results.length - failures.length - skipped.length,
-		skipped: skipped.length,
-		failed: failures.length,
-		mergedTweets,
-		uniqueTweets: uniqueTweetIds.size,
-		generalReadTweets: parsedMode === "xurl" ? generalReadTweets : 0,
-		partial,
-		options: {
-			mode: parsedMode,
-			limit: parsedLimit,
-			delayMs: parsedDelayMs,
-			timeoutMs: parsedTimeoutMs,
-			all,
-			maxPages: parsedMaxPages ?? null,
-			maxFallbackDepth: DEFAULT_FALLBACK_DEPTH,
-		},
-		results,
-		failures,
-		warnings,
-	};
+		const failures = results.filter((item) => !item.ok);
+		const skipped = results.filter((item) =>
+			item.strategy?.startsWith("skipped:"),
+		);
+		const partial = results.some((item) => item.truncated === true);
+		return {
+			ok: true,
+			source: parsedMode,
+			accountId: resolvedAccount.accountId,
+			mentions: mentionIds.length,
+			threads: results.length,
+			succeeded: results.length - failures.length - skipped.length,
+			skipped: skipped.length,
+			failed: failures.length,
+			mergedTweets,
+			uniqueTweets: uniqueTweetIds.size,
+			generalReadTweets: parsedMode === "xurl" ? generalReadTweets : 0,
+			partial,
+			options: {
+				mode: parsedMode,
+				limit: parsedLimit,
+				delayMs: parsedDelayMs,
+				timeoutMs: parsedTimeoutMs,
+				all,
+				maxPages: parsedMaxPages ?? null,
+				maxFallbackDepth: DEFAULT_FALLBACK_DEPTH,
+			},
+			results,
+			failures,
+			warnings,
+		};
+	});
+}
+
+export function syncMentionThreads(options: SyncMentionThreadsOptions) {
+	return runEffectPromise(syncMentionThreadsEffect(options));
 }

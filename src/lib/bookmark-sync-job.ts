@@ -3,12 +3,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { Effect } from "effect";
 import type { Database } from "./sqlite";
-import { maybeAutoSyncBackup, type BackupAutoUpdateResult } from "./backup";
+import {
+	maybeAutoSyncBackupEffect,
+	type BackupAutoUpdateResult,
+} from "./backup";
 import { ensureBirdclawDirs, getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import {
-	syncTimelineCollection,
+	syncTimelineCollectionEffect,
 	type TimelineCollectionMode,
 } from "./timeline-collections-live";
 
@@ -124,53 +129,98 @@ function countBookmarks(db: Database) {
 	return row.count;
 }
 
-async function appendAuditEntry(
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
+
+function appendAuditEntryEffect(
 	logPath: string,
 	entry: BookmarkSyncAuditEntry,
 ) {
-	await fs.mkdir(path.dirname(logPath), { recursive: true });
-	await fs.appendFile(logPath, `${JSON.stringify(entry)}\n`, "utf8");
+	return Effect.gen(function* () {
+		yield* tryPromise(() =>
+			fs.mkdir(path.dirname(logPath), { recursive: true }),
+		);
+		yield* tryPromise(() =>
+			fs.appendFile(logPath, `${JSON.stringify(entry)}\n`, "utf8"),
+		);
+	});
 }
 
 function messageFromError(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-async function acquireLock(lockPath: string) {
-	await fs.mkdir(path.dirname(lockPath), { recursive: true });
-	try {
-		const handle = await fs.open(lockPath, "wx");
-		await handle.writeFile(
-			`${JSON.stringify({
-				pid: process.pid,
-				host: os.hostname(),
-				startedAt: new Date().toISOString(),
-			})}\n`,
-			"utf8",
+function isFileExistsError(error: unknown) {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === "EEXIST"
+	);
+}
+
+function acquireLockEffect(
+	lockPath: string,
+): Effect.Effect<(() => Effect.Effect<void, never>) | undefined, unknown> {
+	return Effect.gen(function* () {
+		yield* tryPromise(() =>
+			fs.mkdir(path.dirname(lockPath), { recursive: true }),
 		);
-		await handle.close();
-		return async () => {
-			await fs.rm(lockPath, { force: true });
-		};
-	} catch (error) {
-		if (
-			typeof error === "object" &&
-			error !== null &&
-			"code" in error &&
-			error.code === "EEXIST"
-		) {
-			const stats = await fs.stat(lockPath).catch(() => undefined);
+		const handleResult = yield* tryPromise(() => fs.open(lockPath, "wx")).pipe(
+			Effect.map((handle) => ({ handle, ok: true as const })),
+			Effect.catchAll((error) => {
+				if (isFileExistsError(error)) {
+					return Effect.succeed({ error, ok: false as const });
+				}
+				return Effect.fail(error);
+			}),
+		);
+
+		if (!handleResult.ok) {
+			const stats = yield* tryPromise(() => fs.stat(lockPath)).pipe(
+				Effect.catchAll(() => Effect.succeed(undefined)),
+			);
 			if (stats && Date.now() - stats.mtimeMs > DEFAULT_LOCK_STALE_MS) {
-				await fs.rm(lockPath, { force: true });
-				return acquireLock(lockPath);
+				yield* tryPromise(() => fs.rm(lockPath, { force: true }));
+				return yield* acquireLockEffect(lockPath);
 			}
 			return undefined;
 		}
-		throw error;
-	}
+
+		const { handle } = handleResult;
+		yield* tryPromise(() =>
+			handle.writeFile(
+				`${JSON.stringify({
+					pid: process.pid,
+					host: os.hostname(),
+					startedAt: new Date().toISOString(),
+				})}\n`,
+				"utf8",
+			),
+		).pipe(
+			Effect.ensuring(
+				tryPromise(() => handle.close()).pipe(
+					Effect.catchAll(() => Effect.void),
+				),
+			),
+		);
+		return () =>
+			tryPromise(() => fs.rm(lockPath, { force: true })).pipe(
+				Effect.asVoid,
+				Effect.catchAll(() => Effect.void),
+			);
+	});
 }
 
-export async function runBookmarkSyncJob({
+export function runBookmarkSyncJobEffect({
 	account,
 	mode = "auto",
 	limit = DEFAULT_BOOKMARK_SYNC_LIMIT,
@@ -181,107 +231,127 @@ export async function runBookmarkSyncJob({
 	logPath,
 	lockPath,
 	db,
-}: BookmarkSyncJobOptions = {}): Promise<BookmarkSyncAuditEntry> {
-	ensureBirdclawDirs();
-	const database = db ?? getNativeDb({ seedDemoData: false });
-	const resolvedLogPath = resolvePath(
-		logPath ?? getDefaultBookmarkSyncAuditLogPath(),
-	);
-	const resolvedLockPath = resolvePath(
-		lockPath ?? getDefaultBookmarkSyncLockPath(),
-	);
-	const effectiveAll = all ?? maxPages !== undefined;
-	const started = Date.now();
-	const startedAt = new Date(started).toISOString();
-	const before = { bookmarks: countBookmarks(database) };
-	const options = {
-		...(account ? { account } : {}),
-		mode,
-		limit,
-		all: effectiveAll,
-		...(maxPages === undefined ? {} : { maxPages }),
-		refresh,
-		...(cacheTtlMs === undefined ? {} : { cacheTtlMs }),
-	};
-
-	const releaseLock = await acquireLock(resolvedLockPath);
-	if (!releaseLock) {
-		const finished = Date.now();
-		const entry: BookmarkSyncAuditEntry = {
-			job: "bookmarks-sync",
-			ok: true,
-			startedAt,
-			finishedAt: new Date(finished).toISOString(),
-			durationMs: finished - started,
-			host: os.hostname(),
-			pid: process.pid,
-			options,
-			before,
-			after: before,
-			added: 0,
-			skipped: "already-running",
-		};
-		await appendAuditEntry(resolvedLogPath, entry);
-		return entry;
-	}
-
-	try {
-		const sync = await syncTimelineCollection({
-			kind: "bookmarks",
-			account,
+}: BookmarkSyncJobOptions = {}): Effect.Effect<
+	BookmarkSyncAuditEntry,
+	unknown
+> {
+	return Effect.gen(function* () {
+		yield* trySync(() => ensureBirdclawDirs());
+		const database =
+			db ?? (yield* trySync(() => getNativeDb({ seedDemoData: false })));
+		const resolvedLogPath = yield* trySync(() =>
+			resolvePath(logPath ?? getDefaultBookmarkSyncAuditLogPath()),
+		);
+		const resolvedLockPath = yield* trySync(() =>
+			resolvePath(lockPath ?? getDefaultBookmarkSyncLockPath()),
+		);
+		const effectiveAll = all ?? maxPages !== undefined;
+		const started = Date.now();
+		const startedAt = new Date(started).toISOString();
+		const before = yield* trySync(() => ({
+			bookmarks: countBookmarks(database),
+		}));
+		const options = {
+			...(account ? { account } : {}),
 			mode,
 			limit,
 			all: effectiveAll,
-			maxPages,
+			...(maxPages === undefined ? {} : { maxPages }),
 			refresh,
-			cacheTtlMs,
-		});
-		const backup = await maybeAutoSyncBackup(database);
-		const finished = Date.now();
-		const after = { bookmarks: countBookmarks(database) };
-		const entry: BookmarkSyncAuditEntry = {
-			job: "bookmarks-sync",
-			ok: true,
-			startedAt,
-			finishedAt: new Date(finished).toISOString(),
-			durationMs: finished - started,
-			host: os.hostname(),
-			pid: process.pid,
-			options,
-			before,
-			after,
-			added: Math.max(0, after.bookmarks - before.bookmarks),
-			sync: {
-				source: sync.source,
-				count: sync.count,
-				accountId: sync.accountId,
-			},
-			backup,
+			...(cacheTtlMs === undefined ? {} : { cacheTtlMs }),
 		};
-		await appendAuditEntry(resolvedLogPath, entry);
-		return entry;
-	} catch (error) {
-		const finished = Date.now();
-		const after = { bookmarks: countBookmarks(database) };
-		const entry: BookmarkSyncAuditEntry = {
-			job: "bookmarks-sync",
-			ok: false,
-			startedAt,
-			finishedAt: new Date(finished).toISOString(),
-			durationMs: finished - started,
-			host: os.hostname(),
-			pid: process.pid,
-			options,
-			before,
-			after,
-			added: Math.max(0, after.bookmarks - before.bookmarks),
-			error: messageFromError(error),
-		};
-		await appendAuditEntry(resolvedLogPath, entry);
-		return entry;
-	} finally {
-		await releaseLock();
-	}
+
+		const releaseLock = yield* acquireLockEffect(resolvedLockPath);
+		if (!releaseLock) {
+			const finished = Date.now();
+			const entry: BookmarkSyncAuditEntry = {
+				job: "bookmarks-sync",
+				ok: true,
+				startedAt,
+				finishedAt: new Date(finished).toISOString(),
+				durationMs: finished - started,
+				host: os.hostname(),
+				pid: process.pid,
+				options,
+				before,
+				after: before,
+				added: 0,
+				skipped: "already-running",
+			};
+			yield* appendAuditEntryEffect(resolvedLogPath, entry);
+			return entry;
+		}
+
+		return yield* Effect.gen(function* () {
+			const result = yield* Effect.gen(function* () {
+				const sync = yield* syncTimelineCollectionEffect({
+					kind: "bookmarks",
+					account,
+					mode,
+					limit,
+					all: effectiveAll,
+					maxPages,
+					refresh,
+					cacheTtlMs,
+				});
+				const backup = yield* maybeAutoSyncBackupEffect(database);
+				const finished = Date.now();
+				const after = yield* trySync(() => ({
+					bookmarks: countBookmarks(database),
+				}));
+				return {
+					job: "bookmarks-sync",
+					ok: true,
+					startedAt,
+					finishedAt: new Date(finished).toISOString(),
+					durationMs: finished - started,
+					host: os.hostname(),
+					pid: process.pid,
+					options,
+					before,
+					after,
+					added: Math.max(0, after.bookmarks - before.bookmarks),
+					sync: {
+						source: sync.source,
+						count: sync.count,
+						accountId: sync.accountId,
+					},
+					backup,
+				} satisfies BookmarkSyncAuditEntry;
+			}).pipe(
+				Effect.catchAll((error) =>
+					Effect.gen(function* () {
+						const finished = Date.now();
+						const after = yield* trySync(() => ({
+							bookmarks: countBookmarks(database),
+						}));
+						return {
+							job: "bookmarks-sync",
+							ok: false,
+							startedAt,
+							finishedAt: new Date(finished).toISOString(),
+							durationMs: finished - started,
+							host: os.hostname(),
+							pid: process.pid,
+							options,
+							before,
+							after,
+							added: Math.max(0, after.bookmarks - before.bookmarks),
+							error: messageFromError(error),
+						} satisfies BookmarkSyncAuditEntry;
+					}),
+				),
+			);
+			yield* appendAuditEntryEffect(resolvedLogPath, result);
+			return result;
+		}).pipe(Effect.ensuring(releaseLock()));
+	});
+}
+
+export function runBookmarkSyncJob(
+	options: BookmarkSyncJobOptions = {},
+): Promise<BookmarkSyncAuditEntry> {
+	return runEffectPromise(runBookmarkSyncJobEffect(options));
 }
 
 function xmlEscape(value: string) {
@@ -409,38 +479,58 @@ export function buildBookmarkSyncLaunchAgentPlist(
 	};
 }
 
-export async function installBookmarkSyncLaunchAgent(
+export function installBookmarkSyncLaunchAgentEffect(
+	options: BookmarkSyncLaunchAgentOptions = {},
+): Effect.Effect<BookmarkSyncLaunchAgentInstallResult, unknown> {
+	return Effect.gen(function* () {
+		yield* trySync(() => ensureBirdclawDirs());
+		const agent = yield* trySync(() =>
+			buildBookmarkSyncLaunchAgentPlist(options),
+		);
+		const launchAgentsDir = yield* trySync(() =>
+			resolvePath(options.launchAgentsDir ?? "~/Library/LaunchAgents"),
+		);
+		const plistPath = path.join(launchAgentsDir, `${agent.label}.plist`);
+		yield* tryPromise(() => fs.mkdir(launchAgentsDir, { recursive: true }));
+		yield* tryPromise(() =>
+			fs.mkdir(path.dirname(agent.logPath), { recursive: true }),
+		);
+		yield* tryPromise(() =>
+			fs.mkdir(path.dirname(agent.stdoutPath), { recursive: true }),
+		);
+		yield* tryPromise(() =>
+			fs.mkdir(path.dirname(agent.stderrPath), { recursive: true }),
+		);
+		yield* tryPromise(() => fs.writeFile(plistPath, agent.plist, "utf8"));
+
+		let loaded = false;
+		if (options.load !== false) {
+			yield* tryPromise(() =>
+				execFileAsync("launchctl", ["unload", plistPath]),
+			).pipe(Effect.catchAll(() => Effect.void));
+			yield* tryPromise(() =>
+				execFileAsync("launchctl", ["load", "-w", plistPath]),
+			);
+			loaded = true;
+		}
+
+		return {
+			ok: true,
+			label: agent.label,
+			plistPath,
+			loaded,
+			programArguments: agent.programArguments,
+			logPath: agent.logPath,
+			stdoutPath: agent.stdoutPath,
+			stderrPath: agent.stderrPath,
+			intervalSeconds: agent.intervalSeconds,
+			...(agent.envFile ? { envFile: agent.envFile } : {}),
+		};
+	});
+}
+
+export function installBookmarkSyncLaunchAgent(
 	options: BookmarkSyncLaunchAgentOptions = {},
 ): Promise<BookmarkSyncLaunchAgentInstallResult> {
-	ensureBirdclawDirs();
-	const agent = buildBookmarkSyncLaunchAgentPlist(options);
-	const launchAgentsDir = resolvePath(
-		options.launchAgentsDir ?? "~/Library/LaunchAgents",
-	);
-	const plistPath = path.join(launchAgentsDir, `${agent.label}.plist`);
-	await fs.mkdir(launchAgentsDir, { recursive: true });
-	await fs.mkdir(path.dirname(agent.logPath), { recursive: true });
-	await fs.mkdir(path.dirname(agent.stdoutPath), { recursive: true });
-	await fs.mkdir(path.dirname(agent.stderrPath), { recursive: true });
-	await fs.writeFile(plistPath, agent.plist, "utf8");
-
-	let loaded = false;
-	if (options.load !== false) {
-		await execFileAsync("launchctl", ["unload", plistPath]).catch(() => {});
-		await execFileAsync("launchctl", ["load", "-w", plistPath]);
-		loaded = true;
-	}
-
-	return {
-		ok: true,
-		label: agent.label,
-		plistPath,
-		loaded,
-		programArguments: agent.programArguments,
-		logPath: agent.logPath,
-		stdoutPath: agent.stdoutPath,
-		stderrPath: agent.stderrPath,
-		intervalSeconds: agent.intervalSeconds,
-		...(agent.envFile ? { envFile: agent.envFile } : {}),
-	};
+	return runEffectPromise(installBookmarkSyncLaunchAgentEffect(options));
 }

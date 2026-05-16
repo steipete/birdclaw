@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveProfileMock = vi.fn();
@@ -17,6 +18,69 @@ describe("profile reply inspection", () => {
 		vi.resetModules();
 		resolveProfileMock.mockReset();
 		listUserTweetsMock.mockReset();
+	});
+
+	it("builds profile reply inspection effects lazily", async () => {
+		resolveProfileMock.mockResolvedValue({
+			profile: {
+				id: "profile_user_42",
+				handle: "jpctan",
+				displayName: "Jason Tan",
+				bio: "",
+				followersCount: 268,
+				avatarHue: 18,
+				createdAt: "2015-05-20T09:27:37.000Z",
+			},
+			externalUserId: "42",
+		});
+		listUserTweetsMock.mockResolvedValue({
+			items: [
+				{
+					id: "tweet_1",
+					text: "@sam one",
+					created_at: "2026-03-09T00:00:00.000Z",
+					referenced_tweets: [{ type: "replied_to", id: "root_1" }],
+				},
+			],
+		});
+		const { inspectProfileRepliesEffect } = await import("./profile-replies");
+
+		const effect = inspectProfileRepliesEffect("@jpctan", { limit: 1 });
+
+		expect(resolveProfileMock).not.toHaveBeenCalled();
+		expect(listUserTweetsMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			externalUserId: "42",
+			items: [{ id: "tweet_1" }],
+		});
+		expect(listUserTweetsMock).toHaveBeenCalledWith("42", {
+			maxResults: 20,
+			excludeRetweets: true,
+		});
+	});
+
+	it("validates profile reply inspection effects only when run", async () => {
+		resolveProfileMock.mockResolvedValue({
+			profile: {
+				id: "profile_group_1",
+				handle: "group",
+				displayName: "Group",
+				bio: "",
+				followersCount: 0,
+				avatarHue: 0,
+				createdAt: "2026-03-09T00:00:00.000Z",
+			},
+			externalUserId: null,
+		});
+		const { inspectProfileRepliesEffect } = await import("./profile-replies");
+
+		const effect = inspectProfileRepliesEffect("group");
+
+		expect(resolveProfileMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).rejects.toThrow(
+			"Profile has no external Twitter user id: group",
+		);
+		expect(listUserTweetsMock).not.toHaveBeenCalled();
 	});
 
 	it("filters recent authored tweets down to replies", async () => {

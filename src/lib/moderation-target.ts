@@ -1,6 +1,8 @@
 import type { Database } from "./sqlite";
+import { Effect } from "effect";
 import { lookupProfileViaBird } from "./bird-actions";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
 import {
@@ -12,6 +14,17 @@ import {
 export interface ResolvedModerationProfile {
 	profile: ProfileRecord;
 	externalUserId: string | null;
+}
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
 }
 
 export function toProfile(row: Record<string, unknown>): ProfileRecord {
@@ -90,90 +103,114 @@ export function resolveLocalProfile(
 	};
 }
 
-export async function resolveProfile(
+export function resolveProfileEffect(
 	query: string,
-): Promise<ResolvedModerationProfile> {
-	const db = getNativeDb();
-	const normalizedQuery = normalizeProfileQuery(query);
-	if (!normalizedQuery) {
-		throw new Error("Missing profile handle or id");
-	}
-
-	const local = resolveLocalProfile(db, normalizedQuery);
-	if (process.env.BIRDCLAW_DISABLE_LIVE_PROFILE_LOOKUP === "1") {
-		if (local) {
-			return local;
+): Effect.Effect<ResolvedModerationProfile, unknown> {
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const normalizedQuery = normalizeProfileQuery(query);
+		if (!normalizedQuery) {
+			return yield* Effect.fail(new Error("Missing profile handle or id"));
 		}
-		throw new Error(`Profile not found locally: ${query}`);
-	}
-	if (
-		local &&
-		!local.profile.id.startsWith("profile_group_") &&
-		local.externalUserId
-	) {
-		return local;
-	}
 
-	let user: XurlMentionUser | undefined;
-	let lastError: unknown;
-
-	try {
-		user =
-			(await lookupProfileViaBird(local?.profile.handle ?? normalizedQuery)) ??
-			undefined;
-	} catch (error) {
-		lastError = error;
-	}
-
-	if (!user) {
-		try {
-			if (/^\d+$/.test(normalizedQuery)) {
-				[user] = await lookupUsersByIds([normalizedQuery]);
-			} else {
-				[user] = await lookupUsersByHandles([
-					local?.profile.handle ?? normalizedQuery,
-				]);
+		const local = yield* trySync(() =>
+			resolveLocalProfile(db, normalizedQuery),
+		);
+		if (process.env.BIRDCLAW_DISABLE_LIVE_PROFILE_LOOKUP === "1") {
+			if (local) {
+				return local;
 			}
-		} catch (error) {
-			lastError = error;
+			return yield* Effect.fail(
+				new Error(`Profile not found locally: ${query}`),
+			);
 		}
-	}
-
-	if (!user && lastError) {
-		if (local) {
+		if (
+			local &&
+			!local.profile.id.startsWith("profile_group_") &&
+			local.externalUserId
+		) {
 			return local;
 		}
-		throw lastError;
-	}
 
-	if (!user) {
+		let user: XurlMentionUser | undefined;
+		let lastError: unknown;
+
+		const birdResult = yield* tryPromise(() =>
+			lookupProfileViaBird(local?.profile.handle ?? normalizedQuery),
+		).pipe(
+			Effect.map((value) => ({ ok: true as const, value })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (birdResult.ok) {
+			user = birdResult.value ?? undefined;
+		} else {
+			lastError = birdResult.error;
+		}
+
+		if (!user) {
+			const xurlResult = yield* tryPromise(() =>
+				/^\d+$/.test(normalizedQuery)
+					? lookupUsersByIds([normalizedQuery])
+					: lookupUsersByHandles([local?.profile.handle ?? normalizedQuery]),
+			).pipe(
+				Effect.map((value) => ({ ok: true as const, value })),
+				Effect.catchAll((error) =>
+					Effect.succeed({ ok: false as const, error }),
+				),
+			);
+			if (xurlResult.ok) {
+				[user] = xurlResult.value;
+			} else {
+				lastError = xurlResult.error;
+			}
+		}
+
+		if (!user && lastError) {
+			if (local) {
+				return local;
+			}
+			return yield* Effect.fail(lastError);
+		}
+
+		if (!user) {
+			if (local) {
+				return local;
+			}
+			return yield* Effect.fail(new Error(`Profile not found: ${query}`));
+		}
+
 		if (local) {
-			return local;
+			return yield* trySync(() => upsertProfileFromXUser(db, user));
 		}
-		throw new Error(`Profile not found: ${query}`);
-	}
 
-	if (local) {
-		return upsertProfileFromXUser(db, user);
-	}
-
-	const username = String(user.username ?? "").replace(/^@/, "");
-	if (username) {
-		const localByHandle = resolveLocalProfile(db, username);
-		if (localByHandle) {
-			return upsertProfileFromXUser(db, user);
+		const username = String(user.username ?? "").replace(/^@/, "");
+		if (username) {
+			const localByHandle = yield* trySync(() =>
+				resolveLocalProfile(db, username),
+			);
+			if (localByHandle) {
+				return yield* trySync(() => upsertProfileFromXUser(db, user));
+			}
 		}
-	}
 
-	return upsertProfileFromXUser(db, user);
+		return yield* trySync(() => upsertProfileFromXUser(db, user));
+	});
 }
 
-export async function getAuthenticatedUserId() {
-	try {
-		const me = await lookupAuthenticatedUser();
+export function resolveProfile(
+	query: string,
+): Promise<ResolvedModerationProfile> {
+	return runEffectPromise(resolveProfileEffect(query));
+}
+
+export function getAuthenticatedUserIdEffect() {
+	return Effect.gen(function* () {
+		const me = yield* tryPromise(() => lookupAuthenticatedUser());
 		const id = me?.id;
 		return typeof id === "string" && id.length > 0 ? id : null;
-	} catch {
-		return null;
-	}
+	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
+}
+
+export function getAuthenticatedUserId() {
+	return runEffectPromise(getAuthenticatedUserIdEffect());
 }

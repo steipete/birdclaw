@@ -1,6 +1,8 @@
+import { Effect } from "effect";
 import type { Database } from "./sqlite";
-import { listHomeTimelineViaBird } from "./bird";
+import { listHomeTimelineViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
+import { runEffectPromise } from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type { XurlMentionsResponse } from "./types";
@@ -8,6 +10,14 @@ import { upsertTweetAccountEdge } from "./tweet-account-edges";
 import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
 
 const DEFAULT_TIMELINE_CACHE_TTL_MS = 2 * 60_000;
+
+export interface SyncHomeTimelineOptions {
+	account?: string;
+	limit?: number;
+	following?: boolean;
+	refresh?: boolean;
+	cacheTtlMs?: number;
+}
 
 function parseCacheTtlMs(value?: number) {
 	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -123,55 +133,66 @@ function mergeHomeTimelineIntoLocalStore(
 	})();
 }
 
-export async function syncHomeTimeline({
+export function syncHomeTimelineEffect({
 	account,
 	limit = 100,
 	following = true,
 	refresh = false,
 	cacheTtlMs,
-}: {
-	account?: string;
-	limit?: number;
-	following?: boolean;
-	refresh?: boolean;
-	cacheTtlMs?: number;
-}) {
-	assertLimit(limit);
-	const db = getNativeDb();
-	const accountId = resolveAccount(db, account);
-	const cacheKey = `timeline:bird:${accountId}:${following ? "following" : "for-you"}:${String(limit)}`;
-	const ttlMs = parseCacheTtlMs(cacheTtlMs);
-	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
-	const cacheAgeMs = cached
-		? Date.now() - new Date(cached.updatedAt).getTime()
-		: Number.POSITIVE_INFINITY;
+}: SyncHomeTimelineOptions = {}): Effect.Effect<
+	{
+		ok: true;
+		source: "bird" | "cache";
+		kind: "timeline";
+		accountId: string;
+		feed: "following" | "for-you";
+		count: number;
+		payload: XurlMentionsResponse;
+	},
+	unknown
+> {
+	return Effect.gen(function* () {
+		assertLimit(limit);
+		const db = getNativeDb();
+		const accountId = resolveAccount(db, account);
+		const cacheKey = `timeline:bird:${accountId}:${following ? "following" : "for-you"}:${String(limit)}`;
+		const ttlMs = parseCacheTtlMs(cacheTtlMs);
+		const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
+		const cacheAgeMs = cached
+			? Date.now() - new Date(cached.updatedAt).getTime()
+			: Number.POSITIVE_INFINITY;
 
-	if (!refresh && cached && cacheAgeMs <= ttlMs) {
+		if (!refresh && cached && cacheAgeMs <= ttlMs) {
+			return {
+				ok: true,
+				source: "cache",
+				kind: "timeline",
+				accountId,
+				feed: following ? "following" : "for-you",
+				count: cached.value.data.length,
+				payload: cached.value,
+			} as const;
+		}
+
+		const payload = yield* listHomeTimelineViaBirdEffect({
+			maxResults: limit,
+			following,
+		});
+		mergeHomeTimelineIntoLocalStore(db, accountId, payload);
+		writeSyncCache(cacheKey, payload, db);
+
 		return {
 			ok: true,
-			source: "cache",
+			source: "bird",
 			kind: "timeline",
 			accountId,
 			feed: following ? "following" : "for-you",
-			count: cached.value.data.length,
-			payload: cached.value,
-		};
-	}
-
-	const payload = await listHomeTimelineViaBird({
-		maxResults: limit,
-		following,
+			count: payload.data.length,
+			payload,
+		} as const;
 	});
-	mergeHomeTimelineIntoLocalStore(db, accountId, payload);
-	writeSyncCache(cacheKey, payload, db);
+}
 
-	return {
-		ok: true,
-		source: "bird",
-		kind: "timeline",
-		accountId,
-		feed: following ? "following" : "for-you",
-		count: payload.data.length,
-		payload,
-	};
+export function syncHomeTimeline(options: SyncHomeTimelineOptions = {}) {
+	return runEffectPromise(syncHomeTimelineEffect(options));
 }

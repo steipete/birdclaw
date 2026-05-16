@@ -1,6 +1,8 @@
-import { lookupTweetsByIdsViaBird } from "./bird";
+import { Effect } from "effect";
+import { lookupTweetsByIdsViaBirdEffect } from "./bird";
+import { runEffectPromise } from "./effect-runtime";
 import type { XurlTweetsResponse } from "./types";
-import { lookupTweetsByIds as lookupTweetsByIdsViaXurl } from "./xurl";
+import { lookupTweetsByIdsEffect as lookupTweetsByIdsViaXurlEffect } from "./xurl";
 
 export type TweetLookupMode = "auto" | "xurl" | "bird";
 
@@ -8,28 +10,37 @@ function errorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export async function lookupTweetsByIds(
+export function lookupTweetsByIdsEffect(
+	ids: string[],
+	mode: TweetLookupMode = "auto",
+): Effect.Effect<XurlTweetsResponse, unknown> {
+	if (mode === "bird") {
+		return lookupTweetsByIdsViaBirdEffect(ids);
+	}
+	if (mode === "xurl") {
+		return lookupTweetsByIdsViaXurlEffect(ids);
+	}
+
+	return lookupTweetsByIdsViaXurlEffect(ids).pipe(
+		Effect.catchAll((xurlError) =>
+			lookupTweetsByIdsViaBirdEffect(ids).pipe(
+				Effect.catchAll((birdError) =>
+					Effect.fail(
+						new Error(
+							`Tweet lookup failed via xurl and bird: xurl: ${errorMessage(
+								xurlError,
+							)}; bird: ${errorMessage(birdError)}`,
+						),
+					),
+				),
+			),
+		),
+	);
+}
+
+export function lookupTweetsByIds(
 	ids: string[],
 	mode: TweetLookupMode = "auto",
 ): Promise<XurlTweetsResponse> {
-	if (mode === "bird") {
-		return lookupTweetsByIdsViaBird(ids);
-	}
-	if (mode === "xurl") {
-		return lookupTweetsByIdsViaXurl(ids);
-	}
-
-	try {
-		return await lookupTweetsByIdsViaXurl(ids);
-	} catch (xurlError) {
-		try {
-			return await lookupTweetsByIdsViaBird(ids);
-		} catch (birdError) {
-			throw new Error(
-				`Tweet lookup failed via xurl and bird: xurl: ${errorMessage(
-					xurlError,
-				)}; bird: ${errorMessage(birdError)}`,
-			);
-		}
-	}
+	return runEffectPromise(lookupTweetsByIdsEffect(ids, mode));
 }

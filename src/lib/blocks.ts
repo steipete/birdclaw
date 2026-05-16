@@ -1,5 +1,7 @@
+import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import {
 	getAccountHandle,
 	getDefaultAccountId,
@@ -9,10 +11,28 @@ import type { BlockItem, BlockListResponse, BlockSearchItem } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
 import { listBlockedUsers, lookupAuthenticatedUser } from "./xurl";
 
-export { addBlock, recordBlock, removeBlock } from "./blocks-write";
+export {
+	addBlock,
+	addBlockEffect,
+	recordBlock,
+	recordBlockEffect,
+	removeBlock,
+	removeBlockEffect,
+} from "./blocks-write";
 
 function remoteBlockSyncDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
+}
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
 }
 
 function upsertRemoteBlock(
@@ -206,116 +226,126 @@ export function getBlocksResponse({
 	};
 }
 
-export async function syncBlocks(accountId: string) {
-	const db = getNativeDb();
-	const resolvedAccountId = accountId || getDefaultAccountId(db);
-	const blockedAt = new Date().toISOString();
-	const remoteProfileIds: string[] = [];
+export function syncBlocksEffect(accountId: string) {
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const resolvedAccountId = accountId || getDefaultAccountId(db);
+		const blockedAt = new Date().toISOString();
+		const remoteProfileIds: string[] = [];
 
-	if (remoteBlockSyncDisabled()) {
-		return {
-			ok: true,
-			accountId: resolvedAccountId,
-			synced: false,
-			syncedCount: 0,
-			transport: {
+		if (remoteBlockSyncDisabled()) {
+			return {
 				ok: true,
-				output: "remote block sync disabled in test mode",
-			},
-		};
-	}
-
-	try {
-		const me = await lookupAuthenticatedUser();
-		const sourceUserId =
-			typeof me?.id === "string" && me.id.length > 0 ? me.id : null;
-		const sourceUsername =
-			typeof me?.username === "string" ? me.username.replace(/^@/, "") : "";
-		const accountHandle = getAccountHandle(db, resolvedAccountId);
-
-		if (!sourceUserId) {
-			return {
-				ok: false,
 				accountId: resolvedAccountId,
 				synced: false,
 				syncedCount: 0,
 				transport: {
-					ok: false,
-					output:
-						"xurl block sync unavailable without an authenticated account",
+					ok: true,
+					output: "remote block sync disabled in test mode",
 				},
 			};
 		}
 
-		if (accountHandle && sourceUsername && accountHandle !== sourceUsername) {
-			return {
-				ok: false,
-				accountId: resolvedAccountId,
-				synced: false,
-				syncedCount: 0,
-				transport: {
+		return yield* Effect.gen(function* () {
+			const me = yield* tryPromise(() => lookupAuthenticatedUser()).pipe(
+				Effect.mapError(toError),
+			);
+			const sourceUserId =
+				typeof me?.id === "string" && me.id.length > 0 ? me.id : null;
+			const sourceUsername =
+				typeof me?.username === "string" ? me.username.replace(/^@/, "") : "";
+			const accountHandle = getAccountHandle(db, resolvedAccountId);
+
+			if (!sourceUserId) {
+				return {
 					ok: false,
-					output: `xurl is authenticated as @${sourceUsername}, not @${accountHandle}`,
-				},
-			};
-		}
+					accountId: resolvedAccountId,
+					synced: false,
+					syncedCount: 0,
+					transport: {
+						ok: false,
+						output:
+							"xurl block sync unavailable without an authenticated account",
+					},
+				};
+			}
 
-		let nextToken: string | null = null;
-		let pageCount = 0;
+			if (accountHandle && sourceUsername && accountHandle !== sourceUsername) {
+				return {
+					ok: false,
+					accountId: resolvedAccountId,
+					synced: false,
+					syncedCount: 0,
+					transport: {
+						ok: false,
+						output: `xurl is authenticated as @${sourceUsername}, not @${accountHandle}`,
+					},
+				};
+			}
 
-		do {
-			const page = await listBlockedUsers(sourceUserId, nextToken ?? undefined);
-			const mergeRemotePage = db.transaction(() => {
-				for (const user of page.items) {
-					const resolved = upsertProfileFromXUser(db, user);
-					remoteProfileIds.push(resolved.profile.id);
-					upsertRemoteBlock(
-						db,
-						resolvedAccountId,
-						resolved.profile.id,
-						blockedAt,
-					);
-				}
+			let nextToken: string | null = null;
+			let pageCount = 0;
+
+			do {
+				const page = yield* tryPromise(() =>
+					listBlockedUsers(sourceUserId, nextToken ?? undefined),
+				).pipe(Effect.mapError(toError));
+				yield* trySync(() => {
+					const mergeRemotePage = db.transaction(() => {
+						for (const user of page.items) {
+							const resolved = upsertProfileFromXUser(db, user);
+							remoteProfileIds.push(resolved.profile.id);
+							upsertRemoteBlock(
+								db,
+								resolvedAccountId,
+								resolved.profile.id,
+								blockedAt,
+							);
+						}
+					});
+					mergeRemotePage();
+				});
+				nextToken = page.nextToken;
+				pageCount += 1;
+			} while (nextToken && pageCount < 20);
+
+			yield* trySync(() => {
+				const pruneMergedBlocks = db.transaction(() => {
+					pruneRemoteBlocks(db, resolvedAccountId, remoteProfileIds);
+				});
+				pruneMergedBlocks();
 			});
-			mergeRemotePage();
-			nextToken = page.nextToken;
-			pageCount += 1;
-		} while (nextToken && pageCount < 20);
 
-		const pruneMergedBlocks = db.transaction(() => {
-			pruneRemoteBlocks(db, resolvedAccountId, remoteProfileIds);
-		});
-		pruneMergedBlocks();
-
-		return {
-			ok: true,
-			accountId: resolvedAccountId,
-			synced: true,
-			syncedCount: remoteProfileIds.length,
-			transport: {
+			return {
 				ok: true,
-				output: `synced ${remoteProfileIds.length} remote blocks`,
-			},
-		};
-	} catch (error) {
-		return {
-			ok: false,
-			accountId: resolvedAccountId,
-			synced: remoteProfileIds.length > 0,
-			syncedCount: remoteProfileIds.length,
-			transport: {
-				ok: false,
-				output:
-					remoteProfileIds.length > 0
-						? `partial block sync after ${remoteProfileIds.length} profiles: ${
-								error instanceof Error
-									? error.message
-									: "xurl block sync failed"
-							}`
-						: error instanceof Error
-							? error.message
-							: "xurl block sync failed",
-			},
-		};
-	}
+				accountId: resolvedAccountId,
+				synced: true,
+				syncedCount: remoteProfileIds.length,
+				transport: {
+					ok: true,
+					output: `synced ${remoteProfileIds.length} remote blocks`,
+				},
+			};
+		}).pipe(
+			Effect.catchAll((error) =>
+				Effect.succeed({
+					ok: false,
+					accountId: resolvedAccountId,
+					synced: remoteProfileIds.length > 0,
+					syncedCount: remoteProfileIds.length,
+					transport: {
+						ok: false,
+						output:
+							remoteProfileIds.length > 0
+								? `partial block sync after ${remoteProfileIds.length} profiles: ${error.message}`
+								: error.message,
+					},
+				}),
+			),
+		);
+	});
+}
+
+export function syncBlocks(accountId: string) {
+	return runEffectPromise(syncBlocksEffect(accountId));
 }

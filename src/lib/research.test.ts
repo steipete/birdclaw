@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -269,6 +269,27 @@ describe("research mode", () => {
 
 		expect(report.seedCount).toBe(1);
 		expect(report.markdown).toContain("Birdclaw Research");
+		expect(readFileSync(outputPath, "utf8")).toContain("Birdclaw Research");
+	});
+
+	it("builds research reports lazily as Effect programs", async () => {
+		const { runEffectPromise } = await import("./effect-runtime");
+		const { runResearchModeEffect } = await import("./research");
+		const outputPath = path.join(
+			process.env.BIRDCLAW_HOME ?? "",
+			"lazy-brief.md",
+		);
+
+		const effect = runResearchModeEffect({
+			account: "acct_research",
+			limit: 1,
+			maxThreadDepth: 4,
+			outPath: outputPath,
+		});
+
+		expect(existsSync(outputPath)).toBe(false);
+		const report = await runEffectPromise(effect);
+		expect(report.seedCount).toBe(1);
 		expect(readFileSync(outputPath, "utf8")).toContain("Birdclaw Research");
 	});
 

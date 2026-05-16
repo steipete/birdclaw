@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const addBlockMock = vi.fn();
@@ -82,6 +83,27 @@ plain text should be ignored
 					error: "Profile not found: @beta",
 				},
 			],
+		});
+	});
+
+	it("exposes blocklist imports as Effect programs", async () => {
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-blocklist-"));
+		tempRoots.push(tempRoot);
+		const filePath = path.join(tempRoot, "blocklist.txt");
+		writeFileSync(filePath, "@alpha\n");
+		addBlockMock.mockResolvedValueOnce({
+			ok: true,
+			blockedAt: "2026-03-09T00:00:00.000Z",
+			profile: { handle: "alpha" },
+			transport: { ok: true, output: "blocked" },
+		});
+		const { importBlocklistEffect } = await import("./blocklist");
+
+		await expect(
+			Effect.runPromise(importBlocklistEffect("acct_primary", filePath)),
+		).resolves.toMatchObject({
+			ok: true,
+			blockedCount: 1,
 		});
 	});
 });

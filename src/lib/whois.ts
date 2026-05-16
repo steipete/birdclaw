@@ -1,13 +1,16 @@
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
+import { runEffectPromise } from "./effect-runtime";
 import {
 	ensureIdentitySearchIndexForDmProfiles,
 	syncIdentitySearchIndexForProfileIds,
 } from "./identity-search-index";
 import { fetchProfileBioEntities } from "./profile-bio-entities";
 import { fetchProfileSnapshots } from "./profile-history";
-import { expandUrlsFromTexts } from "./url-expansion";
-import { resolveProfilesForIds } from "./profile-resolver";
+import { resolveProfilesForIdsEffect } from "./profile-resolver";
+import type { ProfileResolveResult } from "./profile-resolver";
 import { listDmConversations, listTimelineItems } from "./queries";
+import { expandUrlsFromTextsEffect } from "./url-expansion";
 import type {
 	DmConversationItem,
 	ProfileAffiliation,
@@ -61,7 +64,7 @@ export interface WhoisResult {
 	candidates: WhoisCandidate[];
 	relatedTweets: TimelineItem[];
 	urlExpansions: UrlExpansionItem[];
-	profileResolution?: Awaited<ReturnType<typeof resolveProfilesForIds>>;
+	profileResolution?: ProfileResolveResult[];
 }
 
 export interface WhoisEvidenceSignal {
@@ -82,6 +85,13 @@ export interface WhoisEvidenceSignal {
 		| "expanded_url";
 	value: string;
 	source: "profile" | "affiliation" | "bio_entity" | "history" | "dm" | "url";
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: (cause) => cause,
+	});
 }
 
 interface WhoisQueryIntent {
@@ -771,160 +781,169 @@ function loadWhoisConversations(
 	return [...merged.values()];
 }
 
-export async function runWhois(
+export function runWhoisEffect(
+	query: string,
+	options: WhoisOptions = {},
+): Effect.Effect<WhoisResult, unknown> {
+	return Effect.gen(function* () {
+		const includeDms = options.dms ?? true;
+		const includeTweets = options.tweets ?? false;
+		const limit = options.limit ?? 10;
+		const context = options.context ?? 4;
+		let conversations = yield* trySync(() =>
+			loadWhoisConversations(query, options, includeDms, context, limit),
+		);
+		let profileResolution: WhoisResult["profileResolution"];
+
+		if (options.resolveProfiles ?? true) {
+			profileResolution = yield* resolveProfilesForIdsEffect(
+				conversations.map((item) => item.participant.id),
+				{
+					refresh: options.refreshProfileCache,
+					xurlFallback: options.xurlFallback ?? true,
+				},
+			);
+			conversations = yield* trySync(() =>
+				loadWhoisConversations(query, options, includeDms, context, limit),
+			);
+		}
+		yield* trySync(() =>
+			syncIdentitySearchIndexForProfileIds(
+				getNativeDb(),
+				conversations.map((item) => item.participant.id),
+			),
+		);
+
+		const relatedTweets = includeTweets
+			? yield* trySync(() => [
+					...listTimelineItems({
+						resource: "home",
+						account: options.account,
+						search: query,
+						limit,
+					}),
+					...listTimelineItems({
+						resource: "mentions",
+						account: options.account,
+						search: query,
+						limit,
+					}),
+				])
+			: [];
+
+		const texts = yield* trySync(() => [
+			...conversations.flatMap(getMessageTexts),
+			...conversations.flatMap((conversation) =>
+				[
+					conversation.participant.bio,
+					conversation.participant.url ?? "",
+					...getProfileBioUrls(conversation.participant),
+				].filter((text) => text.includes("https://t.co/")),
+			),
+			...relatedTweets.map((tweet) => tweet.text),
+		]);
+		const urlExpansions =
+			(options.expandUrls ?? true)
+				? yield* expandUrlsFromTextsEffect(texts, {
+						refresh: options.refreshUrlCache,
+					})
+				: [];
+		yield* trySync(() => {
+			for (const conversation of conversations) {
+				attachExpansionsToMatches(conversation, urlExpansions);
+			}
+		});
+
+		const candidates = yield* trySync(() => {
+			const profileIds = conversations.map(
+				(conversation) => conversation.participant.id,
+			);
+			const db = getNativeDb();
+			const bioEntitiesByProfile = fetchProfileBioEntities(db, profileIds);
+			const snapshotsByProfile = fetchProfileSnapshots(db, profileIds);
+			return conversations
+				.map((conversation): WhoisCandidate | null => {
+					const conversationExpansions = urlExpansions.filter((item) =>
+						getMessageTexts(conversation).some((text) =>
+							text.includes(item.url),
+						),
+					);
+					const profileId = conversation.participant.id;
+					const score = scoreCandidate(
+						query,
+						conversation,
+						conversationExpansions,
+						bioEntitiesByProfile.get(profileId) ?? [],
+						snapshotsByProfile.get(profileId) ?? [],
+					);
+					if (
+						!hasCurrentAffiliationMatch(
+							conversation.participant,
+							options.currentAffiliation,
+						)
+					) {
+						return null;
+					}
+					if (
+						!hasAffiliationEvidenceMatch(
+							conversation.participant,
+							score.profileEvidence,
+							options.affiliation,
+						)
+					) {
+						return null;
+					}
+					if (
+						options.excludeDomainOnly &&
+						!hasNonDomainEvidence(score.profileEvidence)
+					) {
+						return null;
+					}
+					return {
+						conversation,
+						confidence: score.confidence,
+						category: score.category,
+						reasons: score.reasons,
+						profileEvidence: score.profileEvidence,
+						evidence: (conversation.matches ?? []).map((match) => ({
+							messageId: match.message.id,
+							createdAt: match.message.createdAt,
+							direction: match.message.direction,
+							text: match.message.text,
+							...(match.urlExpansions
+								? { urlExpansions: match.urlExpansions }
+								: {}),
+						})),
+					};
+				})
+				.filter((candidate): candidate is WhoisCandidate => candidate !== null)
+				.sort((left, right) => {
+					if (right.confidence !== left.confidence) {
+						return right.confidence - left.confidence;
+					}
+					return (
+						new Date(right.conversation.lastMessageAt).getTime() -
+						new Date(left.conversation.lastMessageAt).getTime()
+					);
+				})
+				.slice(0, limit);
+		});
+
+		return {
+			query,
+			candidates,
+			relatedTweets,
+			urlExpansions,
+			...(profileResolution ? { profileResolution } : {}),
+		};
+	});
+}
+
+export function runWhois(
 	query: string,
 	options: WhoisOptions = {},
 ): Promise<WhoisResult> {
-	const includeDms = options.dms ?? true;
-	const includeTweets = options.tweets ?? false;
-	const limit = options.limit ?? 10;
-	const context = options.context ?? 4;
-	let conversations = loadWhoisConversations(
-		query,
-		options,
-		includeDms,
-		context,
-		limit,
-	);
-	let profileResolution: WhoisResult["profileResolution"];
-
-	if (options.resolveProfiles ?? true) {
-		profileResolution = await resolveProfilesForIds(
-			conversations.map((item) => item.participant.id),
-			{
-				refresh: options.refreshProfileCache,
-				xurlFallback: options.xurlFallback ?? true,
-			},
-		);
-		conversations = loadWhoisConversations(
-			query,
-			options,
-			includeDms,
-			context,
-			limit,
-		);
-	}
-	syncIdentitySearchIndexForProfileIds(
-		getNativeDb(),
-		conversations.map((item) => item.participant.id),
-	);
-
-	const relatedTweets = includeTweets
-		? [
-				...listTimelineItems({
-					resource: "home",
-					account: options.account,
-					search: query,
-					limit,
-				}),
-				...listTimelineItems({
-					resource: "mentions",
-					account: options.account,
-					search: query,
-					limit,
-				}),
-			]
-		: [];
-
-	const texts = [
-		...conversations.flatMap(getMessageTexts),
-		...conversations.flatMap((conversation) =>
-			[
-				conversation.participant.bio,
-				conversation.participant.url ?? "",
-				...getProfileBioUrls(conversation.participant),
-			].filter((text) => text.includes("https://t.co/")),
-		),
-		...relatedTweets.map((tweet) => tweet.text),
-	];
-	const urlExpansions =
-		(options.expandUrls ?? true)
-			? await expandUrlsFromTexts(texts, { refresh: options.refreshUrlCache })
-			: [];
-	for (const conversation of conversations) {
-		attachExpansionsToMatches(conversation, urlExpansions);
-	}
-
-	const profileIds = conversations.map(
-		(conversation) => conversation.participant.id,
-	);
-	const bioEntitiesByProfile = fetchProfileBioEntities(
-		getNativeDb(),
-		profileIds,
-	);
-	const snapshotsByProfile = fetchProfileSnapshots(getNativeDb(), profileIds);
-	const candidates = conversations
-		.map((conversation): WhoisCandidate | null => {
-			const conversationExpansions = urlExpansions.filter((item) =>
-				getMessageTexts(conversation).some((text) => text.includes(item.url)),
-			);
-			const profileId = conversation.participant.id;
-			const score = scoreCandidate(
-				query,
-				conversation,
-				conversationExpansions,
-				bioEntitiesByProfile.get(profileId) ?? [],
-				snapshotsByProfile.get(profileId) ?? [],
-			);
-			if (
-				!hasCurrentAffiliationMatch(
-					conversation.participant,
-					options.currentAffiliation,
-				)
-			) {
-				return null;
-			}
-			if (
-				!hasAffiliationEvidenceMatch(
-					conversation.participant,
-					score.profileEvidence,
-					options.affiliation,
-				)
-			) {
-				return null;
-			}
-			if (
-				options.excludeDomainOnly &&
-				!hasNonDomainEvidence(score.profileEvidence)
-			) {
-				return null;
-			}
-			return {
-				conversation,
-				confidence: score.confidence,
-				category: score.category,
-				reasons: score.reasons,
-				profileEvidence: score.profileEvidence,
-				evidence: (conversation.matches ?? []).map((match) => ({
-					messageId: match.message.id,
-					createdAt: match.message.createdAt,
-					direction: match.message.direction,
-					text: match.message.text,
-					...(match.urlExpansions
-						? { urlExpansions: match.urlExpansions }
-						: {}),
-				})),
-			};
-		})
-		.filter((candidate): candidate is WhoisCandidate => candidate !== null)
-		.sort((left, right) => {
-			if (right.confidence !== left.confidence) {
-				return right.confidence - left.confidence;
-			}
-			return (
-				new Date(right.conversation.lastMessageAt).getTime() -
-				new Date(left.conversation.lastMessageAt).getTime()
-			);
-		})
-		.slice(0, limit);
-
-	return {
-		query,
-		candidates,
-		relatedTweets,
-		urlExpansions,
-		...(profileResolution ? { profileResolution } : {}),
-	};
+	return runEffectPromise(runWhoisEffect(query, options));
 }
 
 const CATEGORY_LABELS: Record<WhoisCandidateCategory, string> = {

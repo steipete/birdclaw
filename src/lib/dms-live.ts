@@ -1,16 +1,25 @@
+import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import {
 	type BirdDmConversation,
 	type BirdDmEvent,
 	type BirdDmUser,
-	listDirectMessagesViaBird,
+	listDirectMessagesViaBirdEffect,
 } from "./bird";
 import { getNativeDb } from "./db";
+import { runEffectPromise } from "./effect-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type { XurlMentionUser } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
 
 export const DEFAULT_DMS_CACHE_TTL_MS = 2 * 60_000;
+
+export interface SyncDirectMessagesViaCachedBirdOptions {
+	account?: string;
+	limit?: number;
+	refresh?: boolean;
+	cacheTtlMs?: number;
+}
 
 function parseCacheTtlMs(value?: number) {
 	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -230,50 +239,62 @@ function mergeDirectMessagesIntoLocalStore(
 	})();
 }
 
-export async function syncDirectMessagesViaCachedBird({
+export function syncDirectMessagesViaCachedBirdEffect({
 	account,
 	limit = 20,
 	refresh = false,
 	cacheTtlMs,
-}: {
-	account?: string;
-	limit?: number;
-	refresh?: boolean;
-	cacheTtlMs?: number;
-}) {
-	assertBirdLimit(limit);
-	const db = getNativeDb();
-	const resolvedAccount = resolveAccount(db, account);
-	const cacheKey = `dms:bird:${resolvedAccount.accountId}:${String(limit)}`;
-	const ttlMs = parseCacheTtlMs(cacheTtlMs);
-	const cached = readSyncCache<{
-		conversations: BirdDmConversation[];
-		events: BirdDmEvent[];
-	}>(cacheKey, db);
-	const cacheAgeMs = cached
-		? Date.now() - new Date(cached.updatedAt).getTime()
-		: Number.POSITIVE_INFINITY;
+}: SyncDirectMessagesViaCachedBirdOptions = {}): Effect.Effect<
+	{
+		ok: true;
+		source: "bird" | "cache";
+		accountId: string;
+		conversations: number;
+		messages: number;
+	},
+	unknown
+> {
+	return Effect.gen(function* () {
+		assertBirdLimit(limit);
+		const db = getNativeDb();
+		const resolvedAccount = resolveAccount(db, account);
+		const cacheKey = `dms:bird:${resolvedAccount.accountId}:${String(limit)}`;
+		const ttlMs = parseCacheTtlMs(cacheTtlMs);
+		const cached = readSyncCache<{
+			conversations: BirdDmConversation[];
+			events: BirdDmEvent[];
+		}>(cacheKey, db);
+		const cacheAgeMs = cached
+			? Date.now() - new Date(cached.updatedAt).getTime()
+			: Number.POSITIVE_INFINITY;
 
-	const payload =
-		!refresh && cached && cacheAgeMs <= ttlMs
-			? cached.value
-			: await listDirectMessagesViaBird({ maxResults: limit });
+		const payload =
+			!refresh && cached && cacheAgeMs <= ttlMs
+				? cached.value
+				: yield* listDirectMessagesViaBirdEffect({ maxResults: limit });
 
-	mergeDirectMessagesIntoLocalStore(
-		db,
-		resolvedAccount.accountId,
-		resolvedAccount.username,
-		payload,
-	);
-	if (!cached || refresh || cacheAgeMs > ttlMs) {
-		writeSyncCache(cacheKey, payload, db);
-	}
+		mergeDirectMessagesIntoLocalStore(
+			db,
+			resolvedAccount.accountId,
+			resolvedAccount.username,
+			payload,
+		);
+		if (!cached || refresh || cacheAgeMs > ttlMs) {
+			writeSyncCache(cacheKey, payload, db);
+		}
 
-	return {
-		ok: true,
-		source: cached && !refresh && cacheAgeMs <= ttlMs ? "cache" : "bird",
-		accountId: resolvedAccount.accountId,
-		conversations: payload.conversations.length,
-		messages: payload.events.length,
-	};
+		return {
+			ok: true,
+			source: cached && !refresh && cacheAgeMs <= ttlMs ? "cache" : "bird",
+			accountId: resolvedAccount.accountId,
+			conversations: payload.conversations.length,
+			messages: payload.events.length,
+		} as const;
+	});
+}
+
+export function syncDirectMessagesViaCachedBird(
+	options: SyncDirectMessagesViaCachedBirdOptions = {},
+) {
+	return runEffectPromise(syncDirectMessagesViaCachedBirdEffect(options));
 }

@@ -1,8 +1,14 @@
+import { Effect } from "effect";
+
 import { getNativeDb } from "./db";
-import { lookupProfileViaBird, lookupProfilesViaBird } from "./bird";
+import {
+	lookupProfileViaBirdEffect,
+	lookupProfilesViaBirdEffect,
+} from "./bird";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import {
-	hydrateProfileAffiliationOrganizations,
+	hydrateProfileAffiliationOrganizationsEffect,
 	type ProfileAffiliationHydrationResult,
 } from "./profile-affiliation-hydration";
 import type { ProfileRecord, XurlMentionUser } from "./types";
@@ -20,6 +26,17 @@ interface CachedProfileLookup {
 	source: Exclude<ProfileLookupSource, "local" | "cache">;
 	user?: XurlMentionUser;
 	error?: string;
+}
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
 }
 
 export interface ResolveProfilesOptions {
@@ -130,384 +147,467 @@ function writeProfileLookupCache(
 	writeSyncCache(cacheKeyForUserId(externalUserId), value);
 }
 
-function updateConversationTitles(profile: ProfileRecord) {
-	getNativeDb()
-		.prepare(
-			`
+function updateConversationTitles(profile: ProfileRecord, db = getNativeDb()) {
+	db.prepare(
+		`
       update dm_conversations
       set title = ?
       where participant_profile_id = ?
       `,
-		)
-		.run(profile.displayName || profile.handle, profile.id);
+	).run(profile.displayName || profile.handle, profile.id);
 }
 
-async function lookupViaXurl(externalUserId: string) {
-	const [user] = await lookupUsersByIds([externalUserId]);
-	return user ?? null;
+function lookupViaXurlEffect(externalUserId: string) {
+	return Effect.gen(function* () {
+		const [user] = yield* tryPromise(() => lookupUsersByIds([externalUserId]));
+		return user ?? null;
+	});
 }
 
 function normalizeHandle(value: string) {
 	return value.trim().replace(/^@/, "").toLowerCase();
 }
 
-async function fetchProfileUser(
+function fetchProfileUserEffect(
 	externalUserId: string,
 	xurlFallback: boolean,
-): Promise<CachedProfileLookup> {
-	try {
-		const birdUser = await lookupProfileViaBird(externalUserId);
-		if (birdUser) {
-			return { status: "hit", source: "bird", user: birdUser };
-		}
-	} catch (error) {
-		if (!xurlFallback) {
+): Effect.Effect<CachedProfileLookup, never> {
+	return Effect.gen(function* () {
+		const birdResult = yield* lookupProfileViaBirdEffect(externalUserId).pipe(
+			Effect.map((user) => ({ ok: true as const, user })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (birdResult.ok) {
+			const birdUser = birdResult.user;
+			if (birdUser) {
+				return { status: "hit", source: "bird", user: birdUser };
+			}
+		} else if (!xurlFallback) {
 			return {
 				status: "error",
 				source: "bird",
-				error: error instanceof Error ? error.message : String(error),
+				error:
+					birdResult.error instanceof Error
+						? birdResult.error.message
+						: String(birdResult.error),
 			};
 		}
-	}
 
-	if (!xurlFallback) {
-		return { status: "miss", source: "bird" };
-	}
+		if (!xurlFallback) {
+			return { status: "miss", source: "bird" };
+		}
 
-	try {
-		const xurlUser = await lookupViaXurl(externalUserId);
-		return xurlUser
-			? { status: "hit", source: "xurl", user: xurlUser }
-			: { status: "miss", source: "xurl" };
-	} catch (error) {
+		const xurlResult = yield* lookupViaXurlEffect(externalUserId).pipe(
+			Effect.map((user) => ({ ok: true as const, user })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (xurlResult.ok) {
+			const xurlUser = xurlResult.user;
+			return xurlUser
+				? { status: "hit", source: "xurl", user: xurlUser }
+				: { status: "miss", source: "xurl" };
+		}
 		return {
 			status: "error",
 			source: "xurl",
-			error: error instanceof Error ? error.message : String(error),
+			error:
+				xurlResult.error instanceof Error
+					? xurlResult.error.message
+					: String(xurlResult.error),
 		};
-	}
+	});
 }
 
-async function fetchProfileUsers(
+function fetchProfileUsersEffect(
 	externalUserIds: string[],
 	xurlFallback: boolean,
 ) {
-	const uniqueIds = Array.from(new Set(externalUserIds));
-	const results = new Map<string, CachedProfileLookup>();
-	let unresolved = uniqueIds;
+	return Effect.gen(function* () {
+		const uniqueIds = Array.from(new Set(externalUserIds));
+		const results = new Map<string, CachedProfileLookup>();
+		let unresolved = uniqueIds;
 
-	try {
-		const birdResults = await lookupProfilesViaBird(uniqueIds);
-		for (const result of birdResults) {
-			const externalUserId = result.target;
-			if (result.user) {
-				results.set(externalUserId, {
-					status: "hit",
-					source: "bird",
-					user: result.user,
-				});
-			} else if (result.error && !xurlFallback) {
-				results.set(externalUserId, {
-					status: "error",
-					source: "bird",
-					error: result.error,
-				});
+		const birdResult = yield* lookupProfilesViaBirdEffect(uniqueIds).pipe(
+			Effect.map((items) => ({ ok: true as const, items })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (birdResult.ok) {
+			const birdResults = birdResult.items;
+			for (const result of birdResults) {
+				const externalUserId = result.target;
+				if (result.user) {
+					results.set(externalUserId, {
+						status: "hit",
+						source: "bird",
+						user: result.user,
+					});
+				} else if (result.error && !xurlFallback) {
+					results.set(externalUserId, {
+						status: "error",
+						source: "bird",
+						error: result.error,
+					});
+				}
 			}
-		}
-		unresolved = uniqueIds.filter((id) => !results.has(id));
-	} catch (error) {
-		if (!xurlFallback) {
+			unresolved = uniqueIds.filter((id) => !results.has(id));
+		} else if (!xurlFallback) {
 			for (const externalUserId of uniqueIds) {
 				results.set(externalUserId, {
 					status: "error",
 					source: "bird",
-					error: error instanceof Error ? error.message : String(error),
+					error:
+						birdResult.error instanceof Error
+							? birdResult.error.message
+							: String(birdResult.error),
 				});
 			}
 			return results;
 		}
-	}
 
-	if (unresolved.length === 0) {
-		return results;
-	}
-	if (!xurlFallback) {
-		for (const externalUserId of unresolved) {
-			results.set(externalUserId, { status: "miss", source: "bird" });
+		if (unresolved.length === 0) {
+			return results;
 		}
-		return results;
-	}
+		if (!xurlFallback) {
+			for (const externalUserId of unresolved) {
+				results.set(externalUserId, { status: "miss", source: "bird" });
+			}
+			return results;
+		}
 
-	try {
-		const xurlUsers = await lookupUsersByIds(unresolved);
-		const usersById = new Map(xurlUsers.map((user) => [String(user.id), user]));
-		for (const externalUserId of unresolved) {
-			const user = usersById.get(externalUserId);
-			results.set(
-				externalUserId,
-				user
-					? { status: "hit", source: "xurl", user }
-					: { status: "miss", source: "xurl" },
+		const xurlResult = yield* tryPromise(() =>
+			lookupUsersByIds(unresolved),
+		).pipe(
+			Effect.map((users) => ({ ok: true as const, users })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (xurlResult.ok) {
+			const xurlUsers = xurlResult.users;
+			const usersById = new Map(
+				xurlUsers.map((user) => [String(user.id), user]),
 			);
+			for (const externalUserId of unresolved) {
+				const user = usersById.get(externalUserId);
+				results.set(
+					externalUserId,
+					user
+						? { status: "hit", source: "xurl", user }
+						: { status: "miss", source: "xurl" },
+				);
+			}
+		} else {
+			for (const externalUserId of unresolved) {
+				results.set(externalUserId, {
+					status: "error",
+					source: "xurl",
+					error:
+						xurlResult.error instanceof Error
+							? xurlResult.error.message
+							: String(xurlResult.error),
+				});
+			}
 		}
-	} catch (error) {
-		for (const externalUserId of unresolved) {
-			results.set(externalUserId, {
-				status: "error",
-				source: "xurl",
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
-	}
 
-	return results;
+		return results;
+	});
 }
 
-export async function resolveProfilesForIds(
+export function resolveProfilesForIdsEffect(
 	profileIds: string[],
 	options: ResolveProfilesOptions = {},
-): Promise<ProfileResolveResult[]> {
-	const maxAgeMs = options.maxAgeMs ?? PROFILE_CACHE_TTL_MS;
-	const negativeMaxAgeMs =
-		options.negativeMaxAgeMs ?? PROFILE_NEGATIVE_CACHE_TTL_MS;
-	const xurlFallback = options.xurlFallback ?? true;
-	const ordered: Array<
-		| { kind: "ready"; result: ProfileResolveResult }
-		| { kind: "pending"; profileId: string; externalUserId: string }
-	> = [];
+): Effect.Effect<ProfileResolveResult[], unknown> {
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const maxAgeMs = options.maxAgeMs ?? PROFILE_CACHE_TTL_MS;
+		const negativeMaxAgeMs =
+			options.negativeMaxAgeMs ?? PROFILE_NEGATIVE_CACHE_TTL_MS;
+		const xurlFallback = options.xurlFallback ?? true;
+		const ordered: Array<
+			| { kind: "ready"; result: ProfileResolveResult }
+			| { kind: "pending"; profileId: string; externalUserId: string }
+		> = [];
 
-	for (const profileId of Array.from(new Set(profileIds))) {
-		const externalUserId = getExternalUserId(profileId);
-		if (!externalUserId) {
-			ordered.push({
-				kind: "ready",
-				result: {
-					profileId,
-					externalUserId: null,
-					status: "miss",
-					source: "local",
-				},
-			});
-			continue;
-		}
+		for (const profileId of Array.from(new Set(profileIds))) {
+			const externalUserId = getExternalUserId(profileId);
+			if (!externalUserId) {
+				ordered.push({
+					kind: "ready",
+					result: {
+						profileId,
+						externalUserId: null,
+						status: "miss",
+						source: "local",
+					},
+				});
+				continue;
+			}
 
-		const localProfile = getProfile(profileId);
-		if (
-			localProfile &&
-			!options.refresh &&
-			!isPlaceholderProfile(localProfile)
-		) {
-			ordered.push({
-				kind: "ready",
-				result: {
-					profileId,
-					externalUserId,
-					status: "hit",
-					source: "local",
-					profile: localProfile,
-				},
-			});
-			continue;
-		}
-
-		const cached = readSyncCache<CachedProfileLookup>(
-			cacheKeyForUserId(externalUserId),
-		);
-		if (cached && !options.refresh) {
-			const maxAge =
-				cached.value.status === "hit" ? maxAgeMs : negativeMaxAgeMs;
-			if (isFresh(cached.updatedAt, maxAge)) {
-				if (cached.value.status === "hit" && cached.value.user) {
-					const resolved = upsertProfileFromXUser(
-						getNativeDb(),
-						cached.value.user,
-					);
-					updateConversationTitles(resolved.profile);
-					ordered.push({
-						kind: "ready",
-						result: {
-							profileId: resolved.profile.id,
-							externalUserId,
-							status: "hit",
-							source: "cache",
-							profile: resolved.profile,
-						},
-					});
-					continue;
-				}
+			const localProfile = yield* trySync(() => getProfile(profileId));
+			if (
+				localProfile &&
+				!options.refresh &&
+				!isPlaceholderProfile(localProfile)
+			) {
 				ordered.push({
 					kind: "ready",
 					result: {
 						profileId,
 						externalUserId,
-						status: cached.value.status,
-						source: "negative-cache",
-						error: cached.value.error,
+						status: "hit",
+						source: "local",
+						profile: localProfile,
 					},
 				});
 				continue;
 			}
-		}
 
-		ordered.push({ kind: "pending", profileId, externalUserId });
-	}
-
-	const pendingExternalIds = ordered.flatMap((item) =>
-		item.kind === "pending" ? [item.externalUserId] : [],
-	);
-	const fetchedByExternalId =
-		pendingExternalIds.length > 1
-			? await fetchProfileUsers(pendingExternalIds, xurlFallback)
-			: new Map<string, CachedProfileLookup>();
-
-	const results: ProfileResolveResult[] = [];
-	for (const item of ordered) {
-		if (item.kind === "ready") {
-			results.push(item.result);
-			continue;
-		}
-		const fetched =
-			fetchedByExternalId.get(item.externalUserId) ??
-			(await fetchProfileUser(item.externalUserId, xurlFallback));
-		writeProfileLookupCache(item.externalUserId, fetched);
-		if (fetched.status === "hit" && fetched.user) {
-			const resolved = upsertProfileFromXUser(getNativeDb(), fetched.user);
-			const affiliationHydration = await hydrateProfileAffiliationOrganizations(
-				getNativeDb(),
-				resolved.profile.id,
+			const cached = yield* trySync(() =>
+				readSyncCache<CachedProfileLookup>(cacheKeyForUserId(externalUserId)),
 			);
-			updateConversationTitles(resolved.profile);
-			results.push({
-				profileId: resolved.profile.id,
-				externalUserId: item.externalUserId,
-				status: "hit",
-				source: fetched.source,
-				profile: resolved.profile,
-				...(affiliationHydration.checked > 0 ? { affiliationHydration } : {}),
-			});
-			continue;
-		}
-		results.push({
-			profileId: item.profileId,
-			externalUserId: item.externalUserId,
-			status: fetched.status,
-			source: fetched.source,
-			error: fetched.error,
-		});
-	}
+			if (cached && !options.refresh) {
+				const maxAge =
+					cached.value.status === "hit" ? maxAgeMs : negativeMaxAgeMs;
+				if (isFresh(cached.updatedAt, maxAge)) {
+					if (cached.value.status === "hit" && cached.value.user) {
+						const resolved = yield* trySync(() => {
+							const resolved = upsertProfileFromXUser(db, cached.value.user!);
+							updateConversationTitles(resolved.profile, db);
+							return resolved;
+						});
+						ordered.push({
+							kind: "ready",
+							result: {
+								profileId: resolved.profile.id,
+								externalUserId,
+								status: "hit",
+								source: "cache",
+								profile: resolved.profile,
+							},
+						});
+						continue;
+					}
+					ordered.push({
+						kind: "ready",
+						result: {
+							profileId,
+							externalUserId,
+							status: cached.value.status,
+							source: "negative-cache",
+							error: cached.value.error,
+						},
+					});
+					continue;
+				}
+			}
 
-	return results;
+			ordered.push({ kind: "pending", profileId, externalUserId });
+		}
+
+		const pendingExternalIds = ordered.flatMap((item) =>
+			item.kind === "pending" ? [item.externalUserId] : [],
+		);
+		const fetchedByExternalId =
+			pendingExternalIds.length > 1
+				? yield* fetchProfileUsersEffect(pendingExternalIds, xurlFallback)
+				: new Map<string, CachedProfileLookup>();
+
+		const results: ProfileResolveResult[] = [];
+		for (const item of ordered) {
+			if (item.kind === "ready") {
+				results.push(item.result);
+				continue;
+			}
+			const fetched =
+				fetchedByExternalId.get(item.externalUserId) ??
+				(yield* fetchProfileUserEffect(item.externalUserId, xurlFallback));
+			yield* trySync(() =>
+				writeProfileLookupCache(item.externalUserId, fetched),
+			);
+			if (fetched.status === "hit" && fetched.user) {
+				const resolved = yield* trySync(() =>
+					upsertProfileFromXUser(db, fetched.user!),
+				);
+				const affiliationHydration =
+					yield* hydrateProfileAffiliationOrganizationsEffect(
+						db,
+						resolved.profile.id,
+					);
+				yield* trySync(() => updateConversationTitles(resolved.profile, db));
+				results.push({
+					profileId: resolved.profile.id,
+					externalUserId: item.externalUserId,
+					status: "hit",
+					source: fetched.source,
+					profile: resolved.profile,
+					...(affiliationHydration.checked > 0 ? { affiliationHydration } : {}),
+				});
+				continue;
+			}
+			results.push({
+				profileId: item.profileId,
+				externalUserId: item.externalUserId,
+				status: fetched.status,
+				source: fetched.source,
+				error: fetched.error,
+			});
+		}
+
+		return results;
+	});
 }
 
-export async function resolveProfilesForHandles(
+export function resolveProfilesForIds(
+	profileIds: string[],
+	options: ResolveProfilesOptions = {},
+): Promise<ProfileResolveResult[]> {
+	return runEffectPromise(resolveProfilesForIdsEffect(profileIds, options));
+}
+
+export function resolveProfilesForHandlesEffect(
 	handles: string[],
 	options: Pick<ResolveProfilesOptions, "xurlFallback"> = {},
-): Promise<HandleProfileResolveResult[]> {
-	const xurlFallback = options.xurlFallback ?? true;
-	const targets = Array.from(
-		new Set(handles.map(normalizeHandle).filter((handle) => handle.length > 0)),
-	);
-	if (targets.length === 0) {
-		return [];
-	}
-
-	const results = new Map<string, HandleProfileResolveResult>();
-	let unresolved = targets;
-
-	try {
-		const birdResults = await lookupProfilesViaBird(targets);
-		for (const item of birdResults) {
-			const handle = normalizeHandle(item.target);
-			if (item.user) {
-				const resolved = upsertProfileFromXUser(getNativeDb(), item.user);
-				updateConversationTitles(resolved.profile);
-				results.set(handle, {
-					handle,
-					status: "hit",
-					source: "bird",
-					profile: resolved.profile,
-				});
-			} else if (item.error && !xurlFallback) {
-				results.set(handle, {
-					handle,
-					status: "error",
-					source: "bird",
-					error: item.error,
-				});
-			}
+): Effect.Effect<HandleProfileResolveResult[], unknown> {
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const xurlFallback = options.xurlFallback ?? true;
+		const targets = Array.from(
+			new Set(
+				handles.map(normalizeHandle).filter((handle) => handle.length > 0),
+			),
+		);
+		if (targets.length === 0) {
+			return [];
 		}
-		unresolved = targets.filter((handle) => !results.has(handle));
-	} catch (error) {
-		if (!xurlFallback) {
+
+		const results = new Map<string, HandleProfileResolveResult>();
+		let unresolved = targets;
+
+		const birdResult = yield* lookupProfilesViaBirdEffect(targets).pipe(
+			Effect.map((items) => ({ ok: true as const, items })),
+			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
+		);
+		if (birdResult.ok) {
+			const birdResults = birdResult.items;
+			for (const item of birdResults) {
+				const handle = normalizeHandle(item.target);
+				if (item.user) {
+					const resolved = yield* trySync(() => {
+						const resolved = upsertProfileFromXUser(db, item.user!);
+						updateConversationTitles(resolved.profile, db);
+						return resolved;
+					});
+					results.set(handle, {
+						handle,
+						status: "hit",
+						source: "bird",
+						profile: resolved.profile,
+					});
+				} else if (item.error && !xurlFallback) {
+					results.set(handle, {
+						handle,
+						status: "error",
+						source: "bird",
+						error: item.error,
+					});
+				}
+			}
+			unresolved = targets.filter((handle) => !results.has(handle));
+		} else if (!xurlFallback) {
 			for (const handle of targets) {
 				results.set(handle, {
 					handle,
 					status: "error",
 					source: "bird",
-					error: error instanceof Error ? error.message : String(error),
+					error:
+						birdResult.error instanceof Error
+							? birdResult.error.message
+							: String(birdResult.error),
 				});
 			}
 			unresolved = [];
 		}
-	}
 
-	if (unresolved.length > 0 && xurlFallback) {
-		try {
-			const users = await lookupUsersByHandles(unresolved);
-			const usersByHandle = new Map(
-				users.map((user) => [
-					normalizeHandle(String(user.username ?? "")),
-					user,
-				]),
+		if (unresolved.length > 0 && xurlFallback) {
+			const xurlResult = yield* tryPromise(() =>
+				lookupUsersByHandles(unresolved),
+			).pipe(
+				Effect.map((users) => ({ ok: true as const, users })),
+				Effect.catchAll((error) =>
+					Effect.succeed({ ok: false as const, error }),
+				),
 			);
-			for (const handle of unresolved) {
-				const user = usersByHandle.get(handle);
-				if (user) {
-					const resolved = upsertProfileFromXUser(getNativeDb(), user);
-					updateConversationTitles(resolved.profile);
+			if (xurlResult.ok) {
+				const users = xurlResult.users;
+				const usersByHandle = new Map(
+					users.map((user) => [
+						normalizeHandle(String(user.username ?? "")),
+						user,
+					]),
+				);
+				for (const handle of unresolved) {
+					const user = usersByHandle.get(handle);
+					if (user) {
+						const resolved = yield* trySync(() => {
+							const resolved = upsertProfileFromXUser(db, user);
+							updateConversationTitles(resolved.profile, db);
+							return resolved;
+						});
+						results.set(handle, {
+							handle,
+							status: "hit",
+							source: "xurl",
+							profile: resolved.profile,
+						});
+					} else {
+						results.set(handle, {
+							handle,
+							status: "miss",
+							source: "xurl",
+						});
+					}
+				}
+			} else {
+				for (const handle of unresolved) {
 					results.set(handle, {
 						handle,
-						status: "hit",
+						status: "error",
 						source: "xurl",
-						profile: resolved.profile,
-					});
-				} else {
-					results.set(handle, {
-						handle,
-						status: "miss",
-						source: "xurl",
+						error:
+							xurlResult.error instanceof Error
+								? xurlResult.error.message
+								: String(xurlResult.error),
 					});
 				}
 			}
-		} catch (error) {
-			for (const handle of unresolved) {
-				results.set(handle, {
-					handle,
-					status: "error",
-					source: "xurl",
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
 		}
-	}
 
-	return targets.map(
-		(handle) =>
-			results.get(handle) ?? {
-				handle,
-				status: "miss",
-				source: "bird",
-			},
-	);
+		return targets.map(
+			(handle) =>
+				results.get(handle) ?? {
+					handle,
+					status: "miss",
+					source: "bird",
+				},
+		);
+	});
 }
 
-export async function resolvePlaceholderProfiles(
+export function resolveProfilesForHandles(
+	handles: string[],
+	options: Pick<ResolveProfilesOptions, "xurlFallback"> = {},
+): Promise<HandleProfileResolveResult[]> {
+	return runEffectPromise(resolveProfilesForHandlesEffect(handles, options));
+}
+
+export function resolvePlaceholderProfilesEffect(
 	options: ResolveProfilesOptions & { limit?: number } = {},
 ) {
-	const db = getNativeDb();
-	const rows = db
-		.prepare(
-			`
+	return Effect.gen(function* () {
+		const db = yield* trySync(() => getNativeDb());
+		const rows = yield* trySync(
+			() =>
+				db
+					.prepare(
+						`
       select id
       from profiles
       where id like 'profile_user_%'
@@ -520,20 +620,28 @@ export async function resolvePlaceholderProfiles(
       order by id asc
       limit ?
       `,
-		)
-		.all(options.limit ?? 500) as Array<{ id: string }>;
+					)
+					.all(options.limit ?? 500) as Array<{ id: string }>,
+		);
 
-	const results = await resolveProfilesForIds(
-		rows.map((row) => row.id),
-		options,
-	);
-	return {
-		ok: true,
-		requestedProfiles: rows.length,
-		hydratedProfiles: results.filter((result) => result.status === "hit")
-			.length,
-		results,
-	};
+		const results = yield* resolveProfilesForIdsEffect(
+			rows.map((row) => row.id),
+			options,
+		);
+		return {
+			ok: true,
+			requestedProfiles: rows.length,
+			hydratedProfiles: results.filter((result) => result.status === "hit")
+				.length,
+			results,
+		};
+	});
+}
+
+export function resolvePlaceholderProfiles(
+	options: ResolveProfilesOptions & { limit?: number } = {},
+) {
+	return runEffectPromise(resolvePlaceholderProfilesEffect(options));
 }
 
 export const __test__ = {

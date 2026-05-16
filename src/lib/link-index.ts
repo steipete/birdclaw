@@ -1,4 +1,6 @@
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import type { Database } from "./sqlite";
 import {
 	normalizeUrlExpansionForIndex,
@@ -246,11 +248,19 @@ function rebuildOccurrences(
 	return { occurrences, entityExpansions };
 }
 
-async function expandWithConcurrency(
+function expandWithConcurrencyEffect(
 	db: Database,
 	urls: string[],
 	options: LinkBackfillOptions,
-) {
+): Effect.Effect<
+	{
+		networkExpansions: number;
+		cacheExpansions: number;
+		misses: number;
+		errors: number;
+	},
+	unknown
+> {
 	const concurrency = Math.max(
 		1,
 		Math.min(options.concurrency ?? DEFAULT_EXPAND_CONCURRENCY, 64),
@@ -261,62 +271,57 @@ async function expandWithConcurrency(
 		misses: 0,
 		errors: 0,
 	};
-	let nextIndex = 0;
 
-	async function worker() {
-		for (;;) {
-			const index = nextIndex++;
-			const url = urls[index];
-			if (!url) {
-				return;
-			}
-			const result = (
-				await expandUrls([url], {
+	return Effect.forEach(
+		urls,
+		(url) =>
+			tryPromise(() =>
+				expandUrls([url], {
 					refresh: options.refresh,
 					fetchImpl: options.fetchImpl,
 					timeoutMs: options.timeoutMs,
-				})
-			)[0]!;
-			if (result.source === "network") {
-				counts.networkExpansions++;
-			} else {
-				counts.cacheExpansions++;
-			}
-			if (result.status === "miss") {
-				counts.misses++;
-			}
-			if (result.status === "error") {
-				counts.errors++;
-			}
-			upsertUrlExpansion(db, normalizeUrlExpansionForIndex(result));
-		}
-	}
-
-	await Promise.all(
-		Array.from({ length: Math.min(concurrency, urls.length) }, () => worker()),
-	);
-	return counts;
+				}),
+			).pipe(
+				Effect.map((results) => {
+					const result = results[0]!;
+					if (result.source === "network") {
+						counts.networkExpansions++;
+					} else {
+						counts.cacheExpansions++;
+					}
+					if (result.status === "miss") {
+						counts.misses++;
+					}
+					if (result.status === "error") {
+						counts.errors++;
+					}
+					upsertUrlExpansion(db, normalizeUrlExpansionForIndex(result));
+				}),
+			),
+		{ concurrency },
+	).pipe(Effect.as(counts));
 }
 
-export async function backfillLinkIndex(
+export function backfillLinkIndexEffect(
 	options: LinkBackfillOptions = {},
-): Promise<LinkBackfillResult> {
-	const db = getNativeDb({ seedDemoData: false });
-	const { occurrences, entityExpansions } = rebuildOccurrences(
-		db,
-		Boolean(options.includeAllUrls),
-		options.source,
-	);
-	const limit =
-		typeof options.limit === "number" && Number.isFinite(options.limit)
-			? Math.max(0, Math.trunc(options.limit))
-			: undefined;
-	const needsExpansionClause = options.refresh
-		? "1 = 1"
-		: "(e.short_url is null or e.status in ('error', 'miss'))";
+): Effect.Effect<LinkBackfillResult, unknown> {
+	return Effect.gen(function* () {
+		const db = getNativeDb({ seedDemoData: false });
+		const { occurrences, entityExpansions } = rebuildOccurrences(
+			db,
+			Boolean(options.includeAllUrls),
+			options.source,
+		);
+		const limit =
+			typeof options.limit === "number" && Number.isFinite(options.limit)
+				? Math.max(0, Math.trunc(options.limit))
+				: undefined;
+		const needsExpansionClause = options.refresh
+			? "1 = 1"
+			: "(e.short_url is null or e.status in ('error', 'miss'))";
 
-	const urlsToExpand = db
-		.prepare(`
+		const urlsToExpand = db
+			.prepare(`
     select distinct o.short_url
     from link_occurrences o
     left join url_expansions e on e.short_url = o.short_url
@@ -325,43 +330,50 @@ export async function backfillLinkIndex(
     order by o.short_url
     ${limit === undefined ? "" : "limit ?"}
   `)
-		.all(
-			...(options.source ? [options.source] : []),
-			...(limit === undefined ? [] : [limit]),
-		) as Array<{
-		short_url: string;
-	}>;
+			.all(
+				...(options.source ? [options.source] : []),
+				...(limit === undefined ? [] : [limit]),
+			) as Array<{
+			short_url: string;
+		}>;
 
-	const expansionCounts = await expandWithConcurrency(
-		db,
-		urlsToExpand.map((row) => row.short_url),
-		options,
-	);
+		const expansionCounts = yield* expandWithConcurrencyEffect(
+			db,
+			urlsToExpand.map((row) => row.short_url),
+			options,
+		);
 
-	const uniqueUrls = db
-		.prepare(`
+		const uniqueUrls = db
+			.prepare(`
     select count(distinct short_url) as count
     from link_occurrences
     ${options.source ? "where source_kind = ?" : ""}
   `)
-		.get(...(options.source ? [options.source] : [])) as { count: number };
-	const remaining = db
-		.prepare(`
+			.get(...(options.source ? [options.source] : [])) as { count: number };
+		const remaining = db
+			.prepare(`
     select count(distinct o.short_url) as count
     from link_occurrences o
     left join url_expansions e on e.short_url = o.short_url
     where (e.short_url is null or e.status in ('error', 'miss'))
       ${options.source ? "and o.source_kind = ?" : ""}
   `)
-		.get(...(options.source ? [options.source] : [])) as { count: number };
+			.get(...(options.source ? [options.source] : [])) as { count: number };
 
-	return {
-		occurrences,
-		uniqueUrls: Number(uniqueUrls.count),
-		entityExpansions,
-		...expansionCounts,
-		remainingUnexpanded: Number(remaining.count),
-	};
+		return {
+			occurrences,
+			uniqueUrls: Number(uniqueUrls.count),
+			entityExpansions,
+			...expansionCounts,
+			remainingUnexpanded: Number(remaining.count),
+		};
+	});
+}
+
+export function backfillLinkIndex(
+	options: LinkBackfillOptions = {},
+): Promise<LinkBackfillResult> {
+	return runEffectPromise(backfillLinkIndexEffect(options));
 }
 
 function likePattern(value: string) {

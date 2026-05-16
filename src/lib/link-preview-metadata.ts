@@ -1,4 +1,6 @@
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import type { Database } from "./sqlite";
 import {
 	normalizeUrlExpansionForIndex,
@@ -44,13 +46,21 @@ function cleanText(value: string | null | undefined) {
 	return cleaned.length > 0 ? cleaned : null;
 }
 
+function decodeCodePoint(value: number, fallback: string) {
+	try {
+		return String.fromCodePoint(value);
+	} catch {
+		return fallback;
+	}
+}
+
 function decodeHtmlEntities(value: string) {
 	return value
-		.replace(/&#(\d+);/g, (_, code: string) =>
-			String.fromCodePoint(Number(code)),
+		.replace(/&#(\d+);/g, (entity: string, code: string) =>
+			decodeCodePoint(Number(code), entity),
 		)
-		.replace(/&#x([a-f0-9]+);/gi, (_, code: string) =>
-			String.fromCodePoint(Number.parseInt(code, 16)),
+		.replace(/&#x([a-f0-9]+);/gi, (entity: string, code: string) =>
+			decodeCodePoint(Number.parseInt(code, 16), entity),
 		)
 		.replace(/&amp;/g, "&")
 		.replace(/&lt;/g, "<")
@@ -183,10 +193,10 @@ export function extractLinkPreviewMetadata(
 	};
 }
 
-export async function fetchLinkPreviewMetadata(
+export function fetchLinkPreviewMetadataEffect(
 	url: string,
 	options: Pick<GetLinkPreviewOptions, "fetchImpl" | "timeoutMs"> = {},
-): Promise<LinkPreviewMetadata> {
+): Effect.Effect<LinkPreviewMetadata> {
 	const fetchImpl = options.fetchImpl ?? globalThis.fetch;
 	const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
 	const headers = {
@@ -197,16 +207,18 @@ export async function fetchLinkPreviewMetadata(
 		"accept-language": "en-US,en;q=0.9",
 	} satisfies HeadersInit;
 
-	try {
-		const response = await fetchImpl(url, {
-			headers,
-			redirect: "follow",
-			signal: AbortSignal.timeout(timeoutMs),
-		});
+	return Effect.gen(function* () {
+		const response = yield* tryPromise(() =>
+			fetchImpl(url, {
+				headers,
+				redirect: "follow",
+				signal: AbortSignal.timeout(timeoutMs),
+			}),
+		);
 		const finalUrl = response.url || url;
 		const contentType = response.headers.get("content-type") ?? "";
 		if (!response.ok) {
-			throw new Error(`HTTP ${response.status}`);
+			return yield* Effect.fail(new Error(`HTTP ${response.status}`));
 		}
 		if (contentType.toLowerCase().startsWith("image/")) {
 			return {
@@ -215,20 +227,33 @@ export async function fetchLinkPreviewMetadata(
 				description: null,
 				imageUrl: finalUrl,
 				siteName: hostLabel(finalUrl),
-			};
+			} satisfies LinkPreviewMetadata;
 		}
-		const html = (await response.text()).slice(0, MAX_HTML_CHARS);
-		return extractLinkPreviewMetadata(html, finalUrl);
-	} catch (error) {
-		return {
-			url,
-			title: hostLabel(url),
-			description: null,
-			imageUrl: youtubeThumbnail(url),
-			siteName: hostLabel(url),
-			error: error instanceof Error ? error.message : String(error),
-		};
-	}
+		const content = yield* tryPromise(() => response.text());
+		return yield* Effect.try({
+			try: () =>
+				extractLinkPreviewMetadata(content.slice(0, MAX_HTML_CHARS), finalUrl),
+			catch: (error) => error,
+		});
+	}).pipe(
+		Effect.catchAll((error) =>
+			Effect.succeed({
+				url,
+				title: hostLabel(url),
+				description: null,
+				imageUrl: youtubeThumbnail(url),
+				siteName: hostLabel(url),
+				error: error instanceof Error ? error.message : String(error),
+			}),
+		),
+	);
+}
+
+export function fetchLinkPreviewMetadata(
+	url: string,
+	options: Pick<GetLinkPreviewOptions, "fetchImpl" | "timeoutMs"> = {},
+): Promise<LinkPreviewMetadata> {
+	return runEffectPromise(fetchLinkPreviewMetadataEffect(url, options));
 }
 
 function readCachedPreview(
@@ -310,22 +335,31 @@ function persistPreview(
 	);
 }
 
-export async function getOrFetchLinkPreview(
+export function getOrFetchLinkPreviewEffect(
+	url: string,
+	options: GetLinkPreviewOptions = {},
+): Effect.Effect<LinkPreviewMetadata> {
+	return Effect.gen(function* () {
+		const db = getNativeDb({ seedDemoData: false });
+		const cached = readCachedPreview(db, url, options.shortUrl);
+		if (cached && hasUsefulPreview(cached) && !options.refresh) {
+			return rowToPreview(cached);
+		}
+
+		const preview = yield* fetchLinkPreviewMetadataEffect(
+			cached?.final_url || cached?.expanded_url || url,
+			options,
+		);
+		persistPreview(db, url, options.shortUrl, cached, preview);
+		return preview;
+	});
+}
+
+export function getOrFetchLinkPreview(
 	url: string,
 	options: GetLinkPreviewOptions = {},
 ): Promise<LinkPreviewMetadata> {
-	const db = getNativeDb({ seedDemoData: false });
-	const cached = readCachedPreview(db, url, options.shortUrl);
-	if (cached && hasUsefulPreview(cached) && !options.refresh) {
-		return rowToPreview(cached);
-	}
-
-	const preview = await fetchLinkPreviewMetadata(
-		cached?.final_url || cached?.expanded_url || url,
-		options,
-	);
-	persistPreview(db, url, options.shortUrl, cached, preview);
-	return preview;
+	return runEffectPromise(getOrFetchLinkPreviewEffect(url, options));
 }
 
 export const __test__ = {

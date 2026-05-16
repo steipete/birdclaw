@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -9,7 +10,9 @@ import {
 	__test__,
 	extractLinkPreviewMetadata,
 	fetchLinkPreviewMetadata,
+	fetchLinkPreviewMetadataEffect,
 	getOrFetchLinkPreview,
+	getOrFetchLinkPreviewEffect,
 } from "./link-preview-metadata";
 
 const tempDirs: string[] = [];
@@ -62,6 +65,15 @@ describe("link preview metadata", () => {
 		);
 	});
 
+	it("keeps malformed numeric HTML entities as text", () => {
+		const metadata = extractLinkPreviewMetadata(
+			"<title>&#999999999999; Demo</title>",
+			"https://example.com/",
+		);
+
+		expect(metadata.title).toBe("&#999999999999; Demo");
+	});
+
 	it("treats direct image responses as image previews", async () => {
 		const fetchImpl = vi.fn().mockResolvedValue({
 			ok: true,
@@ -78,6 +90,27 @@ describe("link preview metadata", () => {
 			siteName: "example.com",
 			title: "example.com",
 		});
+	});
+
+	it("keeps link preview fetch effects lazy", async () => {
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			url: "https://example.com/card.png",
+			headers: new Headers({ "content-type": "image/png" }),
+			text: vi.fn(),
+		});
+
+		const effect = fetchLinkPreviewMetadataEffect(
+			"https://example.com/card.png",
+			{ fetchImpl },
+		);
+
+		expect(fetchImpl).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			imageUrl: "https://example.com/card.png",
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
 	});
 
 	it("persists fetched previews on url expansions", async () => {
@@ -118,5 +151,31 @@ describe("link preview metadata", () => {
 			title: "Peekaboo",
 			image_url: "https://peekaboo.sh/og.png",
 		});
+	});
+
+	it("keeps cached-preview effects lazy until run", async () => {
+		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-preview-"));
+		tempDirs.push(tempDir);
+		process.env.BIRDCLAW_HOME = tempDir;
+		resetBirdclawPathsForTests();
+		resetDatabaseForTests();
+
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			url: "https://example.com/",
+			headers: new Headers({ "content-type": "text/html" }),
+			text: vi.fn().mockResolvedValue("<title>Example</title>"),
+		});
+
+		const effect = getOrFetchLinkPreviewEffect("https://example.com/", {
+			fetchImpl,
+		});
+		expect(fetchImpl).not.toHaveBeenCalled();
+
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			title: "Example",
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
 	});
 });

@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { Effect } from "effect";
 import { addBlock } from "./blocks";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 
 export interface BlocklistImportItem {
 	query: string;
@@ -76,14 +78,31 @@ export function parseBlocklistText(text: string) {
 	return items;
 }
 
-export async function importBlocklist(accountId: string, filePath: string) {
-	const text = await readFile(filePath, "utf8");
-	const queries = parseBlocklistText(text);
-	const items: BlocklistImportItem[] = [];
+export function importBlocklistEffect(accountId: string, filePath: string) {
+	return Effect.gen(function* () {
+		const text = yield* tryPromise(() => readFile(filePath, "utf8"));
+		const queries = parseBlocklistText(text);
+		const items: BlocklistImportItem[] = [];
 
-	for (const query of queries) {
-		try {
-			const result = await addBlock(accountId, query);
+		for (const query of queries) {
+			const blocked = yield* tryPromise(() => addBlock(accountId, query)).pipe(
+				Effect.map((result) => ({ ok: true as const, result })),
+				Effect.catchAll((error) =>
+					Effect.succeed({ ok: false as const, error }),
+				),
+			);
+			if (!blocked.ok) {
+				items.push({
+					query,
+					ok: false,
+					error:
+						blocked.error instanceof Error
+							? blocked.error.message
+							: "block failed",
+				});
+				continue;
+			}
+			const { result } = blocked;
 			if (!result.ok) {
 				items.push({
 					query,
@@ -98,22 +117,20 @@ export async function importBlocklist(accountId: string, filePath: string) {
 				blockedAt: result.blockedAt,
 				handle: result.profile.handle,
 			});
-		} catch (error) {
-			items.push({
-				query,
-				ok: false,
-				error: error instanceof Error ? error.message : "block failed",
-			});
 		}
-	}
 
-	return {
-		ok: items.every((item) => item.ok),
-		accountId,
-		path: filePath,
-		requestedCount: queries.length,
-		blockedCount: items.filter((item) => item.ok).length,
-		failedCount: items.filter((item) => !item.ok).length,
-		items,
-	} satisfies BlocklistImportResult;
+		return {
+			ok: items.every((item) => item.ok),
+			accountId,
+			path: filePath,
+			requestedCount: queries.length,
+			blockedCount: items.filter((item) => item.ok).length,
+			failedCount: items.filter((item) => !item.ok).length,
+			items,
+		} satisfies BlocklistImportResult;
+	});
+}
+
+export function importBlocklist(accountId: string, filePath: string) {
+	return runEffectPromise(importBlocklistEffect(accountId, filePath));
 }

@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -36,6 +37,25 @@ describe("profile hydration", () => {
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
 		rmSync(homeDir, { recursive: true, force: true });
+	});
+
+	it("builds profile hydration effects lazily", async () => {
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "local",
+			installed: false,
+			statusText: "xurl missing",
+		});
+		const { hydrateProfilesFromXEffect } = await import("./profile-hydration");
+
+		const effect = hydrateProfilesFromXEffect();
+
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			hydratedProfiles: 0,
+			hydratedAccount: false,
+			reason: "xurl missing",
+		});
+		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
 	});
 
 	it("hydrates imported placeholder profiles from xurl", async () => {

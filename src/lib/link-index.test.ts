@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -333,6 +334,31 @@ describe("link index", () => {
 		});
 		expect(fetchImpl).not.toHaveBeenCalled();
 		expect(searchLinks("vibecoder")).toHaveLength(1);
+	});
+
+	it("keeps backfill effects lazy until run", async () => {
+		const db = insertAccountFixture();
+		insertDmConversation(db);
+		insertDmMessage(db, { id: "dm_msg_1", text: "https://t.co/lazy" });
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			url: "https://x.com/codetaur/status/777",
+		} as Response);
+		const { backfillLinkIndexEffect } = await import("./link-index");
+
+		const effect = backfillLinkIndexEffect({ fetchImpl, source: "dm" });
+
+		expect(fetchImpl).not.toHaveBeenCalled();
+		expect(
+			db.prepare("select count(*) as count from link_occurrences").get(),
+		).toEqual({ count: 0 });
+
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			occurrences: 1,
+			networkExpansions: 1,
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
 	});
 
 	it("retries failed expansion rows on normal backfills", async () => {

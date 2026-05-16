@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -189,6 +190,38 @@ describe("moderation target helpers", () => {
 		expect(mocks.lookupUsersByIds).toHaveBeenCalledWith(["88"]);
 	});
 
+	it("exposes moderation target resolution as lazy Effect programs", async () => {
+		makeTempHome();
+		mocks.lookupProfileViaBird.mockResolvedValueOnce(null);
+		mocks.lookupUsersByHandles.mockResolvedValueOnce([
+			{
+				id: "88",
+				username: "amelia",
+				name: "Amelia",
+			},
+		]);
+		const { resolveProfileEffect } = await import("./moderation-target");
+		const { resolveModerationTargetEffect } =
+			await import("./moderation-write");
+
+		const profileEffect = resolveProfileEffect("@amelia");
+		expect(mocks.lookupUsersByHandles).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(profileEffect)).resolves.toMatchObject({
+			profile: expect.objectContaining({ handle: "amelia" }),
+			externalUserId: "88",
+		});
+
+		const targetEffect = resolveModerationTargetEffect({
+			accountId: "acct_primary",
+			query: "@amelia",
+			selfActionError: "Cannot block the current account",
+		});
+		await expect(Effect.runPromise(targetEffect)).resolves.toMatchObject({
+			resolvedAccountId: "acct_primary",
+			actionQuery: "amelia",
+		});
+	});
+
 	it("returns authenticated ids safely", async () => {
 		makeTempHome();
 		mocks.lookupAuthenticatedUser
@@ -200,5 +233,16 @@ describe("moderation target helpers", () => {
 		await expect(getAuthenticatedUserId()).resolves.toBe("1");
 		await expect(getAuthenticatedUserId()).resolves.toBeNull();
 		await expect(getAuthenticatedUserId()).resolves.toBeNull();
+	});
+
+	it("exposes authenticated user id lookup as a safe Effect program", async () => {
+		makeTempHome();
+		mocks.lookupAuthenticatedUser.mockResolvedValueOnce({ id: "1" });
+		const { getAuthenticatedUserIdEffect } =
+			await import("./moderation-target");
+
+		const effect = getAuthenticatedUserIdEffect();
+		expect(mocks.lookupAuthenticatedUser).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toBe("1");
 	});
 });

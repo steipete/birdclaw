@@ -1,5 +1,8 @@
 // @vitest-environment node
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const execFileAsyncMock = vi.fn();
@@ -39,6 +42,26 @@ describe("bird transport wrapper", () => {
 		vi.resetModules();
 		execFileAsyncMock.mockReset();
 		delete process.env.BIRDCLAW_BIRD_COMMAND;
+		delete process.env.BIRDCLAW_CONFIG;
+	});
+
+	it("keeps config parse failures behind the Effect promise boundary", async () => {
+		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-bird-"));
+		const configPath = path.join(tempDir, "config.json");
+		writeFileSync(configPath, "{bad json", "utf8");
+		process.env.BIRDCLAW_CONFIG = configPath;
+
+		const { runBirdJsonCommandEffect } = await import("./bird");
+		const { runEffectPromise } = await import("./effect-runtime");
+		let promise: Promise<unknown> | undefined;
+
+		expect(() => {
+			promise = runEffectPromise(runBirdJsonCommandEffect(["mentions"]));
+		}).not.toThrow();
+		await expect(promise).rejects.toThrow(/JSON/);
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+
+		rmSync(tempDir, { recursive: true, force: true });
 	});
 
 	it("maps bird mentions json into xurl-compatible payloads", async () => {
@@ -113,6 +136,32 @@ describe("bird transport wrapper", () => {
 				next_token: null,
 			}),
 		});
+	});
+
+	it("keeps bird collection adapters lazy as Effect programs", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdStdoutOnce(
+			JSON.stringify([
+				{
+					id: "tweet_effect_1",
+					text: "lazy bird",
+					createdAt: "2026-05-01T00:00:00.000Z",
+					authorId: "42",
+					author: { username: "sam", name: "Sam" },
+				},
+			]),
+		);
+		const { listMentionsViaBirdEffect } = await import("./bird");
+
+		const effect = listMentionsViaBirdEffect({ maxResults: 3 });
+
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toEqual(
+			expect.objectContaining({
+				data: [expect.objectContaining({ id: "tweet_effect_1" })],
+			}),
+		);
+		expectBirdCommandCall(1, ["mentions", "-n", "3", "--json"]);
 	});
 
 	it("maps mention fallbacks and empty mention payloads", async () => {

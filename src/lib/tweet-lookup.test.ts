@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -8,11 +9,25 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	lookupTweetsByIdsViaBird: mocks.lookupTweetsByIdsViaBird,
+	lookupTweetsByIdsViaBirdEffect: (ids: string[]) =>
+		Effect.tryPromise({
+			try: () => mocks.lookupTweetsByIdsViaBird(ids),
+			catch: (error) => error,
+		}),
 }));
 
-vi.mock("./xurl", () => ({
-	lookupTweetsByIds: mocks.lookupTweetsByIdsViaXurl,
-}));
+vi.mock("./xurl", async () => {
+	const { Effect } = await import("effect");
+	return {
+		lookupTweetsByIds: mocks.lookupTweetsByIdsViaXurl,
+		lookupTweetsByIdsEffect: (ids: string[]) =>
+			Effect.tryPromise({
+				try: () => mocks.lookupTweetsByIdsViaXurl(ids),
+				catch: (error) =>
+					error instanceof Error ? error : new Error(String(error)),
+			}),
+	};
+});
 
 describe("shared tweet lookup", () => {
 	afterEach(() => {
@@ -35,6 +50,21 @@ describe("shared tweet lookup", () => {
 		});
 		expect(mocks.lookupTweetsByIdsViaXurl).toHaveBeenCalledWith(["tweet_1"]);
 		expect(mocks.lookupTweetsByIdsViaBird).not.toHaveBeenCalled();
+	});
+
+	it("exposes tweet lookup as a lazy Effect program", async () => {
+		mocks.lookupTweetsByIdsViaXurl.mockResolvedValue({
+			data: [
+				{ id: "tweet_1", author_id: "42", text: "xurl", created_at: "now" },
+			],
+		});
+		const { lookupTweetsByIdsEffect } = await import("./tweet-lookup");
+
+		const effect = lookupTweetsByIdsEffect(["tweet_1"]);
+		expect(mocks.lookupTweetsByIdsViaXurl).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			data: [{ id: "tweet_1", text: "xurl" }],
+		});
 	});
 
 	it("falls back to bird when xurl lookup fails in auto mode", async () => {

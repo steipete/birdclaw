@@ -3,7 +3,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { Effect } from "effect";
 import { getBirdCommand } from "./config";
+import { runEffectPromise } from "./effect-runtime";
 import type {
 	XurlMentionData,
 	XurlFollowUsersResponse,
@@ -15,6 +17,7 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const BIRD_JSON_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
+const BIRD_STDOUT_REDIRECT_SCRIPT = 'out="$1"; shift; exec "$@" > "$out"';
 
 interface BirdTweetMedia {
 	type?: string;
@@ -223,23 +226,48 @@ function isUnsupportedBirdOptionError(error: unknown, option: string) {
 	return text.includes(option) && /unknown option|error:/i.test(text);
 }
 
-async function runBirdJsonCommand(args: string[], timeoutMs?: number) {
-	const tempDir = mkdtempSync(join(tmpdir(), "birdclaw-bird-"));
-	const stdoutPath = join(tempDir, "stdout.json");
-	const birdCommand = getBirdCommand();
-	try {
-		const shellScript = 'out="$1"; shift; exec "$@" > "$out"';
-		await execFileAsync(
-			"/bin/bash",
-			["-c", shellScript, "birdclaw-bird", stdoutPath, birdCommand, ...args],
-			{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
-		);
-		return readFileSync(stdoutPath, "utf8");
-	} catch (error) {
-		throw formatBirdCommandError(error, birdCommand);
-	} finally {
-		rmSync(tempDir, { recursive: true, force: true });
-	}
+function makeBirdStdoutTempEffect() {
+	return Effect.acquireRelease(
+		Effect.sync(() => {
+			const tempDir = mkdtempSync(join(tmpdir(), "birdclaw-bird-"));
+			return { tempDir, stdoutPath: join(tempDir, "stdout.json") };
+		}),
+		({ tempDir }) =>
+			Effect.sync(() => rmSync(tempDir, { recursive: true, force: true })),
+	);
+}
+
+export function runBirdJsonCommandEffect(args: string[], timeoutMs?: number) {
+	return Effect.scoped(
+		Effect.gen(function* () {
+			const birdCommand = yield* Effect.try({
+				try: () => getBirdCommand(),
+				catch: (error) =>
+					error instanceof Error ? error : new Error(String(error)),
+			});
+			const { stdoutPath } = yield* makeBirdStdoutTempEffect();
+			yield* Effect.tryPromise({
+				try: () =>
+					execFileAsync(
+						"/bin/bash",
+						[
+							"-c",
+							BIRD_STDOUT_REDIRECT_SCRIPT,
+							"birdclaw-bird",
+							stdoutPath,
+							birdCommand,
+							...args,
+						],
+						{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
+					),
+				catch: (error) => formatBirdCommandError(error, birdCommand),
+			});
+			return yield* Effect.try({
+				try: () => readFileSync(stdoutPath, "utf8"),
+				catch: (error) => error,
+			});
+		}),
+	);
 }
 
 function getBirdTweetItems(payload: unknown, command: string) {
@@ -352,23 +380,51 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 	};
 }
 
-export async function listMentionsViaBird({
+function parseBirdJsonEffect(stdout: string) {
+	return Effect.try({
+		try: () => parseBirdJson(stdout),
+		catch: (error) => error,
+	});
+}
+
+function normalizeBirdTweetsPayloadEffect(payload: unknown, command: string) {
+	return Effect.try({
+		try: () => normalizeBirdTweets(getBirdTweetItems(payload, command)),
+		catch: (error) => error,
+	});
+}
+
+function normalizeBirdTweetItemEffect(payload: unknown, command: string) {
+	return Effect.try({
+		try: () => getBirdTweetItem(payload, command),
+		catch: (error) => error,
+	});
+}
+
+export function listMentionsViaBirdEffect({
 	maxResults,
 }: {
 	maxResults: number;
-}): Promise<XurlMentionsResponse> {
-	const stdout = await runBirdJsonCommand([
-		"mentions",
-		"-n",
-		String(maxResults),
-		"--json",
-	]);
-	const payload = parseBirdJson(stdout);
-
-	return normalizeBirdTweets(getBirdTweetItems(payload, "mentions"));
+}): Effect.Effect<XurlMentionsResponse, unknown> {
+	return Effect.gen(function* () {
+		const stdout = yield* runBirdJsonCommandEffect([
+			"mentions",
+			"-n",
+			String(maxResults),
+			"--json",
+		]);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdTweetsPayloadEffect(payload, "mentions");
+	});
 }
 
-async function listTweetsViaBirdCommand({
+export function listMentionsViaBird(options: {
+	maxResults: number;
+}): Promise<XurlMentionsResponse> {
+	return runEffectPromise(listMentionsViaBirdEffect(options));
+}
+
+function listTweetsViaBirdCommandEffect({
 	command,
 	maxResults,
 	all,
@@ -378,86 +434,114 @@ async function listTweetsViaBirdCommand({
 	maxResults: number;
 	all?: boolean;
 	maxPages?: number;
-}): Promise<XurlMentionsResponse> {
-	const args = [command, "-n", String(maxResults), "--json"];
-	if (all) {
-		args.push("--all");
-	}
-	if (maxPages !== undefined) {
-		args.push("--max-pages", String(maxPages));
-	}
-	const stdout = await runBirdJsonCommand(args);
-	const payload = parseBirdJson(stdout);
-
-	return normalizeBirdTweets(getBirdTweetItems(payload, command));
+}): Effect.Effect<XurlMentionsResponse, unknown> {
+	return Effect.gen(function* () {
+		const args = [command, "-n", String(maxResults), "--json"];
+		if (all) {
+			args.push("--all");
+		}
+		if (maxPages !== undefined) {
+			args.push("--max-pages", String(maxPages));
+		}
+		const stdout = yield* runBirdJsonCommandEffect(args);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdTweetsPayloadEffect(payload, command);
+	});
 }
 
-export async function listLikedTweetsViaBird({
-	maxResults,
-	all,
-	maxPages,
-}: {
+export function listLikedTweetsViaBirdEffect(options: {
 	maxResults: number;
 	all?: boolean;
 	maxPages?: number;
-}): Promise<XurlMentionsResponse> {
-	return listTweetsViaBirdCommand({
+}): Effect.Effect<XurlMentionsResponse, unknown> {
+	return listTweetsViaBirdCommandEffect({
 		command: "likes",
-		maxResults,
-		all,
-		maxPages,
+		...options,
 	});
 }
 
-export async function listBookmarkedTweetsViaBird({
-	maxResults,
-	all,
-	maxPages,
-}: {
+export function listLikedTweetsViaBird(options: {
 	maxResults: number;
 	all?: boolean;
 	maxPages?: number;
 }): Promise<XurlMentionsResponse> {
-	return listTweetsViaBirdCommand({
+	return runEffectPromise(listLikedTweetsViaBirdEffect(options));
+}
+
+export function listBookmarkedTweetsViaBirdEffect(options: {
+	maxResults: number;
+	all?: boolean;
+	maxPages?: number;
+}): Effect.Effect<XurlMentionsResponse, unknown> {
+	return listTweetsViaBirdCommandEffect({
 		command: "bookmarks",
-		maxResults,
-		all,
-		maxPages,
+		...options,
 	});
 }
 
-export async function lookupTweetsByIdsViaBird(
+export function listBookmarkedTweetsViaBird(options: {
+	maxResults: number;
+	all?: boolean;
+	maxPages?: number;
+}): Promise<XurlMentionsResponse> {
+	return runEffectPromise(listBookmarkedTweetsViaBirdEffect(options));
+}
+
+export function lookupTweetsByIdsViaBirdEffect(
+	ids: string[],
+): Effect.Effect<XurlTweetsResponse, unknown> {
+	if (ids.length === 0) {
+		return Effect.succeed({ data: [] });
+	}
+
+	return Effect.gen(function* () {
+		const tweets = yield* Effect.forEach(
+			ids,
+			(id) =>
+				Effect.gen(function* () {
+					const stdout = yield* runBirdJsonCommandEffect([
+						"read",
+						id,
+						"--json",
+					]);
+					const payload = yield* parseBirdJsonEffect(stdout);
+					return yield* normalizeBirdTweetItemEffect(payload, "read");
+				}),
+			{ concurrency: "unbounded" },
+		);
+		return normalizeBirdTweets(tweets);
+	});
+}
+
+export function lookupTweetsByIdsViaBird(
 	ids: string[],
 ): Promise<XurlTweetsResponse> {
-	if (ids.length === 0) {
-		return { data: [] };
-	}
-
-	const tweets = await Promise.all(
-		ids.map(async (id) => {
-			const stdout = await runBirdJsonCommand(["read", id, "--json"]);
-			return getBirdTweetItem(parseBirdJson(stdout), "read");
-		}),
-	);
-
-	return normalizeBirdTweets(tweets);
+	return runEffectPromise(lookupTweetsByIdsViaBirdEffect(ids));
 }
 
-export async function listHomeTimelineViaBird({
+export function listHomeTimelineViaBirdEffect({
 	maxResults,
 	following = true,
 }: {
 	maxResults: number;
 	following?: boolean;
-}): Promise<XurlMentionsResponse> {
-	const args = ["home", "-n", String(maxResults), "--json"];
-	if (following) {
-		args.push("--following");
-	}
-	const stdout = await runBirdJsonCommand(args);
-	const payload = parseBirdJson(stdout);
+}): Effect.Effect<XurlMentionsResponse, unknown> {
+	return Effect.gen(function* () {
+		const args = ["home", "-n", String(maxResults), "--json"];
+		if (following) {
+			args.push("--following");
+		}
+		const stdout = yield* runBirdJsonCommandEffect(args);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdTweetsPayloadEffect(payload, "home");
+	});
+}
 
-	return normalizeBirdTweets(getBirdTweetItems(payload, "home"));
+export function listHomeTimelineViaBird(options: {
+	maxResults: number;
+	following?: boolean;
+}): Promise<XurlMentionsResponse> {
+	return runEffectPromise(listHomeTimelineViaBirdEffect(options));
 }
 
 function normalizeBirdFollowUsers(
@@ -490,7 +574,18 @@ function normalizeBirdFollowUsers(
 	};
 }
 
-export async function listFollowUsersViaBird({
+function normalizeBirdFollowUsersEffect(
+	payload: unknown,
+	command: "followers" | "following",
+	maxResults: number,
+) {
+	return Effect.try({
+		try: () => normalizeBirdFollowUsers(payload, command, maxResults),
+		catch: (error) => error,
+	});
+}
+
+export function listFollowUsersViaBirdEffect({
 	direction,
 	userId,
 	maxResults,
@@ -502,24 +597,39 @@ export async function listFollowUsersViaBird({
 	maxResults: number;
 	all?: boolean;
 	maxPages?: number;
-}): Promise<XurlFollowUsersResponse> {
-	const args = [direction, "-n", String(maxResults), "--json"];
-	if (userId) {
-		args.push("--user", userId);
-	}
-	if (all) {
-		args.push("--all");
-	}
-	if (maxPages !== undefined) {
-		args.push("--max-pages", String(maxPages));
-	}
-	const stdout = await runBirdJsonCommand(args);
-	const payload = parseBirdJson(stdout);
-
-	return normalizeBirdFollowUsers(payload, direction, maxResults);
+}): Effect.Effect<XurlFollowUsersResponse, unknown> {
+	return Effect.gen(function* () {
+		const args = [direction, "-n", String(maxResults), "--json"];
+		if (userId) {
+			args.push("--user", userId);
+		}
+		if (all) {
+			args.push("--all");
+		}
+		if (maxPages !== undefined) {
+			args.push("--max-pages", String(maxPages));
+		}
+		const stdout = yield* runBirdJsonCommandEffect(args);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdFollowUsersEffect(
+			payload,
+			direction,
+			maxResults,
+		);
+	});
 }
 
-export async function listThreadViaBird({
+export function listFollowUsersViaBird(options: {
+	direction: "followers" | "following";
+	userId?: string;
+	maxResults: number;
+	all?: boolean;
+	maxPages?: number;
+}): Promise<XurlFollowUsersResponse> {
+	return runEffectPromise(listFollowUsersViaBirdEffect(options));
+}
+
+export function listThreadViaBirdEffect({
 	tweetId,
 	all,
 	maxPages,
@@ -529,75 +639,113 @@ export async function listThreadViaBird({
 	all?: boolean;
 	maxPages?: number;
 	timeoutMs?: number;
-}): Promise<XurlMentionsResponse> {
-	const args = ["thread", tweetId, "--json"];
-	if (all) {
-		args.push("--all");
-	}
-	if (maxPages !== undefined) {
-		args.push("--max-pages", String(maxPages));
-	}
-	const stdout = await runBirdJsonCommand(args, timeoutMs);
-	const payload = parseBirdJson(stdout);
-
-	return normalizeBirdTweets(getBirdTweetItems(payload, "thread"));
+}): Effect.Effect<XurlMentionsResponse, unknown> {
+	return Effect.gen(function* () {
+		const args = ["thread", tweetId, "--json"];
+		if (all) {
+			args.push("--all");
+		}
+		if (maxPages !== undefined) {
+			args.push("--max-pages", String(maxPages));
+		}
+		const stdout = yield* runBirdJsonCommandEffect(args, timeoutMs);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdTweetsPayloadEffect(payload, "thread");
+	});
 }
 
-export async function listDirectMessagesViaBird({
+export function listThreadViaBird(options: {
+	tweetId: string;
+	all?: boolean;
+	maxPages?: number;
+	timeoutMs?: number;
+}): Promise<XurlMentionsResponse> {
+	return runEffectPromise(listThreadViaBirdEffect(options));
+}
+
+function normalizeBirdDmsPayloadEffect(payload: unknown) {
+	return Effect.try({
+		try: () => {
+			if (
+				!payload ||
+				typeof payload !== "object" ||
+				(payload as { success?: unknown }).success !== true ||
+				!Array.isArray(
+					(payload as { conversations?: unknown }).conversations,
+				) ||
+				!Array.isArray((payload as { events?: unknown }).events)
+			) {
+				throw new Error("bird dms returned unexpected JSON");
+			}
+
+			return payload as BirdDmsResponse;
+		},
+		catch: (error) => error,
+	});
+}
+
+export function listDirectMessagesViaBirdEffect({
 	maxResults,
 }: {
 	maxResults: number;
-}): Promise<BirdDmsResponse> {
-	const stdout = await runBirdJsonCommand([
-		"dms",
-		"-n",
-		String(maxResults),
-		"--json",
-	]);
-	const payload = parseBirdJson(stdout);
-	if (
-		!payload ||
-		typeof payload !== "object" ||
-		(payload as { success?: unknown }).success !== true ||
-		!Array.isArray((payload as { conversations?: unknown }).conversations) ||
-		!Array.isArray((payload as { events?: unknown }).events)
-	) {
-		throw new Error("bird dms returned unexpected JSON");
-	}
-
-	return payload as BirdDmsResponse;
+}): Effect.Effect<BirdDmsResponse, unknown> {
+	return Effect.gen(function* () {
+		const stdout = yield* runBirdJsonCommandEffect([
+			"dms",
+			"-n",
+			String(maxResults),
+			"--json",
+		]);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdDmsPayloadEffect(payload);
+	});
 }
 
-export async function lookupProfileViaBird(
-	usernameOrId: string,
-): Promise<XurlMentionUser | null> {
-	const target = usernameOrId.trim().replace(/^@/, "");
-	if (!target) {
-		return null;
-	}
+export function listDirectMessagesViaBird(options: {
+	maxResults: number;
+}): Promise<BirdDmsResponse> {
+	return runEffectPromise(listDirectMessagesViaBirdEffect(options));
+}
 
-	let stdout: string;
-	try {
-		stdout = await runBirdJsonCommand([
+export function lookupProfileViaBirdEffect(
+	usernameOrId: string,
+): Effect.Effect<XurlMentionUser | null, unknown> {
+	return Effect.gen(function* () {
+		const target = usernameOrId.trim().replace(/^@/, "");
+		if (!target) {
+			return null;
+		}
+
+		const stdout = yield* runBirdJsonCommandEffect([
 			"user",
 			target,
 			"--json",
 			"--profile-only",
-		]);
-	} catch (error) {
-		if (!isUnsupportedBirdOptionError(error, "--profile-only")) {
-			throw error;
-		}
-		stdout = await runBirdJsonCommand([
-			"user",
-			target,
-			"--json",
-			"--count",
-			"1",
-		]);
-	}
-	const payload = parseBirdJson(stdout) as BirdUserOverviewPayload;
-	return toXurlMentionUser(payload.user);
+		]).pipe(
+			Effect.catchAll((error) => {
+				if (!isUnsupportedBirdOptionError(error, "--profile-only")) {
+					return Effect.fail(error);
+				}
+				return runBirdJsonCommandEffect([
+					"user",
+					target,
+					"--json",
+					"--count",
+					"1",
+				]);
+			}),
+		);
+		const payload = (yield* parseBirdJsonEffect(
+			stdout,
+		)) as BirdUserOverviewPayload;
+		return toXurlMentionUser(payload.user);
+	});
+}
+
+export function lookupProfileViaBird(
+	usernameOrId: string,
+): Promise<XurlMentionUser | null> {
+	return runEffectPromise(lookupProfileViaBirdEffect(usernameOrId));
 }
 
 function toXurlMentionUser(
@@ -642,10 +790,11 @@ function toXurlMentionUser(
 	};
 }
 
-export async function lookupProfilesViaBird(
+export function lookupProfilesViaBirdEffect(
 	usernameOrIds: string[],
-): Promise<
-	Array<{ target: string; user: XurlMentionUser | null; error?: string }>
+): Effect.Effect<
+	Array<{ target: string; user: XurlMentionUser | null; error?: string }>,
+	unknown
 > {
 	const targets = Array.from(
 		new Set(
@@ -655,56 +804,72 @@ export async function lookupProfilesViaBird(
 		),
 	);
 	if (targets.length === 0) {
-		return [];
+		return Effect.succeed([]);
 	}
 
-	try {
-		const stdout = await runBirdJsonCommand(["profiles", ...targets, "--json"]);
-		const payload = parseBirdJson(stdout) as BirdProfilesPayload;
-		const users = (payload.users ?? [])
-			.map(toXurlMentionUser)
-			.filter((user): user is XurlMentionUser => Boolean(user));
-		const byTarget = new Map<string, XurlMentionUser>();
-		for (const user of users) {
-			byTarget.set(String(user.id), user);
-			byTarget.set(user.username.toLowerCase(), user);
-		}
-		const errors = new Map(
-			(payload.errors ?? []).map((item) => [
-				String(item.target ?? "")
-					.replace(/^@/, "")
-					.toLowerCase(),
-				item.error ?? "Unknown error",
-			]),
-		);
-		return targets.map((target) => ({
-			target,
-			user: byTarget.get(target.toLowerCase()) ?? null,
-			...(errors.has(target.toLowerCase())
-				? { error: errors.get(target.toLowerCase()) }
-				: {}),
-		}));
-	} catch (error) {
-		if (!isUnsupportedBirdOptionError(error, "profiles")) {
-			throw error;
-		}
-		return Promise.all(
-			targets.map(async (target) => {
-				try {
-					return { target, user: await lookupProfileViaBird(target) };
-				} catch (lookupError) {
-					return {
-						target,
-						user: null,
-						error:
-							lookupError instanceof Error
-								? lookupError.message
-								: String(lookupError),
-					};
+	return runBirdJsonCommandEffect(["profiles", ...targets, "--json"]).pipe(
+		Effect.flatMap((stdout) =>
+			Effect.gen(function* () {
+				const payload = (yield* parseBirdJsonEffect(
+					stdout,
+				)) as BirdProfilesPayload;
+				const users = (payload.users ?? [])
+					.map(toXurlMentionUser)
+					.filter((user): user is XurlMentionUser => Boolean(user));
+				const byTarget = new Map<string, XurlMentionUser>();
+				for (const user of users) {
+					byTarget.set(String(user.id), user);
+					byTarget.set(user.username.toLowerCase(), user);
 				}
+				const errors = new Map(
+					(payload.errors ?? []).map((item) => [
+						String(item.target ?? "")
+							.replace(/^@/, "")
+							.toLowerCase(),
+						item.error ?? "Unknown error",
+					]),
+				);
+				return targets.map((target) => ({
+					target,
+					user: byTarget.get(target.toLowerCase()) ?? null,
+					...(errors.has(target.toLowerCase())
+						? { error: errors.get(target.toLowerCase()) }
+						: {}),
+				}));
 			}),
-		);
-	}
+		),
+		Effect.catchAll((error) => {
+			if (!isUnsupportedBirdOptionError(error, "profiles")) {
+				return Effect.fail(error);
+			}
+			return Effect.forEach(
+				targets,
+				(target) =>
+					lookupProfileViaBirdEffect(target).pipe(
+						Effect.map((user) => ({ target, user })),
+						Effect.catchAll((lookupError) =>
+							Effect.succeed({
+								target,
+								user: null,
+								error:
+									lookupError instanceof Error
+										? lookupError.message
+										: String(lookupError),
+							}),
+						),
+					),
+				{ concurrency: "unbounded" },
+			);
+		}),
+	);
+}
+
+export function lookupProfilesViaBird(
+	usernameOrIds: string[],
+): Promise<
+	Array<{ target: string; user: XurlMentionUser | null; error?: string }>
+> {
+	return runEffectPromise(lookupProfilesViaBirdEffect(usernameOrIds));
 }
 
 export const __test__ = {

@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getConversationThread, listDmConversations } from "./queries";
@@ -9,10 +10,18 @@ import { resetDatabaseForTests } from "./db";
 
 const listDirectMessagesViaBirdMock = vi.fn();
 
-vi.mock("./bird", () => ({
-	listDirectMessagesViaBird: (...args: unknown[]) =>
-		listDirectMessagesViaBirdMock(...args),
-}));
+vi.mock("./bird", async () => {
+	const { Effect } = await import("effect");
+	return {
+		listDirectMessagesViaBird: (...args: unknown[]) =>
+			listDirectMessagesViaBirdMock(...args),
+		listDirectMessagesViaBirdEffect: (...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => listDirectMessagesViaBirdMock(...args),
+				catch: (error) => error,
+			}),
+	};
+});
 
 const tempDirs: string[] = [];
 
@@ -36,6 +45,31 @@ describe("cached live DMs", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("keeps cached DM sync effects lazy", async () => {
+		makeTempHome();
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
+			success: true,
+			conversations: [],
+			events: [],
+		});
+		const { syncDirectMessagesViaCachedBirdEffect } =
+			await import("./dms-live");
+
+		const effect = syncDirectMessagesViaCachedBirdEffect({
+			account: "acct_primary",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(listDirectMessagesViaBirdMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			source: "bird",
+			conversations: 0,
+			messages: 0,
+		});
+		expect(listDirectMessagesViaBirdMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("fetches bird DMs, caches them, and syncs them into the local store", async () => {

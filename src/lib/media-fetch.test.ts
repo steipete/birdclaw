@@ -182,6 +182,30 @@ describe("media fetch", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it("preserves filesystem errors while storing fetched media", async () => {
+		const root = home();
+		const mediaDir = path.join(root, "media", "originals");
+		mkdirSync(mediaDir, { recursive: true });
+		insertTweet("tweet_1", [pbs("demo")]);
+
+		let thrown: unknown;
+		try {
+			await fetchTweetMedia({
+				fetchImpl: async () => {
+					mkdirSync(path.join(mediaDir, "demo.jpg"), { recursive: true });
+					return new Response(new Uint8Array([1, 2, 3]));
+				},
+				pacingMs: 0,
+			});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(Error);
+		expect(String(thrown)).not.toMatch(/UnknownException|unknown error/i);
+		expect((thrown as Error).message).toMatch(/EISDIR|directory|rename/i);
+	});
+
 	it("reuses archive bytes before fetching from the CDN", async () => {
 		const root = home();
 		const archiveFile = archiveTweetFile(root, "tweet_1", "demo");

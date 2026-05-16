@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -15,7 +16,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	lookupProfileViaBird: mocks.lookupProfileViaBird,
+	lookupProfileViaBirdEffect: (target: string) =>
+		Effect.tryPromise({
+			try: () => mocks.lookupProfileViaBird(target),
+			catch: (error) => error,
+		}),
 	lookupProfilesViaBird: mocks.lookupProfilesViaBird,
+	lookupProfilesViaBirdEffect: (targets: string[]) =>
+		Effect.tryPromise({
+			try: () => mocks.lookupProfilesViaBird(targets),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./xurl", () => ({
@@ -79,6 +90,57 @@ describe("profile resolver", () => {
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
 		rmSync(homeDir, { recursive: true, force: true });
+	});
+
+	it("builds profile resolver effects lazily", async () => {
+		mocks.lookupProfileViaBird.mockResolvedValueOnce({
+			id: "42",
+			username: "sam",
+			name: "Sam Altman",
+			public_metrics: { followers_count: 123, following_count: 45 },
+		});
+		const { resolveProfilesForIdsEffect } = await import("./profile-resolver");
+
+		const effect = resolveProfilesForIdsEffect(["profile_user_42"]);
+
+		expect(mocks.lookupProfileViaBird).not.toHaveBeenCalled();
+		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toEqual([
+			expect.objectContaining({
+				status: "hit",
+				source: "bird",
+				profile: expect.objectContaining({ handle: "sam" }),
+			}),
+		]);
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("42");
+	});
+
+	it("builds handle resolver effects lazily", async () => {
+		mocks.lookupProfilesViaBird.mockResolvedValueOnce([
+			{
+				target: "sam",
+				user: {
+					id: "42",
+					username: "sam",
+					name: "Sam Altman",
+					public_metrics: { followers_count: 123, following_count: 45 },
+				},
+			},
+		]);
+		const { resolveProfilesForHandlesEffect } =
+			await import("./profile-resolver");
+
+		const effect = resolveProfilesForHandlesEffect(["@sam"]);
+
+		expect(mocks.lookupProfilesViaBird).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toEqual([
+			expect.objectContaining({
+				handle: "sam",
+				status: "hit",
+				source: "bird",
+			}),
+		]);
+		expect(mocks.lookupProfilesViaBird).toHaveBeenCalledWith(["sam"]);
 	});
 
 	it("resolves placeholder profiles through bird and reuses persistent cache", async () => {

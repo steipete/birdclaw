@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -12,6 +13,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	lookupProfileViaBird: mocks.lookupProfileViaBird,
+	lookupProfileViaBirdEffect: (handle: string) =>
+		Effect.tryPromise({
+			try: () => mocks.lookupProfileViaBird(handle),
+			catch: (error) => error,
+		}),
 }));
 
 let homeDir = "";
@@ -121,6 +127,28 @@ describe("profile affiliation hydration", () => {
 				is_active: 1,
 			},
 		]);
+	});
+
+	it("exposes affiliation hydration as a lazy Effect program", async () => {
+		seedProfile("profile_user_42", "aditya");
+		seedProfile("profile_user_999", "useblacksmith");
+		seedSyntheticAffiliation(
+			"profile_user_42",
+			"profile_affiliation_blacksmith",
+			"@useblacksmith",
+		);
+		const { hydrateProfileAffiliationOrganizationsEffect } =
+			await import("./profile-affiliation-hydration");
+
+		const effect = hydrateProfileAffiliationOrganizationsEffect(
+			getNativeDb(),
+			"profile_user_42",
+		);
+		expect(mocks.lookupProfileViaBird).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			checked: 1,
+			hydrated: 1,
+		});
 	});
 
 	it("skips empty handles, bird misses, and records lookup errors", async () => {

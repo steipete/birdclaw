@@ -1,5 +1,7 @@
 import type { Database } from "./sqlite";
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type {
 	TweetEntities,
@@ -25,6 +27,15 @@ import {
 } from "./xurl";
 
 export type AuthoredSyncMode = "xurl";
+
+export interface SyncAuthoredTweetsOptions {
+	account?: string;
+	mode?: AuthoredSyncMode;
+	limit?: number;
+	maxPages?: number;
+	sinceId?: string;
+	untilId?: string;
+}
 
 export class AuthoredSyncError extends Error {
 	constructor(
@@ -107,6 +118,17 @@ const AUTHORED_MEDIA_FIELDS = [
 	"height",
 	"alt_text",
 ];
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
 
 function assertXurlLimit(limit: number) {
 	if (
@@ -413,57 +435,65 @@ function userFromAuthenticatedPayload(
 	};
 }
 
-async function resolveAuthoredIdentity({
+function resolveAuthoredIdentityEffect({
 	account,
 	db,
 }: {
 	account?: string;
 	db: Database;
 }) {
-	const status = await getTransportStatus();
-	if (status.availableTransport !== "xurl") {
-		throw new AuthoredSyncError(status.statusText, 4);
-	}
+	return Effect.gen(function* () {
+		const status = yield* tryPromise(() => getTransportStatus());
+		if (status.availableTransport !== "xurl") {
+			return yield* Effect.fail(new AuthoredSyncError(status.statusText, 4));
+		}
 
-	const resolvedAccount = resolveAccount(db, account);
-	if (resolvedAccount.externalUserId) {
+		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		if (resolvedAccount.externalUserId) {
+			return {
+				...resolvedAccount,
+				userId: resolvedAccount.externalUserId,
+				authenticatedUser: undefined,
+			};
+		}
+
+		const authenticated = yield* tryPromise(() => lookupAuthenticatedUser());
+		const authenticatedUser = userFromAuthenticatedPayload(authenticated);
+		if (!authenticatedUser?.id) {
+			return yield* Effect.fail(
+				new AuthoredSyncError(
+					"Could not resolve authenticated Twitter user id",
+					4,
+				),
+			);
+		}
+
+		if (
+			normalizeUsername(authenticatedUser.username) !==
+			normalizeUsername(resolvedAccount.username)
+		) {
+			return yield* Effect.fail(
+				new AuthoredSyncError(
+					`xurl is authenticated as @${authenticatedUser.username}, but selected account ${resolvedAccount.accountId} is @${resolvedAccount.username}. Link the account external_user_id or switch xurl login before syncing authored tweets.`,
+					4,
+				),
+			);
+		}
+
+		yield* trySync(() =>
+			persistAccountExternalUserId(
+				db,
+				resolvedAccount.accountId,
+				authenticatedUser.id,
+			),
+		);
+
 		return {
 			...resolvedAccount,
-			userId: resolvedAccount.externalUserId,
-			authenticatedUser: undefined,
+			userId: authenticatedUser.id,
+			authenticatedUser,
 		};
-	}
-
-	const authenticated = await lookupAuthenticatedUser();
-	const authenticatedUser = userFromAuthenticatedPayload(authenticated);
-	if (!authenticatedUser?.id) {
-		throw new AuthoredSyncError(
-			"Could not resolve authenticated Twitter user id",
-			4,
-		);
-	}
-
-	if (
-		normalizeUsername(authenticatedUser.username) !==
-		normalizeUsername(resolvedAccount.username)
-	) {
-		throw new AuthoredSyncError(
-			`xurl is authenticated as @${authenticatedUser.username}, but selected account ${resolvedAccount.accountId} is @${resolvedAccount.username}. Link the account external_user_id or switch xurl login before syncing authored tweets.`,
-			4,
-		);
-	}
-
-	persistAccountExternalUserId(
-		db,
-		resolvedAccount.accountId,
-		authenticatedUser.id,
-	);
-
-	return {
-		...resolvedAccount,
-		userId: authenticatedUser.id,
-		authenticatedUser,
-	};
+	});
 }
 
 function toFallbackUser({
@@ -887,188 +917,215 @@ function buildResult({
 	};
 }
 
-export async function syncAuthoredTweets({
+export function syncAuthoredTweetsEffect({
 	account,
 	mode = "xurl",
 	limit = DEFAULT_LIMIT,
 	maxPages,
 	sinceId,
 	untilId,
-}: {
-	account?: string;
-	mode?: AuthoredSyncMode;
-	limit?: number;
-	maxPages?: number;
-	sinceId?: string;
-	untilId?: string;
-}) {
-	if (mode !== "xurl") {
-		throw new Error("authored sync only supports --mode xurl");
-	}
+}: SyncAuthoredTweetsOptions) {
+	return Effect.gen(function* () {
+		if (mode !== "xurl") {
+			return yield* Effect.fail(
+				new Error("authored sync only supports --mode xurl"),
+			);
+		}
 
-	const pageLimit = assertXurlLimit(limit);
-	const parsedMaxPages = parseMaxPages(maxPages);
-	const db = getNativeDb();
-	const identity = await resolveAuthoredIdentity({ account, db });
-	const cursor = readAuthoredCursor(db, identity.accountId);
-	const usePersistedForward =
-		sinceId === undefined && !untilId && cursor.state === "pending-forward";
-	const usePersistedUntil =
-		sinceId === undefined &&
-		Boolean(untilId) &&
-		cursor.state === "pending-until" &&
-		cursor.untilId === untilId;
-	const shouldSeedFromArchive =
-		!usePersistedForward &&
-		!cursor.sinceId &&
-		sinceId === undefined &&
-		!untilId;
-	const archiveSinceSeed = shouldSeedFromArchive
-		? findArchiveAuthoredSinceSeed(db, identity.accountId)
-		: null;
-	if (shouldSeedFromArchive && !archiveSinceSeed) {
-		console.error(
-			"birdclaw sync authored: no archive baseline found; starting a full backwards scan",
+		const pageLimit = yield* trySync(() => assertXurlLimit(limit));
+		const parsedMaxPages = yield* trySync(() => parseMaxPages(maxPages));
+		const db = yield* trySync(() => getNativeDb());
+		const identity = yield* resolveAuthoredIdentityEffect({ account, db });
+		const cursor = yield* trySync(() =>
+			readAuthoredCursor(db, identity.accountId),
 		);
-	}
-	const persistedUntilSinceId: string | null = usePersistedUntil
-		? (("requestedSinceId" in cursor
-				? cursor.requestedSinceId
-				: cursor.sinceId) ?? null)
-		: null;
-	const effectiveSinceId: string | null =
-		sinceId ??
-		archiveSinceSeed ??
-		(untilId ? persistedUntilSinceId : cursor.sinceId) ??
-		null;
-	let nextToken = usePersistedForward
-		? cursor.token
-		: usePersistedUntil
+		const usePersistedForward =
+			sinceId === undefined && !untilId && cursor.state === "pending-forward";
+		const usePersistedUntil =
+			sinceId === undefined &&
+			Boolean(untilId) &&
+			cursor.state === "pending-until" &&
+			cursor.untilId === untilId;
+		const shouldSeedFromArchive =
+			!usePersistedForward &&
+			!cursor.sinceId &&
+			sinceId === undefined &&
+			!untilId;
+		const archiveSinceSeed = shouldSeedFromArchive
+			? yield* trySync(() =>
+					findArchiveAuthoredSinceSeed(db, identity.accountId),
+				)
+			: null;
+		if (shouldSeedFromArchive && !archiveSinceSeed) {
+			console.error(
+				"birdclaw sync authored: no archive baseline found; starting a full backwards scan",
+			);
+		}
+		const persistedUntilSinceId: string | null = usePersistedUntil
+			? (("requestedSinceId" in cursor
+					? cursor.requestedSinceId
+					: cursor.sinceId) ?? null)
+			: null;
+		const effectiveSinceId: string | null =
+			sinceId ??
+			archiveSinceSeed ??
+			(untilId ? persistedUntilSinceId : cursor.sinceId) ??
+			null;
+		let nextToken = usePersistedForward
 			? cursor.token
-			: undefined;
-	let newestSeenId = usePersistedForward
-		? maxTweetId(cursor.sinceId, cursor.pendingNewestId)
-		: cursor.sinceId;
-	const pages: XurlUserTweetsResponse[] = [];
-	const sourceUser = toFallbackUser({
-		userId: identity.userId,
-		username: identity.username,
-		authenticatedUser: identity.authenticatedUser,
-	});
-	let pageCount = 0;
-
-	while (parsedMaxPages === null || pageCount < parsedMaxPages) {
-		let page: XurlUserTweetsResponse;
-		try {
-			page = await listUserTweets(identity.userId, {
-				maxResults: pageLimit,
-				paginationToken: nextToken,
-				excludeRetweets: false,
-				sinceId: effectiveSinceId ?? undefined,
-				untilId,
-				tweetFields: AUTHORED_TWEET_FIELDS,
-				expansions: AUTHORED_EXPANSIONS,
-				userFields: AUTHORED_USER_FIELDS,
-				mediaFields: AUTHORED_MEDIA_FIELDS,
-				auth: "oauth2",
-			});
-		} catch (error) {
-			if (pages.length === 0) {
-				throw error;
-			}
-			const payload = mergePages({
-				pages,
-				userId: identity.userId,
-				nextToken: nextToken ?? null,
-			});
-			return buildResult({
-				accountId: identity.accountId,
-				userId: identity.userId,
-				effectiveSinceId,
-				nextSinceId: untilId ? cursor.sinceId : effectiveSinceId,
-				nextToken: nextToken ?? null,
-				pageCount,
-				payload,
-				partial: true,
-				error: formatError(error),
-			});
-		}
-
-		const pagePayload = mergePages({
-			pages: [page],
+			: usePersistedUntil
+				? cursor.token
+				: undefined;
+		let newestSeenId = usePersistedForward
+			? maxTweetId(cursor.sinceId, cursor.pendingNewestId)
+			: cursor.sinceId;
+		const pages: XurlUserTweetsResponse[] = [];
+		const sourceUser = toFallbackUser({
 			userId: identity.userId,
-			nextToken: page.nextToken,
+			username: identity.username,
+			authenticatedUser: identity.authenticatedUser,
 		});
-		mergeAuthoredPayloadIntoLocalStore({
-			db,
+		let pageCount = 0;
+
+		while (parsedMaxPages === null || pageCount < parsedMaxPages) {
+			const fetched = yield* tryPromise(() =>
+				listUserTweets(identity.userId, {
+					maxResults: pageLimit,
+					paginationToken: nextToken,
+					excludeRetweets: false,
+					sinceId: effectiveSinceId ?? undefined,
+					untilId,
+					tweetFields: AUTHORED_TWEET_FIELDS,
+					expansions: AUTHORED_EXPANSIONS,
+					userFields: AUTHORED_USER_FIELDS,
+					mediaFields: AUTHORED_MEDIA_FIELDS,
+					auth: "oauth2",
+				}),
+			).pipe(
+				Effect.map((page) => ({ ok: true as const, page })),
+				Effect.catchAll((error) =>
+					Effect.succeed({ ok: false as const, error }),
+				),
+			);
+
+			if (!fetched.ok) {
+				if (pages.length === 0) {
+					return yield* Effect.fail(fetched.error);
+				}
+				const payload = mergePages({
+					pages,
+					userId: identity.userId,
+					nextToken: nextToken ?? null,
+				});
+				return buildResult({
+					accountId: identity.accountId,
+					userId: identity.userId,
+					effectiveSinceId,
+					nextSinceId: untilId ? cursor.sinceId : effectiveSinceId,
+					nextToken: nextToken ?? null,
+					pageCount,
+					payload,
+					partial: true,
+					error: formatError(fetched.error),
+				});
+			}
+
+			const page = fetched.page;
+			const pagePayload = mergePages({
+				pages: [page],
+				userId: identity.userId,
+				nextToken: page.nextToken,
+			});
+			yield* trySync(() =>
+				mergeAuthoredPayloadIntoLocalStore({
+					db,
+					accountId: identity.accountId,
+					payload: pagePayload,
+					sourceUser,
+				}),
+			);
+			pages.push(page);
+			pageCount += 1;
+			newestSeenId = maxTweetId(newestSeenId, pagePayload.meta.newest_id);
+			nextToken = page.nextToken ?? undefined;
+
+			const pendingToken = nextToken;
+			if (pendingToken && untilId) {
+				yield* trySync(() =>
+					writePendingUntilCursor(db, identity.accountId, {
+						sinceId: cursor.sinceId,
+						token: pendingToken,
+						untilId,
+						requestedSinceId: effectiveSinceId,
+					}),
+				);
+			} else if (pendingToken) {
+				yield* trySync(() =>
+					writePendingForwardCursor(db, identity.accountId, {
+						sinceId: effectiveSinceId,
+						token: pendingToken,
+						pendingNewestId: newestSeenId,
+					}),
+				);
+			}
+
+			if (!nextToken) {
+				break;
+			}
+		}
+
+		const capped = Boolean(nextToken);
+		const nextSinceId = untilId
+			? cursor.sinceId
+			: capped
+				? effectiveSinceId
+				: maxTweetId(newestSeenId, effectiveSinceId, cursor.sinceId);
+		if (untilId && capped && nextToken) {
+			yield* trySync(() =>
+				writePendingUntilCursor(db, identity.accountId, {
+					sinceId: cursor.sinceId,
+					token: nextToken,
+					untilId,
+					requestedSinceId: effectiveSinceId,
+				}),
+			);
+		} else if (untilId) {
+			yield* trySync(() =>
+				writeCommittedCursor(db, identity.accountId, cursor.sinceId),
+			);
+		} else if (capped && nextToken) {
+			yield* trySync(() =>
+				writePendingForwardCursor(db, identity.accountId, {
+					sinceId: nextSinceId,
+					token: nextToken,
+					pendingNewestId: newestSeenId,
+				}),
+			);
+		} else {
+			yield* trySync(() =>
+				writeCommittedCursor(db, identity.accountId, nextSinceId),
+			);
+		}
+
+		const payload = mergePages({
+			pages,
+			userId: identity.userId,
+			nextToken: nextToken ?? null,
+		});
+		return buildResult({
 			accountId: identity.accountId,
-			payload: pagePayload,
-			sourceUser,
+			userId: identity.userId,
+			effectiveSinceId,
+			nextSinceId,
+			nextToken: nextToken ?? null,
+			pageCount,
+			payload,
+			partial: capped,
+			...(capped ? { error: "max pages reached before sync completed" } : {}),
 		});
-		pages.push(page);
-		pageCount += 1;
-		newestSeenId = maxTweetId(newestSeenId, pagePayload.meta.newest_id);
-		nextToken = page.nextToken ?? undefined;
-
-		if (nextToken && untilId) {
-			writePendingUntilCursor(db, identity.accountId, {
-				sinceId: cursor.sinceId,
-				token: nextToken,
-				untilId,
-				requestedSinceId: effectiveSinceId,
-			});
-		} else if (nextToken) {
-			writePendingForwardCursor(db, identity.accountId, {
-				sinceId: effectiveSinceId,
-				token: nextToken,
-				pendingNewestId: newestSeenId,
-			});
-		}
-
-		if (!nextToken) {
-			break;
-		}
-	}
-
-	const capped = Boolean(nextToken);
-	const nextSinceId = untilId
-		? cursor.sinceId
-		: capped
-			? effectiveSinceId
-			: maxTweetId(newestSeenId, effectiveSinceId, cursor.sinceId);
-	if (untilId && capped && nextToken) {
-		writePendingUntilCursor(db, identity.accountId, {
-			sinceId: cursor.sinceId,
-			token: nextToken,
-			untilId,
-			requestedSinceId: effectiveSinceId,
-		});
-	} else if (untilId) {
-		writeCommittedCursor(db, identity.accountId, cursor.sinceId);
-	} else if (capped && nextToken) {
-		writePendingForwardCursor(db, identity.accountId, {
-			sinceId: nextSinceId,
-			token: nextToken,
-			pendingNewestId: newestSeenId,
-		});
-	} else {
-		writeCommittedCursor(db, identity.accountId, nextSinceId);
-	}
-
-	const payload = mergePages({
-		pages,
-		userId: identity.userId,
-		nextToken: nextToken ?? null,
 	});
-	return buildResult({
-		accountId: identity.accountId,
-		userId: identity.userId,
-		effectiveSinceId,
-		nextSinceId,
-		nextToken: nextToken ?? null,
-		pageCount,
-		payload,
-		partial: capped,
-		...(capped ? { error: "max pages reached before sync completed" } : {}),
-	});
+}
+
+export function syncAuthoredTweets(options: SyncAuthoredTweetsOptions) {
+	return runEffectPromise(syncAuthoredTweetsEffect(options));
 }

@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { resetDatabaseForTests } from "./db";
@@ -178,5 +179,39 @@ describe("URL expansion cache", () => {
 			}),
 		]);
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	it("exposes URL expansion as Effect programs", async () => {
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			url: "https://example.com/final",
+		});
+		const { expandUrlsEffect, expandUrlsFromTextsEffect } =
+			await import("./url-expansion");
+
+		await expect(
+			Effect.runPromise(
+				expandUrlsEffect(["https://t.co/effect"], { fetchImpl }),
+			),
+		).resolves.toEqual([
+			expect.objectContaining({
+				finalUrl: "https://example.com/final",
+				source: "network",
+			}),
+		]);
+		await expect(
+			Effect.runPromise(
+				expandUrlsFromTextsEffect(["Again https://t.co/effect"], {
+					fetchImpl,
+				}),
+			),
+		).resolves.toEqual([
+			expect.objectContaining({
+				finalUrl: "https://example.com/final",
+				source: "cache",
+			}),
+		]);
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
 	});
 });

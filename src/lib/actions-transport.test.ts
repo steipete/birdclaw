@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -104,6 +105,24 @@ describe("actions transport", () => {
 	afterEach(() => {
 		delete process.env.BIRDCLAW_ACTIONS_TRANSPORT;
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
+	});
+
+	it("builds moderation action effects lazily", async () => {
+		const { runModerationActionEffect } = await import("./actions-transport");
+
+		const effect = runModerationActionEffect({
+			action: "block",
+			query: "7",
+			targetUserId: "7",
+		});
+
+		expect(mocks.blockUserViaBird).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toEqual({
+			ok: true,
+			output: "bird block ok",
+			transport: "bird",
+		});
+		expect(mocks.blockUserViaBird).toHaveBeenCalledWith("7");
 	});
 
 	it("uses bird in auto mode first", async () => {

@@ -1,6 +1,10 @@
 // @vitest-environment node
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { scoreInboxItemWithOpenAI } from "./openai";
+import {
+	scoreInboxItemWithOpenAI,
+	scoreInboxItemWithOpenAIEffect,
+} from "./openai";
 
 beforeEach(() => {
 	process.env.OPENAI_API_KEY = "";
@@ -72,6 +76,51 @@ describe("openai inbox scoring", () => {
 			score: 100,
 			summary: "Strong ask",
 			reasoning: "Concrete and relevant",
+		});
+	});
+
+	it("exposes inbox scoring as an Effect program", async () => {
+		process.env.OPENAI_API_KEY = "test-key";
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content: JSON.stringify({
+										score: 44,
+										summary: "Useful",
+										reasoning: "Looks specific",
+									}),
+								},
+							},
+						],
+					}),
+				),
+			),
+		);
+
+		await expect(
+			Effect.runPromise(
+				scoreInboxItemWithOpenAIEffect({
+					entityKind: "mention",
+					title: "Mention",
+					text: "question?",
+					influenceScore: 80,
+					participant: {
+						handle: "amelia",
+						displayName: "Amelia",
+						bio: "bio",
+						followersCount: 4200,
+					},
+				}),
+			),
+		).resolves.toMatchObject({
+			score: 44,
+			summary: "Useful",
+			reasoning: "Looks specific",
 		});
 	});
 

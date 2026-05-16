@@ -1,13 +1,65 @@
 # Data And Architecture
 
+## Effect Runtime Boundary
+
+Birdclaw's core I/O code should be written as Effect programs. Use `Effect.gen` for multi-step workflows, typed failures for expected errors, and `Effect.forEach` / `Effect.sleep` for concurrency, retry, timeout, and pacing logic.
+
+Keep framework edges boring:
+
+- CLI command handlers may `await` Promise wrappers.
+- React components may call Promise wrappers from effects and event handlers.
+- route handlers may return normal `Response` values.
+
+Inside `src/lib`, prefer exporting both forms when useful:
+
+```ts
+export function runThingEffect(
+	input: Input,
+): Effect.Effect<Output, ThingError> {
+	return Effect.gen(function* () {
+		// core logic
+	});
+}
+
+export function runThing(input: Input): Promise<Output> {
+	return runEffectPromise(runThingEffect(input));
+}
+```
+
+Use `runEffectPromise` from `src/lib/effect-runtime.ts` for Promise wrappers so typed failures are thrown directly instead of being hidden behind Effect fiber failures.
+
+Current migrated surfaces:
+
+- typed Effect-to-Promise boundary handling in `src/lib/effect-runtime.ts`
+- web API client parsing and sync-job polling in `src/lib/api-client.ts`
+- `bird` command availability and execution in `src/lib/bird-command.ts`
+- `bird` JSON transport, large stdout capture, and temp-file cleanup in `src/lib/bird.ts`
+- `xurl` command execution, JSON parsing, retry delay, mutation helpers, and public adapter wrappers in `src/lib/xurl.ts`
+- backup export/import/validation, Git repo setup, pull, commit/push, stale auto-update, and auto-sync orchestration in `src/lib/backup.ts`
+- moderation action transport fallback and bird action/profile adapter helpers in `src/lib/actions-transport.ts` and `src/lib/bird-actions.ts`
+- moderation target resolution plus local blocks/mutes write helpers, remote block sync, and x-web block/unblock mutations in `src/lib/moderation-target.ts`, `src/lib/moderation-write.ts`, `src/lib/blocks-write.ts`, `src/lib/blocks.ts`, `src/lib/mutes-write.ts`, and `src/lib/x-web.ts`
+- batch blocklist file import in `src/lib/blocklist.ts`
+- authored, mentions, mention-thread sync including xurl recent-search and parent-walk fallback internals, conversation surface, home timeline, saved collection, DM live sync, profile hydration/resolution/affiliation, profile-reply inspection, shared tweet lookup, research and whois report generation, inbox scoring, and follow graph live sync cache/fetch/merge flows in `src/lib/authored-live.ts`, `src/lib/mentions-live.ts`, `src/lib/mention-threads-live.ts`, `src/lib/conversation-surface.ts`, `src/lib/timeline-live.ts`, `src/lib/timeline-collections-live.ts`, `src/lib/dms-live.ts`, `src/lib/profile-hydration.ts`, `src/lib/profile-affiliation-hydration.ts`, `src/lib/profile-resolver.ts`, `src/lib/profile-replies.ts`, `src/lib/tweet-lookup.ts`, `src/lib/research.ts`, `src/lib/whois.ts`, `src/lib/inbox.ts`, and `src/lib/follow-graph.ts`
+- link preview metadata fetches and link-index backfill concurrency in `src/lib/link-preview-metadata.ts` and `src/lib/link-index.ts`
+- `media fetch` archive reuse, HTTP download groups, pacing, and bounded concurrency in `src/lib/media-fetch.ts`
+- archive discovery and archive-import subprocess boundaries in `src/lib/archive-finder.ts` and `src/lib/archive-import.ts`
+- avatar read-through caching and URL expansion cache/fetch flows in `src/lib/avatar-cache.ts` and `src/lib/url-expansion.ts`
+- OpenAI inbox scoring fetch/parse boundary in `src/lib/openai.ts`
+- scheduled bookmark sync audit logging, overlap locking, backup pass, and launchd install in `src/lib/bookmark-sync-job.ts`
+- web sync orchestration, plan runners, backup pass, and job polling in `src/lib/web-sync.ts`
+
+Production `src/lib` code should stay free of ad hoc `async`/`await` orchestration. Next migrations should target remaining CLI, React, and route edges only where an Effect boundary would simplify error handling, cancellation, retries, or concurrency; otherwise keep those framework adapters as small Promise wrappers over core Effect programs.
+
 ## Transport Strategy
 
 Support these adapters:
+
 - `xurl`
 - `bird`
 - official API
 
 Optional later:
+
 - lower-level `xweb`
 
 ### Recommendation
@@ -21,6 +73,7 @@ v1 transport priority:
 5. optional lower-level `xweb`
 
 Reason:
+
 - working `xurl` already exists
 - users with `xurl` setup get zero-friction sync
 - `bird` can cover GraphQL/cookie-backed gaps if needed
@@ -29,16 +82,19 @@ Reason:
 ### `xurl` compatibility
 
 Important stance:
+
 - do not "pretend to be xurl" by mutating or owning `~/.xurl` format in v1
 - shell out to `xurl` as an adapter instead
 
 Why:
+
 - lower auth risk
 - lower coupling to xurl store internals
 - birdclaw stays transport-agnostic
 - users already authenticated in `xurl` get immediate value
 
 Possible later feature:
+
 - `birdclaw auth import-xurl`
 - local one-shot import into birdclaw-managed credentials
 - opt-in only
@@ -46,6 +102,7 @@ Possible later feature:
 ### `bird` compatibility
 
 Treat `bird` the same way:
+
 - adapter, not architecture
 - subprocess or wrapper boundary
 - no dependency on `bird` config/storage as core truth
@@ -54,38 +111,43 @@ Treat `bird` the same way:
 ### Transport interface
 
 ```ts
-type TransportKind = 'archive' | 'xurl' | 'bird' | 'official' | 'xweb';
+import type { Effect } from "effect";
+
+type TransportTask<A, E = TransportError> = Effect.Effect<A, E>;
+type TransportKind = "archive" | "xurl" | "bird" | "official" | "xweb";
 
 interface BirdTransport {
-  kind: TransportKind;
-  capabilities(): Promise<TransportCapabilities>;
-  currentUser(): Promise<AccountIdentity>;
-  listBookmarks(input: CursorInput): Promise<Page<BookmarkRecord>>;
-  listLikes(input: CursorInput): Promise<Page<LikeRecord>>;
-  listMentions(input: CursorInput): Promise<Page<TweetRecord>>;
-  listFollowers(input: CursorInput): Promise<Page<ProfileRecord>>;
-  listFollowing(input: CursorInput): Promise<Page<ProfileRecord>>;
-  listUserTweets(input: UserTimelineInput): Promise<Page<TweetRecord>>;
-  listDmEvents(input: DmEventsInput): Promise<Page<DmEventRecord>>;
-  getTweet(id: string): Promise<TweetRecord | null>;
-  postTweet(input: ComposeTweetInput): Promise<PostResult>;
-  reply(input: ReplyInput): Promise<PostResult>;
-  blockProfile(input: ProfileActionInput): Promise<ActionResult>;
-  unblockProfile(input: ProfileActionInput): Promise<ActionResult>;
-  muteProfile(input: ProfileActionInput): Promise<ActionResult>;
-  unmuteProfile(input: ProfileActionInput): Promise<ActionResult>;
+	kind: TransportKind;
+	capabilities(): TransportTask<TransportCapabilities>;
+	currentUser(): TransportTask<AccountIdentity>;
+	listBookmarks(input: CursorInput): TransportTask<Page<BookmarkRecord>>;
+	listLikes(input: CursorInput): TransportTask<Page<LikeRecord>>;
+	listMentions(input: CursorInput): TransportTask<Page<TweetRecord>>;
+	listFollowers(input: CursorInput): TransportTask<Page<ProfileRecord>>;
+	listFollowing(input: CursorInput): TransportTask<Page<ProfileRecord>>;
+	listUserTweets(input: UserTimelineInput): TransportTask<Page<TweetRecord>>;
+	listDmEvents(input: DmEventsInput): TransportTask<Page<DmEventRecord>>;
+	getTweet(id: string): TransportTask<TweetRecord | null>;
+	postTweet(input: ComposeTweetInput): TransportTask<PostResult>;
+	reply(input: ReplyInput): TransportTask<PostResult>;
+	blockProfile(input: ProfileActionInput): TransportTask<ActionResult>;
+	unblockProfile(input: ProfileActionInput): TransportTask<ActionResult>;
+	muteProfile(input: ProfileActionInput): TransportTask<ActionResult>;
+	unmuteProfile(input: ProfileActionInput): TransportTask<ActionResult>;
 }
 ```
 
 ### Transport config
 
 Per account:
+
 - preferred transport: `auto | xurl | bird | official | xweb`
 - fallback chain
 - capability cache
 - auth status snapshot
 
 `auto` means:
+
 - use `xurl` if available and healthy
 - else use `bird` if available and healthy
 - else use official auth if configured
@@ -166,6 +228,7 @@ SQLite only. Kysely schema in code, migrations checked into repo.
 Use FTS5.
 
 Day-1 search modes:
+
 - exact filters
 - keyword full-text
 - date ranges
@@ -180,6 +243,7 @@ No vector search required for MVP.
 ### Indexing
 
 Indexes from day 1:
+
 - tweet id unique
 - author + created_at desc
 - created_at desc
@@ -196,6 +260,7 @@ Indexes from day 1:
 Borrow the shape from `sweetistics`, but local-first and SQLite-native.
 
 Principles:
+
 - directional edges, not dual booleans
 - snapshots are the source of truth for full crawls
 - events are append-only
@@ -291,6 +356,7 @@ Principles:
 - selected DM imports are scoped to `acct_primary` and preserve other accounts
 
 Selected import slices:
+
 - `tweets`
 - `likes`
 - `bookmarks`
@@ -302,6 +368,7 @@ Selected import slices:
 ## Sync Model
 
 Streams:
+
 - own tweets
 - mentions
 - likes
@@ -311,6 +378,7 @@ Streams:
 - following
 
 Future:
+
 - notifications
 - list timelines
 - graph analytics
@@ -353,6 +421,7 @@ Primary human UI.
 ### AI layer
 
 Local-first ranking metadata stored in DB:
+
 - score
 - reason codes
 - summary
@@ -361,6 +430,7 @@ Local-first ranking metadata stored in DB:
 - acted-on state
 
 Candidate ranking inputs:
+
 - author importance
 - sender follower count / influence
 - sender bio cues
@@ -377,6 +447,7 @@ Candidate ranking inputs:
 ### Web server mode
 
 `birdclaw serve`
+
 - starts local server
 - starts background sync automatically by default
 - opens browser unless `--no-open`
@@ -387,10 +458,12 @@ Candidate ranking inputs:
 Support profiles from day 1.
 
 Reason:
+
 - separate DBs or configs for personal/test/future shared use
 - easier OSS story
 
 Default:
+
 - one profile named `default`
 
 ## Auth / Secrets
@@ -492,6 +565,7 @@ birdclaw/
 ### Live
 
 Opt-in only:
+
 - real `xurl` health check
 - real `bird` health check
 - real sync smoke tests
@@ -499,7 +573,9 @@ Opt-in only:
 ## Distribution
 
 Primary:
+
 - npm package
 
 Secondary later:
+
 - standalone desktop wrapper if the web UX becomes primary

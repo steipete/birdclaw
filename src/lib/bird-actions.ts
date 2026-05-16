@@ -1,4 +1,9 @@
-import { runBirdCommand } from "./bird-command";
+import { Effect } from "effect";
+import {
+	BirdCommandExecutionError,
+	runBirdCommandEffect,
+} from "./bird-command";
+import { runEffectPromise } from "./effect-runtime";
 import type { XurlMentionUser } from "./types";
 
 function liveWritesDisabled() {
@@ -12,6 +17,9 @@ function stripAnsi(value: string) {
 
 function formatExecError(error: unknown, fallback: string) {
 	if (!(error instanceof Error)) {
+		return fallback;
+	}
+	if (error instanceof BirdCommandExecutionError && error.useFallbackMessage) {
 		return fallback;
 	}
 
@@ -38,18 +46,28 @@ function normalizeOutput(stdout?: string, stderr?: string) {
 	return stripAnsi(stdout || stderr || "ok").trim();
 }
 
-async function runBirdJsonCommand(args: string[]) {
-	const { stdout } = await runBirdCommand(args);
-	return JSON.parse(stripAnsi(stdout)) as Record<string, unknown>;
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
 }
 
-export async function readBirdStatusViaBird(query: string) {
-	try {
-		const payload = await runBirdJsonCommand(["status", query, "--json"]);
-		return payload;
-	} catch {
-		return null;
-	}
+function runBirdJsonCommandEffect(args: string[]) {
+	return Effect.gen(function* () {
+		const { stdout } = yield* runBirdCommandEffect(args);
+		return yield* Effect.try({
+			try: () => JSON.parse(stripAnsi(stdout)) as Record<string, unknown>,
+			catch: toError,
+		});
+	});
+}
+
+export function readBirdStatusViaBirdEffect(query: string) {
+	return runBirdJsonCommandEffect(["status", query, "--json"]).pipe(
+		Effect.catchAll(() => Effect.succeed(null)),
+	);
+}
+
+export function readBirdStatusViaBird(query: string) {
+	return runEffectPromise(readBirdStatusViaBirdEffect(query));
 }
 
 function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
@@ -112,22 +130,27 @@ function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
 	};
 }
 
-export async function lookupProfileViaBird(query: string) {
-	try {
-		const payload = await runBirdJsonCommand([
+export function lookupProfileViaBirdEffect(query: string) {
+	return Effect.gen(function* () {
+		const payload = yield* runBirdJsonCommandEffect([
 			"user",
 			query,
 			"-n",
 			"1",
 			"--json",
 		]);
-		return toBirdLookupUser(payload);
-	} catch {
-		return null;
-	}
+		return yield* Effect.try({
+			try: () => toBirdLookupUser(payload),
+			catch: toError,
+		});
+	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
-async function runVerifiedBirdMutation({
+export function lookupProfileViaBird(query: string) {
+	return runEffectPromise(lookupProfileViaBirdEffect(query));
+}
+
+function runVerifiedBirdMutationEffect({
 	action,
 	query,
 	verifyField,
@@ -138,45 +161,52 @@ async function runVerifiedBirdMutation({
 	verifyField: "blocking" | "muting";
 	expectedValue: boolean;
 }) {
-	if (liveWritesDisabled()) {
-		return { ok: true, output: "live writes disabled" };
-	}
+	return Effect.gen(function* () {
+		if (liveWritesDisabled()) {
+			return { ok: true, output: "live writes disabled" };
+		}
 
-	let baseOutput = "";
-	try {
-		const { stdout, stderr } = await runBirdCommand([action, query]);
-		baseOutput = normalizeOutput(stdout, stderr);
-	} catch (error) {
+		const mutationResult = yield* runBirdCommandEffect([action, query]).pipe(
+			Effect.map(({ stdout, stderr }) => ({
+				ok: true as const,
+				output: normalizeOutput(stdout, stderr),
+			})),
+			Effect.catchAll((error) =>
+				Effect.succeed({
+					ok: false as const,
+					output: formatExecError(error, `bird ${action} failed`),
+				}),
+			),
+		);
+		if (!mutationResult.ok) {
+			return mutationResult;
+		}
+
+		const status = yield* readBirdStatusViaBirdEffect(query);
+		if (!status || typeof status[verifyField] !== "boolean") {
+			return {
+				ok: false,
+				output: `${mutationResult.output}; bird status verify unavailable`,
+			};
+		}
+
+		const actualValue = Boolean(status[verifyField]);
+		if (actualValue !== expectedValue) {
+			return {
+				ok: false,
+				output: `${mutationResult.output}; bird status verify ${verifyField}=${String(actualValue)}`,
+			};
+		}
+
 		return {
-			ok: false,
-			output: formatExecError(error, `bird ${action} failed`),
+			ok: true,
+			output: `${mutationResult.output}; verified ${verifyField}=${String(actualValue)}`,
 		};
-	}
-
-	const status = await readBirdStatusViaBird(query);
-	if (!status || typeof status[verifyField] !== "boolean") {
-		return {
-			ok: false,
-			output: `${baseOutput}; bird status verify unavailable`,
-		};
-	}
-
-	const actualValue = Boolean(status[verifyField]);
-	if (actualValue !== expectedValue) {
-		return {
-			ok: false,
-			output: `${baseOutput}; bird status verify ${verifyField}=${String(actualValue)}`,
-		};
-	}
-
-	return {
-		ok: true,
-		output: `${baseOutput}; verified ${verifyField}=${String(actualValue)}`,
-	};
+	});
 }
 
-export async function blockUserViaBird(query: string) {
-	return runVerifiedBirdMutation({
+export function blockUserViaBirdEffect(query: string) {
+	return runVerifiedBirdMutationEffect({
 		action: "block",
 		query,
 		verifyField: "blocking",
@@ -184,8 +214,12 @@ export async function blockUserViaBird(query: string) {
 	});
 }
 
-export async function unblockUserViaBird(query: string) {
-	return runVerifiedBirdMutation({
+export function blockUserViaBird(query: string) {
+	return runEffectPromise(blockUserViaBirdEffect(query));
+}
+
+export function unblockUserViaBirdEffect(query: string) {
+	return runVerifiedBirdMutationEffect({
 		action: "unblock",
 		query,
 		verifyField: "blocking",
@@ -193,8 +227,12 @@ export async function unblockUserViaBird(query: string) {
 	});
 }
 
-export async function muteUserViaBird(query: string) {
-	return runVerifiedBirdMutation({
+export function unblockUserViaBird(query: string) {
+	return runEffectPromise(unblockUserViaBirdEffect(query));
+}
+
+export function muteUserViaBirdEffect(query: string) {
+	return runVerifiedBirdMutationEffect({
 		action: "mute",
 		query,
 		verifyField: "muting",
@@ -202,11 +240,19 @@ export async function muteUserViaBird(query: string) {
 	});
 }
 
-export async function unmuteUserViaBird(query: string) {
-	return runVerifiedBirdMutation({
+export function muteUserViaBird(query: string) {
+	return runEffectPromise(muteUserViaBirdEffect(query));
+}
+
+export function unmuteUserViaBirdEffect(query: string) {
+	return runVerifiedBirdMutationEffect({
 		action: "unmute",
 		query,
 		verifyField: "muting",
 		expectedValue: false,
 	});
+}
+
+export function unmuteUserViaBird(query: string) {
+	return runEffectPromise(unmuteUserViaBirdEffect(query));
 }

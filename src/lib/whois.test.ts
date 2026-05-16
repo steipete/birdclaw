@@ -660,6 +660,39 @@ describe("whois", () => {
 		);
 	});
 
+	it("builds whois lookups lazily as Effect programs", async () => {
+		const { runEffectPromise } = await import("./effect-runtime");
+		const { runWhoisEffect } = await import("./whois");
+		const db = getNativeDb();
+
+		const effect = runWhoisEffect("lazyprobe", {
+			dms: false,
+			tweets: true,
+			resolveProfiles: false,
+			expandUrls: false,
+			limit: 2,
+		});
+		db.prepare(
+			`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at,
+        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+        entities_json, media_json, quoted_tweet_id
+      ) values ('tweet_lazyprobe', 'acct_primary', 'profile_user_42', 'home', 'lazyprobe public tweet', '2026-05-01T00:03:00.000Z', 0, null, 0, 0, 0, 0, '{}', '[]', null)
+      `,
+		).run();
+		db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
+			"tweet_lazyprobe",
+			"lazyprobe public tweet",
+		);
+
+		const result = await runEffectPromise(effect);
+
+		expect(result.relatedTweets).toEqual([
+			expect.objectContaining({ id: "tweet_lazyprobe" }),
+		]);
+	});
+
 	it("can search only related tweets and formats empty DM candidates", async () => {
 		const { formatWhois, runWhois } = await import("./whois");
 

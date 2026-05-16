@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getCookies } from "@steipete/sweet-cookie";
+import { Effect } from "effect";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 
 const X_WEB_BEARER_TOKEN =
 	"AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
@@ -48,53 +50,57 @@ function pickCookieValue(
 	return matches[0]?.value ?? null;
 }
 
-async function resolveXWebCookies() {
-	const envAuthToken = normalizeCookieValue(
-		process.env.AUTH_TOKEN ?? process.env.TWITTER_AUTH_TOKEN,
-	);
-	const envCt0 = normalizeCookieValue(
-		process.env.CT0 ?? process.env.TWITTER_CT0,
-	);
+function resolveXWebCookiesEffect() {
+	return Effect.gen(function* () {
+		const envAuthToken = normalizeCookieValue(
+			process.env.AUTH_TOKEN ?? process.env.TWITTER_AUTH_TOKEN,
+		);
+		const envCt0 = normalizeCookieValue(
+			process.env.CT0 ?? process.env.TWITTER_CT0,
+		);
 
-	if (envAuthToken && envCt0) {
+		if (envAuthToken && envCt0) {
+			return {
+				authToken: envAuthToken,
+				ct0: envCt0,
+				cookieHeader: buildCookieHeader(envAuthToken, envCt0),
+				source: "env",
+			};
+		}
+
+		const cookieResult = yield* tryPromise(() =>
+			getCookies({
+				url: "https://x.com/",
+				origins: [...X_WEB_ORIGINS],
+				names: [...X_WEB_COOKIE_NAMES],
+				browsers: ["safari", "chrome", "firefox"] satisfies CookieSource[],
+				mode: "merge",
+				timeoutMs: process.platform === "darwin" ? 30_000 : undefined,
+			}),
+		);
+
+		const authToken = pickCookieValue(cookieResult.cookies, "auth_token");
+		const ct0 = pickCookieValue(cookieResult.cookies, "ct0");
+		if (!authToken || !ct0) {
+			return null;
+		}
+
 		return {
-			authToken: envAuthToken,
-			ct0: envCt0,
-			cookieHeader: buildCookieHeader(envAuthToken, envCt0),
-			source: "env",
+			authToken,
+			ct0,
+			cookieHeader: buildCookieHeader(authToken, ct0),
+			source: "browser",
 		};
-	}
-
-	const cookieResult = await getCookies({
-		url: "https://x.com/",
-		origins: [...X_WEB_ORIGINS],
-		names: [...X_WEB_COOKIE_NAMES],
-		browsers: ["safari", "chrome", "firefox"] satisfies CookieSource[],
-		mode: "merge",
-		timeoutMs: process.platform === "darwin" ? 30_000 : undefined,
 	});
-
-	const authToken = pickCookieValue(cookieResult.cookies, "auth_token");
-	const ct0 = pickCookieValue(cookieResult.cookies, "ct0");
-	if (!authToken || !ct0) {
-		return null;
-	}
-
-	return {
-		authToken,
-		ct0,
-		cookieHeader: buildCookieHeader(authToken, ct0),
-		source: "browser",
-	};
 }
 
-async function runXWebBlockMutation(
+function runXWebBlockMutationEffect(
 	path: string,
 	params: URLSearchParams,
 	action: string,
 ) {
-	try {
-		const cookies = await resolveXWebCookies();
+	return Effect.gen(function* () {
+		const cookies = yield* resolveXWebCookiesEffect();
 		if (!cookies) {
 			return {
 				ok: false,
@@ -102,27 +108,29 @@ async function runXWebBlockMutation(
 			};
 		}
 
-		const response = await fetch(`https://x.com/i/api/1.1/${path}`, {
-			method: "POST",
-			headers: {
-				accept: "*/*",
-				"accept-language": "en-US,en;q=0.9",
-				authorization: `Bearer ${X_WEB_BEARER_TOKEN}`,
-				"content-type": "application/x-www-form-urlencoded",
-				cookie: cookies.cookieHeader,
-				origin: "https://x.com",
-				referer: "https://x.com/",
-				"user-agent": X_WEB_USER_AGENT,
-				"x-client-transaction-id": randomUUID().replaceAll("-", ""),
-				"x-csrf-token": cookies.ct0,
-				"x-twitter-active-user": "yes",
-				"x-twitter-auth-type": "OAuth2Session",
-				"x-twitter-client-language": "en",
-			},
-			body: params,
-		});
+		const response = yield* tryPromise(() =>
+			fetch(`https://x.com/i/api/1.1/${path}`, {
+				method: "POST",
+				headers: {
+					accept: "*/*",
+					"accept-language": "en-US,en;q=0.9",
+					authorization: `Bearer ${X_WEB_BEARER_TOKEN}`,
+					"content-type": "application/x-www-form-urlencoded",
+					cookie: cookies.cookieHeader,
+					origin: "https://x.com",
+					referer: "https://x.com/",
+					"user-agent": X_WEB_USER_AGENT,
+					"x-client-transaction-id": randomUUID().replaceAll("-", ""),
+					"x-csrf-token": cookies.ct0,
+					"x-twitter-active-user": "yes",
+					"x-twitter-auth-type": "OAuth2Session",
+					"x-twitter-client-language": "en",
+				},
+				body: params,
+			}),
+		);
 
-		const text = await response.text();
+		const text = yield* tryPromise(() => response.text());
 		if (!response.ok) {
 			return {
 				ok: false,
@@ -134,19 +142,21 @@ async function runXWebBlockMutation(
 			ok: true,
 			output: `x-web ${action} ok via ${cookies.source}`,
 		};
-	} catch (error) {
-		return {
-			ok: false,
-			output:
-				error instanceof Error
-					? `x-web ${action} failed: ${error.message}`
-					: `x-web ${action} failed`,
-		};
-	}
+	}).pipe(
+		Effect.catchAll((error) =>
+			Effect.succeed({
+				ok: false,
+				output:
+					error instanceof Error
+						? `x-web ${action} failed: ${error.message}`
+						: `x-web ${action} failed`,
+			}),
+		),
+	);
 }
 
-export async function blockUserViaXWeb(targetUserId: string) {
-	return runXWebBlockMutation(
+export function blockUserViaXWebEffect(targetUserId: string) {
+	return runXWebBlockMutationEffect(
 		"blocks/create.json",
 		new URLSearchParams({
 			user_id: targetUserId,
@@ -156,8 +166,8 @@ export async function blockUserViaXWeb(targetUserId: string) {
 	);
 }
 
-export async function unblockUserViaXWeb(targetUserId: string) {
-	return runXWebBlockMutation(
+export function unblockUserViaXWebEffect(targetUserId: string) {
+	return runXWebBlockMutationEffect(
 		"blocks/destroy.json",
 		new URLSearchParams({
 			user_id: targetUserId,
@@ -165,4 +175,12 @@ export async function unblockUserViaXWeb(targetUserId: string) {
 		}),
 		"unblock",
 	);
+}
+
+export function blockUserViaXWeb(targetUserId: string) {
+	return runEffectPromise(blockUserViaXWebEffect(targetUserId));
+}
+
+export function unblockUserViaXWeb(targetUserId: string) {
+	return runEffectPromise(unblockUserViaXWebEffect(targetUserId));
 }

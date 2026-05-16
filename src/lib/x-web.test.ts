@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getCookiesMock = vi.fn();
@@ -16,6 +17,23 @@ describe("x-web transport", () => {
 		delete process.env.TWITTER_AUTH_TOKEN;
 		delete process.env.CT0;
 		delete process.env.TWITTER_CT0;
+	});
+
+	it("builds x-web mutation effects lazily", async () => {
+		process.env.AUTH_TOKEN = "auth";
+		process.env.CT0 = "csrf";
+		const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+		vi.stubGlobal("fetch", fetchMock);
+		const { blockUserViaXWebEffect } = await import("./x-web");
+
+		const effect = blockUserViaXWebEffect("42");
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toEqual({
+			ok: true,
+			output: "x-web block ok via env",
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("blocks users with env cookies", async () => {

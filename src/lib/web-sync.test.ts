@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const maybeAutoSyncBackupMock = vi.fn();
@@ -13,28 +14,58 @@ const syncHomeTimelineMock = vi.fn();
 
 vi.mock("./backup", () => ({
 	maybeAutoSyncBackup: (...args: unknown[]) => maybeAutoSyncBackupMock(...args),
+	maybeAutoSyncBackupEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => maybeAutoSyncBackupMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./dms-live", () => ({
 	syncDirectMessagesViaCachedBird: (...args: unknown[]) =>
 		syncDirectMessagesViaCachedBirdMock(...args),
+	syncDirectMessagesViaCachedBirdEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => syncDirectMessagesViaCachedBirdMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./mention-threads-live", () => ({
 	syncMentionThreads: (...args: unknown[]) => syncMentionThreadsMock(...args),
+	syncMentionThreadsEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => syncMentionThreadsMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./mentions-live", () => ({
 	syncMentions: (...args: unknown[]) => syncMentionsMock(...args),
+	syncMentionsEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => syncMentionsMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./timeline-collections-live", () => ({
 	syncTimelineCollection: (...args: unknown[]) =>
 		syncTimelineCollectionMock(...args),
+	syncTimelineCollectionEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => syncTimelineCollectionMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./timeline-live", () => ({
 	syncHomeTimeline: (...args: unknown[]) => syncHomeTimelineMock(...args),
+	syncHomeTimelineEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => syncHomeTimelineMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 import { resetBirdclawPathsForTests } from "./config";
@@ -44,6 +75,7 @@ import {
 	getWebSyncJob,
 	parseWebSyncKind,
 	runWebSync,
+	runWebSyncEffect,
 	startWebSync,
 } from "./web-sync";
 
@@ -240,6 +272,24 @@ describe("web sync dispatcher", () => {
 			summary: "Sync already running",
 		});
 		expect(syncHomeTimelineMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not start a sync while constructing the Effect", async () => {
+		const pending = deferred<{ ok: boolean; source: string; count: number }>();
+		syncHomeTimelineMock.mockReturnValue(pending.promise);
+
+		const effect = runWebSyncEffect("timeline");
+
+		expect(syncHomeTimelineMock).not.toHaveBeenCalled();
+
+		const result = Effect.runPromise(effect);
+		expect(syncHomeTimelineMock).toHaveBeenCalledTimes(1);
+		pending.resolve({ ok: true, source: "bird", count: 1 });
+
+		await expect(result).resolves.toMatchObject({
+			ok: true,
+			kind: "timeline",
+		});
 	});
 
 	it("keeps account-aware running locks scoped by account", async () => {

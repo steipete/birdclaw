@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -18,8 +19,23 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	listBookmarkedTweetsViaBird: mocks.listBookmarkedTweetsViaBird,
+	listBookmarkedTweetsViaBirdEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listBookmarkedTweetsViaBird(options),
+			catch: (error) => error,
+		}),
 	listHomeTimelineViaBird: mocks.listHomeTimelineViaBird,
+	listHomeTimelineViaBirdEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listHomeTimelineViaBird(options),
+			catch: (error) => error,
+		}),
 	listLikedTweetsViaBird: mocks.listLikedTweetsViaBird,
+	listLikedTweetsViaBirdEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listLikedTweetsViaBird(options),
+			catch: (error) => error,
+		}),
 }));
 
 vi.mock("./xurl", () => ({
@@ -93,6 +109,46 @@ afterEach(() => {
 });
 
 describe("live timeline collection sync", () => {
+	it("builds collection sync effects lazily", async () => {
+		setupTempHome();
+		const { syncTimelineCollectionEffect } =
+			await import("./timeline-collections-live");
+
+		const effect = syncTimelineCollectionEffect({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(mocks.listLikedTweetsViaXurl).not.toHaveBeenCalled();
+		mocks.listLikedTweetsViaXurl.mockResolvedValue({
+			data: [makeTweet("liked_lazy_1")],
+			includes: { users: [makeUser()] },
+			meta: { result_count: 1 },
+		});
+
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			source: "xurl",
+			count: 1,
+		});
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenCalledTimes(1);
+	});
+
+	it("validates collection sync effects only when run", async () => {
+		setupTempHome();
+		const { syncTimelineCollectionEffect } =
+			await import("./timeline-collections-live");
+
+		const effect = syncTimelineCollectionEffect({ kind: "likes", limit: 0 });
+
+		await expect(Effect.runPromise(effect)).rejects.toThrow(
+			"--limit must be at least 1",
+		);
+		expect(mocks.listLikedTweetsViaXurl).not.toHaveBeenCalled();
+	});
+
 	it("syncs liked tweets from xurl into local search filters", async () => {
 		setupTempHome();
 		mocks.listLikedTweetsViaXurl.mockResolvedValue({

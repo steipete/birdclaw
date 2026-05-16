@@ -1,8 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import { getNativeDb } from "./db";
+import { runEffectPromise } from "./effect-runtime";
 import { listTimelineItems } from "./queries";
-import { lookupTweetsByIds } from "./tweet-lookup";
+import { lookupTweetsByIdsEffect } from "./tweet-lookup";
 import { renderTweetMarkdown, renderTweetPlainText } from "./tweet-render";
 import type { TweetEntities, XurlMentionUser } from "./types";
 
@@ -76,6 +78,13 @@ interface ResearchRow {
 	author_avatar_url: string | null;
 	author_created_at: string;
 	thread_depth?: number;
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: (cause) => cause,
+	});
 }
 
 function parseJsonField<T>(value: unknown, fallback: T): T {
@@ -291,80 +300,89 @@ function getTweetDescendants(
 	return rows.map((row) => toResearchNode(row, "local"));
 }
 
-async function lookupTweetNode(tweetId: string): Promise<ResearchNode | null> {
-	const payload = await lookupTweetsByIds([tweetId]);
-	const tweet = payload.data[0];
-	if (!tweet) {
-		return null;
-	}
-	const entities = normalizeTweetEntities(tweet.entities);
+function lookupTweetNodeEffect(
+	tweetId: string,
+): Effect.Effect<ResearchNode | null, unknown> {
+	return Effect.gen(function* () {
+		const payload = yield* lookupTweetsByIdsEffect([tweetId]);
+		const tweet = payload.data[0];
+		if (!tweet) {
+			return null;
+		}
+		const entities = normalizeTweetEntities(tweet.entities);
 
-	const usersById = new Map(
-		(payload.includes?.users ?? []).map((user: XurlMentionUser) => [
-			user.id,
-			user,
-		]),
-	);
-	const author = usersById.get(tweet.author_id) ?? {
-		id: tweet.author_id,
-		username: `user_${tweet.author_id}`,
-		name: `user_${tweet.author_id}`,
-	};
+		const usersById = new Map(
+			(payload.includes?.users ?? []).map((user: XurlMentionUser) => [
+				user.id,
+				user,
+			]),
+		);
+		const author = usersById.get(tweet.author_id) ?? {
+			id: tweet.author_id,
+			username: `user_${tweet.author_id}`,
+			name: `user_${tweet.author_id}`,
+		};
 
-	return {
-		id: tweet.id,
-		url: `https://x.com/${author.username}/status/${tweet.id}`,
-		authorHandle: author.username,
-		authorName: author.name,
-		createdAt: tweet.created_at,
-		text: tweet.text,
-		plainText: renderTweetPlainText(tweet.text, entities),
-		markdown: renderTweetMarkdown(tweet.text, entities),
-		likeCount: Number(tweet.public_metrics?.like_count ?? 0),
-		bookmarked: false,
-		liked: false,
-		replyToTweetId:
-			tweet.referenced_tweets?.find((item) => item.type === "replied_to")?.id ??
-			null,
-		quotedTweetId:
-			tweet.referenced_tweets?.find((item) => item.type === "quoted")?.id ??
-			null,
-		threadDepth: 0,
-		source: "live",
-	};
+		return {
+			id: tweet.id,
+			url: `https://x.com/${author.username}/status/${tweet.id}`,
+			authorHandle: author.username,
+			authorName: author.name,
+			createdAt: tweet.created_at,
+			text: tweet.text,
+			plainText: renderTweetPlainText(tweet.text, entities),
+			markdown: renderTweetMarkdown(tweet.text, entities),
+			likeCount: Number(tweet.public_metrics?.like_count ?? 0),
+			bookmarked: false,
+			liked: false,
+			replyToTweetId:
+				tweet.referenced_tweets?.find((item) => item.type === "replied_to")
+					?.id ?? null,
+			quotedTweetId:
+				tweet.referenced_tweets?.find((item) => item.type === "quoted")?.id ??
+				null,
+			threadDepth: 0,
+			source: "live",
+		};
+	});
 }
 
-async function collectAncestorChain(
+function collectAncestorChainEffect(
 	tweetId: string,
 	maxThreadDepth: number,
-): Promise<ResearchNode[]> {
-	const chain: ResearchNode[] = [];
-	let currentId: string | undefined = tweetId;
-	const visited = new Set<string>();
-	let depth = 0;
+): Effect.Effect<ResearchNode[], unknown> {
+	return Effect.gen(function* () {
+		const chain: ResearchNode[] = [];
+		let currentId: string | undefined = tweetId;
+		const visited = new Set<string>();
+		let depth = 0;
 
-	while (currentId && !visited.has(currentId) && depth < maxThreadDepth) {
-		visited.add(currentId);
-		const localRow = getTweetRowById(currentId);
-		if (localRow) {
-			chain.push(toResearchNode(localRow, "local"));
-			currentId = localRow.reply_to_id ?? undefined;
+		while (currentId && !visited.has(currentId) && depth < maxThreadDepth) {
+			const lookupId: string = currentId;
+			visited.add(lookupId);
+			const localRow: ResearchRow | null = yield* trySync(() =>
+				getTweetRowById(lookupId),
+			);
+			if (localRow) {
+				chain.push(yield* trySync(() => toResearchNode(localRow, "local")));
+				currentId = localRow.reply_to_id ?? undefined;
+				depth += 1;
+				continue;
+			}
+
+			const remoteNode = yield* lookupTweetNodeEffect(lookupId);
+			if (!remoteNode) {
+				break;
+			}
+			chain.push(remoteNode);
+			currentId = remoteNode.replyToTweetId ?? undefined;
 			depth += 1;
-			continue;
 		}
 
-		const remoteNode = await lookupTweetNode(currentId);
-		if (!remoteNode) {
-			break;
-		}
-		chain.push(remoteNode);
-		currentId = remoteNode.replyToTweetId ?? undefined;
-		depth += 1;
-	}
-
-	return chain
-		.reverse()
-		.map((node, index) => ({ ...node, threadDepth: index }));
+		return chain
+			.reverse()
+			.map((node, index) => ({ ...node, threadDepth: index }));
+	});
 }
 
 function dedupeNodes(nodes: ResearchNode[]) {
@@ -533,64 +551,89 @@ function resolveSeedTimelineItems({
 	});
 }
 
-export async function runResearchMode(
+export function runResearchModeEffect(
+	options: ResearchOptions = {},
+): Effect.Effect<ResearchReport, unknown> {
+	return Effect.gen(function* () {
+		const limit = yield* trySync(() =>
+			Number.isFinite(options.limit ?? 20)
+				? Math.max(1, Math.floor(options.limit ?? 20))
+				: 20,
+		);
+		const maxThreadDepth = yield* trySync(() =>
+			Number.isFinite(options.maxThreadDepth ?? 10)
+				? Math.max(1, Math.floor(options.maxThreadDepth ?? 10))
+				: 10,
+		);
+		const seeds = yield* trySync(() =>
+			resolveSeedTimelineItems({
+				account: options.account,
+				query: options.query,
+				limit,
+			}),
+		);
+
+		const items: ResearchThread[] = [];
+		for (const seed of seeds) {
+			const ancestorChain = yield* collectAncestorChainEffect(
+				seed.id,
+				maxThreadDepth,
+			);
+			const rootId = ancestorChain[0]?.id ?? seed.id;
+			const localThread = yield* trySync(() =>
+				getTweetDescendants(rootId, maxThreadDepth),
+			);
+			const thread = yield* trySync(() =>
+				orderThreadNodes(
+					rootId,
+					dedupeNodes([...ancestorChain, ...localThread]),
+				),
+			);
+			const links = yield* trySync(() => collectExternalLinks(thread));
+			const handles = yield* trySync(() => collectHandles(thread));
+			items.push({
+				seedTweetId: seed.id,
+				seedUrl: `https://x.com/${seed.author.handle}/status/${seed.id}`,
+				seedText: yield* trySync(() =>
+					renderTweetPlainText(seed.text, seed.entities),
+				),
+				threadRootId: rootId,
+				thread,
+				links,
+				handles,
+			});
+		}
+
+		const reportBase = {
+			query: options.query,
+			account: options.account,
+			generatedAt: new Date().toISOString(),
+			seedCount: seeds.length,
+			threadCount: items.length,
+			items,
+		};
+		const markdown = yield* trySync(() => renderReportMarkdown(reportBase));
+		const report: ResearchReport = {
+			...reportBase,
+			markdown,
+		};
+
+		if (options.outPath) {
+			yield* trySync(() => {
+				const resolved = path.resolve(options.outPath ?? "");
+				mkdirSync(path.dirname(resolved), { recursive: true });
+				writeFileSync(resolved, markdown, "utf8");
+			});
+		}
+
+		return report;
+	});
+}
+
+export function runResearchMode(
 	options: ResearchOptions = {},
 ): Promise<ResearchReport> {
-	const limit = Number.isFinite(options.limit ?? 20)
-		? Math.max(1, Math.floor(options.limit ?? 20))
-		: 20;
-	const maxThreadDepth = Number.isFinite(options.maxThreadDepth ?? 10)
-		? Math.max(1, Math.floor(options.maxThreadDepth ?? 10))
-		: 10;
-	const seeds = resolveSeedTimelineItems({
-		account: options.account,
-		query: options.query,
-		limit,
-	});
-
-	const items: ResearchThread[] = [];
-	for (const seed of seeds) {
-		const ancestorChain = await collectAncestorChain(seed.id, maxThreadDepth);
-		const rootId = ancestorChain[0]?.id ?? seed.id;
-		const localThread = getTweetDescendants(rootId, maxThreadDepth);
-		const thread = orderThreadNodes(
-			rootId,
-			dedupeNodes([...ancestorChain, ...localThread]),
-		);
-		const links = collectExternalLinks(thread);
-		const handles = collectHandles(thread);
-		items.push({
-			seedTweetId: seed.id,
-			seedUrl: `https://x.com/${seed.author.handle}/status/${seed.id}`,
-			seedText: renderTweetPlainText(seed.text, seed.entities),
-			threadRootId: rootId,
-			thread,
-			links,
-			handles,
-		});
-	}
-
-	const reportBase = {
-		query: options.query,
-		account: options.account,
-		generatedAt: new Date().toISOString(),
-		seedCount: seeds.length,
-		threadCount: items.length,
-		items,
-	};
-	const markdown = renderReportMarkdown(reportBase);
-	const report: ResearchReport = {
-		...reportBase,
-		markdown,
-	};
-
-	if (options.outPath) {
-		const resolved = path.resolve(options.outPath);
-		mkdirSync(path.dirname(resolved), { recursive: true });
-		writeFileSync(resolved, markdown, "utf8");
-	}
-
-	return report;
+	return runEffectPromise(runResearchModeEffect(options));
 }
 
 export const __test__ = {
@@ -602,6 +645,8 @@ export const __test__ = {
 	collectExternalLinks,
 	collectHandles,
 	renderReportMarkdown,
+	lookupTweetNodeEffect,
+	collectAncestorChainEffect,
 };
 
 export type { ResearchRow };

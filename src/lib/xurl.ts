@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { Effect } from "effect";
+import { runEffectPromise } from "./effect-runtime";
 import type {
 	FollowDirection,
 	TransportStatus,
@@ -90,6 +92,10 @@ function formatXurlCommandError(error: unknown, args: string[]) {
 	return new Error(formatExecError(error, `xurl ${args.join(" ")} failed`));
 }
 
+function normalizeError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
 function parseErrorPayload(error: unknown) {
 	const stdout =
 		typeof error === "object" &&
@@ -133,13 +139,6 @@ function capTimelineCollectionMaxResults(
 		: maxResults;
 }
 
-async function sleep(ms: number) {
-	if (ms <= 0) {
-		return;
-	}
-	await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function resetTransportStatusCache() {
 	transportStatusCache = undefined;
 }
@@ -148,13 +147,14 @@ export function resetAuthenticatedUserCache() {
 	authenticatedUserCache = undefined;
 }
 
-async function hasXurl(): Promise<boolean> {
-	try {
-		await execFileAsync("xurl", ["version"]);
-		return true;
-	} catch {
-		return false;
-	}
+function hasXurlEffect() {
+	return Effect.tryPromise({
+		try: () => execFileAsync("xurl", ["version"]),
+		catch: normalizeError,
+	}).pipe(
+		Effect.as(true),
+		Effect.catchAll(() => Effect.succeed(false)),
+	);
 }
 
 function isUnauthenticatedXurlStatus(status: string) {
@@ -163,164 +163,227 @@ function isUnauthenticatedXurlStatus(status: string) {
 	);
 }
 
-export async function getTransportStatus(): Promise<TransportStatus> {
-	const now = Date.now();
-	if (transportStatusCache?.value && transportStatusCache.expiresAt > now) {
-		return transportStatusCache.value;
-	}
-
-	if (transportStatusCache?.pending) {
-		return transportStatusCache.pending;
-	}
-
-	const pending: Promise<TransportStatus> = (async () => {
-		const installed = await hasXurl();
+function readTransportStatusEffect(): Effect.Effect<TransportStatus, never> {
+	return Effect.gen(function* () {
+		const installed = yield* hasXurlEffect();
 		if (!installed) {
 			return {
 				installed: false,
-				availableTransport: "local",
+				availableTransport: "local" as const,
 				statusText: "xurl not installed. local mode active.",
 			};
 		}
 
-		try {
-			const { stdout } = await execFileAsync("xurl", ["auth", "status"]);
-			const rawStatus = stdout.trim();
+		return yield* Effect.tryPromise({
+			try: () => execFileAsync("xurl", ["auth", "status"]),
+			catch: (cause) => cause,
+		}).pipe(
+			Effect.map(({ stdout }) => {
+				const rawStatus = stdout.trim();
 
-			if (isUnauthenticatedXurlStatus(rawStatus)) {
+				if (isUnauthenticatedXurlStatus(rawStatus)) {
+					return {
+						installed: true,
+						availableTransport: "local" as const,
+						statusText:
+							"xurl installed but not authenticated. local (bird) mode active.",
+						rawStatus,
+					};
+				}
+
 				return {
 					installed: true,
-					availableTransport: "local",
-					statusText:
-						"xurl installed but not authenticated. local (bird) mode active.",
+					availableTransport: "xurl" as const,
+					statusText: "xurl available",
 					rawStatus,
 				};
-			}
+			}),
+			Effect.catchAll((error) =>
+				Effect.succeed({
+					installed: true,
+					availableTransport: "local" as const,
+					statusText: `xurl detected but auth unavailable: ${
+						error instanceof Error ? error.message : "unknown error"
+					}`,
+				}),
+			),
+		);
+	});
+}
 
-			return {
-				installed: true,
-				availableTransport: "xurl",
-				statusText: "xurl available",
-				rawStatus,
-			};
-		} catch (error) {
-			return {
-				installed: true,
-				availableTransport: "local",
-				statusText: `xurl detected but auth unavailable: ${
-					error instanceof Error ? error.message : "unknown error"
-				}`,
-			};
+export function getTransportStatusEffect() {
+	return Effect.gen(function* () {
+		const now = Date.now();
+		if (transportStatusCache?.value && transportStatusCache.expiresAt > now) {
+			return transportStatusCache.value;
 		}
-	})();
 
-	transportStatusCache = {
-		expiresAt: 0,
-		pending,
-	};
+		if (transportStatusCache?.pending) {
+			const status = yield* Effect.tryPromise({
+				try: () => transportStatusCache?.pending ?? Promise.resolve(undefined),
+				catch: normalizeError,
+			});
+			if (status) return status;
+		}
 
-	try {
-		const status = await pending;
+		const pending = runEffectPromise(readTransportStatusEffect());
+
+		transportStatusCache = {
+			expiresAt: 0,
+			pending,
+		};
+
+		const status = yield* Effect.tryPromise({
+			try: () => pending,
+			catch: normalizeError,
+		}).pipe(
+			Effect.catchAll((error) =>
+				Effect.sync(() => {
+					transportStatusCache = undefined;
+				}).pipe(Effect.flatMap(() => Effect.fail(error))),
+			),
+		);
 		transportStatusCache = {
 			expiresAt: Date.now() + TRANSPORT_STATUS_TTL_MS,
 			value: status,
 		};
 		return status;
-	} catch (error) {
-		transportStatusCache = undefined;
-		throw error;
-	}
+	});
 }
 
-async function runShortcut(
+export function getTransportStatus(): Promise<TransportStatus> {
+	return runEffectPromise(getTransportStatusEffect());
+}
+
+function runShortcutEffect(args: string[]) {
+	return Effect.gen(function* () {
+		if (liveWritesDisabled()) {
+			return { ok: true, output: "live writes disabled" };
+		}
+
+		return yield* Effect.tryPromise({
+			try: () => execFileAsync("xurl", args),
+			catch: normalizeError,
+		}).pipe(
+			Effect.map(({ stdout, stderr }) => ({
+				ok: true,
+				output: stdout || stderr,
+			})),
+			Effect.catchAll((error) =>
+				Effect.succeed({
+					ok: false,
+					output: formatExecError(error, "xurl execution failed"),
+				}),
+			),
+		);
+	});
+}
+
+function execXurlJsonEffect(
 	args: string[],
-): Promise<{ ok: boolean; output: string }> {
-	if (liveWritesDisabled()) {
-		return { ok: true, output: "live writes disabled" };
-	}
-
-	try {
-		const { stdout, stderr } = await execFileAsync("xurl", args);
-		return { ok: true, output: stdout || stderr };
-	} catch (error) {
-		return {
-			ok: false,
-			output: formatExecError(error, "xurl execution failed"),
-		};
-	}
+	timeoutMs?: number,
+): Effect.Effect<{ stdout: string; stderr: string }, Error> {
+	return Effect.tryPromise({
+		try: () => {
+			const controller =
+				typeof timeoutMs === "number" &&
+				Number.isFinite(timeoutMs) &&
+				timeoutMs > 0
+					? new AbortController()
+					: undefined;
+			const timeout = controller
+				? setTimeout(() => controller.abort(), timeoutMs)
+				: undefined;
+			const result = controller
+				? execFileAsync("xurl", args, { signal: controller.signal })
+				: execFileAsync("xurl", args);
+			return result.finally(() => {
+				if (timeout) {
+					clearTimeout(timeout);
+				}
+			});
+		},
+		catch: normalizeError,
+	});
 }
 
-async function runJsonCommand(
+function parseJsonPayloadEffect(
+	stdout: string,
+	args: string[],
+): Effect.Effect<Record<string, unknown>, Error> {
+	return Effect.try({
+		try: () => JSON.parse(stdout) as Record<string, unknown>,
+		catch: (error) => formatXurlCommandError(error, args),
+	});
+}
+
+function runJsonCommandEffect(
 	args: string[],
 	options: JsonCommandOptions = {},
 	attempt = 0,
-) {
-	const deadlineMs =
-		options.deadlineMs ??
-		(typeof options.timeoutMs === "number" &&
-		Number.isFinite(options.timeoutMs) &&
-		options.timeoutMs > 0
-			? Date.now() + options.timeoutMs
-			: undefined);
-	const timeoutMs = deadlineMs
-		? Math.max(0, deadlineMs - Date.now())
-		: undefined;
-	const controller =
-		typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
-			? new AbortController()
-			: undefined;
-	const timeout = controller
-		? setTimeout(() => controller.abort(), timeoutMs)
-		: undefined;
-
-	try {
-		const { stdout } = controller
-			? await execFileAsync("xurl", args, { signal: controller.signal })
-			: await execFileAsync("xurl", args);
-		return JSON.parse(stdout) as Record<string, unknown>;
-	} catch (error) {
-		const retryDelayMs = getRetryDelayMs(error, attempt);
-		if (retryDelayMs === null || attempt >= JSON_RETRY_LIMIT - 1) {
-			throw formatXurlCommandError(error, args);
-		}
-		const remainingMs = deadlineMs
+): Effect.Effect<Record<string, unknown>, Error> {
+	return Effect.gen(function* () {
+		const deadlineMs =
+			options.deadlineMs ??
+			(typeof options.timeoutMs === "number" &&
+			Number.isFinite(options.timeoutMs) &&
+			options.timeoutMs > 0
+				? Date.now() + options.timeoutMs
+				: undefined);
+		const timeoutMs = deadlineMs
 			? Math.max(0, deadlineMs - Date.now())
 			: undefined;
-		if (remainingMs !== undefined && retryDelayMs >= remainingMs) {
-			throw formatXurlCommandError(error, args);
-		}
+		return yield* execXurlJsonEffect(args, timeoutMs).pipe(
+			Effect.flatMap(({ stdout }) => parseJsonPayloadEffect(stdout, args)),
+			Effect.catchAll((error) => {
+				const retryDelayMs = getRetryDelayMs(error, attempt);
+				if (retryDelayMs === null || attempt >= JSON_RETRY_LIMIT - 1) {
+					return Effect.fail(formatXurlCommandError(error, args));
+				}
+				const remainingMs = deadlineMs
+					? Math.max(0, deadlineMs - Date.now())
+					: undefined;
+				if (remainingMs !== undefined && retryDelayMs >= remainingMs) {
+					return Effect.fail(formatXurlCommandError(error, args));
+				}
 
-		await sleep(retryDelayMs);
-		return runJsonCommand(args, { ...options, deadlineMs }, attempt + 1);
-	} finally {
-		if (timeout) {
-			clearTimeout(timeout);
-		}
-	}
+				return Effect.sleep(retryDelayMs).pipe(
+					Effect.flatMap(() =>
+						runJsonCommandEffect(args, { ...options, deadlineMs }, attempt + 1),
+					),
+				);
+			}),
+		);
+	});
 }
 
-async function runMutationCommand(args: string[]) {
-	if (liveWritesDisabled()) {
-		return { ok: true, output: "live writes disabled" };
-	}
+function runMutationCommandEffect(args: string[]) {
+	return Effect.gen(function* () {
+		if (liveWritesDisabled()) {
+			return { ok: true, output: "live writes disabled" };
+		}
 
-	try {
-		const { stdout, stderr } = await execFileAsync("xurl", args);
-		return {
-			ok: true,
-			output: stdout || stderr || "ok",
-		};
-	} catch (error) {
-		return {
-			ok: false,
-			output: formatExecError(error, "xurl execution failed"),
-		};
-	}
+		return yield* Effect.tryPromise({
+			try: () => execFileAsync("xurl", args),
+			catch: normalizeError,
+		}).pipe(
+			Effect.map(({ stdout, stderr }) => ({
+				ok: true,
+				output: stdout || stderr || "ok",
+			})),
+			Effect.catchAll((error) =>
+				Effect.succeed({
+					ok: false,
+					output: formatExecError(error, "xurl execution failed"),
+				}),
+			),
+		);
+	});
 }
 
-export async function lookupUsersByIds(ids: string[]) {
+export function lookupUsersByIdsEffect(ids: string[]) {
 	if (ids.length === 0) {
-		return [];
+		return Effect.succeed([]);
 	}
 
 	const query = new URLSearchParams({
@@ -328,14 +391,20 @@ export async function lookupUsersByIds(ids: string[]) {
 		"user.fields":
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
 	});
-	const payload = await runJsonCommand([`/2/users?${query.toString()}`]);
-	const data = payload.data;
-	return Array.isArray(data) ? (data as XurlMentionUser[]) : [];
+	return runJsonCommandEffect([`/2/users?${query.toString()}`]).pipe(
+		Effect.map((payload) =>
+			Array.isArray(payload.data) ? (payload.data as XurlMentionUser[]) : [],
+		),
+	);
 }
 
-export async function lookupUsersByHandles(handles: string[]) {
+export function lookupUsersByIds(ids: string[]) {
+	return runEffectPromise(lookupUsersByIdsEffect(ids));
+}
+
+export function lookupUsersByHandlesEffect(handles: string[]) {
 	if (handles.length === 0) {
-		return [];
+		return Effect.succeed([]);
 	}
 
 	const query = new URLSearchParams({
@@ -343,52 +412,104 @@ export async function lookupUsersByHandles(handles: string[]) {
 		"user.fields":
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
 	});
-	const payload = await runJsonCommand([`/2/users/by?${query.toString()}`]);
-	const data = payload.data;
-	return Array.isArray(data) ? (data as XurlMentionUser[]) : [];
+	return runJsonCommandEffect([`/2/users/by?${query.toString()}`]).pipe(
+		Effect.map((payload) =>
+			Array.isArray(payload.data) ? (payload.data as XurlMentionUser[]) : [],
+		),
+	);
 }
 
-export async function lookupAuthenticatedUser() {
-	const now = Date.now();
-	if (
-		authenticatedUserCache &&
-		"value" in authenticatedUserCache &&
-		authenticatedUserCache.expiresAt > now
-	) {
-		return authenticatedUserCache.value ?? null;
-	}
+export function lookupUsersByHandles(handles: string[]) {
+	return runEffectPromise(lookupUsersByHandlesEffect(handles));
+}
 
-	if (authenticatedUserCache?.pending) {
-		return authenticatedUserCache.pending;
-	}
+function authenticatedUserFromPayload(payload: Record<string, unknown>) {
+	const data = payload.data;
+	return data && typeof data === "object"
+		? (data as Record<string, unknown>)
+		: null;
+}
 
-	const pending = (async () => {
-		const payload = await runJsonCommand(["whoami"]);
-		const data = payload.data;
-		return data && typeof data === "object"
-			? (data as Record<string, unknown>)
-			: null;
-	})();
+export function lookupAuthenticatedUserEffect() {
+	return Effect.gen(function* () {
+		const now = Date.now();
+		if (
+			authenticatedUserCache &&
+			"value" in authenticatedUserCache &&
+			authenticatedUserCache.expiresAt > now
+		) {
+			return authenticatedUserCache.value ?? null;
+		}
 
-	authenticatedUserCache = {
-		expiresAt: 0,
-		pending,
-	};
+		if (authenticatedUserCache?.pending) {
+			return yield* Effect.tryPromise({
+				try: () => authenticatedUserCache?.pending ?? Promise.resolve(null),
+				catch: normalizeError,
+			});
+		}
 
-	try {
-		const value = await pending;
+		const pending = runEffectPromise(
+			runJsonCommandEffect(["whoami"]).pipe(
+				Effect.map(authenticatedUserFromPayload),
+			),
+		);
+
+		authenticatedUserCache = {
+			expiresAt: 0,
+			pending,
+		};
+
+		const value = yield* Effect.tryPromise({
+			try: () => pending,
+			catch: normalizeError,
+		}).pipe(
+			Effect.catchAll((error) =>
+				Effect.sync(() => {
+					authenticatedUserCache = undefined;
+				}).pipe(Effect.flatMap(() => Effect.fail(error))),
+			),
+		);
 		authenticatedUserCache = {
 			expiresAt: Date.now() + AUTHENTICATED_USER_TTL_MS,
 			value,
 		};
 		return value;
-	} catch (error) {
-		authenticatedUserCache = undefined;
-		throw error;
-	}
+	});
 }
 
-export async function listMentionsViaXurl({
+export function lookupAuthenticatedUser() {
+	return runEffectPromise(lookupAuthenticatedUserEffect());
+}
+
+function resolveUserIdEffect({
+	username,
+	userId,
+}: {
+	username?: string;
+	userId?: string;
+}) {
+	return Effect.gen(function* () {
+		if (userId) return userId;
+		if (username) {
+			const [user] = yield* lookupUsersByHandlesEffect([username]);
+			if (!user?.id) {
+				return yield* Effect.fail(
+					new Error(`Could not resolve Twitter user id for @${username}`),
+				);
+			}
+			return String(user.id);
+		}
+		const user = yield* lookupAuthenticatedUserEffect();
+		if (!user?.id) {
+			return yield* Effect.fail(
+				new Error("Could not resolve authenticated Twitter user id"),
+			);
+		}
+		return String(user.id);
+	});
+}
+
+export function listMentionsViaXurlEffect({
 	maxResults,
 	username,
 	userId,
@@ -402,45 +523,48 @@ export async function listMentionsViaXurl({
 	paginationToken?: string;
 	sinceId?: string;
 	startTime?: string;
-}): Promise<XurlMentionsResponse> {
-	let resolvedUserId = userId;
-	if (!resolvedUserId) {
-		if (username) {
-			const [user] = await lookupUsersByHandles([username]);
-			if (!user?.id) {
-				throw new Error(`Could not resolve Twitter user id for @${username}`);
-			}
-			resolvedUserId = String(user.id);
-		} else {
-			const user = await lookupAuthenticatedUser();
-			if (!user?.id) {
-				throw new Error("Could not resolve authenticated Twitter user id");
-			}
-			resolvedUserId = String(user.id);
+}): Effect.Effect<XurlMentionsResponse, Error> {
+	return Effect.gen(function* () {
+		const resolvedUserId = yield* resolveUserIdEffect({ username, userId });
+		const query = new URLSearchParams({
+			max_results: String(maxResults),
+			expansions: AUTHOR_MEDIA_EXPANSIONS,
+			"tweet.fields": "created_at,conversation_id,entities,public_metrics",
+			"media.fields": MEDIA_FIELDS,
+			"user.fields":
+				"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
+		});
+		if (paginationToken) {
+			query.set("pagination_token", paginationToken);
 		}
-	}
+		if (sinceId) {
+			query.set("since_id", sinceId);
+		}
+		if (startTime) {
+			query.set("start_time", startTime);
+		}
 
-	const query = new URLSearchParams({
-		max_results: String(maxResults),
-		expansions: AUTHOR_MEDIA_EXPANSIONS,
-		"tweet.fields": "created_at,conversation_id,entities,public_metrics",
-		"media.fields": MEDIA_FIELDS,
-		"user.fields":
-			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
+		const payload = yield* runJsonCommandEffect([
+			`/2/users/${resolvedUserId}/mentions?${query.toString()}`,
+		]);
+		return toXurlMentionsResponse(payload);
 	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
-	if (sinceId) {
-		query.set("since_id", sinceId);
-	}
-	if (startTime) {
-		query.set("start_time", startTime);
-	}
+}
 
-	const payload = await runJsonCommand([
-		`/2/users/${resolvedUserId}/mentions?${query.toString()}`,
-	]);
+export function listMentionsViaXurl(options: {
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+	sinceId?: string;
+	startTime?: string;
+}): Promise<XurlMentionsResponse> {
+	return runEffectPromise(listMentionsViaXurlEffect(options));
+}
+
+function toXurlMentionsResponse(
+	payload: Record<string, unknown>,
+): XurlMentionsResponse {
 	return {
 		data: Array.isArray(payload.data)
 			? (payload.data as XurlMentionsResponse["data"])
@@ -456,7 +580,7 @@ export async function listMentionsViaXurl({
 	};
 }
 
-async function listTimelineCollectionViaXurl({
+function listTimelineCollectionViaXurlEffect({
 	collection,
 	maxResults,
 	username,
@@ -470,88 +594,81 @@ async function listTimelineCollectionViaXurl({
 	userId?: string;
 	isPaginatedWalk?: boolean;
 	paginationToken?: string;
-}): Promise<XurlMentionsResponse> {
-	let resolvedUserId = userId;
-	if (!resolvedUserId) {
-		if (username) {
-			const [user] = await lookupUsersByHandles([username]);
-			if (!user?.id) {
-				throw new Error(`Could not resolve Twitter user id for @${username}`);
-			}
-			resolvedUserId = String(user.id);
-		} else {
-			const user = await lookupAuthenticatedUser();
-			if (!user?.id) {
-				throw new Error("Could not resolve authenticated Twitter user id");
-			}
-			resolvedUserId = String(user.id);
+}): Effect.Effect<XurlMentionsResponse, Error> {
+	return Effect.gen(function* () {
+		const resolvedUserId = yield* resolveUserIdEffect({ username, userId });
+		const requestMaxResults = capTimelineCollectionMaxResults(
+			collection,
+			maxResults,
+			isPaginatedWalk,
+		);
+		const query = new URLSearchParams({
+			max_results: String(requestMaxResults),
+			expansions: AUTHOR_MEDIA_EXPANSIONS,
+			"tweet.fields":
+				"created_at,conversation_id,entities,public_metrics,referenced_tweets",
+			"media.fields": MEDIA_FIELDS,
+			"user.fields":
+				"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
+		});
+		if (paginationToken) {
+			query.set("pagination_token", paginationToken);
 		}
-	}
 
-	const requestMaxResults = capTimelineCollectionMaxResults(
-		collection,
-		maxResults,
-		isPaginatedWalk,
-	);
-	const query = new URLSearchParams({
-		max_results: String(requestMaxResults),
-		expansions: AUTHOR_MEDIA_EXPANSIONS,
-		"tweet.fields":
-			"created_at,conversation_id,entities,public_metrics,referenced_tweets",
-		"media.fields": MEDIA_FIELDS,
-		"user.fields":
-			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
+		const payload = yield* runJsonCommandEffect([
+			"--auth",
+			"oauth2",
+			`/2/users/${resolvedUserId}/${collection}?${query.toString()}`,
+		]);
+		return toXurlMentionsResponse(payload);
 	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
-
-	const payload = await runJsonCommand([
-		"--auth",
-		"oauth2",
-		`/2/users/${resolvedUserId}/${collection}?${query.toString()}`,
-	]);
-	return {
-		data: Array.isArray(payload.data)
-			? (payload.data as XurlMentionsResponse["data"])
-			: [],
-		includes:
-			payload.includes && typeof payload.includes === "object"
-				? (payload.includes as XurlMentionsResponse["includes"])
-				: undefined,
-		meta:
-			payload.meta && typeof payload.meta === "object"
-				? (payload.meta as XurlMentionsResponse["meta"])
-				: undefined,
-	};
 }
 
-export async function listLikedTweetsViaXurl(options: {
+export function listLikedTweetsViaXurlEffect(options: {
 	maxResults: number;
 	username?: string;
 	userId?: string;
 	paginationToken?: string;
-}): Promise<XurlMentionsResponse> {
-	return listTimelineCollectionViaXurl({
+}) {
+	return listTimelineCollectionViaXurlEffect({
 		...options,
 		collection: "liked_tweets",
 	});
 }
 
-export async function listBookmarkedTweetsViaXurl(options: {
+export function listLikedTweetsViaXurl(options: {
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+}): Promise<XurlMentionsResponse> {
+	return runEffectPromise(listLikedTweetsViaXurlEffect(options));
+}
+
+export function listBookmarkedTweetsViaXurlEffect(options: {
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	isPaginatedWalk?: boolean;
+	paginationToken?: string;
+}) {
+	return listTimelineCollectionViaXurlEffect({
+		...options,
+		collection: "bookmarks",
+	});
+}
+
+export function listBookmarkedTweetsViaXurl(options: {
 	maxResults: number;
 	username?: string;
 	userId?: string;
 	isPaginatedWalk?: boolean;
 	paginationToken?: string;
 }): Promise<XurlMentionsResponse> {
-	return listTimelineCollectionViaXurl({
-		...options,
-		collection: "bookmarks",
-	});
+	return runEffectPromise(listBookmarkedTweetsViaXurlEffect(options));
 }
 
-export async function listFollowUsersViaXurl({
+export function listFollowUsersViaXurlEffect({
 	direction,
 	maxResults,
 	username,
@@ -563,50 +680,46 @@ export async function listFollowUsersViaXurl({
 	username?: string;
 	userId?: string;
 	paginationToken?: string;
-}): Promise<XurlFollowUsersResponse> {
-	let resolvedUserId = userId;
-	if (!resolvedUserId) {
-		if (username) {
-			const [user] = await lookupUsersByHandles([username]);
-			if (!user?.id) {
-				throw new Error(`Could not resolve Twitter user id for @${username}`);
-			}
-			resolvedUserId = String(user.id);
-		} else {
-			const user = await lookupAuthenticatedUser();
-			if (!user?.id) {
-				throw new Error("Could not resolve authenticated Twitter user id");
-			}
-			resolvedUserId = String(user.id);
+}): Effect.Effect<XurlFollowUsersResponse, Error> {
+	return Effect.gen(function* () {
+		const resolvedUserId = yield* resolveUserIdEffect({ username, userId });
+		const query = new URLSearchParams({
+			max_results: String(maxResults),
+			"user.fields":
+				"id,username,name,description,verified,protected,public_metrics,profile_image_url,created_at",
+		});
+		if (paginationToken) {
+			query.set("pagination_token", paginationToken);
 		}
-	}
 
-	const query = new URLSearchParams({
-		max_results: String(maxResults),
-		"user.fields":
-			"id,username,name,description,verified,protected,public_metrics,profile_image_url,created_at",
+		const payload = yield* runJsonCommandEffect([
+			"--auth",
+			"oauth2",
+			`/2/users/${resolvedUserId}/${direction}?${query.toString()}`,
+		]);
+		return {
+			data: Array.isArray(payload.data)
+				? (payload.data as XurlMentionUser[])
+				: [],
+			meta:
+				payload.meta && typeof payload.meta === "object"
+					? (payload.meta as Record<string, unknown>)
+					: undefined,
+		};
 	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
-
-	const payload = await runJsonCommand([
-		"--auth",
-		"oauth2",
-		`/2/users/${resolvedUserId}/${direction}?${query.toString()}`,
-	]);
-	return {
-		data: Array.isArray(payload.data)
-			? (payload.data as XurlMentionUser[])
-			: [],
-		meta:
-			payload.meta && typeof payload.meta === "object"
-				? (payload.meta as Record<string, unknown>)
-				: undefined,
-	};
 }
 
-export async function listBlockedUsers(
+export function listFollowUsersViaXurl(options: {
+	direction: FollowDirection;
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+}): Promise<XurlFollowUsersResponse> {
+	return runEffectPromise(listFollowUsersViaXurlEffect(options));
+}
+
+export function listBlockedUsersEffect(
 	userId: string,
 	paginationToken?: string,
 ) {
@@ -619,25 +732,30 @@ export async function listBlockedUsers(
 		query.set("pagination_token", paginationToken);
 	}
 
-	const payload = await runJsonCommand([
-		`/2/users/${userId}/blocking?${query}`,
-	]);
-	const data = Array.isArray(payload.data)
-		? (payload.data as XurlMentionUser[])
-		: [];
-	const meta =
-		payload.meta && typeof payload.meta === "object"
-			? (payload.meta as Record<string, unknown>)
-			: null;
+	return runJsonCommandEffect([`/2/users/${userId}/blocking?${query}`]).pipe(
+		Effect.map((payload) => {
+			const data = Array.isArray(payload.data)
+				? (payload.data as XurlMentionUser[])
+				: [];
+			const meta =
+				payload.meta && typeof payload.meta === "object"
+					? (payload.meta as Record<string, unknown>)
+					: null;
 
-	return {
-		items: data,
-		nextToken:
-			typeof meta?.next_token === "string" ? String(meta.next_token) : null,
-	};
+			return {
+				items: data,
+				nextToken:
+					typeof meta?.next_token === "string" ? String(meta.next_token) : null,
+			};
+		}),
+	);
 }
 
-export async function listUserTweets(
+export function listBlockedUsers(userId: string, paginationToken?: string) {
+	return runEffectPromise(listBlockedUsersEffect(userId, paginationToken));
+}
+
+export function listUserTweetsEffect(
 	userId: string,
 	{
 		maxResults,
@@ -662,7 +780,7 @@ export async function listUserTweets(
 		mediaFields?: string[];
 		auth?: "oauth2";
 	},
-): Promise<XurlUserTweetsResponse> {
+): Effect.Effect<XurlUserTweetsResponse, Error> {
 	const query = new URLSearchParams({
 		max_results: String(maxResults),
 		expansions: MEDIA_EXPANSION,
@@ -694,34 +812,73 @@ export async function listUserTweets(
 	}
 
 	const endpoint = `/2/users/${userId}/tweets?${query}`;
-	const payload = await runJsonCommand(
+	return runJsonCommandEffect(
 		auth === "oauth2" ? ["--auth", "oauth2", endpoint] : [endpoint],
-	);
-	const data = Array.isArray(payload.data)
-		? (payload.data as XurlUserTweet[])
-		: [];
-	const meta =
-		payload.meta && typeof payload.meta === "object"
-			? (payload.meta as Record<string, unknown>)
-			: null;
-	const includes =
-		payload.includes && typeof payload.includes === "object"
-			? (payload.includes as XurlUserTweetsResponse["includes"])
-			: undefined;
+	).pipe(
+		Effect.map((payload) => {
+			const data = Array.isArray(payload.data)
+				? (payload.data as XurlUserTweet[])
+				: [];
+			const meta =
+				payload.meta && typeof payload.meta === "object"
+					? (payload.meta as Record<string, unknown>)
+					: null;
+			const includes =
+				payload.includes && typeof payload.includes === "object"
+					? (payload.includes as XurlUserTweetsResponse["includes"])
+					: undefined;
 
+			return {
+				items: data,
+				nextToken:
+					typeof meta?.next_token === "string" ? String(meta.next_token) : null,
+				...(includes ? { includes } : {}),
+			};
+		}),
+	);
+}
+
+export function listUserTweets(
+	userId: string,
+	options: {
+		maxResults: number;
+		paginationToken?: string;
+		excludeRetweets?: boolean;
+		sinceId?: string;
+		untilId?: string;
+		tweetFields?: string[];
+		expansions?: string[];
+		userFields?: string[];
+		mediaFields?: string[];
+		auth?: "oauth2";
+	},
+): Promise<XurlUserTweetsResponse> {
+	return runEffectPromise(listUserTweetsEffect(userId, options));
+}
+
+function toXurlTweetsResponse(
+	payload: Record<string, unknown>,
+): XurlTweetsResponse {
 	return {
-		items: data,
-		nextToken:
-			typeof meta?.next_token === "string" ? String(meta.next_token) : null,
-		...(includes ? { includes } : {}),
+		data: Array.isArray(payload.data)
+			? (payload.data as XurlTweetsResponse["data"])
+			: [],
+		includes:
+			payload.includes && typeof payload.includes === "object"
+				? (payload.includes as XurlTweetsResponse["includes"])
+				: undefined,
+		meta:
+			payload.meta && typeof payload.meta === "object"
+				? (payload.meta as XurlTweetsResponse["meta"])
+				: undefined,
 	};
 }
 
-export async function lookupTweetsByIds(
+export function lookupTweetsByIdsEffect(
 	ids: string[],
-): Promise<XurlTweetsResponse> {
+): Effect.Effect<XurlTweetsResponse, Error> {
 	if (ids.length === 0) {
-		return { data: [] };
+		return Effect.succeed({ data: [] });
 	}
 
 	const query = new URLSearchParams({
@@ -734,23 +891,16 @@ export async function lookupTweetsByIds(
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
 	});
 
-	const payload = await runJsonCommand([`/2/tweets?${query.toString()}`]);
-	return {
-		data: Array.isArray(payload.data)
-			? (payload.data as XurlTweetsResponse["data"])
-			: [],
-		includes:
-			payload.includes && typeof payload.includes === "object"
-				? (payload.includes as XurlTweetsResponse["includes"])
-				: undefined,
-		meta:
-			payload.meta && typeof payload.meta === "object"
-				? (payload.meta as XurlTweetsResponse["meta"])
-				: undefined,
-	};
+	return runJsonCommandEffect([`/2/tweets?${query.toString()}`]).pipe(
+		Effect.map(toXurlTweetsResponse),
+	);
 }
 
-export async function searchRecentByConversationId(
+export function lookupTweetsByIds(ids: string[]): Promise<XurlTweetsResponse> {
+	return runEffectPromise(lookupTweetsByIdsEffect(ids));
+}
+
+export function searchRecentByConversationIdEffect(
 	conversationId: string,
 	{
 		maxResults,
@@ -761,7 +911,7 @@ export async function searchRecentByConversationId(
 		paginationToken?: string;
 		timeoutMs?: number;
 	},
-): Promise<XurlTweetsResponse> {
+): Effect.Effect<XurlTweetsResponse, Error> {
 	const query = new URLSearchParams({
 		query: `conversation_id:${conversationId}`,
 		max_results: String(maxResults),
@@ -774,29 +924,28 @@ export async function searchRecentByConversationId(
 		query.set("pagination_token", paginationToken);
 	}
 
-	const payload = await runJsonCommand(
-		[`/2/tweets/search/recent?${query.toString()}`],
-		{ timeoutMs },
-	);
-	return {
-		data: Array.isArray(payload.data)
-			? (payload.data as XurlTweetsResponse["data"])
-			: [],
-		includes:
-			payload.includes && typeof payload.includes === "object"
-				? (payload.includes as XurlTweetsResponse["includes"])
-				: undefined,
-		meta:
-			payload.meta && typeof payload.meta === "object"
-				? (payload.meta as XurlTweetsResponse["meta"])
-				: undefined,
-	};
+	return runJsonCommandEffect([`/2/tweets/search/recent?${query.toString()}`], {
+		timeoutMs,
+	}).pipe(Effect.map(toXurlTweetsResponse));
 }
 
-export async function getTweetById(
+export function searchRecentByConversationId(
+	conversationId: string,
+	options: {
+		maxResults: number;
+		paginationToken?: string;
+		timeoutMs?: number;
+	},
+): Promise<XurlTweetsResponse> {
+	return runEffectPromise(
+		searchRecentByConversationIdEffect(conversationId, options),
+	);
+}
+
+export function getTweetByIdEffect(
 	id: string,
 	{ timeoutMs }: { timeoutMs?: number } = {},
-): Promise<XurlTweetsResponse> {
+): Effect.Effect<XurlTweetsResponse, Error> {
 	const query = new URLSearchParams({
 		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields": THREAD_TWEET_FIELDS,
@@ -804,55 +953,74 @@ export async function getTweetById(
 		"user.fields": RICH_USER_FIELDS,
 	});
 
-	const payload = await runJsonCommand(
-		[`/2/tweets/${id}?${query.toString()}`],
-		{
-			timeoutMs,
-		},
+	return runJsonCommandEffect([`/2/tweets/${id}?${query.toString()}`], {
+		timeoutMs,
+	}).pipe(
+		Effect.map((payload) => {
+			const data =
+				payload.data &&
+				typeof payload.data === "object" &&
+				!Array.isArray(payload.data)
+					? [payload.data as XurlTweetsResponse["data"][number]]
+					: Array.isArray(payload.data)
+						? (payload.data as XurlTweetsResponse["data"])
+						: [];
+
+			return {
+				data,
+				includes:
+					payload.includes && typeof payload.includes === "object"
+						? (payload.includes as XurlTweetsResponse["includes"])
+						: undefined,
+				meta:
+					payload.meta && typeof payload.meta === "object"
+						? (payload.meta as XurlTweetsResponse["meta"])
+						: undefined,
+			};
+		}),
 	);
-	const data =
-		payload.data &&
-		typeof payload.data === "object" &&
-		!Array.isArray(payload.data)
-			? [payload.data as XurlTweetsResponse["data"][number]]
-			: Array.isArray(payload.data)
-				? (payload.data as XurlTweetsResponse["data"])
-				: [];
-
-	return {
-		data,
-		includes:
-			payload.includes && typeof payload.includes === "object"
-				? (payload.includes as XurlTweetsResponse["includes"])
-				: undefined,
-		meta:
-			payload.meta && typeof payload.meta === "object"
-				? (payload.meta as XurlTweetsResponse["meta"])
-				: undefined,
-	};
 }
 
-export async function postViaXurl(text: string) {
-	return runShortcut(["post", text]);
+export function getTweetById(
+	id: string,
+	options: { timeoutMs?: number } = {},
+): Promise<XurlTweetsResponse> {
+	return runEffectPromise(getTweetByIdEffect(id, options));
 }
 
-export async function replyViaXurl(tweetId: string, text: string) {
-	return runShortcut(["reply", tweetId, text]);
+export function postViaXurlEffect(text: string) {
+	return runShortcutEffect(["post", text]);
 }
 
-export async function dmViaXurl(handle: string, text: string) {
-	return runShortcut([
+export function postViaXurl(text: string) {
+	return runEffectPromise(postViaXurlEffect(text));
+}
+
+export function replyViaXurlEffect(tweetId: string, text: string) {
+	return runShortcutEffect(["reply", tweetId, text]);
+}
+
+export function replyViaXurl(tweetId: string, text: string) {
+	return runEffectPromise(replyViaXurlEffect(tweetId, text));
+}
+
+export function dmViaXurlEffect(handle: string, text: string) {
+	return runShortcutEffect([
 		"dm",
 		handle.startsWith("@") ? handle : `@${handle}`,
 		text,
 	]);
 }
 
-export async function blockUserViaXurl(
+export function dmViaXurl(handle: string, text: string) {
+	return runEffectPromise(dmViaXurlEffect(handle, text));
+}
+
+export function blockUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommand([
+	return runMutationCommandEffect([
 		"-X",
 		"POST",
 		`/2/users/${sourceUserId}/blocking`,
@@ -861,22 +1029,30 @@ export async function blockUserViaXurl(
 	]);
 }
 
-export async function unblockUserViaXurl(
+export function blockUserViaXurl(sourceUserId: string, targetUserId: string) {
+	return runEffectPromise(blockUserViaXurlEffect(sourceUserId, targetUserId));
+}
+
+export function unblockUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommand([
+	return runMutationCommandEffect([
 		"-X",
 		"DELETE",
 		`/2/users/${sourceUserId}/blocking/${targetUserId}`,
 	]);
 }
 
-export async function muteUserViaXurl(
+export function unblockUserViaXurl(sourceUserId: string, targetUserId: string) {
+	return runEffectPromise(unblockUserViaXurlEffect(sourceUserId, targetUserId));
+}
+
+export function muteUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommand([
+	return runMutationCommandEffect([
 		"-X",
 		"POST",
 		`/2/users/${sourceUserId}/muting`,
@@ -885,13 +1061,21 @@ export async function muteUserViaXurl(
 	]);
 }
 
-export async function unmuteUserViaXurl(
+export function muteUserViaXurl(sourceUserId: string, targetUserId: string) {
+	return runEffectPromise(muteUserViaXurlEffect(sourceUserId, targetUserId));
+}
+
+export function unmuteUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommand([
+	return runMutationCommandEffect([
 		"-X",
 		"DELETE",
 		`/2/users/${sourceUserId}/muting/${targetUserId}`,
 	]);
+}
+
+export function unmuteUserViaXurl(sourceUserId: string, targetUserId: string) {
+	return runEffectPromise(unmuteUserViaXurlEffect(sourceUserId, targetUserId));
 }

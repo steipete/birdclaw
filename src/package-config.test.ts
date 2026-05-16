@@ -33,7 +33,7 @@ describe("package configuration", () => {
 		);
 
 		expect(stdout.trim()).toBe(packageJson.version);
-	});
+	}, 15_000);
 
 	it("keeps published bin files in lint and format script coverage", () => {
 		const binTargets = Object.values(packageJson.bin);

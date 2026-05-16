@@ -2,16 +2,21 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listInboxItems } from "./inbox";
 import {
 	createDmReply,
+	createDmReplyEffect,
 	createPost,
+	createPostEffect,
 	createTweetReply,
+	createTweetReplyEffect,
 	getConversationThread,
 	getQueryEnvelope,
+	getQueryEnvelopeEffect,
 	getTweetConversation,
 	listDmConversations,
 	listTimelineItems,
@@ -26,16 +31,51 @@ const mocks = vi.hoisted(() => ({
 	dmViaXurl: vi.fn(),
 }));
 
-vi.mock("./archive-finder", () => ({
-	findArchives: mocks.findArchives,
-}));
+vi.mock("./archive-finder", async () => {
+	const { Effect } = await import("effect");
+	const toError = (error: unknown) =>
+		error instanceof Error ? error : new Error(String(error));
+	return {
+		findArchives: mocks.findArchives,
+		findArchivesEffect: () =>
+			Effect.tryPromise({
+				try: () => mocks.findArchives(),
+				catch: toError,
+			}),
+	};
+});
 
-vi.mock("./xurl", () => ({
-	getTransportStatus: mocks.getTransportStatus,
-	postViaXurl: mocks.postViaXurl,
-	replyViaXurl: mocks.replyViaXurl,
-	dmViaXurl: mocks.dmViaXurl,
-}));
+vi.mock("./xurl", async () => {
+	const { Effect } = await import("effect");
+	const toError = (error: unknown) =>
+		error instanceof Error ? error : new Error(String(error));
+	return {
+		getTransportStatus: mocks.getTransportStatus,
+		getTransportStatusEffect: () =>
+			Effect.tryPromise({
+				try: () => mocks.getTransportStatus(),
+				catch: toError,
+			}),
+		postViaXurl: mocks.postViaXurl,
+		postViaXurlEffect: (text: string) =>
+			Effect.tryPromise({
+				try: () => mocks.postViaXurl(text),
+				catch: toError,
+			}),
+		replyViaXurl: mocks.replyViaXurl,
+		replyViaXurlEffect: (tweetId: string, text: string) =>
+			Effect.tryPromise({
+				try: () => mocks.replyViaXurl(tweetId, text),
+				catch: toError,
+			}),
+		dmViaXurl: mocks.dmViaXurl,
+		dmViaXurlEffect: (handle: string, text: string) =>
+			Effect.tryPromise({
+				try: () => mocks.dmViaXurl(handle, text),
+				catch: toError,
+			}),
+	};
+});
 
 const tempRoots: string[] = [];
 
@@ -132,6 +172,25 @@ describe("birdclaw queries", () => {
 		expect(filtered[0]?.searchSnippet).toContain(
 			"<mark>context</mark> <mark>rail</mark>",
 		);
+	});
+
+	it("filters DM conversations by time before applying the limit", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			"update dm_conversations set last_message_at = ? where id in ('dm_001', 'dm_002', 'dm_003')",
+		).run("2026-05-03T00:00:00.000Z");
+		db.prepare(
+			"update dm_conversations set last_message_at = ? where id = 'dm_004'",
+		).run("2026-05-01T12:00:00.000Z");
+
+		const filtered = listDmConversations({
+			since: "2026-05-01T00:00:00.000Z",
+			until: "2026-05-02T00:00:00.000Z",
+			limit: 1,
+		});
+
+		expect(filtered.map((item) => item.id)).toEqual(["dm_004"]);
 	});
 
 	it("uses the latest matching DM message as the search snippet", () => {
@@ -783,6 +842,21 @@ describe("birdclaw queries", () => {
 		expect(envelope.transport.availableTransport).toBe("xurl");
 	});
 
+	it("exposes the status envelope as a lazy Effect program", async () => {
+		setupTempHome();
+
+		const effect = getQueryEnvelopeEffect();
+
+		expect(mocks.findArchives).not.toHaveBeenCalled();
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			stats: { home: 4, mentions: 2 },
+			transport: { availableTransport: "xurl" },
+		});
+		expect(mocks.findArchives).toHaveBeenCalledTimes(1);
+		expect(mocks.getTransportStatus).toHaveBeenCalledTimes(1);
+	});
+
 	it("counts envelope timeline stats from account edges", async () => {
 		setupTempHome();
 		const db = getNativeDb();
@@ -892,6 +966,46 @@ describe("birdclaw queries", () => {
 			body: "Fresh local-first post",
 		});
 		expect(mocks.postViaXurl).toHaveBeenCalledWith("Fresh local-first post");
+	});
+
+	it("exposes local compose writes as lazy Effect programs", async () => {
+		setupTempHome();
+		const db = getNativeDb();
+
+		const postEffect = createPostEffect("acct_primary", "Effect post");
+		const replyEffect = createTweetReplyEffect(
+			"acct_primary",
+			"tweet_004",
+			"Effect reply",
+		);
+		const dmEffect = createDmReplyEffect("dm_003", "Effect DM");
+
+		expect(mocks.postViaXurl).not.toHaveBeenCalled();
+		expect(mocks.replyViaXurl).not.toHaveBeenCalled();
+		expect(mocks.dmViaXurl).not.toHaveBeenCalled();
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweet_actions where body like ?",
+				)
+				.get("Effect%") as { count: number },
+		).toEqual({ count: 0 });
+
+		await expect(Effect.runPromise(postEffect)).resolves.toMatchObject({
+			ok: true,
+		});
+		await expect(Effect.runPromise(replyEffect)).resolves.toMatchObject({
+			ok: true,
+		});
+		await expect(Effect.runPromise(dmEffect)).resolves.toMatchObject({
+			ok: true,
+		});
+		expect(mocks.postViaXurl).toHaveBeenCalledWith("Effect post");
+		expect(mocks.replyViaXurl).toHaveBeenCalledWith(
+			"tweet_004",
+			"Effect reply",
+		);
+		expect(mocks.dmViaXurl).toHaveBeenCalledWith("amelia", "Effect DM");
 	});
 
 	it("rejects tweet writes when the local author profile is unavailable", async () => {

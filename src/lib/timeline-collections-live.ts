@@ -1,6 +1,11 @@
 import type { Database } from "./sqlite";
-import { listBookmarkedTweetsViaBird, listLikedTweetsViaBird } from "./bird";
+import { Effect } from "effect";
+import {
+	listBookmarkedTweetsViaBirdEffect,
+	listLikedTweetsViaBirdEffect,
+} from "./bird";
 import { getNativeDb } from "./db";
+import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type {
@@ -18,11 +23,33 @@ import {
 
 export type TimelineCollectionKind = "likes" | "bookmarks";
 export type TimelineCollectionMode = "auto" | "xurl" | "bird";
+export interface SyncTimelineCollectionOptions {
+	kind: TimelineCollectionKind;
+	account?: string;
+	mode?: TimelineCollectionMode;
+	limit?: number;
+	all?: boolean;
+	maxPages?: number;
+	refresh?: boolean;
+	cacheTtlMs?: number;
+	earlyStop?: boolean;
+}
 
 const DEFAULT_COLLECTION_CACHE_TTL_MS = 2 * 60_000;
 const DEFAULT_EARLY_STOP_MAX_PAGES = 10;
 const MIN_XURL_LIMIT = 5;
 const MAX_XURL_LIMIT = 100;
+
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function trySync<T>(try_: () => T) {
+	return Effect.try({
+		try: try_,
+		catch: toError,
+	});
+}
 
 function parseCacheTtlMs(value?: number) {
 	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -300,7 +327,7 @@ function mergeTimelineCollectionIntoLocalStore(
 	})();
 }
 
-async function fetchXurlCollection({
+function fetchXurlCollectionEffect({
 	db,
 	kind,
 	accountId,
@@ -321,80 +348,84 @@ async function fetchXurlCollection({
 	maxPages: number | null;
 	earlyStop: boolean;
 }) {
-	let resolvedUserId = userId;
-	if (!resolvedUserId) {
-		const [accountUser] = await lookupUsersByHandles([username]);
-		if (!accountUser?.id) {
-			throw new Error(`Could not resolve Twitter user id for @${username}`);
-		}
-		resolvedUserId = String(accountUser.id);
-	}
-
-	const pages: XurlMentionsResponse[] = [];
-	let nextToken: string | undefined;
-	let pageCount = 0;
-	let saturatedAtPage: number | undefined;
-	do {
-		const payload =
-			kind === "likes"
-				? await listLikedTweetsViaXurl({
-						maxResults: limit,
-						username,
-						userId: resolvedUserId,
-						paginationToken: nextToken,
-					})
-				: await listBookmarkedTweetsViaXurl({
-						maxResults: limit,
-						username,
-						userId: resolvedUserId,
-						isPaginatedWalk: all,
-						paginationToken: nextToken,
-					});
-		pageCount += 1;
-		if (earlyStop) {
-			const tweetIds = payload.data.map((tweet) => tweet.id);
-			const { existingTweetIds, uniqueTweetCount } = getCollectionPageDedupe(
-				db,
-				accountId,
-				kind,
-				tweetIds,
+	return Effect.gen(function* () {
+		let resolvedUserId = userId;
+		if (!resolvedUserId) {
+			const [accountUser] = yield* tryPromise(() =>
+				lookupUsersByHandles([username]),
 			);
-			if (tweetIds.length > 0 && existingTweetIds.size === uniqueTweetCount) {
-				saturatedAtPage = pageCount;
-				console.error(
-					`${kind} saturated at page ${pageCount} (100% existing rows)`,
+			if (!accountUser?.id) {
+				return yield* Effect.fail(
+					new Error(`Could not resolve Twitter user id for @${username}`),
 				);
-				break;
 			}
-			pages.push(filterExistingCollectionTweets(payload, existingTweetIds));
-		} else {
-			pages.push(payload);
+			resolvedUserId = String(accountUser.id);
 		}
-		nextToken =
-			typeof payload.meta?.next_token === "string"
-				? payload.meta.next_token
-				: undefined;
-	} while (
-		(all || earlyStop) &&
-		nextToken &&
-		(maxPages === null || pageCount < maxPages)
-	);
 
-	const merged = mergePayloads(pages);
-	// A saturated page may expose another token, but our walk is complete.
-	const saturationMeta =
-		saturatedAtPage === undefined
-			? {}
-			: { saturated_at_page: saturatedAtPage, next_token: null };
-	merged.meta = {
-		...merged.meta,
-		page_count: pageCount,
-		...saturationMeta,
-	};
-	return merged;
+		const pages: XurlMentionsResponse[] = [];
+		let nextToken: string | undefined;
+		let pageCount = 0;
+		let saturatedAtPage: number | undefined;
+		do {
+			const payload = yield* tryPromise(() =>
+				kind === "likes"
+					? listLikedTweetsViaXurl({
+							maxResults: limit,
+							username,
+							userId: resolvedUserId,
+							paginationToken: nextToken,
+						})
+					: listBookmarkedTweetsViaXurl({
+							maxResults: limit,
+							username,
+							userId: resolvedUserId,
+							isPaginatedWalk: all,
+							paginationToken: nextToken,
+						}),
+			);
+			pageCount += 1;
+			if (earlyStop) {
+				const tweetIds = payload.data.map((tweet) => tweet.id);
+				const { existingTweetIds, uniqueTweetCount } = yield* trySync(() =>
+					getCollectionPageDedupe(db, accountId, kind, tweetIds),
+				);
+				if (tweetIds.length > 0 && existingTweetIds.size === uniqueTweetCount) {
+					saturatedAtPage = pageCount;
+					console.error(
+						`${kind} saturated at page ${pageCount} (100% existing rows)`,
+					);
+					break;
+				}
+				pages.push(filterExistingCollectionTweets(payload, existingTweetIds));
+			} else {
+				pages.push(payload);
+			}
+			nextToken =
+				typeof payload.meta?.next_token === "string"
+					? payload.meta.next_token
+					: undefined;
+		} while (
+			(all || earlyStop) &&
+			nextToken &&
+			(maxPages === null || pageCount < maxPages)
+		);
+
+		const merged = mergePayloads(pages);
+		// A saturated page may expose another token, but our walk is complete.
+		const saturationMeta =
+			saturatedAtPage === undefined
+				? {}
+				: { saturated_at_page: saturatedAtPage, next_token: null };
+		merged.meta = {
+			...merged.meta,
+			page_count: pageCount,
+			...saturationMeta,
+		};
+		return merged;
+	});
 }
 
-async function fetchBirdCollection({
+function fetchBirdCollectionEffect({
 	kind,
 	limit,
 	all,
@@ -406,19 +437,19 @@ async function fetchBirdCollection({
 	maxPages: number | null;
 }) {
 	return kind === "likes"
-		? listLikedTweetsViaBird({
+		? listLikedTweetsViaBirdEffect({
 				maxResults: limit,
 				all,
 				maxPages: maxPages ?? undefined,
 			})
-		: listBookmarkedTweetsViaBird({
+		: listBookmarkedTweetsViaBirdEffect({
 				maxResults: limit,
 				all,
 				maxPages: maxPages ?? undefined,
 			});
 }
 
-export async function syncTimelineCollection({
+export function syncTimelineCollectionEffect({
 	kind,
 	account,
 	mode = "auto",
@@ -428,72 +459,64 @@ export async function syncTimelineCollection({
 	refresh = false,
 	cacheTtlMs,
 	earlyStop = false,
-}: {
-	kind: TimelineCollectionKind;
-	account?: string;
-	mode?: TimelineCollectionMode;
-	limit?: number;
-	all?: boolean;
-	maxPages?: number;
-	refresh?: boolean;
-	cacheTtlMs?: number;
-	earlyStop?: boolean;
-}) {
-	assertLimit(limit);
-	const parsedMaxPages = parseMaxPages(maxPages);
-	const shouldApplyEarlyStopCap =
-		earlyStop && !all && parsedMaxPages === null && mode !== "bird";
-	const xurlMaxPages = shouldApplyEarlyStopCap
-		? DEFAULT_EARLY_STOP_MAX_PAGES
-		: parsedMaxPages;
-	if (mode === "xurl" || mode === "auto") {
-		assertXurlLimit(limit);
-	}
+}: SyncTimelineCollectionOptions) {
+	return Effect.gen(function* () {
+		yield* trySync(() => assertLimit(limit));
+		const parsedMaxPages = yield* trySync(() => parseMaxPages(maxPages));
+		const shouldApplyEarlyStopCap =
+			earlyStop && !all && parsedMaxPages === null && mode !== "bird";
+		const xurlMaxPages = shouldApplyEarlyStopCap
+			? DEFAULT_EARLY_STOP_MAX_PAGES
+			: parsedMaxPages;
+		if (mode === "xurl" || mode === "auto") {
+			yield* trySync(() => assertXurlLimit(limit));
+		}
 
-	const db = getNativeDb();
-	const resolvedAccount = resolveAccount(db, account);
-	const cacheMaxPages = mode === "bird" ? parsedMaxPages : xurlMaxPages;
-	const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${earlyStop ? ":early-stop" : ""}`;
-	const ttlMs = parseCacheTtlMs(cacheTtlMs);
-	const cached = readSyncCache<XurlMentionsResponse>(cacheKey, db);
-	const cacheAgeMs = cached
-		? Date.now() - new Date(cached.updatedAt).getTime()
-		: Number.POSITIVE_INFINITY;
-
-	if (!refresh && cached && cacheAgeMs <= ttlMs) {
-		const saturatedAtPage = readSaturatedAtPage(cached.value);
-		return {
-			ok: true,
-			source: "cache",
-			kind,
-			accountId: resolvedAccount.accountId,
-			count: cached.value.data.length,
-			payload: cached.value,
-			...(saturatedAtPage === undefined
-				? {}
-				: { saturated_at_page: saturatedAtPage }),
-		};
-	}
-
-	if (shouldApplyEarlyStopCap) {
-		console.error(
-			`${kind} early-stop capped at ${DEFAULT_EARLY_STOP_MAX_PAGES} pages by default; pass --max-pages or --all to override`,
+		const db = yield* trySync(() => getNativeDb());
+		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const cacheMaxPages = mode === "bird" ? parsedMaxPages : xurlMaxPages;
+		const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${earlyStop ? ":early-stop" : ""}`;
+		const ttlMs = parseCacheTtlMs(cacheTtlMs);
+		const cached = yield* trySync(() =>
+			readSyncCache<XurlMentionsResponse>(cacheKey, db),
 		);
-	}
+		const cacheAgeMs = cached
+			? Date.now() - new Date(cached.updatedAt).getTime()
+			: Number.POSITIVE_INFINITY;
 
-	let source: "xurl" | "bird";
-	let payload: XurlMentionsResponse;
-	if (mode === "bird") {
-		payload = await fetchBirdCollection({
-			kind,
-			limit,
-			all,
-			maxPages: parsedMaxPages,
-		});
-		source = "bird";
-	} else {
-		try {
-			payload = await fetchXurlCollection({
+		if (!refresh && cached && cacheAgeMs <= ttlMs) {
+			const saturatedAtPage = readSaturatedAtPage(cached.value);
+			return {
+				ok: true,
+				source: "cache",
+				kind,
+				accountId: resolvedAccount.accountId,
+				count: cached.value.data.length,
+				payload: cached.value,
+				...(saturatedAtPage === undefined
+					? {}
+					: { saturated_at_page: saturatedAtPage }),
+			};
+		}
+
+		if (shouldApplyEarlyStopCap) {
+			console.error(
+				`${kind} early-stop capped at ${DEFAULT_EARLY_STOP_MAX_PAGES} pages by default; pass --max-pages or --all to override`,
+			);
+		}
+
+		let source: "xurl" | "bird";
+		let payload: XurlMentionsResponse;
+		if (mode === "bird") {
+			payload = yield* fetchBirdCollectionEffect({
+				kind,
+				limit,
+				all,
+				maxPages: parsedMaxPages,
+			});
+			source = "bird";
+		} else {
+			const xurlPayload = yield* fetchXurlCollectionEffect({
 				db,
 				kind,
 				accountId: resolvedAccount.accountId,
@@ -503,41 +526,55 @@ export async function syncTimelineCollection({
 				all,
 				maxPages: xurlMaxPages,
 				earlyStop,
-			});
-			source = "xurl";
-		} catch (error) {
-			if (mode === "xurl") {
-				throw error;
+			}).pipe(
+				Effect.map((value) => ({ ok: true as const, value })),
+				Effect.catchAll((error) => {
+					if (mode === "xurl") {
+						return Effect.fail(error);
+					}
+					return Effect.succeed({ ok: false as const });
+				}),
+			);
+			if (xurlPayload.ok) {
+				payload = xurlPayload.value;
+				source = "xurl";
+			} else {
+				payload = yield* fetchBirdCollectionEffect({
+					kind,
+					limit,
+					all,
+					maxPages: parsedMaxPages,
+				});
+				source = "bird";
 			}
-			payload = await fetchBirdCollection({
-				kind,
-				limit,
-				all,
-				maxPages: parsedMaxPages,
-			});
-			source = "bird";
 		}
-	}
 
-	mergeTimelineCollectionIntoLocalStore(
-		db,
-		resolvedAccount.accountId,
-		kind,
-		payload,
-		source,
-	);
-	writeSyncCache(cacheKey, payload, db);
-	const saturatedAtPage = readSaturatedAtPage(payload);
+		yield* trySync(() =>
+			mergeTimelineCollectionIntoLocalStore(
+				db,
+				resolvedAccount.accountId,
+				kind,
+				payload,
+				source,
+			),
+		);
+		yield* trySync(() => writeSyncCache(cacheKey, payload, db));
+		const saturatedAtPage = readSaturatedAtPage(payload);
 
-	return {
-		ok: true,
-		source,
-		kind,
-		accountId: resolvedAccount.accountId,
-		count: payload.data.length,
-		payload,
-		...(saturatedAtPage === undefined
-			? {}
-			: { saturated_at_page: saturatedAtPage }),
-	};
+		return {
+			ok: true,
+			source,
+			kind,
+			accountId: resolvedAccount.accountId,
+			count: payload.data.length,
+			payload,
+			...(saturatedAtPage === undefined
+				? {}
+				: { saturated_at_page: saturatedAtPage }),
+		};
+	});
+}
+
+export function syncTimelineCollection(options: SyncTimelineCollectionOptions) {
+	return runEffectPromise(syncTimelineCollectionEffect(options));
 }

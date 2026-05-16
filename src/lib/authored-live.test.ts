@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -176,6 +177,40 @@ describe("live authored tweet sync", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("builds authored sync effects lazily", async () => {
+		makeTempHome();
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [authoredTweet("99", "lazy authored")],
+			nextToken: null,
+		});
+		const { syncAuthoredTweetsEffect } = await import("./authored-live");
+
+		const effect = syncAuthoredTweetsEffect({ limit: 5 });
+
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+			ok: true,
+			kind: "authored",
+			count: 1,
+			nextSinceId: "99",
+		});
+		expect(mocks.listUserTweets).toHaveBeenCalledTimes(1);
+	});
+
+	it("validates authored sync effects only when run", async () => {
+		makeTempHome();
+		const { syncAuthoredTweetsEffect } = await import("./authored-live");
+
+		const effect = syncAuthoredTweetsEffect({ limit: 4 });
+
+		await expect(Effect.runPromise(effect)).rejects.toThrow(
+			"xurl mode requires --limit between 5 and 100",
+		);
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.listUserTweets).not.toHaveBeenCalled();
 	});
 
 	it("handles an empty authored response without moving the cursor", async () => {

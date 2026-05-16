@@ -1,4 +1,6 @@
+import { Data, Effect } from "effect";
 import { z } from "zod";
+import { runEffectPromise } from "./effect-runtime";
 import type {
 	DmConversationItem,
 	DmMessageItem,
@@ -103,15 +105,11 @@ const webSyncJobSchema = z
 const actionResponseSchema = jsonRecordSchema;
 const SYNC_POLL_INTERVAL_MS = 500;
 
-export class ApiFetchError extends Error {
-	constructor(
-		message: string,
-		readonly status?: number,
-	) {
-		super(message);
-		this.name = "ApiFetchError";
-	}
-}
+export class ApiFetchError extends Data.TaggedError("ApiFetchError")<{
+	readonly message: string;
+	readonly status?: number;
+	readonly cause?: unknown;
+}> {}
 
 function responseMessage(data: unknown, fallback: string) {
 	if (data && typeof data === "object") {
@@ -127,38 +125,77 @@ function responseMessage(data: unknown, fallback: string) {
 	return fallback;
 }
 
-async function readJson(response: Response) {
-	try {
-		return await response.json();
-	} catch {
-		return null;
+function apiFetchErrorFromCause(cause: unknown, fallbackMessage: string) {
+	if (cause instanceof DOMException && cause.name === "AbortError") {
+		return cause;
 	}
+	if (cause instanceof ApiFetchError) return cause;
+	if (cause instanceof Error) {
+		return new ApiFetchError({ message: cause.message, cause });
+	}
+	if (typeof cause === "string") {
+		return new ApiFetchError({ message: cause, cause });
+	}
+	return new ApiFetchError({ message: fallbackMessage, cause });
 }
 
-export async function fetchJson<T>(
+function readJsonEffect(response: Response) {
+	return Effect.promise(() => response.json().catch(() => null as unknown));
+}
+
+function runApiEffect<T, E>(effect: Effect.Effect<T, E>) {
+	return runEffectPromise(effect);
+}
+
+export function fetchJsonEffect<T>(
+	input: RequestInfo | URL,
+	init: RequestInit | undefined,
+	schema: z.ZodType<T>,
+	fallbackMessage: string,
+) {
+	return Effect.gen(function* () {
+		const response = yield* Effect.tryPromise({
+			try: () => fetch(input, init),
+			catch: (cause) => apiFetchErrorFromCause(cause, fallbackMessage),
+		});
+		const data = yield* readJsonEffect(response);
+		if (!response.ok) {
+			return yield* Effect.fail(
+				new ApiFetchError({
+					message: responseMessage(data, fallbackMessage),
+					status: response.status,
+				}),
+			);
+		}
+
+		const parsed = schema.safeParse(data);
+		if (!parsed.success) {
+			return yield* Effect.fail(
+				new ApiFetchError({
+					message: fallbackMessage,
+					cause: parsed.error,
+				}),
+			);
+		}
+		return parsed.data;
+	});
+}
+
+export function fetchJson<T>(
 	input: RequestInfo | URL,
 	init: RequestInit | undefined,
 	schema: z.ZodType<T>,
 	fallbackMessage: string,
 ): Promise<T> {
-	const response = await fetch(input, init);
-	const data = await readJson(response);
-	if (!response.ok) {
-		throw new ApiFetchError(
-			responseMessage(data, fallbackMessage),
-			response.status,
-		);
-	}
-
-	const parsed = schema.safeParse(data);
-	if (!parsed.success) {
-		throw new ApiFetchError(fallbackMessage);
-	}
-	return parsed.data;
+	return runApiEffect(fetchJsonEffect(input, init, schema, fallbackMessage));
 }
 
 export function fetchQueryEnvelope(init?: RequestInit) {
-	return fetchJson(
+	return runApiEffect(fetchQueryEnvelopeEffect(init));
+}
+
+export function fetchQueryEnvelopeEffect(init?: RequestInit) {
+	return fetchJsonEffect(
 		"/api/status",
 		init,
 		queryEnvelopeSchema,
@@ -170,11 +207,22 @@ export function fetchQueryResponse(
 	input: RequestInfo | URL,
 	init?: RequestInit,
 ) {
-	return fetchJson(input, init, queryResponseSchema, "Query unavailable");
+	return runApiEffect(fetchQueryResponseEffect(input, init));
+}
+
+export function fetchQueryResponseEffect(
+	input: RequestInfo | URL,
+	init?: RequestInit,
+) {
+	return fetchJsonEffect(input, init, queryResponseSchema, "Query unavailable");
 }
 
 export function postAction(body: Record<string, unknown>) {
-	return fetchJson(
+	return runApiEffect(postActionEffect(body));
+}
+
+export function postActionEffect(body: Record<string, unknown>) {
+	return fetchJsonEffect(
 		"/api/action",
 		{
 			method: "POST",
@@ -187,7 +235,11 @@ export function postAction(body: Record<string, unknown>) {
 }
 
 export function postSync(kind: WebSyncKind, accountId?: string) {
-	return fetchJson(
+	return runApiEffect(postSyncEffect(kind, accountId));
+}
+
+export function postSyncEffect(kind: WebSyncKind, accountId?: string) {
+	return fetchJsonEffect(
 		"/api/sync",
 		{
 			method: "POST",
@@ -199,31 +251,44 @@ export function postSync(kind: WebSyncKind, accountId?: string) {
 		},
 		webSyncJobSchema,
 		"Sync failed",
-	).then(waitForWebSyncJob);
+	).pipe(Effect.flatMap(waitForWebSyncJobEffect));
 }
 
-function fetchSyncJob(id: string) {
+function fetchSyncJobEffect(id: string) {
 	const url = new URL("/api/sync", window.location.origin);
 	url.searchParams.set("id", id);
-	return fetchJson(url, undefined, webSyncJobSchema, "Sync status unavailable");
+	return fetchJsonEffect(
+		url,
+		undefined,
+		webSyncJobSchema,
+		"Sync status unavailable",
+	);
 }
 
-function delay(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+export function waitForWebSyncJobEffect(job: WebSyncJobSnapshot) {
+	return Effect.gen(function* () {
+		let current = job;
+		while (current.inProgress) {
+			yield* Effect.sleep(SYNC_POLL_INTERVAL_MS);
+			current = yield* fetchSyncJobEffect(current.id);
+		}
+
+		if (!current.result) {
+			return yield* Effect.fail(
+				new ApiFetchError({ message: current.error ?? current.summary }),
+			);
+		}
+		if (!current.result.ok) {
+			return yield* Effect.fail(
+				new ApiFetchError({
+					message: current.result.error ?? current.result.summary,
+				}),
+			);
+		}
+		return current.result;
+	});
 }
 
-async function waitForWebSyncJob(job: WebSyncJobSnapshot) {
-	let current = job;
-	while (current.inProgress) {
-		await delay(SYNC_POLL_INTERVAL_MS);
-		current = await fetchSyncJob(current.id);
-	}
-
-	if (!current.result) {
-		throw new ApiFetchError(current.error ?? current.summary);
-	}
-	if (!current.result.ok) {
-		throw new ApiFetchError(current.result.error ?? current.result.summary);
-	}
-	return current.result;
+export function waitForWebSyncJob(job: WebSyncJobSnapshot) {
+	return runApiEffect(waitForWebSyncJobEffect(job));
 }

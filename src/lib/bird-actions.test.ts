@@ -1,4 +1,8 @@
 // @vitest-environment node
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const execFileAsyncMock = vi.fn();
@@ -22,6 +26,7 @@ describe("bird action transport wrapper", () => {
 		execFileAsyncMock.mockReset();
 		accessMock.mockReset();
 		delete process.env.BIRDCLAW_BIRD_COMMAND;
+		delete process.env.BIRDCLAW_CONFIG;
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 	});
 
@@ -49,6 +54,44 @@ describe("bird action transport wrapper", () => {
 		expect(result).toEqual({
 			ok: true,
 			output: "✅ Blocked @sam; verified blocking=true",
+		});
+	});
+
+	it("exposes bird action helpers as Effect programs", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
+		execFileAsyncMock
+			.mockResolvedValueOnce({ stdout: "Blocked\n" })
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ blocking: true, muting: false }),
+			});
+
+		const { blockUserViaBirdEffect } = await import("./bird-actions");
+
+		await expect(
+			Effect.runPromise(blockUserViaBirdEffect("42")),
+		).resolves.toEqual({
+			ok: true,
+			output: "Blocked; verified blocking=true",
+		});
+	});
+
+	it("exposes bird profile lookup as an Effect program", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		execFileAsyncMock.mockResolvedValueOnce({
+			stdout: JSON.stringify({
+				user: { id: "42", username: "sam", followersCount: 1 },
+			}),
+		});
+
+		const { lookupProfileViaBirdEffect } = await import("./bird-actions");
+
+		await expect(
+			Effect.runPromise(lookupProfileViaBirdEffect("@sam")),
+		).resolves.toMatchObject({
+			id: "42",
+			username: "sam",
+			public_metrics: { followers_count: 1 },
 		});
 	});
 
@@ -84,6 +127,27 @@ describe("bird action transport wrapper", () => {
 		});
 	});
 
+	it("returns bird command config failures through the Effect error channel", async () => {
+		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-actions-"));
+		const configPath = path.join(tempDir, "config.json");
+		writeFileSync(configPath, "{bad json", "utf8");
+		process.env.BIRDCLAW_CONFIG = configPath;
+		delete process.env.BIRDCLAW_BIRD_COMMAND;
+
+		try {
+			const { muteUserViaBird, lookupProfileViaBird } =
+				await import("./bird-actions");
+
+			await expect(muteUserViaBird("42")).resolves.toMatchObject({
+				ok: false,
+			});
+			await expect(lookupProfileViaBird("@sam")).resolves.toBeNull();
+			expect(execFileAsyncMock).not.toHaveBeenCalled();
+		} finally {
+			rmSync(tempDir, { recursive: true, force: true });
+		}
+	});
+
 	it("skips live mutations when writes are disabled", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
 		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
@@ -92,6 +156,22 @@ describe("bird action transport wrapper", () => {
 		const result = await muteUserViaBird("42");
 
 		expect(result).toEqual({
+			ok: true,
+			output: "live writes disabled",
+		});
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+	});
+
+	it("checks disabled live writes when deferred bird action effects run", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
+
+		const { muteUserViaBirdEffect } = await import("./bird-actions");
+		const effect = muteUserViaBirdEffect("42");
+
+		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
+
+		await expect(Effect.runPromise(effect)).resolves.toEqual({
 			ok: true,
 			output: "live writes disabled",
 		});
