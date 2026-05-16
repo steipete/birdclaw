@@ -263,6 +263,36 @@ describe("period digest", () => {
 		).rejects.toThrow("model overloaded");
 	});
 
+	it("rejects missing OpenAI credentials before starting the request", async () => {
+		delete process.env.OPENAI_API_KEY;
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(
+			streamPeriodDigest({
+				since: "2026-01-01T00:00:00.000Z",
+				until: "2027-01-01T00:00:00.000Z",
+				refresh: true,
+			}),
+		).rejects.toThrow("OPENAI_API_KEY is not set");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("rejects non-ok OpenAI responses with the response body", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(new Response("rate limited", { status: 429 })),
+		);
+
+		await expect(
+			streamPeriodDigest({
+				since: "2026-01-01T00:00:00.000Z",
+				until: "2027-01-01T00:00:00.000Z",
+				refresh: true,
+			}),
+		).rejects.toThrow("OpenAI request failed: 429 rate limited");
+	});
+
 	it("passes abort signals to the OpenAI stream request", async () => {
 		const controller = new AbortController();
 		const fetchMock = vi.fn(

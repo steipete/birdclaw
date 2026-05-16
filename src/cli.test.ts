@@ -40,6 +40,7 @@ const listDmConversationsMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
 const inspectProfileRepliesMock = vi.fn();
 const runResearchModeMock = vi.fn();
+const streamPeriodDigestMock = vi.fn();
 const syncAuthoredTweetsMock = vi.fn();
 const syncTimelineCollectionMock = vi.fn();
 const createPostMock = vi.fn();
@@ -177,6 +178,10 @@ vi.mock("#/lib/research", () => ({
 	runResearchMode: (...args: unknown[]) => runResearchModeMock(...args),
 }));
 
+vi.mock("#/lib/period-digest", () => ({
+	streamPeriodDigest: (...args: unknown[]) => streamPeriodDigestMock(...args),
+}));
+
 vi.mock("#/lib/authored-live", () => ({
 	AuthoredSyncError: class AuthoredSyncError extends Error {
 		constructor(
@@ -264,6 +269,7 @@ describe("cli", () => {
 		hydrateProfilesFromXMock.mockReset();
 		inspectProfileRepliesMock.mockReset();
 		runResearchModeMock.mockReset();
+		streamPeriodDigestMock.mockReset();
 		syncAuthoredTweetsMock.mockReset();
 		syncTimelineCollectionMock.mockReset();
 		createPostMock.mockReset();
@@ -398,6 +404,16 @@ describe("cli", () => {
 			threadCount: 1,
 			items: [],
 			markdown: "# Birdclaw Research\n",
+		});
+		streamPeriodDigestMock.mockResolvedValue({
+			context: { counts: {}, includeDms: false },
+			digest: { actionItems: [] },
+			markdown: "# Today\n",
+			model: "gpt-5.5",
+			reasoningEffort: "medium",
+			serviceTier: "priority",
+			cached: false,
+			updatedAt: "2026-05-16T12:00:00.000Z",
 		});
 		syncTimelineCollectionMock.mockResolvedValue({
 			ok: true,
@@ -1897,6 +1913,106 @@ describe("cli", () => {
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining("# Birdclaw Research"),
 		);
+	});
+
+	it("streams digest commands as markdown and json", async () => {
+		const stdoutWriteMock = vi
+			.spyOn(process.stdout, "write")
+			.mockImplementation(() => true);
+		streamPeriodDigestMock.mockImplementation(
+			async (
+				_options: unknown,
+				handlers?: { onDelta?: (delta: string) => void },
+			) => {
+				handlers?.onDelta?.("# Today\n");
+				return {
+					context: { counts: {}, includeDms: false },
+					digest: { actionItems: [] },
+					markdown: "# Today\n",
+					model: "gpt-5.5",
+					reasoningEffort: "medium",
+					serviceTier: "priority",
+					cached: false,
+					updatedAt: "2026-05-16T12:00:00.000Z",
+				};
+			},
+		);
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"today",
+			"--include-dms",
+			"--refresh",
+			"--max-tweets",
+			"10",
+			"--max-links",
+			"2",
+			"--model",
+			"gpt-5.5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"digest",
+			"7d",
+			"--since",
+			"2026-05-01",
+			"--until",
+			"2026-05-16",
+			"--account",
+			"acct_primary",
+		]);
+
+		expect(streamPeriodDigestMock).toHaveBeenNthCalledWith(
+			1,
+			{
+				period: "today",
+				since: undefined,
+				until: undefined,
+				account: undefined,
+				includeDms: true,
+				refresh: true,
+				model: "gpt-5.5",
+				maxTweets: 10,
+				maxLinks: 2,
+			},
+			expect.objectContaining({ onDelta: expect.any(Function) }),
+		);
+		expect(streamPeriodDigestMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				period: "week",
+				since: "2026-05-01",
+				until: "2026-05-16",
+				account: "acct_primary",
+				includeDms: false,
+			}),
+			expect.objectContaining({ onDelta: undefined }),
+		);
+		expect(stdoutWriteMock).toHaveBeenCalledWith("# Today\n");
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"model": "gpt-5.5"'),
+		);
+		stdoutWriteMock.mockRestore();
+	});
+
+	it("rejects invalid digest numeric options", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "digest", "week", "--max-tweets", "nah"]);
+
+		expect(process.exitCode).toBe(1);
+		expect(streamPeriodDigestMock).not.toHaveBeenCalled();
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			expect.stringContaining("--max-tweets must be a non-negative integer"),
+		);
+		consoleErrorMock.mockRestore();
 	});
 
 	it("inspects recent profile replies", async () => {
