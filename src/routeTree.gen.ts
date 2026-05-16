@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TodayRouteImport } from './routes/today'
 import { Route as MentionsRouteImport } from './routes/mentions'
 import { Route as LinksRouteImport } from './routes/links'
 import { Route as LikesRouteImport } from './routes/likes'
@@ -21,6 +22,7 @@ import { Route as ApiSyncRouteImport } from './routes/api/sync'
 import { Route as ApiStatusRouteImport } from './routes/api/status'
 import { Route as ApiQueryRouteImport } from './routes/api/query'
 import { Route as ApiProfileHydrateRouteImport } from './routes/api/profile-hydrate'
+import { Route as ApiPeriodDigestRouteImport } from './routes/api/period-digest'
 import { Route as ApiLinkPreviewRouteImport } from './routes/api/link-preview'
 import { Route as ApiLinkInsightsRouteImport } from './routes/api/link-insights'
 import { Route as ApiInboxRouteImport } from './routes/api/inbox'
@@ -29,6 +31,11 @@ import { Route as ApiBlocksRouteImport } from './routes/api/blocks'
 import { Route as ApiAvatarRouteImport } from './routes/api/avatar'
 import { Route as ApiActionRouteImport } from './routes/api/action'
 
+const TodayRoute = TodayRouteImport.update({
+  id: '/today',
+  path: '/today',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MentionsRoute = MentionsRouteImport.update({
   id: '/mentions',
   path: '/mentions',
@@ -89,6 +96,11 @@ const ApiProfileHydrateRoute = ApiProfileHydrateRouteImport.update({
   path: '/api/profile-hydrate',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPeriodDigestRoute = ApiPeriodDigestRouteImport.update({
+  id: '/api/period-digest',
+  path: '/api/period-digest',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiLinkPreviewRoute = ApiLinkPreviewRouteImport.update({
   id: '/api/link-preview',
   path: '/api/link-preview',
@@ -134,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/likes': typeof LikesRoute
   '/links': typeof LinksRoute
   '/mentions': typeof MentionsRoute
+  '/today': typeof TodayRoute
   '/api/action': typeof ApiActionRoute
   '/api/avatar': typeof ApiAvatarRoute
   '/api/blocks': typeof ApiBlocksRoute
@@ -141,6 +154,7 @@ export interface FileRoutesByFullPath {
   '/api/inbox': typeof ApiInboxRoute
   '/api/link-insights': typeof ApiLinkInsightsRoute
   '/api/link-preview': typeof ApiLinkPreviewRoute
+  '/api/period-digest': typeof ApiPeriodDigestRoute
   '/api/profile-hydrate': typeof ApiProfileHydrateRoute
   '/api/query': typeof ApiQueryRoute
   '/api/status': typeof ApiStatusRoute
@@ -155,6 +169,7 @@ export interface FileRoutesByTo {
   '/likes': typeof LikesRoute
   '/links': typeof LinksRoute
   '/mentions': typeof MentionsRoute
+  '/today': typeof TodayRoute
   '/api/action': typeof ApiActionRoute
   '/api/avatar': typeof ApiAvatarRoute
   '/api/blocks': typeof ApiBlocksRoute
@@ -162,6 +177,7 @@ export interface FileRoutesByTo {
   '/api/inbox': typeof ApiInboxRoute
   '/api/link-insights': typeof ApiLinkInsightsRoute
   '/api/link-preview': typeof ApiLinkPreviewRoute
+  '/api/period-digest': typeof ApiPeriodDigestRoute
   '/api/profile-hydrate': typeof ApiProfileHydrateRoute
   '/api/query': typeof ApiQueryRoute
   '/api/status': typeof ApiStatusRoute
@@ -177,6 +193,7 @@ export interface FileRoutesById {
   '/likes': typeof LikesRoute
   '/links': typeof LinksRoute
   '/mentions': typeof MentionsRoute
+  '/today': typeof TodayRoute
   '/api/action': typeof ApiActionRoute
   '/api/avatar': typeof ApiAvatarRoute
   '/api/blocks': typeof ApiBlocksRoute
@@ -184,6 +201,7 @@ export interface FileRoutesById {
   '/api/inbox': typeof ApiInboxRoute
   '/api/link-insights': typeof ApiLinkInsightsRoute
   '/api/link-preview': typeof ApiLinkPreviewRoute
+  '/api/period-digest': typeof ApiPeriodDigestRoute
   '/api/profile-hydrate': typeof ApiProfileHydrateRoute
   '/api/query': typeof ApiQueryRoute
   '/api/status': typeof ApiStatusRoute
@@ -200,6 +218,7 @@ export interface FileRouteTypes {
     | '/likes'
     | '/links'
     | '/mentions'
+    | '/today'
     | '/api/action'
     | '/api/avatar'
     | '/api/blocks'
@@ -207,6 +226,7 @@ export interface FileRouteTypes {
     | '/api/inbox'
     | '/api/link-insights'
     | '/api/link-preview'
+    | '/api/period-digest'
     | '/api/profile-hydrate'
     | '/api/query'
     | '/api/status'
@@ -221,6 +241,7 @@ export interface FileRouteTypes {
     | '/likes'
     | '/links'
     | '/mentions'
+    | '/today'
     | '/api/action'
     | '/api/avatar'
     | '/api/blocks'
@@ -228,6 +249,7 @@ export interface FileRouteTypes {
     | '/api/inbox'
     | '/api/link-insights'
     | '/api/link-preview'
+    | '/api/period-digest'
     | '/api/profile-hydrate'
     | '/api/query'
     | '/api/status'
@@ -242,6 +264,7 @@ export interface FileRouteTypes {
     | '/likes'
     | '/links'
     | '/mentions'
+    | '/today'
     | '/api/action'
     | '/api/avatar'
     | '/api/blocks'
@@ -249,6 +272,7 @@ export interface FileRouteTypes {
     | '/api/inbox'
     | '/api/link-insights'
     | '/api/link-preview'
+    | '/api/period-digest'
     | '/api/profile-hydrate'
     | '/api/query'
     | '/api/status'
@@ -264,6 +288,7 @@ export interface RootRouteChildren {
   LikesRoute: typeof LikesRoute
   LinksRoute: typeof LinksRoute
   MentionsRoute: typeof MentionsRoute
+  TodayRoute: typeof TodayRoute
   ApiActionRoute: typeof ApiActionRoute
   ApiAvatarRoute: typeof ApiAvatarRoute
   ApiBlocksRoute: typeof ApiBlocksRoute
@@ -271,6 +296,7 @@ export interface RootRouteChildren {
   ApiInboxRoute: typeof ApiInboxRoute
   ApiLinkInsightsRoute: typeof ApiLinkInsightsRoute
   ApiLinkPreviewRoute: typeof ApiLinkPreviewRoute
+  ApiPeriodDigestRoute: typeof ApiPeriodDigestRoute
   ApiProfileHydrateRoute: typeof ApiProfileHydrateRoute
   ApiQueryRoute: typeof ApiQueryRoute
   ApiStatusRoute: typeof ApiStatusRoute
@@ -279,6 +305,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/today': {
+      id: '/today'
+      path: '/today'
+      fullPath: '/today'
+      preLoaderRoute: typeof TodayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/mentions': {
       id: '/mentions'
       path: '/mentions'
@@ -363,6 +396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProfileHydrateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/period-digest': {
+      id: '/api/period-digest'
+      path: '/api/period-digest'
+      fullPath: '/api/period-digest'
+      preLoaderRoute: typeof ApiPeriodDigestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/link-preview': {
       id: '/api/link-preview'
       path: '/api/link-preview'
@@ -424,6 +464,7 @@ const rootRouteChildren: RootRouteChildren = {
   LikesRoute: LikesRoute,
   LinksRoute: LinksRoute,
   MentionsRoute: MentionsRoute,
+  TodayRoute: TodayRoute,
   ApiActionRoute: ApiActionRoute,
   ApiAvatarRoute: ApiAvatarRoute,
   ApiBlocksRoute: ApiBlocksRoute,
@@ -431,6 +472,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInboxRoute: ApiInboxRoute,
   ApiLinkInsightsRoute: ApiLinkInsightsRoute,
   ApiLinkPreviewRoute: ApiLinkPreviewRoute,
+  ApiPeriodDigestRoute: ApiPeriodDigestRoute,
   ApiProfileHydrateRoute: ApiProfileHydrateRoute,
   ApiQueryRoute: ApiQueryRoute,
   ApiStatusRoute: ApiStatusRoute,

@@ -25,6 +25,10 @@ birdclaw search tweets --bookmarked --hide-low-quality --limit 100 --json
 # Triage with AI ranking and reply from the CLI.
 birdclaw inbox --score --hide-low-signal --limit 8 --json
 birdclaw compose reply 1891234567890 "On it."
+
+# Stream a local "what happened" digest.
+birdclaw today
+birdclaw digest week --json
 ```
 
 Stable `--json` envelopes go to stdout, progress and warnings to stderr — pipes stay parseable.
@@ -34,8 +38,9 @@ Stable `--json` envelopes go to stdout, progress and warnings to stderr — pipe
 - **One local SQLite database** for tweets, DMs, likes, bookmarks, mentions, follows, blocks, and mutes — multi-account, FTS5-indexed.
 - **Archive-first, live-aware.** Import a Twitter archive when you have one, selectively re-import stale slices with `--select`, or stay live-only. All paths converge on the same canonical tables.
 - **Cached live reads** through [`xurl`](https://github.com/xdevplatform/xurl) and [`bird`](https://github.com/steipete/bird), so repeated reads do not keep spending the API budget.
-- **Local web app** for `Home`, `Mentions`, `Likes`, `Bookmarks`, `DMs`, `Inbox`, and `Blocks` — light/dark/system theme, focused timeline lane, no dashboard chrome.
+- **Local web app** for `What happened`, `Home`, `Mentions`, `Likes`, `Bookmarks`, `DMs`, `Inbox`, and `Blocks` — light/dark/system theme, focused timeline lane, no dashboard chrome.
 - **AI-ranked inbox** (OpenAI) for low-signal filtering on mentions and DMs.
+- **Streaming AI digest** (OpenAI Responses API) for today, 24h, yesterday, or week, with DMs excluded unless explicitly enabled.
 - **Account-scoped moderation** with bulk blocklist import and a cookie-backed fallback when OAuth2 block writes get rejected.
 - **Git-friendly text backups** with yearly tweet shards and per-conversation DM shards — push the local SQLite truth into a private Git repo.
 

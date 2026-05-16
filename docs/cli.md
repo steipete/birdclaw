@@ -76,6 +76,8 @@ birdclaw sync followers
 birdclaw sync following
 birdclaw search tweets <query>
 birdclaw search dms <query>
+birdclaw today
+birdclaw digest [today|24h|yesterday|week]
 birdclaw mentions export [query]
 birdclaw media fetch
 birdclaw dms list
@@ -110,6 +112,22 @@ birdclaw debug transport
 ```
 
 ## Subcommand semantics
+
+### `today`
+
+- alias for `digest today`
+- streams Markdown as model tokens arrive
+- uses `gpt-5.5`, medium reasoning, and priority service tier by default
+- requires `OPENAI_API_KEY`
+- excludes DMs unless `--include-dms` is passed
+- supports `--refresh`, `--model`, `--max-tweets`, and `--max-links`
+
+### `digest [period]`
+
+- period: `today`, `24h`, `yesterday`, or `week`
+- accepts explicit `--since <iso>` and `--until <iso>` windows
+- caches the final structured result by local context hash, model, reasoning effort, and service tier
+- `--json` suppresses token streaming and emits the final envelope
 
 ### `init`
 

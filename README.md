@@ -97,6 +97,7 @@ If you need polished product-grade sync parity today, this is not there yet.
 ## Screens
 
 - `Home`: read and reply without fighting the main Twitter timeline
+- `What happened`: stream an AI digest for today, 24h, yesterday, or week
 - `Mentions`: work the reply queue with clean filters
 - `Likes` / `Bookmarks`: revisit saved posts from archive or live sync
 - `DMs`: triage by sender context, follower count, and influence
@@ -379,6 +380,20 @@ Notes:
 birdclaw research "codex" --limit 20 --thread-depth 10 --json
 birdclaw research --account acct_primary --out ~/research/codex.md
 ```
+
+### What happened today
+
+`birdclaw today` streams a local "what happened" digest from the SQLite store. It uses the OpenAI Responses API with `gpt-5.5`, medium reasoning, and priority service tier by default. Set `OPENAI_API_KEY`; override with `BIRDCLAW_AI_MODEL`, `BIRDCLAW_OPENAI_REASONING_EFFORT`, or `BIRDCLAW_OPENAI_SERVICE_TIER` when needed.
+
+```bash
+birdclaw today
+birdclaw digest 24h --refresh
+birdclaw digest week --json
+birdclaw digest --since 2026-05-16T00:00:00Z --until 2026-05-17T00:00:00Z
+birdclaw digest today --include-dms
+```
+
+The web UI exposes the same stream under `What happened`. DMs are excluded unless explicitly enabled. Final structured results are cached by the exact local context hash, model, reasoning effort, and service tier.
 
 ### Search and triage DMs
 

@@ -48,6 +48,11 @@ import {
 	syncMentions,
 } from "#/lib/mentions-live";
 import {
+	streamPeriodDigest,
+	type PeriodDigestOptions,
+	type PeriodDigestPreset,
+} from "#/lib/period-digest";
+import {
 	getFollowGraphSummary,
 	listFollowEvents,
 	listMutuals,
@@ -207,6 +212,73 @@ function resolveActionOptions(options: { transport?: string }) {
 	return {
 		transport: options.transport as ActionsTransport | undefined,
 	};
+}
+
+function parseDigestPeriod(value: string | undefined): PeriodDigestPreset {
+	const normalized = value?.trim().toLowerCase();
+	if (normalized === "yesterday") return "yesterday";
+	if (normalized === "24h" || normalized === "day") return "24h";
+	if (normalized === "week" || normalized === "7d") return "week";
+	return "today";
+}
+
+function buildDigestOptions(
+	period: string | undefined,
+	options: {
+		account?: string;
+		includeDms?: boolean;
+		model?: string;
+		refresh?: boolean;
+		since?: string;
+		until?: string;
+		maxTweets?: string;
+		maxLinks?: string;
+	},
+): PeriodDigestOptions | null {
+	const maxTweets = parseNonNegativeIntegerOption(
+		options.maxTweets,
+		"--max-tweets",
+	);
+	if (options.maxTweets !== undefined && maxTweets === undefined) {
+		return null;
+	}
+	const maxLinks = parseNonNegativeIntegerOption(
+		options.maxLinks,
+		"--max-links",
+	);
+	if (options.maxLinks !== undefined && maxLinks === undefined) {
+		return null;
+	}
+	return {
+		period: parseDigestPeriod(period),
+		since: options.since,
+		until: options.until,
+		account: options.account,
+		includeDms: Boolean(options.includeDms),
+		refresh: Boolean(options.refresh),
+		model: options.model,
+		maxTweets,
+		maxLinks,
+	};
+}
+
+function runDigestCli(options: PeriodDigestOptions) {
+	const asJson = Boolean(program.opts().json);
+	return streamPeriodDigest(options, {
+		onDelta: asJson
+			? undefined
+			: (delta) => {
+					process.stdout.write(delta);
+				},
+	}).then((result) => {
+		if (asJson) {
+			print(result, true);
+			return;
+		}
+		if (!result.markdown.endsWith("\n")) {
+			process.stdout.write("\n");
+		}
+	});
 }
 
 async function enrichDmItems(
@@ -718,6 +790,40 @@ program
 			program.opts().json ? report : report.markdown,
 			program.opts().json ?? false,
 		);
+	});
+
+program
+	.command("today")
+	.description("Stream an AI digest of what happened today")
+	.option("--account <accountId>", "Account id")
+	.option("--include-dms", "Include private DM context")
+	.option("--model <model>", "OpenAI model id")
+	.option("--refresh", "Bypass the local digest cache")
+	.option("--max-tweets <n>", "Maximum tweet context", "120")
+	.option("--max-links <n>", "Maximum linked articles", "12")
+	.action(async (options) => {
+		await autoUpdateBeforeRead();
+		const digestOptions = buildDigestOptions("today", options);
+		if (!digestOptions) return;
+		await runDigestCli(digestOptions);
+	});
+
+program
+	.command("digest [period]")
+	.description("Stream an AI digest for today, 24h, yesterday, or week")
+	.option("--account <accountId>", "Account id")
+	.option("--include-dms", "Include private DM context")
+	.option("--since <isoDate>", "Start of explicit window")
+	.option("--until <isoDate>", "End of explicit window")
+	.option("--model <model>", "OpenAI model id")
+	.option("--refresh", "Bypass the local digest cache")
+	.option("--max-tweets <n>", "Maximum tweet context", "120")
+	.option("--max-links <n>", "Maximum linked articles", "12")
+	.action(async (period, options) => {
+		await autoUpdateBeforeRead();
+		const digestOptions = buildDigestOptions(period, options);
+		if (!digestOptions) return;
+		await runDigestCli(digestOptions);
 	});
 
 const mentionsCommand = program
