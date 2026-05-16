@@ -12,17 +12,27 @@ type TestDb = ReturnType<typeof getNativeDb>;
 
 function insertAccountFixture() {
 	const db = getNativeDb({ seedDemoData: false });
-	db.prepare(`
-    insert into accounts (
-      id, name, handle, external_user_id, transport, is_default, created_at
-    ) values (?, ?, ?, ?, ?, ?, ?)
-  `).run(
+	const insertAccount = db.prepare(`
+	    insert into accounts (
+	      id, name, handle, external_user_id, transport, is_default, created_at
+	    ) values (?, ?, ?, ?, ?, ?, ?)
+	  `);
+	insertAccount.run(
 		"acct_primary",
 		"Peter",
 		"steipete",
 		"25401953",
 		"bird",
 		1,
+		"2026-05-01T00:00:00.000Z",
+	);
+	insertAccount.run(
+		"acct_secondary",
+		"Alt",
+		"alt",
+		"999",
+		"bird",
+		0,
 		"2026-05-01T00:00:00.000Z",
 	);
 	for (const profile of [
@@ -53,6 +63,7 @@ function insertTweet(
 	db: TestDb,
 	options: {
 		id: string;
+		accountId?: string;
 		authorProfileId: string;
 		text: string;
 		createdAt: string;
@@ -66,7 +77,7 @@ function insertTweet(
     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
 		options.id,
-		"acct_primary",
+		options.accountId ?? "acct_primary",
 		options.authorProfileId,
 		"home",
 		options.text,
@@ -150,6 +161,7 @@ function insertOccurrence(
 		sourceKind: "dm" | "tweet";
 		sourceId: string;
 		shortUrl: string;
+		accountId?: string;
 		createdAt: string;
 	},
 ) {
@@ -163,10 +175,29 @@ function insertOccurrence(
 		options.sourceId,
 		0,
 		options.shortUrl,
-		"acct_primary",
+		options.accountId ?? "acct_primary",
 		options.sourceKind === "dm" ? "dm_bob" : null,
 		options.sourceKind === "dm" ? "inbound" : null,
 		options.createdAt,
+	);
+}
+
+function insertTweetAccountEdge(
+	db: TestDb,
+	options: { accountId: string; tweetId: string; kind?: string },
+) {
+	db.prepare(`
+    insert into tweet_account_edges (
+      account_id, tweet_id, kind, first_seen_at, last_seen_at, source, updated_at
+    ) values (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+		options.accountId,
+		options.tweetId,
+		options.kind ?? "home",
+		"2026-05-11T00:00:00.000Z",
+		"2026-05-11T00:00:00.000Z",
+		"test",
+		"2026-05-11T00:00:00.000Z",
 	);
 }
 
@@ -384,6 +415,89 @@ describe("link insights", () => {
 			direction: "inbound",
 			participant: expect.objectContaining({ handle: "bob" }),
 		});
+	});
+
+	it("scopes results to the selected account", () => {
+		const db = insertAccountFixture();
+		insertTweet(db, {
+			id: "tweet_primary",
+			authorProfileId: "profile_a",
+			text: "Primary link https://t.co/primary",
+			createdAt: "2026-05-11T09:00:00.000Z",
+		});
+		insertTweet(db, {
+			id: "tweet_secondary",
+			accountId: "acct_secondary",
+			authorProfileId: "profile_b",
+			text: "Secondary link https://t.co/secondary",
+			createdAt: "2026-05-11T10:00:00.000Z",
+		});
+		insertTweet(db, {
+			id: "tweet_shared",
+			authorProfileId: "profile_a",
+			text: "Shared edge link https://t.co/shared",
+			createdAt: "2026-05-11T11:00:00.000Z",
+		});
+		insertExpansion(db, {
+			shortUrl: "https://t.co/primary",
+			finalUrl: "https://primary.example/post",
+		});
+		insertExpansion(db, {
+			shortUrl: "https://t.co/secondary",
+			finalUrl: "https://secondary.example/post",
+		});
+		insertExpansion(db, {
+			shortUrl: "https://t.co/shared",
+			finalUrl: "https://shared.example/post",
+		});
+		insertOccurrence(db, {
+			sourceKind: "tweet",
+			sourceId: "tweet_primary",
+			shortUrl: "https://t.co/primary",
+			createdAt: "2026-05-11T09:00:00.000Z",
+		});
+		insertOccurrence(db, {
+			sourceKind: "tweet",
+			sourceId: "tweet_secondary",
+			shortUrl: "https://t.co/secondary",
+			accountId: "acct_secondary",
+			createdAt: "2026-05-11T10:00:00.000Z",
+		});
+		insertOccurrence(db, {
+			sourceKind: "tweet",
+			sourceId: "tweet_shared",
+			shortUrl: "https://t.co/shared",
+			createdAt: "2026-05-11T11:00:00.000Z",
+		});
+		insertTweetAccountEdge(db, {
+			accountId: "acct_secondary",
+			tweetId: "tweet_shared",
+		});
+
+		const now = new Date("2026-05-11T12:00:00.000Z");
+		expect(
+			getLinkInsights({
+				account: "acct_primary",
+				range: "today",
+				now,
+			}).items.map((item) => item.host),
+		).toEqual(["shared.example", "primary.example"]);
+		expect(
+			getLinkInsights({
+				account: "acct_secondary",
+				range: "today",
+				now,
+			}).items.map((item) => item.host),
+		).toEqual(["shared.example", "secondary.example"]);
+		expect(
+			new Set(
+				getLinkInsights({ account: "all", range: "today", now }).items.map(
+					(item) => item.host,
+				),
+			),
+		).toEqual(
+			new Set(["primary.example", "secondary.example", "shared.example"]),
+		);
 	});
 
 	it("preserves http schemes on exposed link urls", () => {

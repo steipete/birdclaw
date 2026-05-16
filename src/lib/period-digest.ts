@@ -353,8 +353,13 @@ function collectDms(options: {
 	);
 }
 
-function compactLinks(options: { window: PeriodDigestWindow; limit: number }) {
+function compactLinks(options: {
+	account?: string;
+	window: PeriodDigestWindow;
+	limit: number;
+}) {
 	return getLinkInsights({
+		account: options.account,
 		range: "today",
 		sort: "rank",
 		source: "tweet",
@@ -464,7 +469,11 @@ export function collectPeriodDigestContext(
 		window,
 		limit: Math.ceil(maxTweets / 3),
 	});
-	const links = compactLinks({ window, limit: maxLinks });
+	const links = compactLinks({
+		account: options.account,
+		window,
+		limit: maxLinks,
+	});
 	const tweets = dedupeTweets([
 		...home,
 		...mentions,

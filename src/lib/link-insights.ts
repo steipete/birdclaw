@@ -635,6 +635,30 @@ export function getLinkInsights(
 		conditions.push("o.source_kind = ?");
 		params.push(source);
 	}
+	if (query.account && query.account !== "all") {
+		conditions.push(`(
+	    (o.source_kind = 'dm' and o.account_id = ?)
+	    or (
+	      o.source_kind = 'tweet'
+	      and (
+	        o.account_id = ?
+	        or exists (
+	          select 1
+	          from tweet_account_edges edge
+	          where edge.account_id = ?
+	            and edge.tweet_id = o.source_id
+	        )
+	        or exists (
+	          select 1
+	          from tweet_collections collection
+	          where collection.account_id = ?
+	            and collection.tweet_id = o.source_id
+	        )
+	      )
+	    )
+	  )`);
+		params.push(query.account, query.account, query.account, query.account);
+	}
 	if (kind === "videos") {
 		addVideoUrlPrefilter(conditions);
 	}

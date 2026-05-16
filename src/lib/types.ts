@@ -289,6 +289,7 @@ export interface LinkInsightItem {
 }
 
 export interface LinkInsightQuery {
+	account?: string;
 	kind?: LinkInsightKind;
 	range?: LinkInsightRange;
 	sort?: LinkInsightSort;
