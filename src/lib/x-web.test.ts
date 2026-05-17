@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getCookiesMock = vi.fn();
 
@@ -17,6 +17,13 @@ describe("x-web transport", () => {
 		delete process.env.TWITTER_AUTH_TOKEN;
 		delete process.env.CT0;
 		delete process.env.TWITTER_CT0;
+		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
+		process.env.BIRDCLAW_ALLOW_X_WEB_WRITES = "1";
+	});
+
+	afterEach(() => {
+		delete process.env.BIRDCLAW_ALLOW_X_WEB_WRITES;
+		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 	});
 
 	it("builds x-web mutation effects lazily", async () => {
@@ -142,5 +149,20 @@ describe("x-web transport", () => {
 			ok: false,
 			output: "x-web unblock failed: network down",
 		});
+	});
+
+	it("does not mutate when live writes are disabled", async () => {
+		process.env.AUTH_TOKEN = "auth";
+		process.env.CT0 = "csrf";
+		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		const { blockUserViaXWeb } = await import("./x-web");
+
+		await expect(blockUserViaXWeb("42")).resolves.toEqual({
+			ok: false,
+			output: "x-web block unavailable: live writes disabled",
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

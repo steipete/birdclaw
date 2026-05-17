@@ -593,11 +593,11 @@ describe("xurl transport wrapper", () => {
 		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 
 		await expect(Effect.runPromise(dmEffect)).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		await expect(Effect.runPromise(muteEffect)).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
@@ -1095,31 +1095,31 @@ describe("xurl transport wrapper", () => {
 		} = await import("./xurl");
 
 		await expect(postViaXurl("ship")).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		await expect(replyViaXurl("tweet_1", "reply")).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		await expect(dmViaXurl("@sam", "hello")).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		await expect(blockUserViaXurl("1", "2")).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		await expect(unblockUserViaXurl("1", "2")).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		await expect(muteUserViaXurl("1", "2")).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		await expect(unmuteUserViaXurl("1", "2")).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		expect(execFileAsyncMock).not.toHaveBeenCalled();

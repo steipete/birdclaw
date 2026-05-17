@@ -9,7 +9,7 @@ import {
 } from "./moderation-target";
 import type { BlockItem, BlockListResponse, BlockSearchItem } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
-import { listBlockedUsers, lookupAuthenticatedUser } from "./xurl";
+import { listBlockedUsers, lookupAuthenticatedUserFresh } from "./xurl";
 
 export {
 	addBlock,
@@ -230,6 +230,20 @@ export function syncBlocksEffect(accountId: string) {
 	return Effect.gen(function* () {
 		const db = yield* trySync(() => getNativeDb());
 		const resolvedAccountId = accountId || getDefaultAccountId(db);
+		const accountHandle = getAccountHandle(db, resolvedAccountId);
+		if (!accountHandle) {
+			return yield* Effect.fail(
+				new Error(`Unknown account: ${resolvedAccountId}`),
+			);
+		}
+		const account = yield* trySync(
+			() =>
+				db
+					.prepare("select handle, external_user_id from accounts where id = ?")
+					.get(resolvedAccountId) as
+					| { handle: string; external_user_id: string | null }
+					| undefined,
+		);
 		const blockedAt = new Date().toISOString();
 		const remoteProfileIds: string[] = [];
 
@@ -247,15 +261,14 @@ export function syncBlocksEffect(accountId: string) {
 		}
 
 		return yield* Effect.gen(function* () {
-			const me = yield* tryPromise(() => lookupAuthenticatedUser()).pipe(
+			const me = yield* tryPromise(() => lookupAuthenticatedUserFresh()).pipe(
 				Effect.mapError(toError),
 			);
 			const sourceUserId =
 				typeof me?.id === "string" && me.id.length > 0 ? me.id : null;
 			const sourceUsername =
 				typeof me?.username === "string" ? me.username.replace(/^@/, "") : "";
-			const accountHandle = getAccountHandle(db, resolvedAccountId);
-
+			const accountExternalUserId = account?.external_user_id?.trim() ?? "";
 			if (!sourceUserId) {
 				return {
 					ok: false,
@@ -270,7 +283,7 @@ export function syncBlocksEffect(accountId: string) {
 				};
 			}
 
-			if (accountHandle && sourceUsername && accountHandle !== sourceUsername) {
+			if (accountExternalUserId && sourceUserId !== accountExternalUserId) {
 				return {
 					ok: false,
 					accountId: resolvedAccountId,
@@ -278,13 +291,32 @@ export function syncBlocksEffect(accountId: string) {
 					syncedCount: 0,
 					transport: {
 						ok: false,
-						output: `xurl is authenticated as @${sourceUsername}, not @${accountHandle}`,
+						output: `xurl is authenticated as user ${sourceUserId}, not account ${resolvedAccountId}`,
+					},
+				};
+			}
+
+			if (
+				!accountExternalUserId &&
+				(!sourceUsername || accountHandle !== sourceUsername)
+			) {
+				return {
+					ok: false,
+					accountId: resolvedAccountId,
+					synced: false,
+					syncedCount: 0,
+					transport: {
+						ok: false,
+						output: sourceUsername
+							? `xurl is authenticated as @${sourceUsername}, not @${accountHandle}`
+							: "xurl authenticated username unavailable",
 					},
 				};
 			}
 
 			let nextToken: string | null = null;
 			let pageCount = 0;
+			let completed = false;
 
 			do {
 				const page = yield* tryPromise(() =>
@@ -309,21 +341,27 @@ export function syncBlocksEffect(accountId: string) {
 				pageCount += 1;
 			} while (nextToken && pageCount < 20);
 
-			yield* trySync(() => {
-				const pruneMergedBlocks = db.transaction(() => {
-					pruneRemoteBlocks(db, resolvedAccountId, remoteProfileIds);
+			completed = !nextToken;
+			if (completed) {
+				yield* trySync(() => {
+					const pruneMergedBlocks = db.transaction(() => {
+						pruneRemoteBlocks(db, resolvedAccountId, remoteProfileIds);
+					});
+					pruneMergedBlocks();
 				});
-				pruneMergedBlocks();
-			});
+			}
 
 			return {
 				ok: true,
 				accountId: resolvedAccountId,
 				synced: true,
 				syncedCount: remoteProfileIds.length,
+				partial: !completed,
 				transport: {
 					ok: true,
-					output: `synced ${remoteProfileIds.length} remote blocks`,
+					output: completed
+						? `synced ${remoteProfileIds.length} remote blocks`
+						: `synced ${remoteProfileIds.length} remote blocks (partial; skipped pruning)`,
 				},
 			};
 		}).pipe(

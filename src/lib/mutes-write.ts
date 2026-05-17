@@ -22,7 +22,7 @@ export function addMuteEffect(
 	options: ModerationActionOptions = {},
 ) {
 	return Effect.gen(function* () {
-		const { db, resolved, resolvedAccountId, actionQuery } =
+		const { db, resolved, resolvedAccountId, accountIdentity, actionQuery } =
 			yield* resolveModerationTargetEffect({
 				accountId,
 				query,
@@ -34,6 +34,7 @@ export function addMuteEffect(
 				query: actionQuery,
 				targetUserId: resolved.externalUserId ?? undefined,
 				transport: options.transport,
+				expectedAccount: accountIdentity,
 			}),
 		);
 
@@ -117,7 +118,7 @@ export function removeMuteEffect(
 	options: ModerationActionOptions = {},
 ) {
 	return Effect.gen(function* () {
-		const { db, resolved, resolvedAccountId, actionQuery } =
+		const { db, resolved, resolvedAccountId, accountIdentity, actionQuery } =
 			yield* resolveModerationTargetEffect({
 				accountId,
 				query,
@@ -129,6 +130,7 @@ export function removeMuteEffect(
 				query: actionQuery,
 				targetUserId: resolved.externalUserId ?? undefined,
 				transport: options.transport,
+				expectedAccount: accountIdentity,
 			}),
 		);
 

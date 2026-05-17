@@ -156,7 +156,7 @@ describe("bird action transport wrapper", () => {
 		const result = await muteUserViaBird("42");
 
 		expect(result).toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
@@ -172,7 +172,7 @@ describe("bird action transport wrapper", () => {
 		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 
 		await expect(Effect.runPromise(effect)).resolves.toEqual({
-			ok: true,
+			ok: false,
 			output: "live writes disabled",
 		});
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
@@ -286,7 +286,7 @@ describe("bird action transport wrapper", () => {
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("/tmp/bird", [
 			"user",
-			"@sam",
+			"sam",
 			"-n",
 			"1",
 			"--json",

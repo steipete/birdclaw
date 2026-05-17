@@ -54,6 +54,13 @@ function liveWritesDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
 }
 
+function e2eFakeLiveWritesEnabled() {
+	return (
+		process.env.BIRDCLAW_E2E === "1" &&
+		process.env.BIRDCLAW_E2E_FAKE_LIVE_WRITES === "1"
+	);
+}
+
 function getJsonRetryBaseDelayMs() {
 	const value = Number(process.env.BIRDCLAW_XURL_RETRY_BASE_MS ?? "2000");
 	return Number.isFinite(value) && value >= 0 ? value : 2000;
@@ -258,7 +265,10 @@ export function getTransportStatus(): Promise<TransportStatus> {
 function runShortcutEffect(args: string[]) {
 	return Effect.gen(function* () {
 		if (liveWritesDisabled()) {
-			return { ok: true, output: "live writes disabled" };
+			if (e2eFakeLiveWritesEnabled()) {
+				return { ok: true, output: "e2e fake live write" };
+			}
+			return { ok: false, output: "live writes disabled" };
 		}
 
 		return yield* Effect.tryPromise({
@@ -360,7 +370,10 @@ function runJsonCommandEffect(
 function runMutationCommandEffect(args: string[]) {
 	return Effect.gen(function* () {
 		if (liveWritesDisabled()) {
-			return { ok: true, output: "live writes disabled" };
+			if (e2eFakeLiveWritesEnabled()) {
+				return { ok: true, output: "e2e fake live write" };
+			}
+			return { ok: false, output: "live writes disabled" };
 		}
 
 		return yield* Effect.tryPromise({
@@ -430,6 +443,12 @@ function authenticatedUserFromPayload(payload: Record<string, unknown>) {
 		: null;
 }
 
+export function lookupAuthenticatedUserFreshEffect() {
+	return runJsonCommandEffect(["whoami"]).pipe(
+		Effect.map(authenticatedUserFromPayload),
+	);
+}
+
 export function lookupAuthenticatedUserEffect() {
 	return Effect.gen(function* () {
 		const now = Date.now();
@@ -448,11 +467,7 @@ export function lookupAuthenticatedUserEffect() {
 			});
 		}
 
-		const pending = runEffectPromise(
-			runJsonCommandEffect(["whoami"]).pipe(
-				Effect.map(authenticatedUserFromPayload),
-			),
-		);
+		const pending = runEffectPromise(lookupAuthenticatedUserFreshEffect());
 
 		authenticatedUserCache = {
 			expiresAt: 0,
@@ -479,6 +494,10 @@ export function lookupAuthenticatedUserEffect() {
 
 export function lookupAuthenticatedUser() {
 	return runEffectPromise(lookupAuthenticatedUserEffect());
+}
+
+export function lookupAuthenticatedUserFresh() {
+	return runEffectPromise(lookupAuthenticatedUserFreshEffect());
 }
 
 function resolveUserIdEffect({

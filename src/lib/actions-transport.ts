@@ -13,10 +13,9 @@ import type {
 	ModerationActionTransportResult,
 	ModerationTransportKind,
 } from "./types";
-import { blockUserViaXWeb, unblockUserViaXWeb } from "./x-web";
 import {
 	blockUserViaXurl,
-	lookupAuthenticatedUser,
+	lookupAuthenticatedUserFresh,
 	muteUserViaXurl,
 	unblockUserViaXurl,
 	unmuteUserViaXurl,
@@ -29,6 +28,13 @@ interface RunActionParams {
 	query: string;
 	targetUserId?: string;
 	transport?: string;
+	expectedAccount?: ExpectedActionAccount;
+}
+
+export interface ExpectedActionAccount {
+	id: string;
+	handle: string;
+	externalUserId?: string | null;
 }
 
 function toError(error: unknown) {
@@ -44,6 +50,52 @@ function trySync<T>(try_: () => T) {
 
 function normalizeFailure(transport: ModerationTransportKind, output: string) {
 	return `${transport}: ${output}`;
+}
+
+function liveWritesDisabled() {
+	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
+}
+
+function normalizeHandle(value: string | null | undefined) {
+	return value?.replace(/^@/, "").toLowerCase() ?? "";
+}
+
+function verifyExpectedAccountEffect(
+	expectedAccount: ExpectedActionAccount | undefined,
+) {
+	return Effect.gen(function* () {
+		if (!expectedAccount) return null;
+		if (liveWritesDisabled()) return null;
+
+		const sourceUser = yield* tryPromise(() => lookupAuthenticatedUserFresh());
+		const sourceUserId =
+			sourceUser && typeof sourceUser.id === "string" ? sourceUser.id : "";
+		const sourceUsername =
+			sourceUser && typeof sourceUser.username === "string"
+				? normalizeHandle(sourceUser.username)
+				: "";
+		const expectedExternalUserId = expectedAccount.externalUserId?.trim() ?? "";
+		const expectedHandle = normalizeHandle(expectedAccount.handle);
+
+		if (expectedExternalUserId) {
+			if (sourceUserId === expectedExternalUserId) return sourceUserId;
+			return yield* Effect.fail(
+				new Error(
+					`xurl is authenticated as user ${sourceUserId || "unknown"}, not account ${expectedAccount.id}`,
+				),
+			);
+		}
+
+		if (expectedHandle && sourceUsername === expectedHandle)
+			return sourceUserId;
+		return yield* Effect.fail(
+			new Error(
+				sourceUsername
+					? `xurl is authenticated as @${sourceUsername}, not @${expectedHandle}`
+					: "xurl authenticated user unavailable",
+			),
+		);
+	});
 }
 
 function runBirdActionEffect(
@@ -84,6 +136,7 @@ function runXurlActionEffect(
 	action: ModerationAction,
 	query: string,
 	targetUserId?: string,
+	verifiedSourceUserId?: string | null,
 ): Effect.Effect<ActionTransportResult, unknown> {
 	return Effect.gen(function* () {
 		if (!targetUserId) {
@@ -94,9 +147,14 @@ function runXurlActionEffect(
 			};
 		}
 
-		const sourceUser = yield* tryPromise(() => lookupAuthenticatedUser());
-		const sourceUserId =
-			sourceUser && typeof sourceUser.id === "string" ? sourceUser.id : "";
+		let sourceUserId = verifiedSourceUserId ?? "";
+		if (!sourceUserId) {
+			const sourceUser = yield* tryPromise(() =>
+				lookupAuthenticatedUserFresh(),
+			);
+			sourceUserId =
+				sourceUser && typeof sourceUser.id === "string" ? sourceUser.id : "";
+		}
 		if (!sourceUserId) {
 			return {
 				ok: false,
@@ -154,55 +212,43 @@ function runXurlActionEffect(
 	});
 }
 
-function runXWebActionEffect(
-	action: ModerationAction,
-	targetUserId?: string,
-): Effect.Effect<ActionTransportResult, unknown> {
-	return Effect.gen(function* () {
-		if (action !== "block" && action !== "unblock") {
-			return {
-				ok: false,
-				output: `x-web does not support ${action}`,
-				transport: "x-web",
-			};
-		}
-
-		if (!targetUserId) {
-			return {
-				ok: false,
-				output: "missing target user id for x-web transport",
-				transport: "x-web",
-			};
-		}
-
-		const result = yield* tryPromise(() =>
-			action === "block"
-				? blockUserViaXWeb(targetUserId)
-				: unblockUserViaXWeb(targetUserId),
-		);
-
-		return {
-			...result,
-			transport: "x-web",
-		};
-	});
-}
-
 export function runModerationActionEffect({
 	action,
 	query,
 	targetUserId,
 	transport,
+	expectedAccount,
 }: RunActionParams): Effect.Effect<ActionTransportResult, unknown> {
 	return Effect.gen(function* () {
 		const requestedTransport = yield* trySync(() =>
 			resolveActionsTransport(transport),
 		);
+
+		const verifyXurlAccount = () =>
+			verifyExpectedAccountEffect(expectedAccount).pipe(
+				Effect.catchAll((error) =>
+					Effect.succeed({
+						ok: false as const,
+						output: error instanceof Error ? error.message : String(error),
+						transport: "xurl" as const,
+					}),
+				),
+			);
+
 		if (requestedTransport === "bird") {
 			return yield* runBirdActionEffect(action, query);
 		}
 		if (requestedTransport === "xurl") {
-			return yield* runXurlActionEffect(action, query, targetUserId);
+			const accountCheck = yield* verifyXurlAccount();
+			if (accountCheck && typeof accountCheck === "object") {
+				return accountCheck;
+			}
+			return yield* runXurlActionEffect(
+				action,
+				query,
+				targetUserId,
+				typeof accountCheck === "string" ? accountCheck : null,
+			);
 		}
 
 		const birdResult = yield* runBirdActionEffect(action, query);
@@ -210,35 +256,27 @@ export function runModerationActionEffect({
 			return birdResult;
 		}
 
-		const xurlResult = yield* runXurlActionEffect(action, query, targetUserId);
-		if (xurlResult.ok) {
-			return {
-				...xurlResult,
-				output: `${xurlResult.output}\nfalling back after ${normalizeFailure("bird", birdResult.output)}`,
-			};
-		}
-
-		if (action === "block" || action === "unblock") {
-			const xWebResult = yield* runXWebActionEffect(action, targetUserId);
-			if (xWebResult.ok) {
-				return {
-					...xWebResult,
-					output: [
-						xWebResult.output,
-						`falling back after ${normalizeFailure("bird", birdResult.output)}`,
-						`falling back after ${normalizeFailure("xurl", xurlResult.output)}`,
-					].join("\n"),
-				};
-			}
-
+		const accountCheck = yield* verifyXurlAccount();
+		if (accountCheck && typeof accountCheck === "object") {
 			return {
 				ok: false,
 				output: [
 					normalizeFailure("bird", birdResult.output),
-					normalizeFailure("xurl", xurlResult.output),
-					normalizeFailure("x-web", xWebResult.output),
+					normalizeFailure("xurl", accountCheck.output),
 				].join("\n"),
-				transport: xWebResult.transport,
+				transport: "xurl",
+			};
+		}
+		const xurlResult = yield* runXurlActionEffect(
+			action,
+			query,
+			targetUserId,
+			typeof accountCheck === "string" ? accountCheck : null,
+		);
+		if (xurlResult.ok) {
+			return {
+				...xurlResult,
+				output: `${xurlResult.output}\nfalling back after ${normalizeFailure("bird", birdResult.output)}`,
 			};
 		}
 

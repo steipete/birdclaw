@@ -28,6 +28,7 @@ vi.mock("./bird-actions", () => ({
 
 vi.mock("./xurl", () => ({
 	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
+	lookupAuthenticatedUserFresh: mocks.lookupAuthenticatedUser,
 	lookupUsersByHandles: mocks.lookupUsersByHandles,
 	lookupUsersByIds: mocks.lookupUsersByIds,
 	muteUserViaXurl: mocks.muteUserViaXurl,
@@ -55,7 +56,7 @@ describe("mutes", () => {
 		mocks.unmuteUserViaBird.mockReset();
 		mocks.unmuteUserViaXurl.mockReset();
 		mocks.lookupAuthenticatedUser.mockResolvedValue({
-			id: "1",
+			id: "25401953",
 			username: "steipete",
 		});
 		mocks.lookupProfileViaBird.mockResolvedValue({
@@ -241,8 +242,8 @@ describe("mutes", () => {
 			output: "unmuted via xurl\nverified muting=false",
 			transport: "xurl",
 		});
-		expect(mocks.muteUserViaXurl).toHaveBeenCalledWith("1", "7");
-		expect(mocks.unmuteUserViaXurl).toHaveBeenCalledWith("1", "7");
+		expect(mocks.muteUserViaXurl).toHaveBeenCalledWith("25401953", "7");
+		expect(mocks.unmuteUserViaXurl).toHaveBeenCalledWith("25401953", "7");
 		expect(mocks.muteUserViaBird).not.toHaveBeenCalled();
 		expect(mocks.unmuteUserViaBird).not.toHaveBeenCalled();
 		expect(listMutes({ account: "acct_primary" })).toHaveLength(0);

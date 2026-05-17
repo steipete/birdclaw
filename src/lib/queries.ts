@@ -27,6 +27,7 @@ import type {
 import {
 	dmViaXurlEffect,
 	getTransportStatusEffect,
+	lookupAuthenticatedUserFresh,
 	postViaXurlEffect,
 	replyViaXurlEffect,
 } from "./xurl";
@@ -39,6 +40,59 @@ function trySync<T>(try_: () => T) {
 	return Effect.try({
 		try: try_,
 		catch: toError,
+	});
+}
+
+function e2eFakeLiveWritesEnabled() {
+	return (
+		process.env.BIRDCLAW_E2E === "1" &&
+		process.env.BIRDCLAW_E2E_FAKE_LIVE_WRITES === "1"
+	);
+}
+
+function liveWritesDisabled() {
+	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
+}
+
+function verifySelectedXurlAccountEffect(accountId: string) {
+	return Effect.gen(function* () {
+		if (liveWritesDisabled()) return;
+		if (e2eFakeLiveWritesEnabled()) return;
+		const db = yield* trySync(() => getNativeDb());
+		const account = yield* trySync(
+			() =>
+				db
+					.prepare("select handle, external_user_id from accounts where id = ?")
+					.get(accountId) as
+					| { handle: string; external_user_id: string | null }
+					| undefined,
+		);
+		if (!account) {
+			return yield* Effect.fail(new Error(`Unknown account: ${accountId}`));
+		}
+		const authenticated = yield* tryPromise(() =>
+			lookupAuthenticatedUserFresh(),
+		);
+		const authenticatedId =
+			typeof authenticated?.id === "string" ? authenticated.id : "";
+		const authenticatedHandle =
+			typeof authenticated?.username === "string"
+				? authenticated.username.replace(/^@/, "")
+				: "";
+		const expectedHandle = account.handle.replace(/^@/, "");
+		if (
+			(account.external_user_id &&
+				account.external_user_id !== authenticatedId) ||
+			(!account.external_user_id &&
+				(!authenticatedHandle ||
+					authenticatedHandle.toLowerCase() !== expectedHandle.toLowerCase()))
+		) {
+			return yield* Effect.fail(
+				new Error(
+					`xurl is authenticated as @${authenticatedHandle || authenticatedId}, not @${expectedHandle}`,
+				),
+			);
+		}
 	});
 }
 
@@ -1969,6 +2023,7 @@ export function createPostEffect(accountId: string, text: string) {
 			return postDraft;
 		});
 
+		yield* verifySelectedXurlAccountEffect(accountId);
 		const transport = yield* postViaXurlEffect(text);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "post failed"));
@@ -2035,6 +2090,7 @@ export function createTweetReplyEffect(
 			return replyDraft;
 		});
 
+		yield* verifySelectedXurlAccountEffect(accountId);
 		const transport = yield* replyViaXurlEffect(tweetId, text);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "reply failed"));
@@ -2068,6 +2124,7 @@ export function createDmReplyEffect(conversationId: string, text: string) {
 			}
 
 			const dmDraft = {
+				accountId: conversation.conversation.accountId,
 				authorProfileId,
 				createdAt: new Date().toISOString(),
 				handle: conversation.conversation.participant.handle,
@@ -2103,6 +2160,7 @@ export function createDmReplyEffect(conversationId: string, text: string) {
 			return dmDraft;
 		});
 
+		yield* verifySelectedXurlAccountEffect(draft.accountId);
 		const transport = yield* dmViaXurlEffect(draft.handle, text);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "dm failed"));

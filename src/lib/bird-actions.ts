@@ -10,6 +10,13 @@ function liveWritesDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
 }
 
+function e2eFakeLiveWritesEnabled() {
+	return (
+		process.env.BIRDCLAW_E2E === "1" &&
+		process.env.BIRDCLAW_E2E_FAKE_LIVE_WRITES === "1"
+	);
+}
+
 function stripAnsi(value: string) {
 	// ANSI escape parsing needs a constructor to avoid literal control characters.
 	return value.replace(new RegExp("\\u001b\\[[0-9;]*m", "g"), "");
@@ -60,10 +67,25 @@ function runBirdJsonCommandEffect(args: string[]) {
 	});
 }
 
+function safeBirdProfileArg(query: string) {
+	const normalized = query.trim().replace(/^@/, "");
+	if (
+		/^\d{1,30}$/.test(normalized) ||
+		/^[A-Za-z0-9_]{1,15}$/.test(normalized)
+	) {
+		return normalized;
+	}
+	throw new Error("Invalid bird profile query");
+}
+
 export function readBirdStatusViaBirdEffect(query: string) {
-	return runBirdJsonCommandEffect(["status", query, "--json"]).pipe(
-		Effect.catchAll(() => Effect.succeed(null)),
-	);
+	return Effect.gen(function* () {
+		const safeQuery = yield* Effect.try({
+			try: () => safeBirdProfileArg(query),
+			catch: toError,
+		});
+		return yield* runBirdJsonCommandEffect(["status", safeQuery, "--json"]);
+	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
 export function readBirdStatusViaBird(query: string) {
@@ -132,9 +154,13 @@ function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
 
 export function lookupProfileViaBirdEffect(query: string) {
 	return Effect.gen(function* () {
+		const safeQuery = yield* Effect.try({
+			try: () => safeBirdProfileArg(query),
+			catch: toError,
+		});
 		const payload = yield* runBirdJsonCommandEffect([
 			"user",
-			query,
+			safeQuery,
 			"-n",
 			"1",
 			"--json",
@@ -162,11 +188,21 @@ function runVerifiedBirdMutationEffect({
 	expectedValue: boolean;
 }) {
 	return Effect.gen(function* () {
+		const safeQuery = yield* Effect.try({
+			try: () => safeBirdProfileArg(query),
+			catch: toError,
+		});
 		if (liveWritesDisabled()) {
-			return { ok: true, output: "live writes disabled" };
+			if (e2eFakeLiveWritesEnabled()) {
+				return { ok: true, output: "e2e fake live write" };
+			}
+			return { ok: false, output: "live writes disabled" };
 		}
 
-		const mutationResult = yield* runBirdCommandEffect([action, query]).pipe(
+		const mutationResult = yield* runBirdCommandEffect([
+			action,
+			safeQuery,
+		]).pipe(
 			Effect.map(({ stdout, stderr }) => ({
 				ok: true as const,
 				output: normalizeOutput(stdout, stderr),

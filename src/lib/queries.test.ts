@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 	postViaXurl: vi.fn(),
 	replyViaXurl: vi.fn(),
 	dmViaXurl: vi.fn(),
+	lookupAuthenticatedUser: vi.fn(),
 }));
 
 vi.mock("./archive-finder", async () => {
@@ -74,6 +75,8 @@ vi.mock("./xurl", async () => {
 				try: () => mocks.dmViaXurl(handle, text),
 				catch: toError,
 			}),
+		lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
+		lookupAuthenticatedUserFresh: mocks.lookupAuthenticatedUser,
 	};
 });
 
@@ -96,6 +99,10 @@ afterEach(() => {
 	mocks.postViaXurl.mockReset();
 	mocks.replyViaXurl.mockReset();
 	mocks.dmViaXurl.mockReset();
+	mocks.lookupAuthenticatedUser.mockReset();
+	delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
+	delete process.env.BIRDCLAW_E2E;
+	delete process.env.BIRDCLAW_E2E_FAKE_LIVE_WRITES;
 
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
@@ -123,6 +130,10 @@ describe("birdclaw queries", () => {
 		mocks.postViaXurl.mockResolvedValue({ ok: true, output: "posted" });
 		mocks.replyViaXurl.mockResolvedValue({ ok: true, output: "replied" });
 		mocks.dmViaXurl.mockResolvedValue({ ok: true, output: "sent" });
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
 	});
 
 	it("filters DM conversations by follower threshold and reply state", () => {
@@ -1241,6 +1252,26 @@ describe("birdclaw queries", () => {
 		expect(
 			db.prepare("select is_replied from tweets where id = ?").get("tweet_004"),
 		).toEqual({ is_replied: 0 });
+	});
+
+	it("does not call xurl whoami when live writes are disabled", async () => {
+		setupTempHome();
+		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
+		mocks.postViaXurl.mockResolvedValueOnce({
+			ok: false,
+			output: "live writes disabled",
+		});
+
+		await expect(createPost("acct_primary", "do not verify")).rejects.toThrow(
+			"live writes disabled",
+		);
+
+		expect(mocks.lookupAuthenticatedUser).not.toHaveBeenCalled();
+		expect(
+			getNativeDb()
+				.prepare("select count(*) as count from tweets where text = ?")
+				.get("do not verify"),
+		).toEqual({ count: 0 });
 	});
 
 	it("does not publish tweet writes when local persistence cannot be staged", async () => {

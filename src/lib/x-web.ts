@@ -100,6 +100,19 @@ function runXWebBlockMutationEffect(
 	action: string,
 ) {
 	return Effect.gen(function* () {
+		if (process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1") {
+			return {
+				ok: false,
+				output: `x-web ${action} unavailable: live writes disabled`,
+			};
+		}
+		if (process.env.BIRDCLAW_ALLOW_X_WEB_WRITES !== "1") {
+			return {
+				ok: false,
+				output: `x-web ${action} unavailable: unverified account`,
+			};
+		}
+
 		const cookies = yield* resolveXWebCookiesEffect();
 		if (!cookies) {
 			return {

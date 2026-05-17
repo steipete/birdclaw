@@ -31,6 +31,7 @@ vi.mock("./xurl", () => ({
 	blockUserViaXurl: mocks.blockUserViaXurl,
 	listBlockedUsers: mocks.listBlockedUsers,
 	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
+	lookupAuthenticatedUserFresh: mocks.lookupAuthenticatedUser,
 	lookupUsersByHandles: mocks.lookupUsersByHandles,
 	lookupUsersByIds: mocks.lookupUsersByIds,
 	unblockUserViaXurl: mocks.unblockUserViaXurl,
@@ -50,7 +51,7 @@ afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
-	process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
+	delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 	mocks.blockUserViaBird.mockReset();
 	mocks.lookupProfileViaBird.mockReset();
 	mocks.readBirdStatusViaBird.mockReset();
@@ -71,7 +72,10 @@ describe("blocklist", () => {
 	beforeEach(() => {
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 		mocks.lookupProfileViaBird.mockResolvedValue(null);
-		mocks.lookupAuthenticatedUser.mockResolvedValue({ id: "1" });
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
 		mocks.listBlockedUsers.mockResolvedValue({ items: [], nextToken: null });
 		mocks.readBirdStatusViaBird.mockResolvedValue({
 			blocking: true,
@@ -176,6 +180,10 @@ describe("blocklist", () => {
 	it("resolves numeric ids and blocks only the selected account", async () => {
 		setupTempHome();
 		const { addBlock, listBlocks } = await import("./blocks");
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "42",
+			username: "birdclaw_lab",
+		});
 
 		await addBlock("acct_studio", "8");
 
@@ -265,8 +273,8 @@ describe("blocklist", () => {
 			output: "unblocked via xurl\nverified blocking=false",
 			transport: "xurl",
 		});
-		expect(mocks.blockUserViaXurl).toHaveBeenCalledWith("1", "7");
-		expect(mocks.unblockUserViaXurl).toHaveBeenCalledWith("1", "7");
+		expect(mocks.blockUserViaXurl).toHaveBeenCalledWith("25401953", "7");
+		expect(mocks.unblockUserViaXurl).toHaveBeenCalledWith("25401953", "7");
 		expect(mocks.blockUserViaBird).not.toHaveBeenCalled();
 		expect(mocks.unblockUserViaBird).not.toHaveBeenCalled();
 		expect(listBlocks({ account: "acct_primary" })).toHaveLength(0);
@@ -321,8 +329,16 @@ describe("blocklist", () => {
 			ok: true,
 			output: "synced 2 remote blocks",
 		});
-		expect(mocks.listBlockedUsers).toHaveBeenNthCalledWith(1, "1", undefined);
-		expect(mocks.listBlockedUsers).toHaveBeenNthCalledWith(2, "1", "next");
+		expect(mocks.listBlockedUsers).toHaveBeenNthCalledWith(
+			1,
+			"25401953",
+			undefined,
+		);
+		expect(mocks.listBlockedUsers).toHaveBeenNthCalledWith(
+			2,
+			"25401953",
+			"next",
+		);
 		expect(listed.map((item) => item.profile.handle).sort()).toEqual([
 			"amelia",
 			"avawires",
@@ -373,7 +389,22 @@ describe("blocklist", () => {
 
 		expect(result.transport).toEqual({
 			ok: false,
-			output: "xurl is authenticated as @someoneelse, not @steipete",
+			output: "xurl is authenticated as user 2, not account acct_primary",
+		});
+		expect(listBlocks({ account: "acct_primary" })).toHaveLength(0);
+		expect(mocks.listBlockedUsers).not.toHaveBeenCalled();
+	});
+
+	it("skips remote sync when only the authenticated user id mismatches", async () => {
+		setupTempHome();
+		mocks.lookupAuthenticatedUser.mockResolvedValue({ id: "2" });
+		const { syncBlocks, listBlocks } = await import("./blocks");
+
+		const result = await syncBlocks("acct_primary");
+
+		expect(result.transport).toEqual({
+			ok: false,
+			output: "xurl is authenticated as user 2, not account acct_primary",
 		});
 		expect(listBlocks({ account: "acct_primary" })).toHaveLength(0);
 		expect(mocks.listBlockedUsers).not.toHaveBeenCalled();
