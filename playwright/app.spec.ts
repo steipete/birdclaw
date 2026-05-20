@@ -69,11 +69,20 @@ test("navigates across the primary surfaces", async ({ page }) => {
 });
 
 test("manual sync controls post to the sync endpoint", async ({ page }) => {
-	const syncBodies: Array<{ kind?: string; accountId?: string }> = [];
+	const syncBodies: Array<{
+		kind?: string;
+		accountId?: string;
+		inbox?: string;
+		limit?: number;
+		maxPages?: number;
+	}> = [];
 	await page.route("**/api/sync**", async (route) => {
 		const body = route.request().postDataJSON() as {
 			kind?: string;
 			accountId?: string;
+			inbox?: string;
+			limit?: number;
+			maxPages?: number;
 		};
 		syncBodies.push(body);
 		await route.fulfill({
@@ -101,7 +110,13 @@ test("manual sync controls post to the sync endpoint", async ({ page }) => {
 	async function clickSync(
 		path: string,
 		buttonName: string,
-		expectedBody: { kind: string; accountId?: string },
+		expectedBody: {
+			kind: string;
+			accountId?: string;
+			inbox?: string;
+			limit?: number;
+			maxPages?: number;
+		},
 	) {
 		const statusReady = page.waitForResponse(
 			(response) =>
@@ -139,7 +154,12 @@ test("manual sync controls post to the sync endpoint", async ({ page }) => {
 		kind: "bookmarks",
 		accountId: "acct_primary",
 	});
-	await clickSync("/dms", "Sync DMs", { kind: "dms" });
+	await clickSync("/dms", "Sync DMs", {
+		kind: "dms",
+		inbox: "all",
+		limit: 50,
+		maxPages: 1,
+	});
 
 	await expect
 		.poll(() => syncBodies)
@@ -148,7 +168,7 @@ test("manual sync controls post to the sync endpoint", async ({ page }) => {
 			{ kind: "mentions", accountId: "acct_primary" },
 			{ kind: "likes", accountId: "acct_primary" },
 			{ kind: "bookmarks", accountId: "acct_primary" },
-			{ kind: "dms" },
+			{ kind: "dms", inbox: "all", limit: 50, maxPages: 1 },
 		]);
 });
 
@@ -288,7 +308,10 @@ test("replies to an unreplied mention and clears it from the queue", async ({
 test("filters dms and shows sender context", async ({ page }) => {
 	await page.goto("/dms");
 
-	await page.getByRole("button", { name: "all" }).click();
+	await page
+		.locator('[aria-label="DM reply filter"]')
+		.getByRole("button", { name: "all" })
+		.click();
 	await page.getByPlaceholder("Min followers").fill("1000000");
 
 	await expect(page.getByText("@sam").first()).toBeVisible();

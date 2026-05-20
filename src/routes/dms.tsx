@@ -333,7 +333,7 @@ function DmsRoute() {
 						))}
 					</div>
 				</div>
-				<div className={tabStripClass}>
+				<div className={tabStripClass} aria-label="DM reply filter">
 					{TABS.map((tab) => {
 						const active = replyFilter === tab.value;
 						return (
