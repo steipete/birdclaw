@@ -133,6 +133,63 @@ describe("dms route", () => {
 		});
 	});
 
+	it("lets the dm list switch from newest to follower count sorting", async () => {
+		const queryUrls: URL[] = [];
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/status")) {
+				return new Response(
+					JSON.stringify({
+						stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+						transport: { statusText: "local" },
+						accounts: [],
+						archives: [],
+					}),
+				);
+			}
+			if (url.includes("/api/query")) {
+				queryUrls.push(new URL(url));
+				return new Response(
+					JSON.stringify({
+						resource: "dms",
+						items: [
+							{
+								id: "dm_1",
+								title: "Sam Altman",
+								accountId: "acct_primary",
+								accountHandle: "@steipete",
+							},
+						],
+						selectedConversation: {
+							conversation: {
+								id: "dm_1",
+								title: "Sam Altman",
+								accountId: "acct_primary",
+								accountHandle: "@steipete",
+							},
+							messages: [],
+						},
+					}),
+				);
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<DmsRoute />);
+
+		expect(await screen.findByText("Sam Altman")).toBeInTheDocument();
+		await waitFor(() => {
+			expect(queryUrls.at(-1)?.searchParams.get("sort")).toBe("recent");
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Followers" }));
+
+		await waitFor(() => {
+			expect(queryUrls.at(-1)?.searchParams.get("sort")).toBe("followers");
+		});
+	});
+
 	it("restores dm draft and shows transport errors", async () => {
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {

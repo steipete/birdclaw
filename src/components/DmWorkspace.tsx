@@ -143,8 +143,10 @@ export function DmWorkspace({
 										{conversation.needsReply ? "open" : "replied"}
 									</span>
 									<span className={cx(pillClass, pillSoftClass)}>
-										{conversation.influenceScore} ·{" "}
-										{conversation.influenceLabel}
+										{formatCompactNumber(
+											conversation.participant.followersCount,
+										)}{" "}
+										followers
 									</span>
 								</div>
 							</div>

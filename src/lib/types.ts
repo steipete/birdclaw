@@ -375,7 +375,7 @@ export interface DmQuery {
 	maxFollowers?: number;
 	minInfluenceScore?: number;
 	maxInfluenceScore?: number;
-	sort?: "recent" | "influence";
+	sort?: "recent" | "followers" | "influence";
 	context?: number;
 	limit?: number;
 }

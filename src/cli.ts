@@ -512,7 +512,7 @@ searchCommand
 	.option("--max-followers <n>", "Maximum sender follower count")
 	.option("--min-influence-score <n>", "Minimum derived influence score")
 	.option("--max-influence-score <n>", "Maximum derived influence score")
-	.option("--sort <mode>", "recent or influence", "recent")
+	.option("--sort <mode>", "recent or followers", "recent")
 	.option(
 		"--context <n>",
 		"Include N messages before and after each match",
@@ -558,7 +558,10 @@ searchCommand
 			maxInfluenceScore: options.maxInfluenceScore
 				? Number(options.maxInfluenceScore)
 				: undefined,
-			sort: options.sort === "influence" ? "influence" : "recent",
+			sort:
+				options.sort === "followers" || options.sort === "influence"
+					? "followers"
+					: "recent",
 			replyFilter,
 			context,
 			limit: Number(options.limit),
@@ -1322,7 +1325,7 @@ dmsCommand
 	.option("--max-followers <n>", "Maximum sender follower count")
 	.option("--min-influence-score <n>", "Minimum derived influence score")
 	.option("--max-influence-score <n>", "Maximum derived influence score")
-	.option("--sort <mode>", "recent or influence", "recent")
+	.option("--sort <mode>", "recent or followers", "recent")
 	.option(
 		"--resolve-profiles",
 		"Resolve placeholder DM profiles through cache/bird/xurl",
@@ -1370,7 +1373,10 @@ dmsCommand
 				maxInfluenceScore: options.maxInfluenceScore
 					? Number(options.maxInfluenceScore)
 					: undefined,
-				sort: options.sort === "influence" ? "influence" : "recent",
+				sort:
+					options.sort === "followers" || options.sort === "influence"
+						? "followers"
+						: "recent",
 				replyFilter,
 				limit: Number(options.limit),
 			},

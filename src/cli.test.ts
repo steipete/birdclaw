@@ -1038,7 +1038,7 @@ describe("cli", () => {
 			"--max-influence-score",
 			"120",
 			"--sort",
-			"influence",
+			"followers",
 			"--unreplied",
 			"--limit",
 			"9",
@@ -1130,7 +1130,7 @@ describe("cli", () => {
 			"20",
 			"--replied",
 			"--sort",
-			"influence",
+			"followers",
 		]);
 
 		expect(listTimelineItemsMock).toHaveBeenCalledWith({
@@ -1161,7 +1161,7 @@ describe("cli", () => {
 			maxFollowers: undefined,
 			minInfluenceScore: undefined,
 			maxInfluenceScore: 120,
-			sort: "influence",
+			sort: "followers",
 			replyFilter: "unreplied",
 			context: 0,
 			limit: 9,
@@ -1237,7 +1237,7 @@ describe("cli", () => {
 			maxFollowers: undefined,
 			minInfluenceScore: 20,
 			maxInfluenceScore: undefined,
-			sort: "influence",
+			sort: "followers",
 			replyFilter: "replied",
 			limit: 20,
 		});

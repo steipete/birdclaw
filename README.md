@@ -405,14 +405,14 @@ The web UI exposes the same stream under `What happened`. DMs are excluded unles
 
 ```bash
 pnpm cli search dms "prototype" --json
-pnpm cli search dms "layout" --min-followers 1000 --min-influence-score 120 --sort influence --json
+pnpm cli search dms "layout" --min-followers 1000 --min-influence-score 120 --sort followers --json
 pnpm cli search dms "blacksmith" --context 4 --resolve-profiles --expand-urls --no-xurl-fallback --json
 pnpm cli whois "blacksmith guy" --context 4 --no-xurl-fallback --json
 pnpm cli whois "github guy" --current-affiliation github --exclude-domain-only --no-xurl-fallback
 pnpm cli whois "blacksmith" --tweets --context 4 --no-xurl-fallback --json
 pnpm cli dms sync --limit 50 --refresh --json
 pnpm cli dms list --refresh --limit 10 --json
-pnpm cli dms list --unreplied --min-followers 500 --min-influence-score 90 --sort influence --json
+pnpm cli dms list --unreplied --min-followers 500 --min-influence-score 90 --sort followers --json
 ```
 
 `--resolve-profiles` fills archive-imported numeric DM profiles through the local

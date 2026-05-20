@@ -108,7 +108,7 @@ export function listInboxItems({
 		for (const dm of listDmConversations({
 			account,
 			replyFilter: "unreplied",
-			sort: "influence",
+			sort: "followers",
 			limit: 50,
 		})) {
 			const scoreKey = `dm:${dm.id}`;

@@ -415,7 +415,7 @@ Flags:
 - `--max-followers <n>`
 - `--min-influence-score <n>`
 - `--max-influence-score <n>`
-- `--sort recent|influence`
+- `--sort recent|followers`
 - `--context <n>`
 - `--resolve-profiles`
 - `--expand-urls`
@@ -585,7 +585,7 @@ Flags:
 - `--max-followers <n>`
 - `--min-influence-score <n>`
 - `--max-influence-score <n>`
-- `--sort recent|influence`
+- `--sort recent|followers`
 - `--replied`
 - `--unreplied`
 - `--account <name>`
@@ -802,7 +802,7 @@ birdclaw sync all --transport xurl
 birdclaw search tweets "openai" --since 2024-01-01 --limit 20
 birdclaw search tweets --since 2020-01-01 --until 2021-01-01 --originals-only --hide-low-quality --limit 500
 birdclaw search dms "invoice" --participant @someone --min-followers 1000
-birdclaw dms list --unreplied --min-followers 500 --min-influence-score 90 --sort influence
+birdclaw dms list --unreplied --min-followers 500 --min-influence-score 90 --sort followers
 birdclaw inbox --json
 birdclaw serve --sync
 birdclaw graph events --json

@@ -67,7 +67,7 @@ birdclaw search tweets "AI" --author @borderline_handle --limit 20 --json
 
 ```bash
 birdclaw search dms "prototype" --json
-birdclaw search dms "layout" --min-followers 1000 --min-influence-score 120 --sort influence --json
+birdclaw search dms "layout" --min-followers 1000 --min-influence-score 120 --sort followers --json
 birdclaw search dms "blacksmith" --context 4 --resolve-profiles --expand-urls --no-xurl-fallback --json
 ```
 
@@ -76,7 +76,7 @@ DM-specific filters layer follower-count and influence on top of FTS5:
 - `--participant <handle-or-id>`
 - `--min-followers <n>` / `--max-followers <n>`
 - `--min-influence-score <n>` / `--max-influence-score <n>`
-- `--sort recent|influence`
+- `--sort recent|followers`
 - `--context <n>`
 - `--resolve-profiles`
 - `--expand-urls`

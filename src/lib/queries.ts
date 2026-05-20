@@ -100,6 +100,17 @@ function getInfluenceScore(followersCount: number) {
 	return Math.round(Math.log10(followersCount + 10) * 24);
 }
 
+function getMinFollowersForInfluenceScore(score: number) {
+	if (!Number.isFinite(score)) return undefined;
+	return Math.max(0, Math.ceil(10 ** ((score - 0.5) / 24) - 10));
+}
+
+function getMaxFollowersForInfluenceScore(score: number) {
+	if (!Number.isFinite(score)) return undefined;
+	if (score < getInfluenceScore(0)) return -1;
+	return Math.max(0, Math.ceil(10 ** ((score + 0.5) / 24) - 10) - 1);
+}
+
 function getInfluenceLabel(score: number) {
 	if (score >= 150) return "very high";
 	if (score >= 120) return "high";
@@ -1402,6 +1413,31 @@ export function listDmConversations({
 	let where = "where 1 = 1";
 	let searchSnippetSelect = "";
 	const ftsSearch = search?.trim() ? toFtsSearchQuery(search) : "";
+	const influenceMinFollowers =
+		typeof minInfluenceScore === "number"
+			? getMinFollowersForInfluenceScore(minInfluenceScore)
+			: undefined;
+	const influenceMaxFollowers =
+		typeof maxInfluenceScore === "number"
+			? getMaxFollowersForInfluenceScore(maxInfluenceScore)
+			: undefined;
+	const effectiveMinFollowers =
+		typeof minFollowers === "number" ||
+		typeof influenceMinFollowers === "number"
+			? Math.max(minFollowers ?? 0, influenceMinFollowers ?? 0)
+			: undefined;
+	const effectiveMaxFollowers =
+		typeof maxFollowers === "number" ||
+		typeof influenceMaxFollowers === "number"
+			? Math.min(
+					maxFollowers ?? Number.MAX_SAFE_INTEGER,
+					influenceMaxFollowers ?? Number.MAX_SAFE_INTEGER,
+				)
+			: undefined;
+	const orderBy =
+		sort === "followers" || sort === "influence"
+			? "p.followers_count desc, c.last_message_at desc"
+			: "c.last_message_at desc";
 
 	if (account && account !== "all") {
 		where += " and a.id = ?";
@@ -1433,14 +1469,14 @@ export function listDmConversations({
 		params.push(until);
 	}
 
-	if (typeof minFollowers === "number") {
+	if (typeof effectiveMinFollowers === "number") {
 		where += " and p.followers_count >= ?";
-		params.push(minFollowers);
+		params.push(effectiveMinFollowers);
 	}
 
-	if (typeof maxFollowers === "number") {
+	if (typeof effectiveMaxFollowers === "number") {
 		where += " and p.followers_count <= ?";
-		params.push(maxFollowers);
+		params.push(effectiveMaxFollowers);
 	}
 
 	if (ftsSearch) {
@@ -1513,7 +1549,7 @@ export function listDmConversations({
       ${join}
       ${where}
       group by c.id
-      order by c.last_message_at desc
+      order by ${orderBy}
       limit ?
       `,
 		)
@@ -1586,7 +1622,7 @@ export function listDmConversations({
 		return true;
 	});
 
-	if (sort === "influence") {
+	if (sort === "followers" || sort === "influence") {
 		filtered.sort((left, right) => {
 			if (
 				right.participant.followersCount !== left.participant.followersCount

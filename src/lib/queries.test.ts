@@ -156,7 +156,7 @@ describe("birdclaw queries", () => {
 
 		const highSignal = listDmConversations({
 			minInfluenceScore: 120,
-			sort: "influence",
+			sort: "followers",
 		});
 
 		expect(highSignal.map((item) => item.id)).toEqual([
@@ -165,6 +165,36 @@ describe("birdclaw queries", () => {
 			"dm_002",
 		]);
 		expect(highSignal[0]?.influenceLabel).toBe("very high");
+	});
+
+	it("sorts DM conversations by follower count before applying the limit", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare("update dm_conversations set last_message_at = ?").run(
+			"2026-05-01T00:00:00.000Z",
+		);
+		db.prepare(
+			"update dm_conversations set last_message_at = ? where id = 'dm_003'",
+		).run("2026-05-03T00:00:00.000Z");
+
+		const sorted = listDmConversations({
+			sort: "followers",
+			limit: 1,
+		});
+
+		expect(sorted.map((item) => item.id)).toEqual(["dm_001"]);
+	});
+
+	it("applies influence score filters before follower-sort limits", () => {
+		setupTempHome();
+
+		const filtered = listDmConversations({
+			maxInfluenceScore: 100,
+			sort: "followers",
+			limit: 1,
+		});
+
+		expect(filtered.map((item) => item.id)).toEqual(["dm_003"]);
 	});
 
 	it("filters DM conversations by participant, search, and upper bounds", () => {

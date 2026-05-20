@@ -11,7 +11,7 @@ birdclaw treats DMs as first-class content: full-text indexed, multi-account, an
 
 ```bash
 birdclaw dms list --refresh --limit 10 --json
-birdclaw dms list --unreplied --min-followers 500 --min-influence-score 90 --sort influence --json
+birdclaw dms list --unreplied --min-followers 500 --min-influence-score 90 --sort followers --json
 ```
 
 `dms list` is the no-query view onto conversations and recent events. It is optimized for agent and operator filtering — you do not need a search query to walk the inbox.
@@ -23,7 +23,7 @@ Flags:
 - `--participant <handle-or-id>`
 - `--min-followers <n>` / `--max-followers <n>`
 - `--min-influence-score <n>` / `--max-influence-score <n>`
-- `--sort recent|influence`
+- `--sort recent|followers`
 - `--replied` / `--unreplied`
 - `--account <name>`
 - `--limit <n>`
@@ -49,7 +49,7 @@ Sync is idempotent — re-running merges new events without disturbing already-i
 
 ```bash
 birdclaw search dms "prototype" --json
-birdclaw search dms "layout" --min-followers 1000 --min-influence-score 120 --sort influence --json
+birdclaw search dms "layout" --min-followers 1000 --min-influence-score 120 --sort followers --json
 birdclaw search dms "invoice" --participant @someone --replied --json
 birdclaw search dms "blacksmith" --context 4 --resolve-profiles --expand-urls --no-xurl-fallback --json
 birdclaw whois "blacksmith guy" --context 4 --no-xurl-fallback --json
@@ -89,10 +89,10 @@ Influence is a derived ranking signal that starts with follower count and folds 
 
 It is intentionally simple. The goal is to bucket noisy inboxes ("strangers with no follow signal" vs "people you actually talk to"), not to produce a global ranking.
 
-When triaging a quiet day, sort by `influence` to surface higher-context conversations first:
+When triaging a quiet day, sort by `followers` to surface higher-context conversations first:
 
 ```bash
-birdclaw dms list --unreplied --sort influence --limit 20 --json
+birdclaw dms list --unreplied --sort followers --limit 20 --json
 ```
 
 When triaging a noisy day, hide low-influence senders entirely:
