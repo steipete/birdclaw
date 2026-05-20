@@ -131,6 +131,7 @@ export interface DmConversationsTable {
 	account_id: string;
 	participant_profile_id: string;
 	title: string;
+	inbox_kind: "accepted" | "request";
 	last_message_at: string;
 	unread_count: number;
 	needs_reply: number;
@@ -429,6 +430,7 @@ const BASE_SCHEMA_SQL = `
     account_id text not null,
     participant_profile_id text not null,
     title text not null,
+    inbox_kind text not null default 'accepted',
     last_message_at text not null,
     unread_count integer not null default 0,
     needs_reply integer not null default 0
@@ -675,6 +677,15 @@ function ensureAccountExternalUserIdColumn(db: Database) {
 	const columnNames = getColumnNames(db, "accounts");
 	if (!columnNames.has("external_user_id")) {
 		db.exec("alter table accounts add column external_user_id text");
+	}
+}
+
+function ensureDmConversationInboxColumns(db: Database) {
+	const columnNames = getColumnNames(db, "dm_conversations");
+	if (!columnNames.has("inbox_kind")) {
+		db.exec(
+			"alter table dm_conversations add column inbox_kind text not null default 'accepted'",
+		);
 	}
 }
 
@@ -941,6 +952,7 @@ function initDatabase(options: InitDatabaseOptions = {}) {
 		nativeDb = new NativeSqliteDatabase(dbPath);
 		nativeDb.exec(BASE_SCHEMA_SQL);
 		ensureAccountExternalUserIdColumn(nativeDb);
+		ensureDmConversationInboxColumns(nativeDb);
 		ensureTweetMetadataColumns(nativeDb);
 		ensureProfileAvatarColumns(nativeDb);
 		ensureTweetCollectionsTable(nativeDb);

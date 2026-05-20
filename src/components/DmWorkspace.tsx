@@ -81,7 +81,7 @@ export function DmWorkspace({
 }) {
 	const participant = selectedConversation?.participant ?? null;
 	const subtitle = selectedConversation
-		? `${selectedConversation.needsReply ? "Reply open" : "We replied"} · last message ${formatShortTimestamp(selectedConversation.lastMessageAt)}`
+		? `${selectedConversation.isMessageRequest ? "Message request" : selectedConversation.needsReply ? "Reply open" : "We replied"} · last message ${formatShortTimestamp(selectedConversation.lastMessageAt)}`
 		: "No conversation selected";
 
 	return (
@@ -142,6 +142,11 @@ export function DmWorkspace({
 										)}
 										{conversation.needsReply ? "open" : "replied"}
 									</span>
+									{conversation.isMessageRequest ? (
+										<span className={cx(pillClass, pillAlertClass)}>
+											request
+										</span>
+									) : null}
 									<span className={cx(pillClass, pillSoftClass)}>
 										{formatCompactNumber(
 											conversation.participant.followersCount,
@@ -205,9 +210,11 @@ export function DmWorkspace({
 									<div className={contextStatRowClass}>
 										<dt className={contextStatTermClass}>Reply state</dt>
 										<dd className={contextStatValueClass}>
-											{selectedConversation.needsReply
-												? "Reply open"
-												: "We replied"}
+											{selectedConversation.isMessageRequest
+												? "Message request"
+												: selectedConversation.needsReply
+													? "Reply open"
+													: "We replied"}
 										</dd>
 									</div>
 									<div className={contextStatRowClass}>

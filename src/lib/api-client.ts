@@ -11,6 +11,7 @@ import type {
 import type {
 	WebSyncJobSnapshot,
 	WebSyncKind,
+	WebSyncOptions,
 	WebSyncResponse,
 } from "./web-sync";
 
@@ -234,11 +235,19 @@ export function postActionEffect(body: Record<string, unknown>) {
 	);
 }
 
-export function postSync(kind: WebSyncKind, accountId?: string) {
-	return runApiEffect(postSyncEffect(kind, accountId));
+export function postSync(
+	kind: WebSyncKind,
+	accountId?: string,
+	options: WebSyncOptions = {},
+) {
+	return runApiEffect(postSyncEffect(kind, accountId, options));
 }
 
-export function postSyncEffect(kind: WebSyncKind, accountId?: string) {
+export function postSyncEffect(
+	kind: WebSyncKind,
+	accountId?: string,
+	options: WebSyncOptions = {},
+) {
 	return fetchJsonEffect(
 		"/api/sync",
 		{
@@ -247,6 +256,7 @@ export function postSyncEffect(kind: WebSyncKind, accountId?: string) {
 			body: JSON.stringify({
 				kind,
 				...(accountId ? { accountId } : {}),
+				...options,
 			}),
 		},
 		webSyncJobSchema,

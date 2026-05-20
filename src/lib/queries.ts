@@ -1392,6 +1392,7 @@ export function getTweetConversation(
 export function listDmConversations({
 	account,
 	conversationIds,
+	inbox = "all",
 	participant,
 	search,
 	replyFilter = "all",
@@ -1447,6 +1448,12 @@ export function listDmConversations({
 	if (conversationIds && conversationIds.length > 0) {
 		where += ` and c.id in (${conversationIds.map(() => "?").join(",")})`;
 		params.push(...conversationIds);
+	}
+
+	if (inbox === "accepted") {
+		where += " and c.inbox_kind = 'accepted'";
+	} else if (inbox === "requests") {
+		where += " and c.inbox_kind = 'request'";
 	}
 
 	if (participant?.trim()) {
@@ -1519,6 +1526,7 @@ export function listDmConversations({
         c.account_id,
         a.handle as account_handle,
         c.title,
+        c.inbox_kind,
         c.last_message_at,
         c.unread_count,
         c.needs_reply,
@@ -1586,6 +1594,8 @@ export function listDmConversations({
 			...(typeof row.search_snippet === "string"
 				? { searchSnippet: row.search_snippet }
 				: {}),
+			inboxKind: row.inbox_kind === "request" ? "request" : "accepted",
+			isMessageRequest: row.inbox_kind === "request",
 			lastMessageAt: String(row.last_message_at),
 			lastMessagePreview: String(row.last_message_preview ?? ""),
 			unreadCount: Number(row.unread_count),
@@ -1723,6 +1733,54 @@ export function getConversationThread(
 			}),
 		})),
 	};
+}
+
+export type DmRequestMutationAction = "accept" | "reject" | "block";
+
+export function applyDmRequestMutationToLocalStore(
+	conversationId: string,
+	action: DmRequestMutationAction,
+) {
+	return persistWrite((db) => {
+		db.prepare(
+			"delete from sync_cache where cache_key like 'dms:bird:%'",
+		).run();
+		if (action === "accept") {
+			return db
+				.prepare(
+					`
+    update dm_conversations
+    set inbox_kind = 'accepted'
+    where id = ?
+    `,
+				)
+				.run(conversationId).changes;
+		}
+
+		db.prepare(
+			`
+    delete from link_occurrences
+    where source_kind = 'dm'
+      and source_id in (
+        select id from dm_messages where conversation_id = ?
+      )
+    `,
+		).run(conversationId);
+		db.prepare(
+			`
+    delete from dm_fts
+    where message_id in (
+      select id from dm_messages where conversation_id = ?
+    )
+    `,
+		).run(conversationId);
+		db.prepare("delete from dm_messages where conversation_id = ?").run(
+			conversationId,
+		);
+		return db
+			.prepare("delete from dm_conversations where id = ?")
+			.run(conversationId).changes;
+	});
 }
 
 function normalizeDmContext(value: number | undefined) {

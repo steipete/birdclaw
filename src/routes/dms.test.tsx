@@ -455,8 +455,96 @@ describe("dms route", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Sync DMs" }));
 
 		await waitFor(() => {
-			expect(syncBodies).toEqual([{ kind: "dms" }]);
+			expect(syncBodies).toEqual([
+				{ kind: "dms", inbox: "all", limit: 50, maxPages: 1 },
+			]);
 			expect(queryUrls.at(-1)?.searchParams.get("refresh")).toBe("1");
+		});
+	});
+
+	it("filters and syncs the selected dm inbox lane", async () => {
+		const queryUrls: URL[] = [];
+		const syncBodies: unknown[] = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/status")) {
+					return new Response(
+						JSON.stringify({
+							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
+							transport: { statusText: "local" },
+							accounts: [],
+							archives: [],
+						}),
+					);
+				}
+				if (url.includes("/api/query")) {
+					queryUrls.push(new URL(url));
+					return new Response(
+						JSON.stringify({
+							resource: "dms",
+							items: [
+								{
+									id: "dm_request",
+									title: "Request sender",
+									accountId: "acct_primary",
+									accountHandle: "@steipete",
+								},
+							],
+							selectedConversation: {
+								conversation: {
+									id: "dm_request",
+									title: "Request sender",
+									accountId: "acct_primary",
+									accountHandle: "@steipete",
+								},
+								messages: [],
+							},
+						}),
+					);
+				}
+				if (url.endsWith("/api/sync") && init?.body) {
+					syncBodies.push(JSON.parse(String(init.body)));
+					return new Response(
+						JSON.stringify({
+							id: "sync_dms_1",
+							kind: "dms",
+							status: "succeeded",
+							startedAt: "2026-05-15T12:00:00.000Z",
+							summary: "Synced 9 items",
+							inProgress: false,
+							result: {
+								ok: true,
+								kind: "dms",
+								summary: "Synced 9 items",
+								steps: [],
+							},
+						}),
+					);
+				}
+				throw new Error(`Unexpected fetch ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<DmsRoute />);
+
+		await screen.findByText("Request sender");
+		fireEvent.click(screen.getByRole("button", { name: "Requests" }));
+
+		await waitFor(() => {
+			expect(queryUrls.at(-1)?.searchParams.get("inbox")).toBe("requests");
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Sync DMs" }));
+
+		await waitFor(() => {
+			expect(syncBodies.at(-1)).toEqual({
+				kind: "dms",
+				inbox: "requests",
+				limit: 200,
+				maxPages: 3,
+			});
 		});
 	});
 

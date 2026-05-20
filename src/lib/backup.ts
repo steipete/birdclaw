@@ -341,8 +341,8 @@ function getExportRowSets(db: Database) {
 			rows: rowsForQuery(
 				db,
 				`
-        select id, account_id, participant_profile_id, title, last_message_at,
-          unread_count, needs_reply
+        select id, account_id, participant_profile_id, title, inbox_kind,
+          last_message_at, unread_count, needs_reply
         from dm_conversations
         order by last_message_at, id
         `,
@@ -1964,12 +1964,13 @@ export function importBackupEffect({
 					db,
 					`
       insert into dm_conversations (
-        id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
-      ) values (?, ?, ?, ?, ?, ?, ?)
+        id, account_id, participant_profile_id, title, inbox_kind, last_message_at, unread_count, needs_reply
+      ) values (?, ?, ?, ?, coalesce(?, 'accepted'), ?, ?, ?)
       on conflict(id) do update set
         account_id = coalesce(nullif(excluded.account_id, ''), dm_conversations.account_id),
         participant_profile_id = coalesce(nullif(excluded.participant_profile_id, ''), dm_conversations.participant_profile_id),
         title = coalesce(nullif(excluded.title, ''), dm_conversations.title),
+        inbox_kind = coalesce(nullif(excluded.inbox_kind, ''), dm_conversations.inbox_kind),
         last_message_at = max(dm_conversations.last_message_at, excluded.last_message_at),
         unread_count = max(dm_conversations.unread_count, excluded.unread_count),
         needs_reply = max(dm_conversations.needs_reply, excluded.needs_reply)
@@ -1980,6 +1981,7 @@ export function importBackupEffect({
 						"account_id",
 						"participant_profile_id",
 						"title",
+						"inbox_kind",
 						"last_message_at",
 						"unread_count",
 						"needs_reply",

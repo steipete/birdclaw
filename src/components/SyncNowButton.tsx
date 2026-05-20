@@ -3,7 +3,11 @@ import { useMemo, useState } from "react";
 import { postSync } from "#/lib/api-client";
 import type { AccountRecord } from "#/lib/types";
 import { cx, selectFieldClass } from "#/lib/ui";
-import type { WebSyncKind, WebSyncResponse } from "#/lib/web-sync";
+import type {
+	WebSyncKind,
+	WebSyncOptions,
+	WebSyncResponse,
+} from "#/lib/web-sync";
 import {
 	defaultAccountId as getDefaultAccountId,
 	setStoredAccountId,
@@ -16,6 +20,7 @@ interface SyncNowButtonProps {
 	accounts?: AccountRecord[];
 	onSynced: (result: WebSyncResponse) => void;
 	showAccountPicker?: boolean;
+	syncOptions?: WebSyncOptions;
 }
 
 export function SyncNowButton({
@@ -24,6 +29,7 @@ export function SyncNowButton({
 	accounts,
 	onSynced,
 	showAccountPicker = false,
+	syncOptions,
 }: SyncNowButtonProps) {
 	const [syncing, setSyncing] = useState(false);
 	const [message, setMessage] = useState<string | null>(null);
@@ -61,6 +67,7 @@ export function SyncNowButton({
 			const data = await postSync(
 				kind,
 				accountAwareSync ? accountId : undefined,
+				syncOptions,
 			);
 			if (!data.ok) throw new Error(data.summary);
 			setMessage(data.summary);

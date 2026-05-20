@@ -100,6 +100,8 @@ describe("cached live DMs", () => {
 						},
 					],
 					lastMessageAt: "2026-04-25T20:00:00.000Z",
+					inboxKind: "request",
+					isMessageRequest: true,
 				},
 			],
 			events: [
@@ -138,11 +140,22 @@ describe("cached live DMs", () => {
 				expect.objectContaining({
 					id: "25401953-42",
 					accountId: "acct_primary",
+					inboxKind: "request",
+					isMessageRequest: true,
 					needsReply: true,
 					participant: expect.objectContaining({
 						handle: "sam",
 						displayName: "Sam Altman",
 					}),
+				}),
+			]),
+		);
+		expect(listDmConversations({ inbox: "requests", limit: 10 })).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "25401953-42",
+					inboxKind: "request",
+					isMessageRequest: true,
 				}),
 			]),
 		);

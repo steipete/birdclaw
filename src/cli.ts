@@ -34,6 +34,7 @@ import {
 	installBookmarkSyncLaunchAgent,
 	runBookmarkSyncJob,
 } from "#/lib/bookmark-sync-job";
+import { runDirectMessageRequestMutationViaBird } from "#/lib/bird";
 import { importBlocklist } from "#/lib/blocklist";
 import {
 	type ActionsTransport,
@@ -71,6 +72,7 @@ import { resolveProfilesForIds } from "#/lib/profile-resolver";
 import { inspectProfileReplies } from "#/lib/profile-replies";
 import { runResearchMode } from "#/lib/research";
 import {
+	applyDmRequestMutationToLocalStore,
 	createDmReply,
 	createPost,
 	createTweetReply,
@@ -162,6 +164,25 @@ function parsePositiveIntegerOption(value: string | undefined, option: string) {
 		return undefined;
 	}
 	return parsed;
+}
+
+function parseDmInboxOption(
+	value: string | undefined,
+): "all" | "accepted" | "requests" | undefined {
+	const normalized = (value ?? "all").trim().toLowerCase();
+	if (
+		normalized === "all" ||
+		normalized === "accepted" ||
+		normalized === "requests"
+	) {
+		return normalized;
+	}
+	if (normalized === "request") {
+		return "requests";
+	}
+	printError("--inbox must be all, accepted, or requests");
+	process.exitCode = 1;
+	return undefined;
 }
 
 function parseArchiveImportSelect(value: string | undefined) {
@@ -507,6 +528,7 @@ searchCommand
 
 searchCommand
 	.command("dms <query>")
+	.option("--inbox <kind>", "all, accepted, or requests", "all")
 	.option("--participant <value>")
 	.option("--min-followers <n>", "Minimum sender follower count")
 	.option("--max-followers <n>", "Maximum sender follower count")
@@ -538,6 +560,10 @@ searchCommand
 		if (context === undefined) {
 			return;
 		}
+		const inbox = parseDmInboxOption(options.inbox);
+		if (inbox === undefined) {
+			return;
+		}
 		const replyFilter = options.replied
 			? "replied"
 			: options.unreplied
@@ -545,6 +571,7 @@ searchCommand
 				: "all";
 		const dmQuery = {
 			search: query,
+			...(inbox !== "all" ? { inbox } : {}),
 			participant: options.participant,
 			minFollowers: options.minFollowers
 				? Number(options.minFollowers)
@@ -1320,6 +1347,9 @@ dmsCommand
 	.option("--account <accountId>", "Account id")
 	.option("--refresh", "Refresh live DMs through bird before listing")
 	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
+	.option("--inbox <kind>", "all, accepted, or requests", "all")
+	.option("--max-pages <n>", "Additional accepted/request pages to sync", "0")
+	.option("--all-pages", "Fetch all accepted/request pages while syncing")
 	.option("--participant <value>")
 	.option("--min-followers <n>", "Minimum sender follower count")
 	.option("--max-followers <n>", "Maximum sender follower count")
@@ -1346,10 +1376,21 @@ dmsCommand
 			: options.unreplied
 				? "unreplied"
 				: "all";
+		const inbox = parseDmInboxOption(options.inbox);
+		const maxPages = parseNonNegativeIntegerOption(
+			options.maxPages,
+			"--max-pages",
+		);
+		if (inbox === undefined || maxPages === undefined) {
+			return;
+		}
 		if (options.refresh) {
 			await syncDirectMessagesViaCachedBird({
 				account: options.account,
 				limit: Number(options.limit),
+				...(inbox !== "all" ? { inbox } : {}),
+				...(maxPages > 0 ? { maxPages } : {}),
+				...(options.allPages ? { allPages: true } : {}),
 				refresh: true,
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
 			});
@@ -1360,6 +1401,7 @@ dmsCommand
 		const items = await enrichDmItems(
 			{
 				account: options.account,
+				...(inbox !== "all" ? { inbox } : {}),
 				participant: options.participant,
 				minFollowers: options.minFollowers
 					? Number(options.minFollowers)
@@ -1396,18 +1438,65 @@ dmsCommand
 	.description("Refresh live direct messages through bird into the local store")
 	.option("--account <accountId>", "Account id")
 	.option("--limit <n>", "Limit messages", "20")
+	.option("--inbox <kind>", "all, accepted, or requests", "all")
+	.option("--max-pages <n>", "Additional accepted/request pages to sync", "0")
+	.option("--all-pages", "Fetch all accepted/request pages")
 	.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 	.option("--refresh", "Bypass live-cache freshness window")
 	.action(async (options) => {
+		const inbox = parseDmInboxOption(options.inbox);
+		const maxPages = parseNonNegativeIntegerOption(
+			options.maxPages,
+			"--max-pages",
+		);
+		if (inbox === undefined || maxPages === undefined) {
+			return;
+		}
 		const result = await syncDirectMessagesViaCachedBird({
 			account: options.account,
 			limit: Number(options.limit),
+			...(inbox !== "all" ? { inbox } : {}),
+			...(maxPages > 0 ? { maxPages } : {}),
+			...(options.allPages ? { allPages: true } : {}),
 			refresh: Boolean(options.refresh),
 			cacheTtlMs: Number(options.cacheTtl) * 1000,
 		});
 		await autoSyncAfterWrite();
 		print(result, true);
 	});
+
+for (const action of ["accept", "reject", "block"] as const) {
+	const command = dmsCommand
+		.command(`${action} <conversationId>`)
+		.description(`${action} a live DM message request through bird`);
+	if (action === "block") {
+		command
+			.option("--max-pages <n>", "Additional timeline pages to search", "3")
+			.option("--all-pages", "Search all accepted/request timeline pages");
+	}
+	command.action(async (conversationId, options) => {
+		const maxPages =
+			action === "block"
+				? parseNonNegativeIntegerOption(options.maxPages, "--max-pages")
+				: undefined;
+		if (action === "block" && maxPages === undefined) {
+			return;
+		}
+		const result = await runDirectMessageRequestMutationViaBird({
+			action,
+			conversationId,
+			...(action === "block" && maxPages !== undefined ? { maxPages } : {}),
+			...(action === "block" && options.allPages ? { allPages: true } : {}),
+		});
+		if (result.success) {
+			applyDmRequestMutationToLocalStore(conversationId, action);
+		} else {
+			process.exitCode = 1;
+		}
+		await autoSyncAfterWrite();
+		print(result, true);
+	});
+}
 
 registerModerationCommands({
 	program,

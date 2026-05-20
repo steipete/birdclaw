@@ -37,6 +37,8 @@ const listTopFollowersMock = vi.fn();
 const listUnfollowedSinceMock = vi.fn();
 const listTimelineItemsMock = vi.fn();
 const listDmConversationsMock = vi.fn();
+const applyDmRequestMutationToLocalStoreMock = vi.fn();
+const runDirectMessageRequestMutationViaBirdMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
 const inspectProfileRepliesMock = vi.fn();
 const runResearchModeMock = vi.fn();
@@ -195,12 +197,19 @@ vi.mock("#/lib/authored-live", () => ({
 }));
 
 vi.mock("#/lib/queries", () => ({
+	applyDmRequestMutationToLocalStore: (...args: unknown[]) =>
+		applyDmRequestMutationToLocalStoreMock(...args),
 	getQueryEnvelope: () => getQueryEnvelopeMock(),
 	listTimelineItems: (...args: unknown[]) => listTimelineItemsMock(...args),
 	listDmConversations: (...args: unknown[]) => listDmConversationsMock(...args),
 	createPost: (...args: unknown[]) => createPostMock(...args),
 	createTweetReply: (...args: unknown[]) => createTweetReplyMock(...args),
 	createDmReply: (...args: unknown[]) => createDmReplyMock(...args),
+}));
+
+vi.mock("#/lib/bird", () => ({
+	runDirectMessageRequestMutationViaBird: (...args: unknown[]) =>
+		runDirectMessageRequestMutationViaBirdMock(...args),
 }));
 
 vi.mock("#/lib/timeline-collections-live", () => ({
@@ -266,6 +275,8 @@ describe("cli", () => {
 		listUnfollowedSinceMock.mockReset();
 		listTimelineItemsMock.mockReset();
 		listDmConversationsMock.mockReset();
+		applyDmRequestMutationToLocalStoreMock.mockReset();
+		runDirectMessageRequestMutationViaBirdMock.mockReset();
 		hydrateProfilesFromXMock.mockReset();
 		inspectProfileRepliesMock.mockReset();
 		runResearchModeMock.mockReset();
@@ -386,6 +397,10 @@ describe("cli", () => {
 		listUnfollowedSinceMock.mockReturnValue({ items: [] });
 		listTimelineItemsMock.mockReturnValue([{ id: "tweet_1" }]);
 		listDmConversationsMock.mockReturnValue([{ id: "dm_1" }]);
+		runDirectMessageRequestMutationViaBirdMock.mockResolvedValue({
+			success: true,
+			conversationId: "dm_1",
+		});
 		hydrateProfilesFromXMock.mockResolvedValue({
 			ok: true,
 			hydratedProfiles: 1,
@@ -1285,6 +1300,56 @@ describe("cli", () => {
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"saturated_at_page": 1'),
 		);
+	});
+
+	it("updates local DM request state after live mutations", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "dms", "accept", "dm_1"]);
+
+		expect(runDirectMessageRequestMutationViaBirdMock).toHaveBeenCalledWith({
+			action: "accept",
+			conversationId: "dm_1",
+		});
+		expect(applyDmRequestMutationToLocalStoreMock).toHaveBeenCalledWith(
+			"dm_1",
+			"accept",
+		);
+		expect(maybeAutoSyncBackupMock).toHaveBeenCalled();
+		expect(process.exitCode).toBeUndefined();
+	});
+
+	it("forwards DM block pagination options", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"dms",
+			"block",
+			"dm_1",
+			"--max-pages",
+			"8",
+		]);
+
+		expect(runDirectMessageRequestMutationViaBirdMock).toHaveBeenCalledWith({
+			action: "block",
+			conversationId: "dm_1",
+			maxPages: 8,
+		});
+	});
+
+	it("does not update local DM request state after failed live mutations", async () => {
+		runDirectMessageRequestMutationViaBirdMock.mockResolvedValueOnce({
+			success: false,
+			error: "nope",
+		});
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "dms", "reject", "dm_1"]);
+
+		expect(applyDmRequestMutationToLocalStoreMock).not.toHaveBeenCalled();
+		expect(process.exitCode).toBe(1);
 	});
 
 	it("dispatches follow graph sync and query commands", async () => {

@@ -54,10 +54,22 @@ export interface WebSyncJobSnapshot {
 	error?: string;
 }
 
+export type WebSyncDmInbox = "all" | "accepted" | "requests";
+
+export interface WebSyncOptions {
+	inbox?: WebSyncDmInbox;
+	limit?: number;
+	maxPages?: number;
+	allPages?: boolean;
+}
+
 interface WebSyncPlan {
 	label: string;
 	accountAware: boolean;
-	run: (accountId: string | undefined) => Effect.Effect<WebSyncStep[], unknown>;
+	run: (
+		accountId: string | undefined,
+		options: WebSyncOptions,
+	) => Effect.Effect<WebSyncStep[], unknown>;
 }
 
 const runningSyncs = new Map<string, WebSyncJobSnapshot>();
@@ -194,11 +206,19 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	dms: {
 		label: "Direct messages",
 		accountAware: false,
-		run: (account) =>
+		run: (account, options) =>
 			Effect.gen(function* () {
+				const inbox = options.inbox ?? "all";
 				const result = yield* syncDirectMessagesViaCachedBirdEffect({
 					account,
-					limit: 50,
+					inbox,
+					limit: options.limit ?? (inbox === "requests" ? 200 : 50),
+					...(options.maxPages !== undefined
+						? { maxPages: options.maxPages }
+						: {}),
+					...(options.allPages !== undefined
+						? { allPages: options.allPages }
+						: {}),
 					refresh: true,
 				});
 				return [
@@ -240,10 +260,14 @@ function syncSavedCollection(
 	});
 }
 
-export function performWebSyncEffect(kind: WebSyncKind, accountId?: string) {
+export function performWebSyncEffect(
+	kind: WebSyncKind,
+	accountId?: string,
+	options: WebSyncOptions = {},
+) {
 	return Effect.gen(function* () {
 		const startedAt = new Date().toISOString();
-		const steps = yield* WEB_SYNC_PLANS[kind].run(accountId);
+		const steps = yield* WEB_SYNC_PLANS[kind].run(accountId, options);
 
 		const backup = yield* maybeAutoSyncBackupEffect();
 		const finishedAt = new Date().toISOString();
@@ -291,9 +315,25 @@ function resolveDefaultSyncAccountId() {
 	}
 }
 
-function getRunningSyncKey(kind: WebSyncKind, accountId: string | undefined) {
+function serializeSyncOptions(kind: WebSyncKind, options: WebSyncOptions) {
+	if (kind !== "dms") return "";
+	const parts = [
+		options.inbox ?? "all",
+		options.limit ?? "",
+		options.maxPages ?? "",
+		options.allPages === undefined ? "" : String(options.allPages),
+	];
+	return parts.join(":");
+}
+
+function getRunningSyncKey(
+	kind: WebSyncKind,
+	accountId: string | undefined,
+	options: WebSyncOptions = {},
+) {
 	if (!WEB_SYNC_PLANS[kind].accountAware) {
-		return kind;
+		const optionKey = serializeSyncOptions(kind, options);
+		return optionKey ? `${kind}:${optionKey}` : kind;
 	}
 	return `${kind}:${accountId ?? resolveDefaultSyncAccountId()}`;
 }
@@ -352,9 +392,10 @@ function toFailedResponse(
 export function startWebSync(
 	kind: WebSyncKind,
 	accountId?: string,
+	options: WebSyncOptions = {},
 ): WebSyncJobSnapshot {
 	const effectiveAccountId = getEffectiveAccountId(kind, accountId);
-	const syncKey = getRunningSyncKey(kind, effectiveAccountId);
+	const syncKey = getRunningSyncKey(kind, effectiveAccountId, options);
 	const current = runningSyncs.get(syncKey);
 	if (current) {
 		return current;
@@ -373,7 +414,7 @@ export function startWebSync(
 	webSyncJobKeys.set(job.id, syncKey);
 	setJobSnapshot(job);
 
-	runEffectBackground(performWebSyncEffect(kind, effectiveAccountId), {
+	runEffectBackground(performWebSyncEffect(kind, effectiveAccountId, options), {
 		onSuccess: (result) => {
 			setJobSnapshot({
 				...job,
@@ -413,11 +454,12 @@ export function getWebSyncJob(id: string): WebSyncJobSnapshot | null {
 export function runWebSyncEffect(
 	kind: WebSyncKind,
 	accountId?: string,
+	options: WebSyncOptions = {},
 ): Effect.Effect<WebSyncResponse, Error> {
 	return Effect.gen(function* () {
 		const effectiveAccountId = getEffectiveAccountId(kind, accountId);
 		const current = runningSyncs.get(
-			getRunningSyncKey(kind, effectiveAccountId),
+			getRunningSyncKey(kind, effectiveAccountId, options),
 		);
 		const startedAt = new Date().toISOString();
 		if (current) {
@@ -432,7 +474,7 @@ export function runWebSyncEffect(
 			} satisfies WebSyncResponse;
 		}
 
-		const job = startWebSync(kind, effectiveAccountId);
+		const job = startWebSync(kind, effectiveAccountId, options);
 		while (job.inProgress) {
 			yield* Effect.sleep(25);
 			const latest = getWebSyncJob(job.id);
@@ -452,8 +494,9 @@ export function runWebSyncEffect(
 export function runWebSync(
 	kind: WebSyncKind,
 	accountId?: string,
+	options: WebSyncOptions = {},
 ): Promise<WebSyncResponse> {
-	return runEffectPromise(runWebSyncEffect(kind, accountId));
+	return runEffectPromise(runWebSyncEffect(kind, accountId, options));
 }
 
 export function clearWebSyncLocksForTests() {

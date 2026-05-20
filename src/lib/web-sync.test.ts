@@ -161,6 +161,35 @@ describe("web sync dispatcher", () => {
 		});
 	});
 
+	it("passes dm request sync options through to Bird", async () => {
+		syncDirectMessagesViaCachedBirdMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			conversations: 12,
+			messages: 34,
+		});
+
+		const result = await runWebSync("dms", undefined, {
+			inbox: "requests",
+			limit: 200,
+			maxPages: 3,
+		});
+
+		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith({
+			account: undefined,
+			inbox: "requests",
+			limit: 200,
+			maxPages: 3,
+			refresh: true,
+		});
+		expect(result).toMatchObject({
+			ok: true,
+			kind: "dms",
+			summary: "Synced 34 items",
+			steps: [{ kind: "dms", count: 34, source: "bird" }],
+		});
+	});
+
 	it("syncs mentions and then hydrates mention thread context", async () => {
 		syncMentionsMock.mockResolvedValue({
 			ok: true,

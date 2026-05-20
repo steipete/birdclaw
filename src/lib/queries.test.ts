@@ -8,6 +8,7 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listInboxItems } from "./inbox";
 import {
+	applyDmRequestMutationToLocalStore,
 	createDmReply,
 	createDmReplyEffect,
 	createPost,
@@ -195,6 +196,68 @@ describe("birdclaw queries", () => {
 		});
 
 		expect(filtered.map((item) => item.id)).toEqual(["dm_003"]);
+	});
+
+	it("filters DM conversations by accepted/request inbox", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			"update dm_conversations set inbox_kind = 'request' where id = ?",
+		).run("dm_003");
+
+		expect(
+			listDmConversations({ inbox: "requests" }).map((item) => item.id),
+		).toEqual(["dm_003"]);
+		expect(
+			listDmConversations({ inbox: "accepted" })
+				.map((item) => item.id)
+				.includes("dm_003"),
+		).toBe(false);
+		expect(listDmConversations({ inbox: "requests" })[0]).toMatchObject({
+			inboxKind: "request",
+			isMessageRequest: true,
+		});
+	});
+
+	it("applies live DM request mutations to the local store", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			"update dm_conversations set inbox_kind = 'request' where id = ?",
+		).run("dm_003");
+
+		expect(
+			applyDmRequestMutationToLocalStore("dm_003", "accept"),
+		).toBeGreaterThan(0);
+		expect(listDmConversations({ inbox: "requests" })).toHaveLength(0);
+		expect(listDmConversations({ inbox: "accepted" })).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "dm_003",
+					inboxKind: "accepted",
+					isMessageRequest: false,
+				}),
+			]),
+		);
+
+		db.prepare(
+			"update dm_conversations set inbox_kind = 'request' where id = ?",
+		).run("dm_003");
+		db.prepare(
+			"insert into sync_cache (cache_key, value_json, updated_at) values ('dms:bird:acct_primary:20:requests:max-pages:0', '{}', '2026-05-01T00:00:00.000Z')",
+		).run();
+
+		expect(
+			applyDmRequestMutationToLocalStore("dm_003", "reject"),
+		).toBeGreaterThan(0);
+		expect(getConversationThread("dm_003")).toBeNull();
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from sync_cache where cache_key like 'dms:bird:%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
 	});
 
 	it("filters DM conversations by participant, search, and upper bounds", () => {

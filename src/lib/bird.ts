@@ -63,6 +63,8 @@ export interface BirdDmEvent {
 	recipientId?: string;
 	sender?: BirdDmUser;
 	recipient?: BirdDmUser;
+	inboxKind?: "accepted" | "request";
+	isMessageRequest?: boolean;
 }
 
 export interface BirdDmConversation {
@@ -71,6 +73,8 @@ export interface BirdDmConversation {
 	messages: BirdDmEvent[];
 	lastMessageAt?: string;
 	lastMessagePreview?: string;
+	inboxKind?: "accepted" | "request";
+	isMessageRequest?: boolean;
 }
 
 export interface BirdDmsResponse {
@@ -78,6 +82,22 @@ export interface BirdDmsResponse {
 	conversations: BirdDmConversation[];
 	events: BirdDmEvent[];
 }
+
+export type BirdDmRequestAction = "accept" | "reject" | "block";
+
+export type BirdDmMutationResponse =
+	| {
+			success: true;
+			conversationId?: string;
+			userId?: string;
+			username?: string;
+			blockedUserId?: string;
+			blockedUsername?: string;
+	  }
+	| {
+			success: false;
+			error: string;
+	  };
 
 interface BirdUserOverviewPayload {
 	user?: {
@@ -263,6 +283,48 @@ export function runBirdJsonCommandEffect(args: string[], timeoutMs?: number) {
 						{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
 					),
 				catch: (error) => formatBirdCommandError(error, birdCommand),
+			});
+			return yield* Effect.try({
+				try: () => readFileSync(stdoutPath, "utf8"),
+				catch: (error) => error,
+			});
+		}),
+	);
+}
+
+function runBirdJsonCommandAllowFailureEffect(
+	args: string[],
+	timeoutMs?: number,
+) {
+	return Effect.scoped(
+		Effect.gen(function* () {
+			const birdCommand = yield* Effect.try({
+				try: () => getBirdCommand(),
+				catch: (error) =>
+					error instanceof Error ? error : new Error(String(error)),
+			});
+			const { stdoutPath } = yield* makeBirdStdoutTempEffect();
+			yield* Effect.tryPromise({
+				try: () =>
+					execFileAsync(
+						"/bin/bash",
+						[
+							"-c",
+							BIRD_STDOUT_REDIRECT_SCRIPT,
+							"birdclaw-bird",
+							stdoutPath,
+							birdCommand,
+							...args,
+						],
+						{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
+					).catch((error: unknown) => {
+						const stdout = readFileSync(stdoutPath, "utf8");
+						if (stdout.trim().length > 0) {
+							return { stdout: "", stderr: "" };
+						}
+						throw formatBirdCommandError(error, birdCommand);
+					}),
+				catch: (error) => error,
 			});
 			return yield* Effect.try({
 				try: () => readFileSync(stdoutPath, "utf8"),
@@ -698,16 +760,26 @@ function normalizeBirdDmsPayloadEffect(payload: unknown) {
 
 export function listDirectMessagesViaBirdEffect({
 	maxResults,
+	inbox = "all",
+	maxPages,
+	allPages = false,
 }: {
 	maxResults: number;
+	inbox?: "all" | "accepted" | "requests";
+	maxPages?: number;
+	allPages?: boolean;
 }): Effect.Effect<BirdDmsResponse, unknown> {
 	return Effect.gen(function* () {
-		const stdout = yield* runBirdJsonCommandEffect([
-			"dms",
-			"-n",
-			String(maxResults),
-			"--json",
-		]);
+		const args = ["dms", "-n", String(maxResults), "--json"];
+		if (inbox !== "all") {
+			args.push("--inbox", inbox);
+		}
+		if (allPages) {
+			args.push("--all-pages");
+		} else if (typeof maxPages === "number") {
+			args.push("--max-pages", String(maxPages));
+		}
+		const stdout = yield* runBirdJsonCommandEffect(args);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdDmsPayloadEffect(payload);
 	});
@@ -715,8 +787,61 @@ export function listDirectMessagesViaBirdEffect({
 
 export function listDirectMessagesViaBird(options: {
 	maxResults: number;
+	inbox?: "all" | "accepted" | "requests";
+	maxPages?: number;
+	allPages?: boolean;
 }): Promise<BirdDmsResponse> {
 	return runEffectPromise(listDirectMessagesViaBirdEffect(options));
+}
+
+export function runDirectMessageRequestMutationViaBirdEffect({
+	action,
+	conversationId,
+	maxPages,
+	allPages = false,
+}: {
+	action: BirdDmRequestAction;
+	conversationId: string;
+	maxPages?: number;
+	allPages?: boolean;
+}): Effect.Effect<BirdDmMutationResponse, unknown> {
+	return Effect.gen(function* () {
+		const command =
+			action === "accept"
+				? "dm-accept"
+				: action === "reject"
+					? "dm-reject"
+					: "dm-block";
+		const args = [command, conversationId, "--json"];
+		if (action === "block") {
+			if (allPages) {
+				args.push("--all-pages");
+			} else if (typeof maxPages === "number") {
+				args.push("--max-pages", String(maxPages));
+			}
+		}
+		const stdout = yield* runBirdJsonCommandAllowFailureEffect(args);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		if (
+			payload &&
+			typeof payload === "object" &&
+			typeof (payload as { success?: unknown }).success === "boolean"
+		) {
+			return payload as BirdDmMutationResponse;
+		}
+		throw new Error(`bird ${command} returned unexpected JSON`);
+	});
+}
+
+export function runDirectMessageRequestMutationViaBird(options: {
+	action: BirdDmRequestAction;
+	conversationId: string;
+	maxPages?: number;
+	allPages?: boolean;
+}): Promise<BirdDmMutationResponse> {
+	return runEffectPromise(
+		runDirectMessageRequestMutationViaBirdEffect(options),
+	);
 }
 
 export function lookupProfileViaBirdEffect(

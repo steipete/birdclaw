@@ -69,6 +69,55 @@ describe("SyncNowButton", () => {
 		expect(screen.getByText("Synced 12 items")).toBeInTheDocument();
 	});
 
+	it("includes dm sync options in the sync request", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "sync_dms_1",
+						kind: "dms",
+						status: "succeeded",
+						startedAt: "2026-05-15T12:00:00.000Z",
+						summary: "Synced 9 items",
+						inProgress: false,
+						result: {
+							ok: true,
+							kind: "dms",
+							summary: "Synced 9 items",
+							steps: [],
+						},
+					}),
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(
+			<SyncNowButton
+				kind="dms"
+				label="Sync DMs"
+				onSynced={vi.fn()}
+				syncOptions={{ inbox: "requests", limit: 200, maxPages: 3 }}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Sync DMs" }));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/sync",
+				expect.objectContaining({
+					method: "POST",
+					body: JSON.stringify({
+						kind: "dms",
+						inbox: "requests",
+						limit: 200,
+						maxPages: 3,
+					}),
+				}),
+			);
+		});
+	});
+
 	it("keeps an accessible label when the visible text is hidden", () => {
 		render(
 			<SyncNowButton

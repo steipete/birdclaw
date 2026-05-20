@@ -157,9 +157,9 @@ function seedBackupFixture() {
       ('tweet_unknown_date', 'Unknown creation date like');
 
     insert into dm_conversations (
-      id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
+      id, account_id, participant_profile_id, title, inbox_kind, last_message_at, unread_count, needs_reply
     ) values (
-      'dm:friend', 'acct_primary', 'profile_friend', 'Friend', '2025-01-05T10:00:00.000Z', 0, 1
+      'dm:friend', 'acct_primary', 'profile_friend', 'Friend', 'request', '2025-01-05T10:00:00.000Z', 0, 1
     );
 
     insert into dm_messages (
@@ -446,6 +446,9 @@ describe("text backup", () => {
 		expect(
 			readFileSync(path.join(repoPath, "data/profiles.jsonl"), "utf8"),
 		).toContain('"public_metrics_json"');
+		expect(
+			readFileSync(path.join(repoPath, "data/dms/conversations.jsonl"), "utf8"),
+		).toContain('"inbox_kind":"request"');
 		expect(existsSync(path.join(repoPath, "data/follow_snapshots.jsonl"))).toBe(
 			true,
 		);
@@ -501,6 +504,13 @@ describe("text backup", () => {
 				short_url: "https://t.co/shared",
 			},
 		]);
+		expect(
+			getNativeDb({ seedDemoData: false })
+				.prepare(
+					"select inbox_kind from dm_conversations where id = 'dm:friend'",
+				)
+				.get(),
+		).toEqual({ inbox_kind: "request" });
 		expect(
 			getNativeDb({ seedDemoData: false })
 				.prepare("select entities_json from tweets where id = 'tweet_2024'")

@@ -17,6 +17,9 @@ export const DEFAULT_DMS_CACHE_TTL_MS = 2 * 60_000;
 export interface SyncDirectMessagesViaCachedBirdOptions {
 	account?: string;
 	limit?: number;
+	inbox?: "all" | "accepted" | "requests";
+	maxPages?: number;
+	allPages?: boolean;
 	refresh?: boolean;
 	cacheTtlMs?: number;
 }
@@ -147,12 +150,13 @@ function mergeDirectMessagesIntoLocalStore(
 
 	const upsertConversation = db.prepare(`
     insert into dm_conversations (
-      id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply
-    ) values (?, ?, ?, ?, ?, 0, ?)
+      id, account_id, participant_profile_id, title, inbox_kind, last_message_at, unread_count, needs_reply
+    ) values (?, ?, ?, ?, ?, ?, 0, ?)
     on conflict(id) do update set
       account_id = excluded.account_id,
       participant_profile_id = excluded.participant_profile_id,
       title = excluded.title,
+      inbox_kind = excluded.inbox_kind,
       last_message_at = excluded.last_message_at,
       needs_reply = excluded.needs_reply
   `);
@@ -201,11 +205,15 @@ function mergeDirectMessagesIntoLocalStore(
 			const latestInbound =
 				latest?.senderId !== localExternalUserId &&
 				latest?.sender?.username !== accountUsername;
+			const inboxKind =
+				conversation.inboxKind ??
+				(conversation.isMessageRequest ? "request" : "accepted");
 			upsertConversation.run(
 				conversation.id,
 				accountId,
 				participantProfileId,
 				participant.username ?? participant.name ?? participant.id,
+				inboxKind,
 				lastMessageAt,
 				latestInbound ? 1 : 0,
 			);
@@ -242,6 +250,9 @@ function mergeDirectMessagesIntoLocalStore(
 export function syncDirectMessagesViaCachedBirdEffect({
 	account,
 	limit = 20,
+	inbox = "all",
+	maxPages,
+	allPages = false,
 	refresh = false,
 	cacheTtlMs,
 }: SyncDirectMessagesViaCachedBirdOptions = {}): Effect.Effect<
@@ -258,7 +269,10 @@ export function syncDirectMessagesViaCachedBirdEffect({
 		assertBirdLimit(limit);
 		const db = getNativeDb();
 		const resolvedAccount = resolveAccount(db, account);
-		const cacheKey = `dms:bird:${resolvedAccount.accountId}:${String(limit)}`;
+		const pageKey = allPages
+			? "all-pages"
+			: `max-pages:${String(maxPages ?? 0)}`;
+		const cacheKey = `dms:bird:${resolvedAccount.accountId}:${String(limit)}:${inbox}:${pageKey}`;
 		const ttlMs = parseCacheTtlMs(cacheTtlMs);
 		const cached = readSyncCache<{
 			conversations: BirdDmConversation[];
@@ -271,7 +285,12 @@ export function syncDirectMessagesViaCachedBirdEffect({
 		const payload =
 			!refresh && cached && cacheAgeMs <= ttlMs
 				? cached.value
-				: yield* listDirectMessagesViaBirdEffect({ maxResults: limit });
+				: yield* listDirectMessagesViaBirdEffect({
+						maxResults: limit,
+						...(inbox !== "all" ? { inbox } : {}),
+						...(typeof maxPages === "number" ? { maxPages } : {}),
+						...(allPages ? { allPages } : {}),
+					});
 
 		mergeDirectMessagesIntoLocalStore(
 			db,

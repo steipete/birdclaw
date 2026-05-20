@@ -337,6 +337,8 @@ export interface DmConversationItem {
 	accountHandle: string;
 	title: string;
 	searchSnippet?: string;
+	inboxKind?: "accepted" | "request";
+	isMessageRequest?: boolean;
 	lastMessageAt: string;
 	lastMessagePreview: string;
 	unreadCount: number;
@@ -366,6 +368,7 @@ export interface TimelineQuery {
 export interface DmQuery {
 	account?: string;
 	conversationIds?: string[];
+	inbox?: "all" | "accepted" | "requests";
 	participant?: string;
 	search?: string;
 	replyFilter?: ReplyFilter;

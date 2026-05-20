@@ -26,6 +26,16 @@ function mockBirdRejectOnce(error: Error & { stderr?: string }) {
 	});
 }
 
+function mockBirdRejectWithStdoutOnce(
+	stdout: string,
+	error: Error & { stderr?: string },
+) {
+	execFileAsyncMock.mockImplementationOnce(async (_command, args: string[]) => {
+		writeFileSync(args[3] ?? "", stdout);
+		throw error;
+	});
+}
+
 function expectBirdCommandCall(callNumber: number, args: string[]) {
 	const call = execFileAsyncMock.mock.calls[callNumber - 1];
 	expect(call).toBeDefined();
@@ -323,6 +333,75 @@ describe("bird transport wrapper", () => {
 			payload,
 		);
 		expectBirdCommandCall(1, ["dms", "-n", "5", "--json"]);
+	});
+
+	it("passes message-request DM paging options to bird", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		const payload = { success: true, conversations: [], events: [] };
+		mockBirdStdoutOnce(JSON.stringify(payload));
+
+		const { listDirectMessagesViaBird } = await import("./bird");
+
+		await expect(
+			listDirectMessagesViaBird({
+				maxResults: 50,
+				inbox: "requests",
+				maxPages: 2,
+			}),
+		).resolves.toEqual(payload);
+		expectBirdCommandCall(1, [
+			"dms",
+			"-n",
+			"50",
+			"--json",
+			"--inbox",
+			"requests",
+			"--max-pages",
+			"2",
+		]);
+	});
+
+	it("preserves structured JSON from failed bird DM mutations", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		const payload = { success: false, error: "not found" };
+		mockBirdRejectWithStdoutOnce(JSON.stringify(payload), new Error("exit 1"));
+
+		const { runDirectMessageRequestMutationViaBird } = await import("./bird");
+
+		await expect(
+			runDirectMessageRequestMutationViaBird({
+				action: "reject",
+				conversationId: "111-333",
+			}),
+		).resolves.toEqual(payload);
+		expectBirdCommandCall(1, ["dm-reject", "111-333", "--json"]);
+	});
+
+	it("passes pagination options to bird DM block mutations", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		const payload = {
+			success: true,
+			conversationId: "111-333",
+			blockedUserId: "333",
+		};
+		mockBirdStdoutOnce(JSON.stringify(payload));
+
+		const { runDirectMessageRequestMutationViaBird } = await import("./bird");
+
+		await expect(
+			runDirectMessageRequestMutationViaBird({
+				action: "block",
+				conversationId: "111-333",
+				maxPages: 8,
+			}),
+		).resolves.toEqual(payload);
+		expectBirdCommandCall(1, [
+			"dm-block",
+			"111-333",
+			"--json",
+			"--max-pages",
+			"8",
+		]);
 	});
 
 	it("maps bird likes and bookmarks json into xurl-compatible payloads", async () => {

@@ -44,7 +44,11 @@ describe("api sync route", () => {
 		});
 
 		expect(response.status).toBe(202);
-		expect(startWebSyncMock).toHaveBeenCalledWith("timeline", "acct_primary");
+		expect(startWebSyncMock).toHaveBeenCalledWith(
+			"timeline",
+			"acct_primary",
+			{},
+		);
 		expect(await response.json()).toMatchObject({
 			id: "sync_timeline_1",
 			accountId: "acct_primary",
@@ -74,6 +78,38 @@ describe("api sync route", () => {
 		expect(await response.json()).toMatchObject({
 			id: "sync_mentions_1",
 			inProgress: true,
+		});
+	});
+
+	it("passes supported dm sync options to the background job", async () => {
+		startWebSyncMock.mockReturnValue({
+			id: "sync_dms_1",
+			kind: "dms",
+			status: "running",
+			startedAt: "2026-05-15T12:00:00.000Z",
+			inProgress: true,
+			summary: "Syncing Direct messages",
+		});
+
+		const response = await POST({
+			request: new Request("http://localhost/api/sync", {
+				method: "POST",
+				body: JSON.stringify({
+					kind: "dms",
+					inbox: "requests",
+					limit: 200,
+					maxPages: 3,
+					allPages: false,
+				}),
+			}),
+		});
+
+		expect(response.status).toBe(202);
+		expect(startWebSyncMock).toHaveBeenCalledWith("dms", undefined, {
+			inbox: "requests",
+			limit: 200,
+			maxPages: 3,
+			allPages: false,
 		});
 	});
 
