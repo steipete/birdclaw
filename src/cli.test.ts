@@ -20,6 +20,10 @@ const syncMentionThreadsMock = vi.fn();
 const syncDirectMessagesViaCachedBirdMock = vi.fn();
 const resolveProfilesForIdsMock = vi.fn();
 const expandUrlsFromTextsMock = vi.fn();
+const searchLinksMock = vi.fn();
+const backfillLinkIndexMock = vi.fn();
+const fetchTweetMediaMock = vi.fn();
+const formatMediaFetchResultMock = vi.fn();
 const runWhoisMock = vi.fn();
 const formatWhoisMock = vi.fn();
 const listBlocksMock = vi.fn();
@@ -52,6 +56,10 @@ const removeBlockMock = vi.fn();
 const removeMuteMock = vi.fn();
 const maybeAutoUpdateBackupMock = vi.fn();
 const maybeAutoSyncBackupMock = vi.fn();
+const exportBackupMock = vi.fn();
+const importBackupMock = vi.fn();
+const syncBackupMock = vi.fn();
+const validateBackupMock = vi.fn();
 const packageVersion = (
 	JSON.parse(
 		readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -99,8 +107,12 @@ vi.mock("#/lib/backup", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("#/lib/backup")>();
 	return {
 		...actual,
+		exportBackup: (...args: unknown[]) => exportBackupMock(...args),
+		importBackup: (...args: unknown[]) => importBackupMock(...args),
 		maybeAutoUpdateBackup: () => maybeAutoUpdateBackupMock(),
 		maybeAutoSyncBackup: () => maybeAutoSyncBackupMock(),
+		syncBackup: (...args: unknown[]) => syncBackupMock(...args),
+		validateBackup: (...args: unknown[]) => validateBackupMock(...args),
 	};
 });
 
@@ -119,6 +131,17 @@ vi.mock("#/lib/blocks", () => ({
 vi.mock("#/lib/inbox", () => ({
 	listInboxItems: (...args: unknown[]) => listInboxItemsMock(...args),
 	scoreInbox: (...args: unknown[]) => scoreInboxMock(...args),
+}));
+
+vi.mock("#/lib/link-index", () => ({
+	backfillLinkIndex: (...args: unknown[]) => backfillLinkIndexMock(...args),
+	searchLinks: (...args: unknown[]) => searchLinksMock(...args),
+}));
+
+vi.mock("#/lib/media-fetch", () => ({
+	fetchTweetMedia: (...args: unknown[]) => fetchTweetMediaMock(...args),
+	formatMediaFetchResult: (...args: unknown[]) =>
+		formatMediaFetchResultMock(...args),
 }));
 
 vi.mock("#/lib/follow-graph", () => ({
@@ -258,6 +281,10 @@ describe("cli", () => {
 		syncDirectMessagesViaCachedBirdMock.mockReset();
 		resolveProfilesForIdsMock.mockReset();
 		expandUrlsFromTextsMock.mockReset();
+		searchLinksMock.mockReset();
+		backfillLinkIndexMock.mockReset();
+		fetchTweetMediaMock.mockReset();
+		formatMediaFetchResultMock.mockReset();
 		runWhoisMock.mockReset();
 		formatWhoisMock.mockReset();
 		listBlocksMock.mockReset();
@@ -290,6 +317,10 @@ describe("cli", () => {
 		removeMuteMock.mockReset();
 		maybeAutoUpdateBackupMock.mockReset();
 		maybeAutoSyncBackupMock.mockReset();
+		exportBackupMock.mockReset();
+		importBackupMock.mockReset();
+		syncBackupMock.mockReset();
+		validateBackupMock.mockReset();
 		spawnMock.mockReset();
 		execFileAsyncMock.mockReset();
 
@@ -371,6 +402,10 @@ describe("cli", () => {
 				updatedAt: "2026-05-01T00:00:00.000Z",
 			},
 		]);
+		searchLinksMock.mockReturnValue([]);
+		backfillLinkIndexMock.mockResolvedValue({ ok: true, indexed: 2 });
+		fetchTweetMediaMock.mockResolvedValue({ ok: true, fetched: 1 });
+		formatMediaFetchResultMock.mockReturnValue("fetched 1");
 		runWhoisMock.mockResolvedValue({
 			query: "blacksmith",
 			candidates: [],
@@ -461,6 +496,10 @@ describe("cli", () => {
 			enabled: false,
 			skipped: true,
 		});
+		exportBackupMock.mockResolvedValue({ ok: true, exported: 1 });
+		importBackupMock.mockResolvedValue({ ok: true, imported: 1 });
+		syncBackupMock.mockResolvedValue({ ok: true, synced: true });
+		validateBackupMock.mockResolvedValue({ ok: true });
 		execFileAsyncMock.mockRejectedValue(new Error("missing"));
 		spawnMock.mockReturnValue({
 			on: (_event: string, handler: (code: number) => void) => handler(0),
@@ -512,6 +551,304 @@ describe("cli", () => {
 			}),
 		);
 		expect(exitMock).toHaveBeenCalledWith(0);
+	});
+
+	it("dispatches link, media, and backup utility commands", async () => {
+		const { runCli } = await loadCli();
+		searchLinksMock
+			.mockReturnValueOnce([
+				{
+					occurrence: {
+						sourceKind: "dm",
+						direction: "inbound",
+						createdAt: "2026-05-01T00:00:00.000Z",
+						shortUrl: "https://t.co/a",
+					},
+					expansion: { finalUrl: "https://example.com/a" },
+					participant: { handle: "sam" },
+				},
+				{
+					occurrence: {
+						sourceKind: "tweet",
+						createdAt: "2026-05-02T00:00:00.000Z",
+						shortUrl: "https://t.co/b",
+					},
+					linkedTweet: {
+						id: "tweet_1",
+						text: "linked",
+						author: { handle: "des" },
+					},
+				},
+			])
+			.mockReturnValueOnce([])
+			.mockReturnValueOnce([]);
+		validateBackupMock.mockResolvedValueOnce({ ok: false });
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"ai",
+			"--account",
+			"acct_primary",
+			"--since",
+			"2026-01-01",
+			"--until",
+			"2026-05-01",
+			"--source",
+			"dm",
+			"--direction",
+			"inbound",
+			"--participant",
+			"sam",
+			"--media",
+			"image",
+			"--limit",
+			"7",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"search",
+			"links",
+			"ai",
+			"--source",
+			"tweet",
+			"--direction",
+			"outbound",
+			"--media",
+			"video",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"ai",
+			"--source",
+			"other",
+			"--direction",
+			"sideways",
+			"--media",
+			"audio",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"search",
+			"links",
+			"ai",
+			"--media",
+			"gif",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"links",
+			"backfill",
+			"--all-urls",
+			"--source",
+			"tweet",
+			"--refresh-url-cache",
+			"--limit",
+			"3",
+			"--concurrency",
+			"2",
+			"--timeout-ms",
+			"1000",
+		]);
+		await runCli(["node", "birdclaw", "links", "backfill", "--source", "dm"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"links",
+			"backfill",
+			"--source",
+			"other",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"media",
+			"fetch",
+			"--account",
+			"acct_primary",
+			"--limit",
+			"5",
+			"--kind",
+			"home",
+			"--since",
+			"2026-01-01",
+			"--parallel",
+			"2",
+			"--pacing-ms",
+			"10",
+			"--video-pacing-ms",
+			"20",
+			"--retry-max",
+			"4",
+			"--no-include-video",
+			"--max-bytes",
+			"1000",
+			"--dry-run",
+			"--json",
+		]);
+		await runCli(["node", "birdclaw", "media", "fetch"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"backup",
+			"export",
+			"--repo",
+			"/tmp/bak",
+			"--commit",
+			"--push",
+			"--message",
+			"sync backup",
+			"--no-validate",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"backup",
+			"export",
+			"--repo",
+			"/tmp/bak",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"backup",
+			"import",
+			"/tmp/bak",
+			"--replace",
+			"--no-validate",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"backup",
+			"sync",
+			"--repo",
+			"/tmp/bak",
+			"--remote",
+			"git@example.com:backup.git",
+			"--message",
+			"sync backup",
+		]);
+		await runCli(["node", "birdclaw", "backup", "validate", "/tmp/bak"]);
+		validateBackupMock.mockResolvedValueOnce({ ok: true });
+		await runCli(["node", "birdclaw", "backup", "validate", "/tmp/bak-ok"]);
+		await runCli(["node", "birdclaw", "media", "fetch", "--parallel", "0"]);
+
+		expect(searchLinksMock).toHaveBeenNthCalledWith(1, "ai", {
+			account: "acct_primary",
+			since: "2026-01-01",
+			until: "2026-05-01",
+			source: "dm",
+			direction: "inbound",
+			participant: "sam",
+			mediaType: "image",
+			limit: 7,
+		});
+		expect(searchLinksMock).toHaveBeenNthCalledWith(
+			2,
+			"ai",
+			expect.objectContaining({
+				source: "tweet",
+				direction: "outbound",
+				mediaType: "video",
+			}),
+		);
+		expect(searchLinksMock).toHaveBeenNthCalledWith(
+			3,
+			"ai",
+			expect.objectContaining({
+				source: undefined,
+				direction: undefined,
+				mediaType: undefined,
+			}),
+		);
+		expect(searchLinksMock).toHaveBeenNthCalledWith(
+			4,
+			"ai",
+			expect.objectContaining({ mediaType: "gif" }),
+		);
+		expect(backfillLinkIndexMock).toHaveBeenCalledWith({
+			includeAllUrls: true,
+			refresh: true,
+			source: "tweet",
+			limit: 3,
+			concurrency: 2,
+			timeoutMs: 1000,
+		});
+		expect(backfillLinkIndexMock).toHaveBeenCalledWith({
+			includeAllUrls: false,
+			refresh: false,
+			source: "dm",
+			limit: undefined,
+			concurrency: 12,
+			timeoutMs: 15000,
+		});
+		expect(backfillLinkIndexMock).toHaveBeenCalledWith(
+			expect.objectContaining({ source: undefined }),
+		);
+		expect(fetchTweetMediaMock).toHaveBeenCalledWith({
+			account: "acct_primary",
+			limit: 5,
+			kind: "home",
+			since: "2026-01-01",
+			parallel: 2,
+			pacingMs: 10,
+			videoPacingMs: 20,
+			retryMax: 4,
+			includeVideo: false,
+			maxBytes: 1000,
+			dryRun: true,
+		});
+		expect(fetchTweetMediaMock).toHaveBeenCalledWith({
+			account: undefined,
+			limit: undefined,
+			kind: undefined,
+			since: undefined,
+			parallel: 1,
+			pacingMs: 250,
+			videoPacingMs: undefined,
+			retryMax: 3,
+			includeVideo: true,
+			maxBytes: 104857600,
+			dryRun: false,
+		});
+		expect(exportBackupMock).toHaveBeenCalledWith({
+			repoPath: "/tmp/bak",
+			commit: true,
+			push: true,
+			message: "sync backup",
+			validate: false,
+		});
+		expect(exportBackupMock).toHaveBeenCalledWith({
+			repoPath: "/tmp/bak",
+			commit: false,
+			push: false,
+			message: "archive: update birdclaw backup",
+			validate: true,
+		});
+		expect(importBackupMock).toHaveBeenCalledWith({
+			repoPath: "/tmp/bak",
+			validate: false,
+			mode: "replace",
+		});
+		expect(syncBackupMock).toHaveBeenCalledWith({
+			repoPath: "/tmp/bak",
+			remote: "git@example.com:backup.git",
+			message: "sync backup",
+		});
+		expect(validateBackupMock).toHaveBeenCalledWith("/tmp/bak");
+		expect(validateBackupMock).toHaveBeenCalledWith("/tmp/bak-ok");
+		expect(process.exitCode).toBe(1);
 	});
 
 	it("prints tweet search snippets in json output", async () => {
@@ -1624,6 +1961,45 @@ describe("cli", () => {
 			"tweet_2",
 			"Reply text",
 		);
+	});
+
+	it("keeps legacy influence sort as a follower-count alias for DMs", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"dms",
+			"sam",
+			"--sort",
+			"influence",
+		]);
+		await runCli(["node", "birdclaw", "dms", "list", "--sort", "influence"]);
+
+		expect(listDmConversationsMock).toHaveBeenNthCalledWith(1, {
+			search: "sam",
+			participant: undefined,
+			minFollowers: undefined,
+			maxFollowers: undefined,
+			minInfluenceScore: undefined,
+			maxInfluenceScore: undefined,
+			sort: "followers",
+			replyFilter: "all",
+			context: 0,
+			limit: 20,
+		});
+		expect(listDmConversationsMock).toHaveBeenNthCalledWith(2, {
+			account: undefined,
+			participant: undefined,
+			minFollowers: undefined,
+			maxFollowers: undefined,
+			minInfluenceScore: undefined,
+			maxInfluenceScore: undefined,
+			sort: "followers",
+			replyFilter: "all",
+			limit: 20,
+		});
 	});
 
 	it("dispatches cached DM enrichment and whois commands", async () => {

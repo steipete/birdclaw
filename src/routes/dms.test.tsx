@@ -188,6 +188,12 @@ describe("dms route", () => {
 		await waitFor(() => {
 			expect(queryUrls.at(-1)?.searchParams.get("sort")).toBe("followers");
 		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Newest" }));
+
+		await waitFor(() => {
+			expect(queryUrls.at(-1)?.searchParams.get("sort")).toBe("recent");
+		});
 	});
 
 	it("restores dm draft and shows transport errors", async () => {

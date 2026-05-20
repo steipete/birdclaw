@@ -198,6 +198,17 @@ describe("birdclaw queries", () => {
 		expect(filtered.map((item) => item.id)).toEqual(["dm_003"]);
 	});
 
+	it("returns no DMs when max influence score is below the minimum follower score", () => {
+		setupTempHome();
+
+		const filtered = listDmConversations({
+			maxInfluenceScore: 10,
+			sort: "followers",
+		});
+
+		expect(filtered).toEqual([]);
+	});
+
 	it("filters DM conversations by accepted/request inbox", () => {
 		setupTempHome();
 		const db = getNativeDb();
