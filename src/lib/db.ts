@@ -993,11 +993,29 @@ export function getDb() {
 	return kyselyDb as Kysely<BirdclawDatabase>;
 }
 
-export function resetDatabaseForTests() {
-	kyselyDb?.destroy();
+export async function closeDatabase() {
+	const db = kyselyDb;
+	const native = nativeDb;
 	kyselyDb = undefined;
-
-	nativeDb?.close();
 	nativeDb = undefined;
 	demoSeedAttempted = false;
+
+	if (db) {
+		await db.destroy();
+	} else {
+		native?.close();
+	}
+}
+
+export function resetDatabaseForTests() {
+	const db = kyselyDb;
+	const native = nativeDb;
+	kyselyDb = undefined;
+	nativeDb = undefined;
+	demoSeedAttempted = false;
+	if (db) {
+		void db.destroy();
+	} else {
+		native?.close();
+	}
 }

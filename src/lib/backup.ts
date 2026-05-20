@@ -1970,7 +1970,11 @@ export function importBackupEffect({
         account_id = coalesce(nullif(excluded.account_id, ''), dm_conversations.account_id),
         participant_profile_id = coalesce(nullif(excluded.participant_profile_id, ''), dm_conversations.participant_profile_id),
         title = coalesce(nullif(excluded.title, ''), dm_conversations.title),
-        inbox_kind = coalesce(nullif(excluded.inbox_kind, ''), dm_conversations.inbox_kind),
+        inbox_kind = case
+          when excluded.last_message_at > dm_conversations.last_message_at
+            then coalesce(nullif(excluded.inbox_kind, ''), dm_conversations.inbox_kind)
+          else dm_conversations.inbox_kind
+        end,
         last_message_at = max(dm_conversations.last_message_at, excluded.last_message_at),
         unread_count = max(dm_conversations.unread_count, excluded.unread_count),
         needs_reply = max(dm_conversations.needs_reply, excluded.needs_reply)

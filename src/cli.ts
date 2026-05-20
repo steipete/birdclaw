@@ -42,6 +42,7 @@ import {
 	getBirdclawPaths,
 	resolveMentionsDataSource,
 } from "#/lib/config";
+import { closeDatabase } from "#/lib/db";
 import { syncDirectMessagesViaCachedBird } from "#/lib/dms-live";
 import { listInboxItems, scoreInbox } from "#/lib/inbox";
 import { backfillLinkIndex, searchLinks } from "#/lib/link-index";
@@ -1862,7 +1863,11 @@ program
 	});
 
 export async function runCli(argv = process.argv) {
-	await program.parseAsync(argv);
+	try {
+		await program.parseAsync(argv);
+	} finally {
+		await closeDatabase();
+	}
 }
 
 /* v8 ignore next 5 */

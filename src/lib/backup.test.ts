@@ -541,6 +541,35 @@ describe("text backup", () => {
 		expect(validation.ok).toBe(true);
 	}, 20000);
 
+	it("does not downgrade a fresh DM request when merging a stale backup", async () => {
+		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-dm-merge-");
+		seedBackupFixture();
+		const repoPath = makeTempDir("birdclaw-backup-dm-merge-repo-");
+		await exportBackup({ repoPath });
+
+		const conversationsPath = path.join(
+			repoPath,
+			"data/dms/conversations.jsonl",
+		);
+		writeFileSync(
+			conversationsPath,
+			readFileSync(conversationsPath, "utf8").replace(
+				'"inbox_kind":"request"',
+				'"inbox_kind":"accepted"',
+			),
+		);
+
+		await importBackup({ repoPath, validate: false });
+
+		expect(
+			getNativeDb({ seedDemoData: false })
+				.prepare(
+					"select inbox_kind from dm_conversations where id = 'dm:friend'",
+				)
+				.get(),
+		).toEqual({ inbox_kind: "request" });
+	});
+
 	it("merges backup rows without deleting local-only tweets", async () => {
 		process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-backup-src-");
 		seedBackupFixture();
