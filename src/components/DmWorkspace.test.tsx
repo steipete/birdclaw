@@ -129,6 +129,10 @@ describe("DmWorkspace", () => {
 		expect(screen.getAllByText("We replied").length).toBeGreaterThan(1);
 		expect(screen.getByText("@steipete")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Send reply" })).toBeDisabled();
-		expect(screen.getByText("done")).toBeInTheDocument();
+		const outboundMessage = screen.getByText("done");
+		expect(outboundMessage).toBeInTheDocument();
+		expect(outboundMessage).toHaveClass("bg-[var(--accent)]");
+		expect(outboundMessage).toHaveClass("text-[var(--accent-text)]");
+		expect(outboundMessage).not.toHaveClass("bg-[var(--bg-active)]");
 	});
 });

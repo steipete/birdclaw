@@ -274,10 +274,13 @@ export const dmMessageRowClass = "flex max-w-[78%] flex-col gap-1";
 export const dmMessageRowOutboundClass = "self-end items-end";
 
 export const dmMessageBubbleClass =
-	"rounded-2xl rounded-bl-md bg-[var(--bg-active)] px-3.5 py-2 text-[15px] leading-[1.4] text-[var(--ink)]";
+	"rounded-2xl rounded-bl-md px-3.5 py-2 text-[15px] leading-[1.4]";
+
+export const dmMessageBubbleInboundClass =
+	"bg-[var(--bg-active)] text-[var(--ink)]";
 
 export const dmMessageBubbleOutboundClass =
-	"rounded-bl-2xl rounded-br-md bg-[var(--accent)] text-white";
+	"rounded-bl-2xl rounded-br-md bg-[var(--accent)] text-[var(--accent-text)]";
 
 export const dmMessageMetaClass =
 	"flex items-center gap-2 text-[12px] text-[var(--ink-soft)]";
@@ -489,6 +492,8 @@ export const messageRowOutboundClass = dmMessageRowOutboundClass;
 export const messageMetaClass = dmMessageMetaClass;
 
 export const messageBubbleClass = dmMessageBubbleClass;
+
+export const messageBubbleInboundClass = dmMessageBubbleInboundClass;
 
 export const messageBubbleOutboundClass = dmMessageBubbleOutboundClass;
 

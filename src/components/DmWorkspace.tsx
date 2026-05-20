@@ -19,6 +19,7 @@ import {
 	dmListPreviewClass,
 	dmListTimestampClass,
 	dmMessageBubbleClass,
+	dmMessageBubbleInboundClass,
 	dmMessageBubbleOutboundClass,
 	dmMessageMetaClass,
 	dmMessageRowClass,
@@ -48,7 +49,7 @@ function MessageBubble({ message }: { message: DmMessageItem }) {
 			<div
 				className={cx(
 					dmMessageBubbleClass,
-					outbound && dmMessageBubbleOutboundClass,
+					outbound ? dmMessageBubbleOutboundClass : dmMessageBubbleInboundClass,
 				)}
 			>
 				{message.text}

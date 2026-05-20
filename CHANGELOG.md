@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- Keep outbound DM bubble text readable by separating inbound and outbound bubble color classes in the web UI.
 - Link AI digest tweet citations on readable text instead of leaking raw `tweet_...` ids when the model cites a local tweet by prefixed id.
 - Hydrate profile metadata for Today highlight tweets so real avatar images replace fallback initials after cached digest results render.
 - Allow trusted private-proxy web deployments to stream the AI digest remotely without a token, while keeping app-level token enforcement when configured and surfacing API error details in the Today view.
