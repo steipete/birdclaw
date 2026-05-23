@@ -8,6 +8,7 @@ import {
 	Inbox,
 	Link as LinkIcon,
 	Mail,
+	MessagesSquare,
 	ShieldOff,
 } from "lucide-react";
 import {
@@ -36,6 +37,7 @@ import { ThemeSlider } from "./ThemeSlider";
 const links = [
 	{ to: "/inbox", label: "Inbox", icon: Inbox },
 	{ to: "/today", label: "Today", icon: CalendarDays },
+	{ to: "/discuss", label: "Discuss", icon: MessagesSquare },
 	{ to: "/", label: "Home", icon: Home },
 	{ to: "/mentions", label: "Mentions", icon: Bell },
 	{ to: "/likes", label: "Likes", icon: Heart },

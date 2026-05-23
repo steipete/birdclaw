@@ -76,6 +76,11 @@ import { resolveProfilesForIds } from "#/lib/profile-resolver";
 import { inspectProfileReplies } from "#/lib/profile-replies";
 import { runResearchMode } from "#/lib/research";
 import {
+	streamSearchDiscussion,
+	type SearchDiscussionOptions,
+	type SearchDiscussionSource,
+} from "#/lib/search-discussion";
+import {
 	applyDmRequestMutationToLocalStore,
 	createDmReply,
 	createPost,
@@ -307,6 +312,110 @@ function buildDigestOptions(
 function runDigestCli(options: PeriodDigestOptions) {
 	const asJson = Boolean(program.opts().json);
 	return streamPeriodDigest(options, {
+		onDelta: asJson
+			? undefined
+			: (delta) => {
+					process.stdout.write(delta);
+				},
+	}).then((result) => {
+		if (asJson) {
+			print(result, true);
+			return;
+		}
+		if (!result.markdown.endsWith("\n")) {
+			process.stdout.write("\n");
+		}
+	});
+}
+
+function parseSearchDiscussionSource(
+	value: string | undefined,
+): SearchDiscussionSource | undefined {
+	const normalized = (value ?? "all").trim().toLowerCase();
+	if (
+		normalized === "all" ||
+		normalized === "home" ||
+		normalized === "mentions" ||
+		normalized === "authored" ||
+		normalized === "search" ||
+		normalized === "likes" ||
+		normalized === "bookmarks"
+	) {
+		return normalized;
+	}
+	printError(
+		"--source must be all, search, home, mentions, authored, likes, or bookmarks",
+	);
+	process.exitCode = 1;
+	return undefined;
+}
+
+function parseTweetSearchMode(value: string | undefined) {
+	const normalized = (value ?? "auto").trim().toLowerCase();
+	if (
+		normalized === "auto" ||
+		normalized === "bird" ||
+		normalized === "xurl" ||
+		normalized === "local"
+	) {
+		return normalized;
+	}
+	printError("--mode must be auto, bird, xurl, or local");
+	process.exitCode = 1;
+	return undefined;
+}
+
+function buildSearchDiscussionOptions(
+	query: string,
+	options: {
+		account?: string;
+		source?: string;
+		includeDms?: boolean;
+		since?: string;
+		until?: string;
+		question?: string;
+		originalsOnly?: boolean;
+		hideLowQuality?: boolean;
+		mode?: string;
+		model?: string;
+		refresh?: boolean;
+		limit?: string;
+		maxPages?: string;
+	},
+): SearchDiscussionOptions | null {
+	const source = parseSearchDiscussionSource(options.source);
+	if (!source) return null;
+	const mode = parseTweetSearchMode(options.mode);
+	if (!mode) return null;
+	const limit = parsePositiveIntegerOption(options.limit, "--limit");
+	if (options.limit !== undefined && limit === undefined) {
+		return null;
+	}
+	const maxPages = parsePositiveIntegerOption(options.maxPages, "--max-pages");
+	if (options.maxPages !== undefined && maxPages === undefined) {
+		return null;
+	}
+	return {
+		query,
+		account: options.account,
+		source,
+		includeDms: Boolean(options.includeDms),
+		since: options.since,
+		until: options.until,
+		question: options.question,
+		originalsOnly: Boolean(options.originalsOnly),
+		hideLowQuality: Boolean(options.hideLowQuality),
+		mode,
+		model: options.model,
+		refresh: Boolean(options.refresh),
+		limit,
+		maxPages,
+	};
+}
+
+function runSearchDiscussionCli(options: SearchDiscussionOptions) {
+	const asJson = Boolean(program.opts().json);
+	return streamSearchDiscussion(options, {
 		onDelta: asJson
 			? undefined
 			: (delta) => {
@@ -855,6 +964,33 @@ program
 			program.opts().json ? report : report.markdown,
 			program.opts().json ?? false,
 		);
+	});
+
+program
+	.command("discuss <query>")
+	.description("Search live/local tweets and summarize the results with AI")
+	.option("--account <accountId>", "Account id")
+	.option(
+		"--source <source>",
+		"all, search, home, mentions, authored, likes, or bookmarks",
+		"search",
+	)
+	.option("--mode <mode>", "auto, bird, xurl, or local", "auto")
+	.option("--include-dms", "Include private DM search matches")
+	.option("--since <isoDate>", "Include matches created at or after this date")
+	.option("--until <isoDate>", "Include matches created before this date")
+	.option("--question <prompt>", "Discussion question or angle")
+	.option("--originals-only", "Exclude authored replies that start with @")
+	.option("--hide-low-quality", "Hide RTs, tiny replies, and link-only noise")
+	.option("--model <model>", "OpenAI model id")
+	.option("--refresh", "Bypass the local discussion cache")
+	.option("--limit <n>", "Maximum tweet context", "500")
+	.option("--max-pages <n>", "Maximum live search pages", "5")
+	.action(async (query, options) => {
+		await autoUpdateBeforeRead();
+		const discussionOptions = buildSearchDiscussionOptions(query, options);
+		if (!discussionOptions) return;
+		await runSearchDiscussionCli(discussionOptions);
 	});
 
 program

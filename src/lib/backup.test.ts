@@ -149,7 +149,8 @@ function seedBackupFixture() {
       account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count, source,
       raw_json, updated_at
     ) values
-      ('acct_primary', 'tweet_2024', 'home', '2024-12-31T23:59:00.000Z', '2024-12-31T23:59:00.000Z', 1, 'archive', '{}', '2025-01-03T00:00:00.000Z');
+      ('acct_primary', 'tweet_2024', 'home', '2024-12-31T23:59:00.000Z', '2024-12-31T23:59:00.000Z', 1, 'archive', '{}', '2025-01-03T00:00:00.000Z'),
+      ('acct_primary', 'tweet_2025', 'search', '2025-01-02T09:00:00.000Z', '2025-01-02T09:00:00.000Z', 1, 'bird', '{"query":"useful"}', '2025-01-03T00:00:00.000Z');
 
     insert into tweets_fts (tweet_id, text) values
       ('tweet_2024', 'Shipping text backups'),
@@ -403,6 +404,7 @@ describe("text backup", () => {
 			profile_bio_entities: 2,
 			tweets: 3,
 			timeline_edges_home: 1,
+			timeline_edges_search: 1,
 			collections_bookmarks: 1,
 			collections_likes: 2,
 			dm_conversations: 1,
@@ -437,6 +439,12 @@ describe("text backup", () => {
 		expect(
 			readFileSync(path.join(repoPath, "data/tweets/2025.jsonl"), "utf8"),
 		).toContain('"bookmarked":1');
+		expect(
+			readFileSync(
+				path.join(repoPath, "data/timeline_edges/search.jsonl"),
+				"utf8",
+			),
+		).toContain('"kind":"search"');
 		expect(
 			readFileSync(
 				path.join(repoPath, "data/links/url_expansions.jsonl"),
@@ -519,6 +527,13 @@ describe("text backup", () => {
 			entities_json:
 				'{"hashtags":[{"text":"backup"}],"urls":[{"url":"https://t.co/shared","expandedUrl":"https://example.com/demo","displayUrl":"example.com/demo","start":22,"end":41}]}',
 		});
+		expect(
+			getNativeDb({ seedDemoData: false })
+				.prepare(
+					"select kind, source from tweet_account_edges where tweet_id = 'tweet_2025' and kind = 'search'",
+				)
+				.get(),
+		).toEqual({ kind: "search", source: "bird" });
 		expect(
 			getNativeDb({ seedDemoData: false })
 				.prepare(

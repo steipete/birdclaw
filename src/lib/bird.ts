@@ -566,6 +566,39 @@ export function listBookmarkedTweetsViaBird(options: {
 	return runEffectPromise(listBookmarkedTweetsViaBirdEffect(options));
 }
 
+export function searchTweetsViaBirdEffect(
+	query: string,
+	options: {
+		maxResults: number;
+		all?: boolean;
+		maxPages?: number;
+	},
+): Effect.Effect<XurlMentionsResponse, unknown> {
+	return Effect.gen(function* () {
+		const args = ["search", query, "-n", String(options.maxResults), "--json"];
+		if (options.all) {
+			args.push("--all");
+		}
+		if (options.all && options.maxPages !== undefined) {
+			args.push("--max-pages", String(options.maxPages));
+		}
+		const stdout = yield* runBirdJsonCommandEffect(args);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdTweetsPayloadEffect(payload, "search");
+	});
+}
+
+export function searchTweetsViaBird(
+	query: string,
+	options: {
+		maxResults: number;
+		all?: boolean;
+		maxPages?: number;
+	},
+): Promise<XurlMentionsResponse> {
+	return runEffectPromise(searchTweetsViaBirdEffect(query, options));
+}
+
 export function lookupTweetsByIdsViaBirdEffect(
 	ids: string[],
 ): Effect.Effect<XurlTweetsResponse, unknown> {

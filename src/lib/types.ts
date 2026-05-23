@@ -1,4 +1,4 @@
-export type ResourceKind = "home" | "mentions" | "authored" | "dms";
+export type ResourceKind = "home" | "mentions" | "authored" | "search" | "dms";
 export type InboxKind = "mixed" | "mentions" | "dms";
 
 export type ReplyFilter = "all" | "replied" | "unreplied";
@@ -165,7 +165,7 @@ export interface TimelineItem {
 	id: string;
 	accountId: string;
 	accountHandle: string;
-	kind: "home" | "mention" | "authored" | "like" | "bookmark";
+	kind: "home" | "mention" | "authored" | "search" | "like" | "bookmark";
 	text: string;
 	searchSnippet?: string;
 	createdAt: string;

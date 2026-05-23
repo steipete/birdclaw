@@ -15,11 +15,13 @@ import { Route as LinksRouteImport } from './routes/links'
 import { Route as LikesRouteImport } from './routes/likes'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as DmsRouteImport } from './routes/dms'
+import { Route as DiscussRouteImport } from './routes/discuss'
 import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as BlocksRouteImport } from './routes/blocks'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiSyncRouteImport } from './routes/api/sync'
 import { Route as ApiStatusRouteImport } from './routes/api/status'
+import { Route as ApiSearchDiscussionRouteImport } from './routes/api/search-discussion'
 import { Route as ApiQueryRouteImport } from './routes/api/query'
 import { Route as ApiProfileHydrateRouteImport } from './routes/api/profile-hydrate'
 import { Route as ApiPeriodDigestRouteImport } from './routes/api/period-digest'
@@ -61,6 +63,11 @@ const DmsRoute = DmsRouteImport.update({
   path: '/dms',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DiscussRoute = DiscussRouteImport.update({
+  id: '/discuss',
+  path: '/discuss',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BookmarksRoute = BookmarksRouteImport.update({
   id: '/bookmarks',
   path: '/bookmarks',
@@ -84,6 +91,11 @@ const ApiSyncRoute = ApiSyncRouteImport.update({
 const ApiStatusRoute = ApiStatusRouteImport.update({
   id: '/api/status',
   path: '/api/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSearchDiscussionRoute = ApiSearchDiscussionRouteImport.update({
+  id: '/api/search-discussion',
+  path: '/api/search-discussion',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiQueryRoute = ApiQueryRouteImport.update({
@@ -141,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/blocks': typeof BlocksRoute
   '/bookmarks': typeof BookmarksRoute
+  '/discuss': typeof DiscussRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
   '/likes': typeof LikesRoute
@@ -157,6 +170,7 @@ export interface FileRoutesByFullPath {
   '/api/period-digest': typeof ApiPeriodDigestRoute
   '/api/profile-hydrate': typeof ApiProfileHydrateRoute
   '/api/query': typeof ApiQueryRoute
+  '/api/search-discussion': typeof ApiSearchDiscussionRoute
   '/api/status': typeof ApiStatusRoute
   '/api/sync': typeof ApiSyncRoute
 }
@@ -164,6 +178,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/blocks': typeof BlocksRoute
   '/bookmarks': typeof BookmarksRoute
+  '/discuss': typeof DiscussRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
   '/likes': typeof LikesRoute
@@ -180,6 +195,7 @@ export interface FileRoutesByTo {
   '/api/period-digest': typeof ApiPeriodDigestRoute
   '/api/profile-hydrate': typeof ApiProfileHydrateRoute
   '/api/query': typeof ApiQueryRoute
+  '/api/search-discussion': typeof ApiSearchDiscussionRoute
   '/api/status': typeof ApiStatusRoute
   '/api/sync': typeof ApiSyncRoute
 }
@@ -188,6 +204,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/blocks': typeof BlocksRoute
   '/bookmarks': typeof BookmarksRoute
+  '/discuss': typeof DiscussRoute
   '/dms': typeof DmsRoute
   '/inbox': typeof InboxRoute
   '/likes': typeof LikesRoute
@@ -204,6 +221,7 @@ export interface FileRoutesById {
   '/api/period-digest': typeof ApiPeriodDigestRoute
   '/api/profile-hydrate': typeof ApiProfileHydrateRoute
   '/api/query': typeof ApiQueryRoute
+  '/api/search-discussion': typeof ApiSearchDiscussionRoute
   '/api/status': typeof ApiStatusRoute
   '/api/sync': typeof ApiSyncRoute
 }
@@ -213,6 +231,7 @@ export interface FileRouteTypes {
     | '/'
     | '/blocks'
     | '/bookmarks'
+    | '/discuss'
     | '/dms'
     | '/inbox'
     | '/likes'
@@ -229,6 +248,7 @@ export interface FileRouteTypes {
     | '/api/period-digest'
     | '/api/profile-hydrate'
     | '/api/query'
+    | '/api/search-discussion'
     | '/api/status'
     | '/api/sync'
   fileRoutesByTo: FileRoutesByTo
@@ -236,6 +256,7 @@ export interface FileRouteTypes {
     | '/'
     | '/blocks'
     | '/bookmarks'
+    | '/discuss'
     | '/dms'
     | '/inbox'
     | '/likes'
@@ -252,6 +273,7 @@ export interface FileRouteTypes {
     | '/api/period-digest'
     | '/api/profile-hydrate'
     | '/api/query'
+    | '/api/search-discussion'
     | '/api/status'
     | '/api/sync'
   id:
@@ -259,6 +281,7 @@ export interface FileRouteTypes {
     | '/'
     | '/blocks'
     | '/bookmarks'
+    | '/discuss'
     | '/dms'
     | '/inbox'
     | '/likes'
@@ -275,6 +298,7 @@ export interface FileRouteTypes {
     | '/api/period-digest'
     | '/api/profile-hydrate'
     | '/api/query'
+    | '/api/search-discussion'
     | '/api/status'
     | '/api/sync'
   fileRoutesById: FileRoutesById
@@ -283,6 +307,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BlocksRoute: typeof BlocksRoute
   BookmarksRoute: typeof BookmarksRoute
+  DiscussRoute: typeof DiscussRoute
   DmsRoute: typeof DmsRoute
   InboxRoute: typeof InboxRoute
   LikesRoute: typeof LikesRoute
@@ -299,6 +324,7 @@ export interface RootRouteChildren {
   ApiPeriodDigestRoute: typeof ApiPeriodDigestRoute
   ApiProfileHydrateRoute: typeof ApiProfileHydrateRoute
   ApiQueryRoute: typeof ApiQueryRoute
+  ApiSearchDiscussionRoute: typeof ApiSearchDiscussionRoute
   ApiStatusRoute: typeof ApiStatusRoute
   ApiSyncRoute: typeof ApiSyncRoute
 }
@@ -347,6 +373,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DmsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/discuss': {
+      id: '/discuss'
+      path: '/discuss'
+      fullPath: '/discuss'
+      preLoaderRoute: typeof DiscussRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/bookmarks': {
       id: '/bookmarks'
       path: '/bookmarks'
@@ -380,6 +413,13 @@ declare module '@tanstack/react-router' {
       path: '/api/status'
       fullPath: '/api/status'
       preLoaderRoute: typeof ApiStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/search-discussion': {
+      id: '/api/search-discussion'
+      path: '/api/search-discussion'
+      fullPath: '/api/search-discussion'
+      preLoaderRoute: typeof ApiSearchDiscussionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/query': {
@@ -459,6 +499,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BlocksRoute: BlocksRoute,
   BookmarksRoute: BookmarksRoute,
+  DiscussRoute: DiscussRoute,
   DmsRoute: DmsRoute,
   InboxRoute: InboxRoute,
   LikesRoute: LikesRoute,
@@ -475,6 +516,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPeriodDigestRoute: ApiPeriodDigestRoute,
   ApiProfileHydrateRoute: ApiProfileHydrateRoute,
   ApiQueryRoute: ApiQueryRoute,
+  ApiSearchDiscussionRoute: ApiSearchDiscussionRoute,
   ApiStatusRoute: ApiStatusRoute,
   ApiSyncRoute: ApiSyncRoute,
 }

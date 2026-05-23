@@ -2,6 +2,10 @@
 
 ## 0.6.1 - Unreleased
 
+### Added
+
+- Add `birdclaw discuss <query>` and a Discuss web view for live keyword search via `bird`/`xurl`, persisted search-result tweets, and streaming OpenAI summaries with optional private DM context.
+
 ## 0.6.0 - 2026-05-22
 
 ### Added

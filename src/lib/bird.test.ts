@@ -174,6 +174,44 @@ describe("bird transport wrapper", () => {
 		expectBirdCommandCall(1, ["mentions", "-n", "3", "--json"]);
 	});
 
+	it("omits max-pages for single-page bird search", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdStdoutOnce("[]");
+		mockBirdStdoutOnce("[]");
+		const { searchTweetsViaBird } = await import("./bird");
+
+		await expect(
+			searchTweetsViaBird("ChatGPT", { maxResults: 5, maxPages: 1 }),
+		).resolves.toEqual({
+			data: [],
+			includes: undefined,
+			meta: {
+				result_count: 0,
+				page_count: 1,
+				next_token: null,
+				newest_id: undefined,
+				oldest_id: undefined,
+			},
+		});
+		expectBirdCommandCall(1, ["search", "ChatGPT", "-n", "5", "--json"]);
+
+		await searchTweetsViaBird("ChatGPT", {
+			maxResults: 5,
+			all: true,
+			maxPages: 2,
+		});
+		expectBirdCommandCall(2, [
+			"search",
+			"ChatGPT",
+			"-n",
+			"5",
+			"--json",
+			"--all",
+			"--max-pages",
+			"2",
+		]);
+	});
+
 	it("maps mention fallbacks and empty mention payloads", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
 		mockBirdStdoutOnce(

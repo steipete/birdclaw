@@ -1028,6 +1028,46 @@ export function searchRecentByConversationId(
 	);
 }
 
+export function searchRecentTweetsEffect(
+	searchQuery: string,
+	{
+		maxResults,
+		paginationToken,
+		timeoutMs,
+	}: {
+		maxResults: number;
+		paginationToken?: string;
+		timeoutMs?: number;
+	},
+): Effect.Effect<XurlTweetsResponse, Error> {
+	const query = new URLSearchParams({
+		query: searchQuery,
+		max_results: String(maxResults),
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
+		"tweet.fields": THREAD_TWEET_FIELDS,
+		"media.fields": MEDIA_FIELDS,
+		"user.fields": RICH_USER_FIELDS,
+	});
+	if (paginationToken) {
+		query.set("pagination_token", paginationToken);
+	}
+
+	return runJsonCommandEffect([`/2/tweets/search/recent?${query.toString()}`], {
+		timeoutMs,
+	}).pipe(Effect.map(toXurlTweetsResponse));
+}
+
+export function searchRecentTweets(
+	searchQuery: string,
+	options: {
+		maxResults: number;
+		paginationToken?: string;
+		timeoutMs?: number;
+	},
+): Promise<XurlTweetsResponse> {
+	return runEffectPromise(searchRecentTweetsEffect(searchQuery, options));
+}
+
 export function getTweetByIdEffect(
 	id: string,
 	{ timeoutMs }: { timeoutMs?: number } = {},

@@ -4,6 +4,7 @@ export type TweetAccountEdgeKind =
 	| "home"
 	| "mention"
 	| "authored"
+	| "search"
 	| "thread_context";
 
 export function upsertTweetAccountEdge(

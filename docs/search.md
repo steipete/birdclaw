@@ -109,6 +109,22 @@ birdclaw whois "github guy" --current-affiliation github --exclude-domain-only
 birdclaw whois github --affiliation github --no-xurl-fallback --json
 ```
 
+## Discuss Search Results
+
+```bash
+birdclaw discuss "local-first" --mode bird
+birdclaw discuss "sync engine" --question "what changed over time?"
+birdclaw discuss "prototype" --include-dms --limit 500 --max-pages 5 --json
+```
+
+`birdclaw discuss` runs live keyword search through `bird` first, falls back to
+`xurl` in `auto` mode, stores matched tweets as local `search` rows/edges, then
+streams an OpenAI Markdown summary and discussion over that context. It uses the
+same Responses API defaults as `birdclaw digest`: `gpt-5.5`, medium reasoning,
+priority service tier, and a local context cache. DMs are excluded unless
+`--include-dms` is set. Use `--mode local` to discuss only previously stored
+matches.
+
 ## Snippets
 
 FTS5 snippets are returned with `<mark>` boundaries pre-rendered for the web UI. The CLI prints them as plain text in human mode and as `snippet`/`snippetHtml` fields in `--json` mode.

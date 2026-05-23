@@ -47,6 +47,7 @@ const hydrateProfilesFromXMock = vi.fn();
 const inspectProfileRepliesMock = vi.fn();
 const runResearchModeMock = vi.fn();
 const streamPeriodDigestMock = vi.fn();
+const streamSearchDiscussionMock = vi.fn();
 const syncAuthoredTweetsMock = vi.fn();
 const syncTimelineCollectionMock = vi.fn();
 const createPostMock = vi.fn();
@@ -207,6 +208,11 @@ vi.mock("#/lib/period-digest", () => ({
 	streamPeriodDigest: (...args: unknown[]) => streamPeriodDigestMock(...args),
 }));
 
+vi.mock("#/lib/search-discussion", () => ({
+	streamSearchDiscussion: (...args: unknown[]) =>
+		streamSearchDiscussionMock(...args),
+}));
+
 vi.mock("#/lib/authored-live", () => ({
 	AuthoredSyncError: class AuthoredSyncError extends Error {
 		constructor(
@@ -308,6 +314,7 @@ describe("cli", () => {
 		inspectProfileRepliesMock.mockReset();
 		runResearchModeMock.mockReset();
 		streamPeriodDigestMock.mockReset();
+		streamSearchDiscussionMock.mockReset();
 		syncAuthoredTweetsMock.mockReset();
 		syncTimelineCollectionMock.mockReset();
 		createPostMock.mockReset();
@@ -459,6 +466,16 @@ describe("cli", () => {
 			context: { counts: {}, includeDms: false },
 			digest: { actionItems: [] },
 			markdown: "# Today\n",
+			model: "gpt-5.5",
+			reasoningEffort: "medium",
+			serviceTier: "priority",
+			cached: false,
+			updatedAt: "2026-05-16T12:00:00.000Z",
+		});
+		streamSearchDiscussionMock.mockResolvedValue({
+			context: { counts: {}, includeDms: false },
+			discussion: { themes: [] },
+			markdown: "# Search discussion\n",
 			model: "gpt-5.5",
 			reasoningEffort: "medium",
 			serviceTier: "priority",
@@ -2511,6 +2528,109 @@ describe("cli", () => {
 		expect(streamPeriodDigestMock).not.toHaveBeenCalled();
 		expect(consoleErrorMock).toHaveBeenCalledWith(
 			expect.stringContaining("--max-tweets must be a non-negative integer"),
+		);
+		consoleErrorMock.mockRestore();
+	});
+
+	it("streams keyword discussions as markdown and json", async () => {
+		const stdoutWriteMock = vi
+			.spyOn(process.stdout, "write")
+			.mockImplementation(() => true);
+		streamSearchDiscussionMock.mockImplementation(
+			async (
+				_options: unknown,
+				handlers?: { onDelta?: (delta: string) => void },
+			) => {
+				handlers?.onDelta?.("# Search discussion\n");
+				return {
+					context: { counts: {}, includeDms: false },
+					discussion: { themes: [] },
+					markdown: "# Search discussion\n",
+					model: "gpt-5.5",
+					reasoningEffort: "medium",
+					serviceTier: "priority",
+					cached: false,
+					updatedAt: "2026-05-16T12:00:00.000Z",
+				};
+			},
+		);
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"discuss",
+			"local-first",
+			"--include-dms",
+			"--source",
+			"bookmarks",
+			"--since",
+			"2026-01-01",
+			"--until",
+			"2026-05-01",
+			"--question",
+			"what changed?",
+			"--originals-only",
+			"--hide-low-quality",
+			"--refresh",
+			"--limit",
+			"25",
+			"--model",
+			"gpt-5.5",
+		]);
+		await runCli(["node", "birdclaw", "--json", "discuss", "sync"]);
+
+		expect(streamSearchDiscussionMock).toHaveBeenNthCalledWith(
+			1,
+			{
+				query: "local-first",
+				account: undefined,
+				source: "bookmarks",
+				includeDms: true,
+				since: "2026-01-01",
+				until: "2026-05-01",
+				question: "what changed?",
+				originalsOnly: true,
+				hideLowQuality: true,
+				mode: "auto",
+				model: "gpt-5.5",
+				refresh: true,
+				limit: 25,
+				maxPages: 5,
+			},
+			expect.objectContaining({ onDelta: expect.any(Function) }),
+		);
+		expect(streamSearchDiscussionMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				query: "sync",
+				source: "search",
+				mode: "auto",
+				includeDms: false,
+				limit: 500,
+				maxPages: 5,
+			}),
+			expect.objectContaining({ onDelta: undefined }),
+		);
+		expect(stdoutWriteMock).toHaveBeenCalledWith("# Search discussion\n");
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"model": "gpt-5.5"'),
+		);
+		stdoutWriteMock.mockRestore();
+	});
+
+	it("rejects invalid keyword discussion options", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "discuss", "sync", "--source", "bad"]);
+
+		expect(process.exitCode).toBe(1);
+		expect(streamSearchDiscussionMock).not.toHaveBeenCalled();
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			expect.stringContaining("--source must be all"),
 		);
 		consoleErrorMock.mockRestore();
 	});

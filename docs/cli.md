@@ -76,6 +76,7 @@ birdclaw sync followers
 birdclaw sync following
 birdclaw search tweets <query>
 birdclaw search dms <query>
+birdclaw discuss <query>
 birdclaw today
 birdclaw digest [today|24h|yesterday|week]
 birdclaw mentions export [query]
@@ -432,6 +433,35 @@ lookups are cached briefly so repeated searches do not keep spending live calls.
 Resolved profile rows store bio, profile URL, location, verification type,
 structured X URL entities, raw profile JSON, and affiliation badge metadata when
 the live transport exposes it.
+
+### `discuss <query>`
+
+Fetch live keyword matches through `bird` or `xurl`, store them as local
+`search` tweets, then stream an OpenAI Markdown summary and discussion. DMs stay
+out unless explicitly requested.
+
+Flags:
+
+- `--account <account-id>`
+- `--source all|search|home|mentions|authored|likes|bookmarks`
+- `--mode auto|bird|xurl|local`
+- `--include-dms`
+- `--since <date>` / `--until <date>`
+- `--question <prompt>`
+- `--originals-only`
+- `--hide-low-quality`
+- `--refresh`
+- `--model <model>`
+- `--limit <n>`
+- `--max-pages <n>`
+
+Examples:
+
+```bash
+birdclaw discuss "local-first" --mode bird
+birdclaw discuss "sync engine" --question "what changed over time?"
+birdclaw discuss "prototype" --include-dms --limit 500 --max-pages 5 --json
+```
 
 ### `whois <query>`
 

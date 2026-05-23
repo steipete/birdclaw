@@ -1955,7 +1955,7 @@ function getDmSearchMatches({
 }
 
 export function queryResource(
-	resource: "home" | "mentions" | "authored" | "dms",
+	resource: "home" | "mentions" | "authored" | "search" | "dms",
 	filters: (TimelineQuery | DmQuery) & { conversationId?: string },
 ): QueryResponse {
 	if (resource === "dms") {

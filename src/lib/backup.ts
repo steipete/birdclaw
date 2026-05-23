@@ -537,7 +537,8 @@ function buildShards(db: Database) {
 					const kind =
 						row.kind === "home" ||
 						row.kind === "mention" ||
-						row.kind === "authored"
+						row.kind === "authored" ||
+						row.kind === "search"
 							? row.kind
 							: "unknown";
 					addRows(shards, `data/timeline_edges/${kind}.jsonl`, [row]);
@@ -1853,8 +1854,8 @@ export function importBackupEffect({
         account_id = coalesce(nullif(excluded.account_id, ''), tweets.account_id),
         author_profile_id = coalesce(nullif(excluded.author_profile_id, ''), tweets.author_profile_id),
         kind = case
-          when tweets.kind in ('home', 'mention', 'authored') then tweets.kind
-          when excluded.kind in ('home', 'mention', 'authored') then excluded.kind
+          when tweets.kind in ('home', 'mention', 'authored', 'search') then tweets.kind
+          when excluded.kind in ('home', 'mention', 'authored', 'search') then excluded.kind
           else coalesce(nullif(excluded.kind, ''), tweets.kind)
         end,
         text = coalesce(nullif(excluded.text, ''), tweets.text),
