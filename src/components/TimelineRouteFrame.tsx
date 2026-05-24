@@ -78,6 +78,9 @@ export function TimelineRouteFrame({
 		retry,
 		refreshLocalView,
 		replyToTweet,
+		hasMore,
+		loadingMore,
+		loadMore,
 	} = useTimelineRouteData({
 		resource,
 		replyFilter,
@@ -164,6 +167,18 @@ export function TimelineRouteFrame({
 					{items.map((item) => (
 						<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
 					))}
+					{!loading && !error && hasMore ? (
+						<div className="flex justify-center py-4">
+							<button
+								className="rounded-full bg-[var(--accent)] px-5 py-1.5 text-[14px] font-bold text-white disabled:opacity-60"
+								disabled={loadingMore}
+								onClick={loadMore}
+								type="button"
+							>
+								{loadingMore ? "Loading…" : "Load more"}
+							</button>
+						</div>
+					) : null}
 				</section>
 			</ConversationSurfaceScope>
 		</>

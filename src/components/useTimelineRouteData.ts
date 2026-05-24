@@ -12,6 +12,8 @@ import {
 } from "#/lib/api-client";
 import { useSelectedAccountId } from "./account-selection";
 
+const PAGE_SIZE = 50;
+
 interface UseTimelineRouteDataOptions {
 	resource: Exclude<ResourceKind, "dms">;
 	search: string;
@@ -35,6 +37,8 @@ export function useTimelineRouteData({
 	const [error, setError] = useState<string | null>(null);
 	const [replyError, setReplyError] = useState<string | null>(null);
 	const [refreshTick, setRefreshTick] = useState(0);
+	const [hasMore, setHasMore] = useState(false);
+	const [loadingMore, setLoadingMore] = useState(false);
 	const selectedAccountId = useSelectedAccountId(meta?.accounts);
 
 	async function loadStatus() {
@@ -45,10 +49,13 @@ export function useTimelineRouteData({
 		void loadStatus();
 	}, []);
 
-	useEffect(() => {
+	// Build the /api/query URL for the current filters. `until` requests the next
+	// (older) page via the server's created_at cursor (created_at < until).
+	function buildQueryUrl(until?: string) {
 		const url = new URL("/api/query", window.location.origin);
 		url.searchParams.set("resource", resource);
 		url.searchParams.set("refresh", String(refreshTick));
+		url.searchParams.set("limit", String(PAGE_SIZE));
 		if (selectedAccountId) {
 			url.searchParams.set("account", selectedAccountId);
 		}
@@ -64,16 +71,24 @@ export function useTimelineRouteData({
 		if (search.trim()) {
 			url.searchParams.set("search", search.trim());
 		}
+		if (until) {
+			url.searchParams.set("until", until);
+		}
+		return url;
+	}
 
+	useEffect(() => {
 		const controller = new AbortController();
 		let active = true;
 		setError(null);
 		setLoading(true);
-		fetchQueryResponse(url, { signal: controller.signal })
+		setLoadingMore(false);
+		fetchQueryResponse(buildQueryUrl(), { signal: controller.signal })
 			.then((data) => {
-				if (active) {
-					setItems(data.items as TimelineItem[]);
-				}
+				if (!active) return;
+				const next = data.items as TimelineItem[];
+				setItems(next);
+				setHasMore(next.length >= PAGE_SIZE);
 			})
 			.catch((fetchError: unknown) => {
 				if (
@@ -87,6 +102,7 @@ export function useTimelineRouteData({
 					fetchError instanceof Error ? fetchError.message : errorFallback,
 				);
 				setItems([]);
+				setHasMore(false);
 			})
 			.finally(() => {
 				if (active) {
@@ -108,6 +124,28 @@ export function useTimelineRouteData({
 		search,
 		selectedAccountId,
 	]);
+
+	async function loadMore() {
+		if (loading || loadingMore || !hasMore || items.length === 0) return;
+		const until = items[items.length - 1]?.createdAt;
+		if (!until) return;
+		setLoadingMore(true);
+		try {
+			const data = await fetchQueryResponse(buildQueryUrl(until));
+			const page = data.items as TimelineItem[];
+			setItems((prev) => {
+				const seen = new Set(prev.map((item) => item.id));
+				return [...prev, ...page.filter((item) => !seen.has(item.id))];
+			});
+			setHasMore(page.length >= PAGE_SIZE);
+		} catch (loadError) {
+			setError(
+				loadError instanceof Error ? loadError.message : errorFallback,
+			);
+		} finally {
+			setLoadingMore(false);
+		}
+	}
 
 	function retry() {
 		setRefreshTick((value) => value + 1);
@@ -149,5 +187,8 @@ export function useTimelineRouteData({
 		refreshLocalView,
 		replyToTweet,
 		selectedAccountId,
+		hasMore,
+		loadingMore,
+		loadMore,
 	};
 }

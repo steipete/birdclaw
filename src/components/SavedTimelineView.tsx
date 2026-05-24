@@ -41,14 +41,24 @@ export function SavedTimelineView({
 	searchPlaceholder,
 }: SavedTimelineViewProps) {
 	const [search, setSearch] = useState("");
-	const { meta, items, loading, error, retry, refreshLocalView, replyToTweet } =
-		useTimelineRouteData({
-			resource: "home",
-			search,
-			errorFallback: `${TITLES[filter]} unavailable`,
-			likedOnly: filter === "liked",
-			bookmarkedOnly: filter === "bookmarked",
-		});
+	const {
+		meta,
+		items,
+		loading,
+		error,
+		retry,
+		refreshLocalView,
+		replyToTweet,
+		hasMore,
+		loadingMore,
+		loadMore,
+	} = useTimelineRouteData({
+		resource: "home",
+		search,
+		errorFallback: `${TITLES[filter]} unavailable`,
+		likedOnly: filter === "liked",
+		bookmarkedOnly: filter === "bookmarked",
+	});
 
 	const subtitle = useMemo(() => {
 		if (!meta) {
@@ -126,6 +136,18 @@ export function SavedTimelineView({
 							showReplyControls={false}
 						/>
 					))}
+					{!loading && !error && hasMore ? (
+						<div className="flex justify-center py-4">
+							<button
+								className="rounded-full bg-[var(--accent)] px-5 py-1.5 text-[14px] font-bold text-white disabled:opacity-60"
+								disabled={loadingMore}
+								onClick={loadMore}
+								type="button"
+							>
+								{loadingMore ? "Loading…" : "Load more"}
+							</button>
+						</div>
+					) : null}
 				</section>
 			</ConversationSurfaceScope>
 		</>
