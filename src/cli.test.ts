@@ -2614,7 +2614,7 @@ describe("cli", () => {
 				model: "gpt-5.5",
 				refresh: true,
 				limit: 25,
-				maxPages: 5,
+				maxPages: 50,
 			},
 			expect.objectContaining({ onDelta: expect.any(Function) }),
 		);
@@ -2625,8 +2625,8 @@ describe("cli", () => {
 				source: "search",
 				mode: "auto",
 				includeDms: false,
-				limit: 500,
-				maxPages: 5,
+				limit: 5000,
+				maxPages: 50,
 			}),
 			expect.objectContaining({ onDelta: undefined }),
 		);
