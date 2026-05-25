@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
 	QueryEnvelope,
 	ReplyFilter,
@@ -40,6 +40,11 @@ export function useTimelineRouteData({
 	const [hasMore, setHasMore] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const selectedAccountId = useSelectedAccountId(meta?.accounts);
+	// Bumped whenever the active filters change. A `loadMore` request that
+	// resolves against a stale generation is discarded so its older page is
+	// never appended to a freshly loaded feed.
+	const generationRef = useRef(0);
+	const loadMoreControllerRef = useRef<AbortController | null>(null);
 
 	async function loadStatus() {
 		setMeta(await fetchQueryEnvelope());
@@ -49,9 +54,10 @@ export function useTimelineRouteData({
 		void loadStatus();
 	}, []);
 
-	// Build the /api/query URL for the current filters. `until` requests the next
-	// (older) page via the server's created_at cursor (created_at < until).
-	function buildQueryUrl(until?: string) {
+	// Build the /api/query URL for the current filters. Passing the last item's
+	// (createdAt, id) requests the next (older) page via the server's keyset
+	// cursor, which is deterministic across duplicate timestamps.
+	function buildQueryUrl(until?: string, untilId?: string) {
 		const url = new URL("/api/query", window.location.origin);
 		url.searchParams.set("resource", resource);
 		url.searchParams.set("refresh", String(refreshTick));
@@ -74,10 +80,15 @@ export function useTimelineRouteData({
 		if (until) {
 			url.searchParams.set("until", until);
 		}
+		if (untilId) {
+			url.searchParams.set("untilId", untilId);
+		}
 		return url;
 	}
 
 	useEffect(() => {
+		generationRef.current += 1;
+		loadMoreControllerRef.current?.abort();
 		const controller = new AbortController();
 		let active = true;
 		setError(null);
@@ -127,11 +138,20 @@ export function useTimelineRouteData({
 
 	async function loadMore() {
 		if (loading || loadingMore || !hasMore || items.length === 0) return;
-		const until = items[items.length - 1]?.createdAt;
-		if (!until) return;
+		const lastItem = items[items.length - 1];
+		const until = lastItem?.createdAt;
+		const untilId = lastItem?.id;
+		if (!until || !untilId) return;
+		const generation = generationRef.current;
+		const controller = new AbortController();
+		loadMoreControllerRef.current = controller;
 		setLoadingMore(true);
 		try {
-			const data = await fetchQueryResponse(buildQueryUrl(until));
+			const data = await fetchQueryResponse(buildQueryUrl(until, untilId), {
+				signal: controller.signal,
+			});
+			// Discard if the filters changed (new generation) while in flight.
+			if (generation !== generationRef.current) return;
 			const page = data.items as TimelineItem[];
 			setItems((prev) => {
 				const seen = new Set(prev.map((item) => item.id));
@@ -139,11 +159,18 @@ export function useTimelineRouteData({
 			});
 			setHasMore(page.length >= PAGE_SIZE);
 		} catch (loadError) {
-			setError(
-				loadError instanceof Error ? loadError.message : errorFallback,
-			);
+			if (
+				loadError instanceof DOMException &&
+				loadError.name === "AbortError"
+			) {
+				return;
+			}
+			if (generation !== generationRef.current) return;
+			setError(loadError instanceof Error ? loadError.message : errorFallback);
 		} finally {
-			setLoadingMore(false);
+			if (generation === generationRef.current) {
+				setLoadingMore(false);
+			}
 		}
 	}
 

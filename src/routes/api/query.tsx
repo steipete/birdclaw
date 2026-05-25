@@ -105,6 +105,7 @@ export const Route = createFileRoute("/api/query")({
 							queryResource(resource, {
 								...baseFilters,
 								resource,
+								untilId: url.searchParams.get("untilId") ?? undefined,
 							}),
 						);
 					}),

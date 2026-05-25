@@ -786,6 +786,7 @@ export function listTimelineItems({
 	replyFilter = "all",
 	since,
 	until,
+	untilId,
 	includeReplies = true,
 	qualityFilter = "all",
 	lowQualityThreshold,
@@ -969,8 +970,17 @@ export function listTimelineItems({
 	}
 
 	if (until?.trim()) {
-		where += " and t.created_at < ?";
-		params.push(until.trim());
+		// Deterministic keyset cursor: page on (created_at, id) so rows that share
+		// the boundary timestamp are not skipped. Uses the same text comparison as
+		// the `order by t.created_at desc, t.id desc` below, which is a total order
+		// because t.id is unique.
+		if (untilId?.trim()) {
+			where += " and (t.created_at < ? or (t.created_at = ? and t.id < ?))";
+			params.push(until.trim(), until.trim(), untilId.trim());
+		} else {
+			where += " and t.created_at < ?";
+			params.push(until.trim());
+		}
 	}
 
 	const ftsSearch = search?.trim() ? toFtsSearchQuery(search) : "";
@@ -1075,7 +1085,7 @@ export function listTimelineItems({
       left join profiles qp on qp.id = qt.author_profile_id
       ${join}
       ${where}
-      order by t.created_at desc
+      order by t.created_at desc, t.id desc
       limit ?
       `;
 

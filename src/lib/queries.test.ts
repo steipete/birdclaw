@@ -672,6 +672,58 @@ describe("birdclaw queries", () => {
 		expect(bookmarked.every((item) => item.bookmarked)).toBe(true);
 	});
 
+	it("paginates past a shared created_at boundary using the id cursor", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.exec(`
+      delete from tweet_account_edges;
+      delete from tweet_collections;
+      delete from tweets_fts;
+      delete from tweets;
+    `);
+		const insertTweet = db.prepare(`
+      insert into tweets (
+        id, account_id, author_profile_id, kind, text, created_at,
+        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
+        entities_json, media_json, quoted_tweet_id
+      ) values (?, 'acct_primary', 'profile_me', 'bookmark', ?, ?, 0, null, 0, 0, 1, 0, '{}', '[]', null)
+    `);
+		const boundary = "2026-03-09T00:00:00.000Z";
+		// Two bookmarks with an identical created_at; tweet_b sorts after tweet_a by id.
+		insertTweet.run("tweet_a", "shared-timestamp a", boundary);
+		insertTweet.run("tweet_b", "shared-timestamp b", boundary);
+
+		const firstPage = listTimelineItems({
+			resource: "home",
+			bookmarkedOnly: true,
+			limit: 1,
+		});
+		expect(firstPage.map((item) => item.id)).toEqual(["tweet_b"]);
+
+		const last = firstPage[0];
+		if (!last) throw new Error("expected a first page item");
+
+		// Keyset cursor (created_at + id) must return the tie row, not skip it.
+		const secondPage = listTimelineItems({
+			resource: "home",
+			bookmarkedOnly: true,
+			limit: 1,
+			until: last.createdAt,
+			untilId: last.id,
+		});
+		expect(secondPage.map((item) => item.id)).toEqual(["tweet_a"]);
+
+		// A created_at-only cursor (no untilId) silently drops the tie row — the
+		// regression this fix prevents.
+		const createdAtOnly = listTimelineItems({
+			resource: "home",
+			bookmarkedOnly: true,
+			limit: 1,
+			until: last.createdAt,
+		});
+		expect(createdAtOnly).toEqual([]);
+	});
+
 	it("hides low-quality timeline noise for summary queries", () => {
 		setupTempHome();
 		const db = getNativeDb();
