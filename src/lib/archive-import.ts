@@ -61,8 +61,45 @@ export const ARCHIVE_IMPORT_SLICES = [
 
 export type ArchiveImportSlice = (typeof ARCHIVE_IMPORT_SLICES)[number];
 
+export type ImportProgressSlice =
+	| "tweets"
+	| "noteTweets"
+	| "directMessages"
+	| "likes"
+	| "bookmarks"
+	| "media"
+	| "followers"
+	| "following";
+
+export type ImportWritePhase =
+	| "profiles"
+	| "tweets"
+	| "collections"
+	| "dmMessages";
+
+export type ImportProgressEvent =
+	| { kind: "scanned"; entryCount: number }
+	| { kind: "slice-start"; slice: ImportProgressSlice; files: number }
+	| {
+			kind: "slice-file";
+			slice: ImportProgressSlice;
+			processed: number;
+			files: number;
+	  }
+	| { kind: "slice-done"; slice: ImportProgressSlice; count: number }
+	| { kind: "writing" }
+	| { kind: "write-start"; phase: ImportWritePhase; total: number }
+	| {
+			kind: "write-progress";
+			phase: ImportWritePhase;
+			processed: number;
+			total: number;
+	  }
+	| { kind: "done" };
+
 export interface ImportArchiveOptions {
 	select?: ArchiveImportSlice[];
+	onProgress?: (event: ImportProgressEvent) => void;
 }
 
 type ArchiveRecord = Record<string, unknown>;
@@ -662,7 +699,9 @@ function importArchiveInternalEffect(
 	options: ImportArchiveOptions = {},
 ): Effect.Effect<ImportedArchiveSummary, unknown> {
 	return Effect.gen(function* () {
+		const onProgress = options.onProgress ?? (() => {});
 		const entries = yield* listArchiveEntriesEffect(archivePath);
+		onProgress({ kind: "scanned", entryCount: entries.length });
 		const selection = selectedSlices(options);
 		const includeTweets = includesSlice(selection, "tweets");
 		const includeLikes = includesSlice(selection, "likes");
@@ -770,7 +809,14 @@ function importArchiveInternalEffect(
 			tweetRowsById.set(row.id, row);
 		}
 
-		for (const entry of tweetEntries) {
+		if (tweetEntries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "tweets",
+				files: tweetEntries.length,
+			});
+		}
+		for (const [tweetFileIndex, entry] of tweetEntries.entries()) {
 			const content = yield* readArchiveEntryEffect(archivePath, entry);
 			for (const wrapper of parseArchiveArray(content)) {
 				const tweet = asRecord(wrapper.tweet);
@@ -821,9 +867,30 @@ function importArchiveInternalEffect(
 						: null,
 				});
 			}
+			onProgress({
+				kind: "slice-file",
+				slice: "tweets",
+				processed: tweetFileIndex + 1,
+				files: tweetEntries.length,
+			});
+		}
+		if (tweetEntries.length > 0) {
+			onProgress({
+				kind: "slice-done",
+				slice: "tweets",
+				count: tweetRows.length,
+			});
 		}
 
-		for (const entry of noteTweetEntries) {
+		if (noteTweetEntries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "noteTweets",
+				files: noteTweetEntries.length,
+			});
+		}
+		const tweetRowsBeforeNotes = tweetRows.length;
+		for (const [noteFileIndex, entry] of noteTweetEntries.entries()) {
 			const content = yield* readArchiveEntryEffect(archivePath, entry);
 			for (const wrapper of parseArchiveArray(content)) {
 				const noteTweet = asRecord(wrapper.noteTweet);
@@ -846,6 +913,19 @@ function importArchiveInternalEffect(
 					quotedTweetId: null,
 				});
 			}
+			onProgress({
+				kind: "slice-file",
+				slice: "noteTweets",
+				processed: noteFileIndex + 1,
+				files: noteTweetEntries.length,
+			});
+		}
+		if (noteTweetEntries.length > 0) {
+			onProgress({
+				kind: "slice-done",
+				slice: "noteTweets",
+				count: tweetRows.length - tweetRowsBeforeNotes,
+			});
 		}
 		const authoredTweetCount = tweetRows.length;
 
@@ -1275,7 +1355,14 @@ function importArchiveInternalEffect(
 			return resolved;
 		}
 
-		for (const entry of dmEntries) {
+		if (dmEntries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "directMessages",
+				files: dmEntries.length,
+			});
+		}
+		for (const [dmFileIndex, entry] of dmEntries.entries()) {
 			const content = yield* readArchiveEntryEffect(archivePath, entry);
 			for (const wrapper of parseArchiveArray(content)) {
 				const dmConversation = asRecord(wrapper.dmConversation);
@@ -1458,10 +1545,30 @@ function importArchiveInternalEffect(
 					needsReply: lastMessage.direction === "inbound" ? 1 : 0,
 				});
 			}
+			onProgress({
+				kind: "slice-file",
+				slice: "directMessages",
+				processed: dmFileIndex + 1,
+				files: dmEntries.length,
+			});
+		}
+		if (dmEntries.length > 0) {
+			onProgress({
+				kind: "slice-done",
+				slice: "directMessages",
+				count: dmMessages.length,
+			});
 		}
 
+		if (likeEntries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "likes",
+				files: likeEntries.length,
+			});
+		}
 		let likeCount = 0;
-		for (const entry of likeEntries) {
+		for (const [likeFileIndex, entry] of likeEntries.entries()) {
 			const content = yield* readArchiveEntryEffect(archivePath, entry);
 			const likes = parseArchiveArray(content);
 			for (const like of likes) {
@@ -1492,10 +1599,26 @@ function importArchiveInternalEffect(
 				});
 			}
 			likeCount += likes.length;
+			onProgress({
+				kind: "slice-file",
+				slice: "likes",
+				processed: likeFileIndex + 1,
+				files: likeEntries.length,
+			});
+		}
+		if (likeEntries.length > 0) {
+			onProgress({ kind: "slice-done", slice: "likes", count: likeCount });
 		}
 
+		if (bookmarkEntries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "bookmarks",
+				files: bookmarkEntries.length,
+			});
+		}
 		let bookmarkCount = 0;
-		for (const entry of bookmarkEntries) {
+		for (const [bookmarkFileIndex, entry] of bookmarkEntries.entries()) {
 			const content = yield* readArchiveEntryEffect(archivePath, entry);
 			const bookmarks = parseArchiveArray(content);
 			for (const bookmark of bookmarks) {
@@ -1526,29 +1649,91 @@ function importArchiveInternalEffect(
 				});
 			}
 			bookmarkCount += bookmarks.length;
+			onProgress({
+				kind: "slice-file",
+				slice: "bookmarks",
+				processed: bookmarkFileIndex + 1,
+				files: bookmarkEntries.length,
+			});
+		}
+		if (bookmarkEntries.length > 0) {
+			onProgress({
+				kind: "slice-done",
+				slice: "bookmarks",
+				count: bookmarkCount,
+			});
 		}
 
+		onProgress({ kind: "slice-start", slice: "media", files: 0 });
 		const mediaFileCounts = yield* extractArchiveMediaFilesEffect(
 			archivePath,
 			selectedArchiveMediaKinds(selection),
 		);
+		onProgress({
+			kind: "slice-done",
+			slice: "media",
+			count: Object.values(mediaFileCounts).reduce(
+				(total, value) => total + value,
+				0,
+			),
+		});
 
-		for (const entry of followerEntries) {
+		if (followerEntries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "followers",
+				files: followerEntries.length,
+			});
+		}
+		for (const [followerFileIndex, entry] of followerEntries.entries()) {
 			const content = yield* readArchiveEntryEffect(archivePath, entry);
 			for (const row of getArchiveFollowRows(content, "follower")) {
 				if (followerIds.has(row.externalUserId)) continue;
 				followerIds.add(row.externalUserId);
 				followerRows.push(row);
 			}
+			onProgress({
+				kind: "slice-file",
+				slice: "followers",
+				processed: followerFileIndex + 1,
+				files: followerEntries.length,
+			});
+		}
+		if (followerEntries.length > 0) {
+			onProgress({
+				kind: "slice-done",
+				slice: "followers",
+				count: followerRows.length,
+			});
 		}
 
-		for (const entry of followingEntries) {
+		if (followingEntries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "following",
+				files: followingEntries.length,
+			});
+		}
+		for (const [followingFileIndex, entry] of followingEntries.entries()) {
 			const content = yield* readArchiveEntryEffect(archivePath, entry);
 			for (const row of getArchiveFollowRows(content, "following")) {
 				if (followingIds.has(row.externalUserId)) continue;
 				followingIds.add(row.externalUserId);
 				followingRows.push(row);
 			}
+			onProgress({
+				kind: "slice-file",
+				slice: "following",
+				processed: followingFileIndex + 1,
+				files: followingEntries.length,
+			});
+		}
+		if (followingEntries.length > 0) {
+			onProgress({
+				kind: "slice-done",
+				slice: "following",
+				count: followingRows.length,
+			});
 		}
 
 		for (const row of [...followerRows, ...followingRows]) {
@@ -2255,6 +2440,17 @@ function importArchiveInternalEffect(
 			deleteArchiveFollowEdges.run("acct_primary", direction);
 		}
 
+		onProgress({ kind: "writing" });
+		const WRITE_PROGRESS_INTERVAL = 1000;
+		function tickWrite(
+			phase: ImportWritePhase,
+			processed: number,
+			total: number,
+		) {
+			if (processed === total || processed % WRITE_PROGRESS_INTERVAL === 0) {
+				onProgress({ kind: "write-progress", phase, processed, total });
+			}
+		}
 		db.transaction(() => {
 			if (!selection) {
 				clearImportedData(db);
@@ -2339,6 +2535,15 @@ function importArchiveInternalEffect(
 
 			const writeProfile =
 				!selection || includeProfiles ? insertProfile : insertProfileIfMissing;
+			const profilesTotal = profiles.size;
+			if (profilesTotal > 0) {
+				onProgress({
+					kind: "write-start",
+					phase: "profiles",
+					total: profilesTotal,
+				});
+			}
+			let profileIndex = 0;
 			for (const profile of profiles.values()) {
 				writeProfile.run(
 					profile.id,
@@ -2357,8 +2562,18 @@ function importArchiveInternalEffect(
 					profile.rawJson,
 					profile.createdAt,
 				);
+				profileIndex += 1;
+				tickWrite("profiles", profileIndex, profilesTotal);
 			}
 
+			if (tweetRows.length > 0) {
+				onProgress({
+					kind: "write-start",
+					phase: "tweets",
+					total: tweetRows.length,
+				});
+			}
+			let tweetWriteIndex = 0;
 			for (const tweet of tweetRows) {
 				const authorProfileId =
 					tweet.authorProfileId === "profile_me"
@@ -2406,9 +2621,19 @@ function importArchiveInternalEffect(
 					| { text: string }
 					| undefined;
 				insertTweetFts.run(tweet.id, storedTweet?.text ?? tweet.text);
+				tweetWriteIndex += 1;
+				tickWrite("tweets", tweetWriteIndex, tweetRows.length);
 			}
 
 			const importedAt = new Date().toISOString();
+			if (collectionRows.length > 0) {
+				onProgress({
+					kind: "write-start",
+					phase: "collections",
+					total: collectionRows.length,
+				});
+			}
+			let collectionIndex = 0;
 			for (const collection of collectionRows) {
 				insertCollection.run(
 					"acct_primary",
@@ -2419,6 +2644,8 @@ function importArchiveInternalEffect(
 					collection.rawJson,
 					importedAt,
 				);
+				collectionIndex += 1;
+				tickWrite("collections", collectionIndex, collectionRows.length);
 			}
 
 			for (const conversation of conversations.values()) {
@@ -2433,6 +2660,14 @@ function importArchiveInternalEffect(
 				);
 			}
 
+			if (dmMessages.length > 0) {
+				onProgress({
+					kind: "write-start",
+					phase: "dmMessages",
+					total: dmMessages.length,
+				});
+			}
+			let dmWriteIndex = 0;
 			for (const message of dmMessages) {
 				insertMessage.run(
 					message.id,
@@ -2445,6 +2680,8 @@ function importArchiveInternalEffect(
 					message.mediaCount,
 				);
 				insertDmFts.run(message.id, message.text);
+				dmWriteIndex += 1;
+				tickWrite("dmMessages", dmWriteIndex, dmMessages.length);
 			}
 
 			if (includeFollowers && followerEntries.length > 0) {
@@ -2468,6 +2705,7 @@ function importArchiveInternalEffect(
 				clearArchiveFollowRows("following");
 			}
 		})();
+		onProgress({ kind: "done" });
 
 		return {
 			ok: true,

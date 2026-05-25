@@ -10,6 +10,9 @@ import { findArchives } from "#/lib/archive-finder";
 import {
 	ARCHIVE_IMPORT_SLICES,
 	type ArchiveImportSlice,
+	type ImportProgressEvent,
+	type ImportProgressSlice,
+	type ImportWritePhase,
 	importArchive,
 } from "#/lib/archive-import";
 import {
@@ -117,6 +120,71 @@ function printError(error: string) {
 
 function errorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
+}
+
+const IMPORT_SLICE_LABELS: Record<ImportProgressSlice, string> = {
+	tweets: "tweets",
+	noteTweets: "note tweets",
+	directMessages: "direct messages",
+	likes: "likes",
+	bookmarks: "bookmarks",
+	media: "media files",
+	followers: "followers",
+	following: "following",
+};
+
+const IMPORT_WRITE_LABELS: Record<ImportWritePhase, string> = {
+	profiles: "profiles",
+	tweets: "tweets",
+	collections: "likes+bookmarks",
+	dmMessages: "DM messages",
+};
+
+function logImportProgress(event: ImportProgressEvent) {
+	switch (event.kind) {
+		case "scanned":
+			process.stderr.write(
+				`Scanning archive… ${String(event.entryCount)} entries\n`,
+			);
+			return;
+		case "slice-start":
+			if (event.slice === "media") {
+				process.stderr.write("Indexing media files…\n");
+				return;
+			}
+			process.stderr.write(
+				`Parsing ${IMPORT_SLICE_LABELS[event.slice]}… (${String(event.files)} file${event.files === 1 ? "" : "s"})\n`,
+			);
+			return;
+		case "slice-file":
+			if (event.files > 1) {
+				process.stderr.write(
+					`  ${IMPORT_SLICE_LABELS[event.slice]} ${String(event.processed)}/${String(event.files)}\n`,
+				);
+			}
+			return;
+		case "slice-done":
+			process.stderr.write(
+				`  ${IMPORT_SLICE_LABELS[event.slice]}: ${event.count.toLocaleString()}\n`,
+			);
+			return;
+		case "writing":
+			process.stderr.write("Writing to database…\n");
+			return;
+		case "write-start":
+			process.stderr.write(
+				`Writing ${IMPORT_WRITE_LABELS[event.phase]}… (${event.total.toLocaleString()})\n`,
+			);
+			return;
+		case "write-progress":
+			process.stderr.write(
+				`  ${IMPORT_WRITE_LABELS[event.phase]} ${event.processed.toLocaleString()}/${event.total.toLocaleString()}\n`,
+			);
+			return;
+		case "done":
+			process.stderr.write("Import complete.\n");
+			return;
+	}
 }
 
 function formatLinkSearchItems(items: ReturnType<typeof searchLinks>) {
@@ -599,9 +667,13 @@ importCommand
 			);
 		}
 
-		const result = await importArchive(resolvedArchivePath, { select });
+		const asJson = Boolean(program.opts().json);
+		const result = await importArchive(resolvedArchivePath, {
+			select,
+			onProgress: asJson ? undefined : logImportProgress,
+		});
 		await autoSyncAfterWrite();
-		print(result, program.opts().json ?? false);
+		print(result, asJson);
 	});
 
 importCommand
