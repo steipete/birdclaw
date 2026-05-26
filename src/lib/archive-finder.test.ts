@@ -179,6 +179,18 @@ describe("archive finder", () => {
 		expect(mocks.readdir).not.toHaveBeenCalled();
 	});
 
+	it("skips downloads when readdir fails (e.g. EPERM from macOS TCC)", async () => {
+		mocks.existsSync.mockReturnValue(true);
+		const err = Object.assign(
+			new Error("EPERM: operation not permitted, scandir '/Users/x/Downloads'"),
+			{ code: "EPERM" },
+		);
+		mocks.readdir.mockRejectedValue(err);
+		mocks.execAsync.mockResolvedValue({ stdout: "" });
+
+		await expect(findArchives()).resolves.toEqual([]);
+	});
+
 	it("returns empty on non-darwin hosts", async () => {
 		Object.defineProperty(process, "platform", {
 			configurable: true,

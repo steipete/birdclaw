@@ -75,7 +75,7 @@ function searchDirectoryEffect(directoryPath: string) {
 		);
 
 		return candidates.filter((item) => item !== null);
-	});
+	}).pipe(Effect.catchAll(() => Effect.succeed([])));
 }
 
 function searchSpotlightEffect(query: string) {
