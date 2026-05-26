@@ -1164,6 +1164,89 @@ describe("cli", () => {
 		expect(findArchivesMock).not.toHaveBeenCalled();
 	});
 
+	it("streams archive import progress to stderr for human imports", async () => {
+		const stderrWriteMock = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		importArchiveMock.mockImplementation(async (_path, options) => {
+			options.onProgress?.({ kind: "scanned", entryCount: 12 });
+			options.onProgress?.({
+				kind: "slice-start",
+				slice: "tweets",
+				files: 2,
+			});
+			options.onProgress?.({
+				kind: "slice-file",
+				slice: "tweets",
+				processed: 1,
+				files: 2,
+			});
+			options.onProgress?.({ kind: "slice-done", slice: "tweets", count: 3 });
+			options.onProgress?.({ kind: "writing" });
+			options.onProgress?.({
+				kind: "write-start",
+				phase: "tweets",
+				total: 3,
+			});
+			options.onProgress?.({
+				kind: "write-progress",
+				phase: "tweets",
+				processed: 3,
+				total: 3,
+			});
+			options.onProgress?.({ kind: "done" });
+			return { ok: true, archivePath: _path };
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"import",
+			"archive",
+			"/tmp/explicit.zip",
+		]);
+
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip", {
+			select: undefined,
+			onProgress: expect.any(Function),
+		});
+		expect(stderrWriteMock).toHaveBeenCalledWith(
+			"Scanning archive… 12 entries\n",
+		);
+		expect(stderrWriteMock).toHaveBeenCalledWith("Parsing tweets… (2 files)\n");
+		expect(stderrWriteMock).toHaveBeenCalledWith("  tweets 1/2\n");
+		expect(stderrWriteMock).toHaveBeenCalledWith("  tweets: 3\n");
+		expect(stderrWriteMock).toHaveBeenCalledWith("Writing to database…\n");
+		expect(stderrWriteMock).toHaveBeenCalledWith("Writing tweets… (3)\n");
+		expect(stderrWriteMock).toHaveBeenCalledWith("  tweets 3/3\n");
+		expect(stderrWriteMock).toHaveBeenCalledWith("Import complete.\n");
+		stderrWriteMock.mockRestore();
+	});
+
+	it("keeps archive import progress off stderr for json output", async () => {
+		const stderrWriteMock = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"import",
+			"archive",
+			"/tmp/explicit.zip",
+		]);
+
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip", {
+			select: undefined,
+			onProgress: undefined,
+		});
+		expect(stderrWriteMock).not.toHaveBeenCalled();
+		stderrWriteMock.mockRestore();
+	});
+
 	it("passes selected archive slices to import archive", async () => {
 		const { runCli } = await loadCli();
 
