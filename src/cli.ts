@@ -545,6 +545,9 @@ function buildProfileAnalysisOptions(
 		maxPages?: string;
 		maxConversations?: string;
 		maxConversationPages?: string;
+		conversationDelayMs?: string;
+		rateLimitRetryMs?: string;
+		rateLimitRetries?: string;
 	},
 ): ProfileAnalysisOptions | null {
 	const maxTweets = parsePositiveIntegerOption(
@@ -578,6 +581,36 @@ function buildProfileAnalysisOptions(
 	) {
 		return null;
 	}
+	const conversationDelayMs = parseNonNegativeIntegerOption(
+		options.conversationDelayMs,
+		"--conversation-delay-ms",
+	);
+	if (
+		options.conversationDelayMs !== undefined &&
+		conversationDelayMs === undefined
+	) {
+		return null;
+	}
+	const rateLimitRetryMs = parseNonNegativeIntegerOption(
+		options.rateLimitRetryMs,
+		"--rate-limit-retry-ms",
+	);
+	if (
+		options.rateLimitRetryMs !== undefined &&
+		rateLimitRetryMs === undefined
+	) {
+		return null;
+	}
+	const rateLimitMaxRetries = parseNonNegativeIntegerOption(
+		options.rateLimitRetries,
+		"--rate-limit-retries",
+	);
+	if (
+		options.rateLimitRetries !== undefined &&
+		rateLimitMaxRetries === undefined
+	) {
+		return null;
+	}
 	return {
 		handle,
 		account: options.account,
@@ -587,6 +620,9 @@ function buildProfileAnalysisOptions(
 		maxPages,
 		maxConversations,
 		maxConversationPages,
+		conversationDelayMs,
+		rateLimitRetryMs,
+		rateLimitMaxRetries,
 	};
 }
 
@@ -1209,6 +1245,9 @@ program
 	.option("--max-pages <n>", "Maximum profile timeline pages", "100")
 	.option("--max-conversations <n>", "Maximum conversations to backfill", "80")
 	.option("--max-conversation-pages <n>", "Maximum pages per conversation", "3")
+	.option("--conversation-delay-ms <n>", "Delay between conversation search calls")
+	.option("--rate-limit-retry-ms <n>", "Delay before retrying conversation 429s")
+	.option("--rate-limit-retries <n>", "Conversation 429 retry count")
 	.action(async (handle, options) => {
 		await autoUpdateBeforeRead();
 		const analysisOptions = buildProfileAnalysisOptions(handle, options);

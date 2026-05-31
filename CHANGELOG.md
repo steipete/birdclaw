@@ -21,7 +21,7 @@
 - Show live Today fetch progress while Birdclaw pulls X home timeline, mentions, and reply context before the first AI tokens arrive.
 - Include live fetch counts and page/thread progress in Today status messages before AI summary streaming begins.
 - Recover live `xurl` sync when the valid OAuth token is stored under a different local xurl username label than the Birdclaw account handle.
-- Keep Profile Analyse citation hover cards linked to real tweet/avatar sources and continue AI summaries with partial context when `xurl` conversation search is rate limited.
+- Keep Profile Analyse citation hover cards linked to real tweet/avatar sources, throttle `xurl` conversation searches, and retry 429s before continuing AI summaries with partial context.
 - Let normal Discuss web searches reuse cached AI discussions while keeping the Refresh button as the explicit forced-refresh path.
 - Tighten AI report line height and first-block spacing in Today and Discuss.
 

@@ -20,6 +20,18 @@ function parseBoolean(value: string | null) {
 }
 
 function parseOptions(url: URL): ProfileAnalysisOptions {
+	const conversationDelayMs = parseBoundedInteger(
+		url.searchParams.get("conversationDelayMs"),
+		{ min: 0, max: 60_000 },
+	);
+	const rateLimitRetryMs = parseBoundedInteger(
+		url.searchParams.get("rateLimitRetryMs"),
+		{ min: 0, max: 900_000 },
+	);
+	const rateLimitMaxRetries = parseBoundedInteger(
+		url.searchParams.get("rateLimitRetries"),
+		{ min: 0, max: 10 },
+	);
 	return {
 		handle: url.searchParams.get("handle") ?? "",
 		account: url.searchParams.get("account") ?? undefined,
@@ -39,6 +51,9 @@ function parseOptions(url: URL): ProfileAnalysisOptions {
 			url.searchParams.get("maxConversationPages"),
 			{ max: 50 },
 		),
+		...(conversationDelayMs !== undefined ? { conversationDelayMs } : {}),
+		...(rateLimitRetryMs !== undefined ? { rateLimitRetryMs } : {}),
+		...(rateLimitMaxRetries !== undefined ? { rateLimitMaxRetries } : {}),
 	};
 }
 

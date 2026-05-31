@@ -47,6 +47,9 @@ const profileUser = {
 beforeEach(() => {
 	setupTempHome();
 	process.env.OPENAI_API_KEY = "test-key";
+	process.env.BIRDCLAW_PROFILE_ANALYSIS_CONVERSATION_DELAY_MS = "0";
+	process.env.BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_RETRY_MS = "0";
+	process.env.BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_MAX_RETRIES = "0";
 	mocks.lookupUsersByHandlesEffect.mockReset();
 	mocks.listUserTweetsEffect.mockReset();
 	mocks.searchRecentByConversationIdEffect.mockReset();
@@ -118,6 +121,9 @@ afterEach(() => {
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
 	delete process.env.OPENAI_API_KEY;
+	delete process.env.BIRDCLAW_PROFILE_ANALYSIS_CONVERSATION_DELAY_MS;
+	delete process.env.BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_RETRY_MS;
+	delete process.env.BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_MAX_RETRIES;
 	vi.unstubAllGlobals();
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
@@ -241,7 +247,76 @@ describe("profile analysis", () => {
 			conversationPages: 0,
 		});
 		expect(events).toContain("Conversation fetch rate limited");
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from sync_cache where cache_key like 'profile-analysis:context:%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
 		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("retries conversation search once after a rate limit before using context", async () => {
+		mocks.searchRecentByConversationIdEffect
+			.mockReturnValueOnce(
+				Effect.fail(
+					new Error(
+						'Command failed: xurl search\n{"title":"Too Many Requests","status":429}',
+					),
+				),
+			)
+			.mockReturnValueOnce(
+				Effect.succeed({
+					data: [
+						{
+							id: "reply_retry",
+							author_id: "99",
+							text: "Retry recovered the conversation.",
+							created_at: "2026-05-20T10:03:00.000Z",
+							conversation_id: "tweet_1",
+							public_metrics: { like_count: 4 },
+						},
+					],
+					includes: {
+						users: [
+							{
+								id: "99",
+								username: "bob",
+								name: "Bob",
+								description: "Replies to tools.",
+								public_metrics: { followers_count: 40 },
+							},
+						],
+						media: [],
+					},
+					meta: {},
+				}),
+			);
+		const events: string[] = [];
+
+		const result = await streamProfileAnalysis(
+			{
+				handle: "alice",
+				maxPages: 1,
+				maxTweets: 10,
+				maxConversations: 1,
+				maxConversationPages: 1,
+				refresh: true,
+				rateLimitRetryMs: 0,
+				rateLimitMaxRetries: 1,
+			},
+			{
+				onEvent: (event) => {
+					if (event.type === "status") events.push(event.label);
+				},
+			},
+		);
+
+		expect(result.context.counts.conversationTweets).toBe(1);
+		expect(result.context.conversations[0]?.id).toBe("reply_retry");
+		expect(mocks.searchRecentByConversationIdEffect).toHaveBeenCalledTimes(2);
+		expect(events).toContain("Conversation fetch rate limited");
 	});
 
 	it("invalidates the AI cache when prompt-visible metrics change", async () => {

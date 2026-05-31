@@ -34,6 +34,9 @@ export interface ProfileAnalysisOptions {
 	maxPages?: number;
 	maxConversations?: number;
 	maxConversationPages?: number;
+	conversationDelayMs?: number;
+	rateLimitRetryMs?: number;
+	rateLimitMaxRetries?: number;
 	cacheTtlMs?: number;
 	model?: string;
 	reasoningEffort?: "minimal" | "low" | "medium" | "high";
@@ -137,6 +140,9 @@ const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_MAX_CONVERSATIONS = 80;
 const DEFAULT_MAX_CONVERSATION_PAGES = 3;
 const DEFAULT_CACHE_TTL_MS = 6 * 60 * 60_000;
+const DEFAULT_CONVERSATION_DELAY_MS = 3_100;
+const DEFAULT_RATE_LIMIT_RETRY_MS = 60_000;
+const DEFAULT_RATE_LIMIT_MAX_RETRIES = 1;
 const XURL_PAGE_SIZE = 100;
 const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
@@ -194,6 +200,49 @@ function normalizeCacheTtlMs(value: number | undefined) {
 		return DEFAULT_CACHE_TTL_MS;
 	}
 	return Math.floor(value);
+}
+
+function normalizeNonNegativeInteger(
+	value: number | undefined,
+	defaultValue: number,
+) {
+	if (value === undefined) return defaultValue;
+	if (!Number.isFinite(value) || value < 0) return defaultValue;
+	return Math.floor(value);
+}
+
+function envNonNegativeInteger(name: string) {
+	const value = process.env[name];
+	if (value === undefined || value.trim() === "") return undefined;
+	const numeric = Number(value);
+	if (!Number.isFinite(numeric) || numeric < 0) return undefined;
+	return Math.floor(numeric);
+}
+
+function conversationDelayMsFromOptions(options: ProfileAnalysisOptions) {
+	return normalizeNonNegativeInteger(
+		options.conversationDelayMs ??
+			envNonNegativeInteger("BIRDCLAW_PROFILE_ANALYSIS_CONVERSATION_DELAY_MS"),
+		DEFAULT_CONVERSATION_DELAY_MS,
+	);
+}
+
+function rateLimitRetryMsFromOptions(options: ProfileAnalysisOptions) {
+	return normalizeNonNegativeInteger(
+		options.rateLimitRetryMs ??
+			envNonNegativeInteger("BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_RETRY_MS"),
+		DEFAULT_RATE_LIMIT_RETRY_MS,
+	);
+}
+
+function rateLimitMaxRetriesFromOptions(options: ProfileAnalysisOptions) {
+	return normalizeNonNegativeInteger(
+		options.rateLimitMaxRetries ??
+			envNonNegativeInteger(
+				"BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_MAX_RETRIES",
+			),
+		DEFAULT_RATE_LIMIT_MAX_RETRIES,
+	);
 }
 
 function resolveAccount(db: Database, accountId?: string) {
@@ -612,6 +661,28 @@ function abortIfRequestedEffect(signal: AbortSignal | undefined) {
 	});
 }
 
+function sleepWithAbortEffect(ms: number, signal: AbortSignal | undefined) {
+	if (ms <= 0) return abortIfRequestedEffect(signal);
+	return tryProfilePromise(
+		() =>
+			new Promise<void>((resolve, reject) => {
+				if (signal?.aborted) {
+					reject(new Error("Profile analysis aborted"));
+					return;
+				}
+				const timer = setTimeout(() => {
+					signal?.removeEventListener("abort", onAbort);
+					resolve();
+				}, ms);
+				const onAbort = () => {
+					clearTimeout(timer);
+					reject(new Error("Profile analysis aborted"));
+				};
+				signal?.addEventListener("abort", onAbort, { once: true });
+			}),
+	);
+}
+
 export function collectProfileAnalysisContextEffect(
 	options: ProfileAnalysisOptions,
 	handlers: ProfileAnalysisStreamHandlers = {},
@@ -650,6 +721,9 @@ export function collectProfileAnalysisContextEffect(
 				"--max-conversation-pages",
 			),
 		);
+		const conversationDelayMs = conversationDelayMsFromOptions(options);
+		const rateLimitRetryMs = rateLimitRetryMsFromOptions(options);
+		const rateLimitMaxRetries = rateLimitMaxRetriesFromOptions(options);
 		const cacheTtlMs = normalizeCacheTtlMs(options.cacheTtlMs);
 		const contextKey = contextCacheKey({
 			accountId: account.id,
@@ -765,40 +839,75 @@ export function collectProfileAnalysisContextEffect(
 		const conversationResponses: XurlTweetsResponse[] = [];
 		let conversationPages = 0;
 		let conversationRateLimited = false;
+		let conversationRequestCount = 0;
 		for (const [index, conversationId] of conversationRoots.entries()) {
 			if (conversationRateLimited) break;
 			let conversationNextToken: string | undefined;
 			for (let page = 0; page < maxConversationPages; page += 1) {
 				yield* abortIfRequestedEffect(options.signal);
+				if (conversationRequestCount > 0 && conversationDelayMs > 0) {
+					emitStatus(
+						handlers,
+						"Throttling conversation fetch",
+						`${String(conversationDelayMs)}ms`,
+					);
+					yield* sleepWithAbortEffect(conversationDelayMs, options.signal);
+				}
 				emitStatus(
 					handlers,
 					"Fetching conversations",
 					`${String(index + 1)}/${String(conversationRoots.length)} · page ${String(page + 1)}`,
 				);
-				const response = yield* searchRecentByConversationIdEffect(
-					conversationId,
-					{
-						maxResults: XURL_PAGE_SIZE,
-						paginationToken: conversationNextToken,
-						timeoutMs: 30_000,
-						auth: "oauth2",
-						username: account.handle,
-						signal: options.signal,
-					},
-				).pipe(
-					Effect.catchAll((error) => {
-						if (!isXurlRateLimitError(error)) {
-							return Effect.fail(error);
-						}
-						conversationRateLimited = true;
+				let response: XurlTweetsResponse | null = null;
+				for (let attempt = 0; attempt <= rateLimitMaxRetries; attempt += 1) {
+					conversationRequestCount += 1;
+					response = yield* searchRecentByConversationIdEffect(
+						conversationId,
+						{
+							maxResults: XURL_PAGE_SIZE,
+							paginationToken: conversationNextToken,
+							timeoutMs: 30_000,
+							auth: "oauth2",
+							username: account.handle,
+							signal: options.signal,
+						},
+					).pipe(
+						Effect.catchAll((error) => {
+							if (!isXurlRateLimitError(error)) {
+								return Effect.fail(error);
+							}
+							if (attempt < rateLimitMaxRetries) {
+								emitStatus(
+									handlers,
+									"Conversation fetch rate limited",
+									`retrying in ${String(rateLimitRetryMs)}ms`,
+								);
+								return sleepWithAbortEffect(
+									rateLimitRetryMs,
+									options.signal,
+								).pipe(Effect.as(null));
+							}
+							conversationRateLimited = true;
+							emitStatus(
+								handlers,
+								"Conversation fetch rate limited",
+								"using partial profile context",
+							);
+							return Effect.succeed(null);
+						}),
+					);
+					if (response || conversationRateLimited) {
+						break;
+					}
+					if (conversationDelayMs > 0) {
 						emitStatus(
 							handlers,
-							"Conversation fetch rate limited",
-							"using partial profile context",
+							"Throttling conversation retry",
+							`${String(conversationDelayMs)}ms`,
 						);
-						return Effect.succeed(null);
-					}),
-				);
+						yield* sleepWithAbortEffect(conversationDelayMs, options.signal);
+					}
+				}
 				if (!response) break;
 				yield* abortIfRequestedEffect(options.signal);
 				conversationPages += 1;
@@ -834,7 +943,9 @@ export function collectProfileAnalysisContextEffect(
 			conversationPages,
 			fetchCached: false,
 		});
-		yield* tryProfileSync(() => writeSyncCache(contextKey, context, db));
+		if (!conversationRateLimited) {
+			yield* tryProfileSync(() => writeSyncCache(contextKey, context, db));
+		}
 		return context;
 	});
 }

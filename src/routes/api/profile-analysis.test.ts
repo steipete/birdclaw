@@ -75,4 +75,22 @@ describe("api profile analysis route", () => {
 			expect.objectContaining({ onEvent: expect.any(Function) }),
 		);
 	});
+
+	it("passes zero-valued throttle controls through", async () => {
+		const response = await GET({
+			request: new Request(
+				"http://localhost/api/profile-analysis?handle=alice&conversationDelayMs=0&rateLimitRetryMs=0&rateLimitRetries=0",
+			),
+		});
+
+		await response.text();
+		expect(streamProfileAnalysisMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationDelayMs: 0,
+				rateLimitRetryMs: 0,
+				rateLimitMaxRetries: 0,
+			}),
+			expect.objectContaining({ onEvent: expect.any(Function) }),
+		);
+	});
 });
