@@ -169,7 +169,7 @@ function tweetUrl(handle: string, id: string) {
 }
 
 function sourceList(source: SearchDiscussionSource) {
-	if (source !== "all" && source !== "search") return [source];
+	if (source !== "all") return [source];
 	return [
 		"search",
 		"home",

@@ -71,6 +71,17 @@ describe("search discussion", () => {
 		expect(context.hash).toHaveLength(40);
 	});
 
+	it("keeps live search scoped to the search bucket", () => {
+		const context = collectSearchDiscussionContext({
+			query: "local-first",
+			source: "search",
+			limit: 20,
+		});
+
+		expect(context.counts.home).toBe(0);
+		expect(context.tweets.map((tweet) => tweet.id)).not.toContain("tweet_001");
+	});
+
 	it("changes the context hash when profile prompt context changes", () => {
 		const first = collectSearchDiscussionContext({
 			query: "local-first",
