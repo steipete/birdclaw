@@ -415,6 +415,36 @@ describe("MarkdownViewer", () => {
 		expect(screen.queryByText(" source source.")).toBeNull();
 	});
 
+	it("links unresolved prefixed tweet citations without leaking raw ids", () => {
+		const { container } = render(
+			<MarkdownViewer
+				context={context}
+				markdown={
+					"- **“Don’t trust the agent blindly” became the dominant AI-coding take.** Systems understanding still matters. (tweet_2060088112257372610, tweet_2060279326134747518, tweet_2060263961975480675)"
+				}
+			/>,
+		);
+
+		expect(screen.queryByText(/tweet_2060088112257372610/)).toBeNull();
+		expect(screen.queryByText(/tweet_2060279326134747518/)).toBeNull();
+		expect(screen.queryByText(/tweet_2060263961975480675/)).toBeNull();
+		expect(
+			container.querySelector(
+				'a[href="https://x.com/i/status/2060088112257372610"]',
+			),
+		).not.toBeNull();
+		expect(
+			container.querySelector(
+				'a[href="https://x.com/i/status/2060279326134747518"]',
+			),
+		).not.toBeNull();
+		expect(
+			container.querySelector(
+				'a[href="https://x.com/i/status/2060263961975480675"]',
+			),
+		).not.toBeNull();
+	});
+
 	it("groups adjacent numeric profile citations", () => {
 		render(
 			<MarkdownViewer

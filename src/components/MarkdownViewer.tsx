@@ -50,6 +50,10 @@ function normalizeTweetReference(value: string) {
 		.replace(/^tweet_/, "");
 }
 
+function isNumericTweetReference(value: string) {
+	return /^\d{12,25}$/.test(normalizeTweetReference(value));
+}
+
 function tweetReferencesFromToken(token: string) {
 	return Array.from(token.matchAll(/\b(?:tweet_)?[A-Za-z0-9_:-]{3,}\b/g))
 		.map((match) => match[0])
@@ -501,7 +505,7 @@ function renderInline(text: string, lookup: InlineLookup) {
 			const groupedReferences = [...references, ...adjacent.references];
 			if (
 				adjacent.references.length > 0 &&
-				groupedReferences.every((reference) => /^\d{12,25}$/.test(reference))
+				groupedReferences.every(isNumericTweetReference)
 			) {
 				references = groupedReferences;
 				cursor = adjacent.cursor;
@@ -522,7 +526,7 @@ function renderInline(text: string, lookup: InlineLookup) {
 			references.length > 1 &&
 			!allReferencesResolved
 		) {
-			if (references.every((reference) => /^\d{12,25}$/.test(reference))) {
+			if (references.every(isNumericTweetReference)) {
 				const cursorAfterSourceWords = skipRedundantSourceWords(text, cursor);
 				if (linkTrailingDirectCitationText(nodes, references, tokenKey)) {
 					cursor = cursorAfterSourceWords;
@@ -568,7 +572,7 @@ function renderInline(text: string, lookup: InlineLookup) {
 		} else if (
 			isParenthesizedTweetRef &&
 			references.length === 1 &&
-			/^\d{12,25}$/.test(references[0] ?? "")
+			isNumericTweetReference(references[0] ?? "")
 		) {
 			const cursorAfterSourceWords = skipRedundantSourceWords(text, cursor);
 			if (linkTrailingDirectCitationText(nodes, references, tokenKey)) {
