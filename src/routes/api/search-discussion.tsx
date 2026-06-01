@@ -82,11 +82,10 @@ export const Route = createFileRoute("/api/search-discussion")({
 		handlers: {
 			GET: ({ request }) =>
 				runRouteEffect(
-					Effect.gen(function* () {
+					Effect.sync(() => {
 						const denied = sensitiveRequestErrorResponse(request);
 						if (denied) return denied;
 
-						yield* maybeAutoUpdateBackupEffect();
 						const url = new URL(request.url);
 						const options = parseOptions(url);
 						let abortDiscussion: (() => void) | undefined;
@@ -125,13 +124,20 @@ export const Route = createFileRoute("/api/search-discussion")({
 									};
 
 									runEffectBackground(
-										streamSearchDiscussionEffect(
-											{
-												...options,
-												signal: abortController.signal,
-												prefetchAvatars: true,
-											},
-											{ onEvent: enqueue },
+										maybeAutoUpdateBackupEffect().pipe(
+											Effect.flatMap(() => {
+												if (closed || abortController.signal.aborted) {
+													return Effect.succeed(undefined);
+												}
+												return streamSearchDiscussionEffect(
+													{
+														...options,
+														signal: abortController.signal,
+														prefetchAvatars: true,
+													},
+													{ onEvent: enqueue },
+												);
+											}),
 										),
 										{
 											onSuccess: closeController,
