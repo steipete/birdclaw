@@ -12,6 +12,11 @@ vi.mock("#/lib/backup", () => ({
 		Effect.promise(() => Promise.resolve(maybeAutoUpdateBackupMock())),
 }));
 vi.mock("#/lib/period-digest", () => ({
+	normalizeDigestLanguage: (value: string | undefined) => {
+		if (!value) return undefined;
+		if (value === "ZH-cn") return "zh-CN";
+		throw new Error("Digest language must be a valid BCP 47 tag");
+	},
 	streamPeriodDigest: (...args: unknown[]) => streamPeriodDigestMock(...args),
 	streamPeriodDigestEffect: (...args: unknown[]) =>
 		Effect.promise(() => streamPeriodDigestMock(...args)),
@@ -56,7 +61,7 @@ describe("api period digest route", () => {
 	it("streams NDJSON and passes query options to the digest runner", async () => {
 		const response = await GET({
 			request: new Request(
-				"http://localhost/api/period-digest?period=week&since=2026-05-01&until=2026-05-16&account=acct_primary&includeDms=yes&refresh=1&model=gpt-5.5&maxTweets=42&maxLinks=7",
+				"http://localhost/api/period-digest?period=week&since=2026-05-01&until=2026-05-16&account=acct_primary&includeDms=yes&refresh=1&model=gpt-5.5&language=ZH-cn&maxTweets=42&maxLinks=7",
 			),
 		});
 
@@ -75,6 +80,7 @@ describe("api period digest route", () => {
 				includeDms: true,
 				refresh: true,
 				model: "gpt-5.5",
+				language: "zh-CN",
 				maxTweets: 42,
 				maxLinks: 7,
 				liveSync: true,
@@ -85,6 +91,22 @@ describe("api period digest route", () => {
 			},
 			expect.objectContaining({ onEvent: expect.any(Function) }),
 		);
+	});
+
+	it("rejects invalid language tags before starting a digest", async () => {
+		const response = await GET({
+			request: new Request(
+				"http://localhost/api/period-digest?language=not_a_locale",
+			),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			ok: false,
+			error: "Digest language must be a valid BCP 47 tag",
+		});
+		expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+		expect(streamPeriodDigestMock).not.toHaveBeenCalled();
 	});
 
 	it("emits an error event when the digest runner rejects", async () => {

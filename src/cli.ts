@@ -63,6 +63,7 @@ import {
 	syncMentions,
 } from "#/lib/mentions-live";
 import {
+	normalizeDigestLanguage,
 	streamPeriodDigest,
 	type PeriodDigestOptions,
 	type PeriodDigestPreset,
@@ -399,6 +400,14 @@ function buildDigestOptions(
 	if (liveSyncMode === undefined) {
 		return null;
 	}
+	let language: string | undefined;
+	try {
+		language = normalizeDigestLanguage(options.language);
+	} catch (error) {
+		printError(error instanceof Error ? error.message : String(error));
+		process.exitCode = 1;
+		return null;
+	}
 	return {
 		period: parseDigestPeriod(period),
 		since: options.since,
@@ -407,7 +416,7 @@ function buildDigestOptions(
 		includeDms: Boolean(options.includeDms),
 		refresh: Boolean(options.refresh),
 		model: options.model,
-		language: options.language,
+		language,
 		maxTweets,
 		maxLinks,
 		liveSync: options.liveSync !== false,
@@ -1270,7 +1279,10 @@ program
 	.option("--account <accountId>", "Account id")
 	.option("--include-dms", "Include private DM context")
 	.option("--model <model>", "OpenAI model id")
-	.option("--language <lang>", "Report language, e.g. zh-CN, ja, ko (env: BIRDCLAW_DIGEST_LANGUAGE)")
+	.option(
+		"--language <tag>",
+		"Report language as a BCP 47 tag, e.g. zh-CN (env: BIRDCLAW_DIGEST_LANGUAGE)",
+	)
 	.option("--refresh", "Bypass the local digest cache")
 	.option("--max-tweets <n>", "Maximum tweet context", "5000")
 	.option("--max-links <n>", "Maximum linked articles", "12")
@@ -1295,7 +1307,10 @@ program
 	.option("--since <isoDate>", "Start of explicit window")
 	.option("--until <isoDate>", "End of explicit window")
 	.option("--model <model>", "OpenAI model id")
-	.option("--language <lang>", "Report language, e.g. zh-CN, ja, ko (env: BIRDCLAW_DIGEST_LANGUAGE)")
+	.option(
+		"--language <tag>",
+		"Report language as a BCP 47 tag, e.g. zh-CN (env: BIRDCLAW_DIGEST_LANGUAGE)",
+	)
 	.option("--refresh", "Bypass the local digest cache")
 	.option("--max-tweets <n>", "Maximum tweet context", "5000")
 	.option("--max-links <n>", "Maximum linked articles", "12")

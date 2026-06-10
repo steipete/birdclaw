@@ -109,6 +109,32 @@ const PeriodDigestSchema = z.object({
 	sourceTweetIds: z.array(z.string()).default([]),
 });
 
+const MAX_DIGEST_LANGUAGE_LENGTH = 64;
+
+export function normalizeDigestLanguage(
+	value: string | undefined,
+): string | undefined {
+	const trimmed = value?.trim();
+	if (!trimmed) return undefined;
+	if (
+		trimmed.length > MAX_DIGEST_LANGUAGE_LENGTH ||
+		!/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(trimmed)
+	) {
+		throw new Error(
+			"Digest language must be a valid BCP 47 tag such as en, zh-CN, or pt-BR",
+		);
+	}
+	try {
+		const [canonical] = Intl.getCanonicalLocales(trimmed);
+		if (!canonical) throw new Error("missing canonical locale");
+		return canonical;
+	} catch {
+		throw new Error(
+			"Digest language must be a valid BCP 47 tag such as en, zh-CN, or pt-BR",
+		);
+	}
+}
+
 export type PeriodDigest = z.infer<typeof PeriodDigestSchema>;
 
 interface CompactTweet {
@@ -565,7 +591,9 @@ export function collectPeriodDigestContext(
 }
 
 function languageFromOptions(options: PeriodDigestOptions) {
-	return options.language ?? process.env.BIRDCLAW_DIGEST_LANGUAGE ?? undefined;
+	return normalizeDigestLanguage(
+		options.language ?? process.env.BIRDCLAW_DIGEST_LANGUAGE,
+	);
 }
 
 function modelFromOptions(options: PeriodDigestOptions) {
@@ -851,7 +879,11 @@ function digestCacheKey(
 	return parts.join(":");
 }
 
-function buildPrompt(context: PeriodDigestContext, options?: { language?: string }) {
+function buildPrompt(
+	context: PeriodDigestContext,
+	options?: { language?: string },
+) {
+	const language = normalizeDigestLanguage(options?.language);
 	const promptTweets = context.tweets.map((tweet) => ({
 		id: tweet.id,
 		url: tweet.url,
@@ -936,7 +968,7 @@ Requirements:
 - Stream one readable Markdown report first. The UI will show this text directly; do not rely on separate cards or structured summaries.
 - Target 700-1100 words when there is enough data.
 - Start with a 2-3 sentence lead that immediately says what people are talking about.
-- Use sections named "What people are talking about", "Important links shared", and "Worth opening". Add "Worth replying to" only if there are clearly high-signal replies.
+- Use sections named "What people are talking about", "Important links shared", and "Worth opening". Add "Worth replying to" only if there are clearly high-signal replies. Translate these section titles when a report language is requested.
 - When a tweet has replyToTweet, use that parent context to understand what the author was replying to and whether Peter already joined the conversation.
 - Use bullets under each section. Each bullet should be specific and explain why it matters.
 - For tweets: cite every claim with inline tweet ids at the end of the relevant sentence or bullet, e.g. (tweet_123, tweet_456). These citations become hoverable source links.
@@ -950,9 +982,10 @@ Requirements:
 - Keep actionItems empty unless you wrote a "Worth replying to" section.
 - Put every tweet id cited in the Markdown into sourceTweetIds.
 - JSON shape: { "title": string, "summary": string, "keyTopics": [{ "title": string, "summary": string, "tweetIds": string[], "handles": string[] }], "notableLinks": [{ "title": string, "url": string, "why": string, "sourceTweetIds": string[] }], "people": [{ "handle": string, "name"?: string, "why": string }], "actionItems": [{ "kind": "reply"|"follow_up"|"read"|"sync", "label": string, "tweetId"?: string, "dmConversationId"?: string }], "sourceTweetIds": string[] }
+${language ? `- Write all human-readable prose, including section titles and JSON prose fields, in ${language}.\n- Preserve handles, URLs, tweet ids, and JSON property names exactly.` : ""}
 
 Dataset:
-${JSON.stringify(dataset)}${options?.language ? `\n\nIMPORTANT: Write the entire Markdown report in ${options.language}. Section titles, bullets, and all prose must be in ${options.language}. Keep handles, URLs, tweet ids, and the JSON object in their original form.` : ""}`;
+${JSON.stringify(dataset)}`;
 }
 
 function fallbackDigest(
@@ -1137,7 +1170,9 @@ function createOpenAIRequestBody(
 			},
 			{
 				role: "user",
-				content: buildPrompt(context, { language: languageFromOptions(options) }),
+				content: buildPrompt(context, {
+					language: languageFromOptions(options),
+				}),
 			},
 		],
 	};
@@ -1221,16 +1256,20 @@ export function streamPeriodDigestEffect(
 	handlers: PeriodDigestStreamHandlers = {},
 ): Effect.Effect<PeriodDigestRunResult, Error> {
 	return Effect.gen(function* () {
+		const resolvedOptions = {
+			...options,
+			language: yield* tryDigestSync(() => languageFromOptions(options)),
+		};
 		yield* refreshPeriodDigestInputsEffect(
-			options,
+			resolvedOptions,
 			{ threads: false },
 			handlers,
 		).pipe(Effect.catchAll(() => Effect.void));
 		let context = yield* tryDigestSync(() =>
-			collectPeriodDigestContext(options),
+			collectPeriodDigestContext(resolvedOptions),
 		);
-		let cacheKey = digestCacheKey(context, options);
-		const cached = options.refresh
+		let cacheKey = digestCacheKey(context, resolvedOptions);
+		const cached = resolvedOptions.refresh
 			? null
 			: yield* tryDigestSync(() =>
 					readSyncCache<{
@@ -1261,7 +1300,7 @@ export function streamPeriodDigestEffect(
 		}
 
 		yield* refreshPeriodDigestInputsEffect(
-			options,
+			resolvedOptions,
 			{
 				timeline: false,
 				mentions: false,
@@ -1272,8 +1311,10 @@ export function streamPeriodDigestEffect(
 			},
 			handlers,
 		).pipe(Effect.catchAll(() => Effect.void));
-		context = yield* tryDigestSync(() => collectPeriodDigestContext(options));
-		cacheKey = digestCacheKey(context, options);
+		context = yield* tryDigestSync(() =>
+			collectPeriodDigestContext(resolvedOptions),
+		);
+		cacheKey = digestCacheKey(context, resolvedOptions);
 
 		const apiKey = process.env.OPENAI_API_KEY;
 		if (!apiKey) {
@@ -1283,14 +1324,14 @@ export function streamPeriodDigestEffect(
 		handlers.onEvent?.({ type: "start", context, cached: false });
 		emitDigestStatus(handlers, "Streaming AI summary");
 		const response = yield* tryDigestPromise(() =>
-			fetch(process.env.OPENAI_BASE_URL ? process.env.OPENAI_BASE_URL + "/v1/responses" : "https://api.openai.com/v1/responses", {
+			fetch("https://api.openai.com/v1/responses", {
 				method: "POST",
-				signal: options.signal,
+				signal: resolvedOptions.signal,
 				headers: {
 					authorization: `Bearer ${apiKey}`,
 					"content-type": "application/json",
 				},
-				body: JSON.stringify(createOpenAIRequestBody(context, options)),
+				body: JSON.stringify(createOpenAIRequestBody(context, resolvedOptions)),
 			}),
 		);
 		if (!response.ok) {
@@ -1304,7 +1345,12 @@ export function streamPeriodDigestEffect(
 				),
 			);
 		}
-		return yield* readOpenAIStreamEffect(response, context, options, handlers);
+		return yield* readOpenAIStreamEffect(
+			response,
+			context,
+			resolvedOptions,
+			handlers,
+		);
 	});
 }
 
@@ -1318,6 +1364,9 @@ export function streamPeriodDigest(
 export const __test__ = {
 	PeriodDigestSchema,
 	buildPrompt,
+	digestCacheKey,
+	languageFromOptions,
+	normalizeDigestLanguage,
 	readOpenAIStreamEffect,
 	parseDigestFromHybridText,
 	processSseChunk,

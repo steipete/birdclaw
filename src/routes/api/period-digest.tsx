@@ -3,11 +3,13 @@ import { Effect } from "effect";
 import { maybeAutoUpdateBackupEffect } from "#/lib/backup";
 import { runEffectBackground } from "#/lib/effect-runtime";
 import {
+	jsonResponse,
 	parseBoundedInteger,
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
 import {
+	normalizeDigestLanguage,
 	streamPeriodDigestEffect,
 	type PeriodDigestOptions,
 	type PeriodDigestStreamEvent,
@@ -28,7 +30,9 @@ function parseOptions(url: URL): PeriodDigestOptions {
 		includeDms: parseBoolean(url.searchParams.get("includeDms")),
 		refresh: parseBoolean(url.searchParams.get("refresh")),
 		model: url.searchParams.get("model") === "gpt-5.5" ? "gpt-5.5" : undefined,
-		language: url.searchParams.get("language") ?? undefined,
+		language: normalizeDigestLanguage(
+			url.searchParams.get("language") ?? undefined,
+		),
 		maxTweets: parseBoundedInteger(url.searchParams.get("maxTweets"), {
 			max: 5_000,
 		}),
@@ -61,9 +65,20 @@ export const Route = createFileRoute("/api/period-digest")({
 						const denied = sensitiveRequestErrorResponse(request);
 						if (denied) return denied;
 
-						yield* maybeAutoUpdateBackupEffect();
 						const url = new URL(request.url);
-						const options = parseOptions(url);
+						let options: PeriodDigestOptions;
+						try {
+							options = parseOptions(url);
+						} catch (error) {
+							return jsonResponse(
+								{
+									ok: false,
+									error: error instanceof Error ? error.message : String(error),
+								},
+								{ status: 400 },
+							);
+						}
+						yield* maybeAutoUpdateBackupEffect();
 						let abortDigest: (() => void) | undefined;
 
 						return new Response(

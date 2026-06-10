@@ -107,13 +107,15 @@ birdclaw debug transport
 - uses `gpt-5.5`, medium reasoning, and priority service tier by default
 - requires `OPENAI_API_KEY`
 - excludes DMs unless `--include-dms` is passed
-- supports `--refresh`, `--model`, `--max-tweets`, and `--max-links`
+- supports `--refresh`, `--model`, `--language <bcp47-tag>`, `--max-tweets`, and `--max-links`
+- reads the default report language from `BIRDCLAW_DIGEST_LANGUAGE`
 
 ### `digest [period]`
 
 - period: `today`, `24h`, `yesterday`, or `week`
 - accepts explicit `--since <iso>` and `--until <iso>` windows
-- caches the final structured result by local context hash, model, reasoning effort, and service tier
+- caches the final structured result by local context hash, model, reasoning effort, service tier, and canonical report language
+- accepts the same language tag through `GET /api/period-digest?language=zh-CN`
 - `--json` suppresses token streaming and emits the final envelope
 
 ### `init`

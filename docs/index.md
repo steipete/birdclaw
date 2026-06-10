@@ -28,6 +28,7 @@ birdclaw compose reply 1891234567890 "On it."
 
 # Stream a local "what happened" digest.
 birdclaw today
+birdclaw today --language zh-CN
 birdclaw digest week --json
 ```
 
