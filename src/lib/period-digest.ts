@@ -121,7 +121,7 @@ export function normalizeDigestLanguage(
 		!/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(trimmed)
 	) {
 		throw new Error(
-			"Digest language must be a valid BCP 47 tag such as en, zh-CN, or pt-BR",
+			"Digest language must be a valid Unicode locale identifier such as en, zh-CN, or pt-BR",
 		);
 	}
 	try {
@@ -130,7 +130,7 @@ export function normalizeDigestLanguage(
 		return canonical;
 	} catch {
 		throw new Error(
-			"Digest language must be a valid BCP 47 tag such as en, zh-CN, or pt-BR",
+			"Digest language must be a valid Unicode locale identifier such as en, zh-CN, or pt-BR",
 		);
 	}
 }
@@ -991,12 +991,22 @@ ${JSON.stringify(dataset)}`;
 function fallbackDigest(
 	context: PeriodDigestContext,
 	markdown: string,
+	language?: string,
 ): PeriodDigest {
-	const title = `${context.window.label} digest`;
+	const normalized = markdown.replaceAll(/\s+/g, " ").trim();
+	const heading = markdown
+		.split("\n")
+		.map((line) => line.match(/^#{1,6}\s+(.+)$/)?.[1]?.trim())
+		.find(Boolean);
+	const neutralFallback = language ? `[${language}]` : undefined;
 	return {
-		title,
+		title:
+			heading?.slice(0, 160) ??
+			neutralFallback ??
+			`${context.window.label} digest`,
 		summary:
-			markdown.replaceAll(/\s+/g, " ").trim().slice(0, 280) ||
+			normalized.slice(0, 280) ||
+			neutralFallback ||
 			"No model summary was returned.",
 		keyTopics: [],
 		notableLinks: [],
@@ -1009,6 +1019,7 @@ function fallbackDigest(
 function parseDigestFromHybridText(
 	context: PeriodDigestContext,
 	rawText: string,
+	language?: string,
 ): { digest: PeriodDigest; markdown: string } {
 	const [markdownPart, jsonPart] = rawText.split(DELIMITER_PATTERN);
 	const markdown = (markdownPart ?? rawText).trim();
@@ -1023,10 +1034,13 @@ function parseDigestFromHybridText(
 				digest: PeriodDigestSchema.parse(JSON.parse(candidate)),
 			};
 		} catch {
-			return { markdown, digest: fallbackDigest(context, markdown) };
+			return {
+				markdown,
+				digest: fallbackDigest(context, markdown, language),
+			};
 		}
 	}
-	return { markdown, digest: fallbackDigest(context, markdown) };
+	return { markdown, digest: fallbackDigest(context, markdown, language) };
 }
 
 function emitVisibleDelta(
@@ -1215,7 +1229,11 @@ function readOpenAIStreamEffect(
 			}
 
 			const parsed = yield* tryDigestSync(() =>
-				parseDigestFromHybridText(context, state.rawText),
+				parseDigestFromHybridText(
+					context,
+					state.rawText,
+					languageFromOptions(options),
+				),
 			);
 			const cacheKey = digestCacheKey(context, options);
 			const updatedAt = yield* tryDigestSync(() =>

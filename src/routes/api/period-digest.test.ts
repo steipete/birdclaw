@@ -15,7 +15,9 @@ vi.mock("#/lib/period-digest", () => ({
 	normalizeDigestLanguage: (value: string | undefined) => {
 		if (!value) return undefined;
 		if (value === "ZH-cn") return "zh-CN";
-		throw new Error("Digest language must be a valid BCP 47 tag");
+		throw new Error(
+			"Digest language must be a valid Unicode locale identifier",
+		);
 	},
 	streamPeriodDigest: (...args: unknown[]) => streamPeriodDigestMock(...args),
 	streamPeriodDigestEffect: (...args: unknown[]) =>
@@ -103,7 +105,7 @@ describe("api period digest route", () => {
 		expect(response.status).toBe(400);
 		expect(await response.json()).toEqual({
 			ok: false,
-			error: "Digest language must be a valid BCP 47 tag",
+			error: "Digest language must be a valid Unicode locale identifier",
 		});
 		expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
 		expect(streamPeriodDigestMock).not.toHaveBeenCalled();

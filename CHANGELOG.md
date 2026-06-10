@@ -4,7 +4,7 @@
 
 ### Added
 
-- Add localized Today/digest reports through `--language <bcp47-tag>`, `BIRDCLAW_DIGEST_LANGUAGE`, and the period-digest API, with canonical language validation and separate caches. (#47 - thanks @yujiawei)
+- Add localized Today/digest reports through `--language <locale-id>`, `BIRDCLAW_DIGEST_LANGUAGE`, and the period-digest API, with canonical locale validation and separate caches. (#47 - thanks @yujiawei)
 
 ## 0.7.0 - 2026-06-01
 

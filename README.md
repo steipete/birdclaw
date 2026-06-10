@@ -418,7 +418,7 @@ birdclaw profile-analyse openai --max-pages 20 --max-conversations 40 --conversa
 
 ### What happened today
 
-`birdclaw today` streams a local "what happened" digest from the SQLite store. It uses the OpenAI Responses API with `gpt-5.5`, medium reasoning, and priority service tier by default. Set `OPENAI_API_KEY`; override with `BIRDCLAW_AI_MODEL`, `BIRDCLAW_OPENAI_REASONING_EFFORT`, or `BIRDCLAW_OPENAI_SERVICE_TIER` when needed. Use `--language <bcp47-tag>` or `BIRDCLAW_DIGEST_LANGUAGE` for localized reports.
+`birdclaw today` streams a local "what happened" digest from the SQLite store. It uses the OpenAI Responses API with `gpt-5.5`, medium reasoning, and priority service tier by default. Set `OPENAI_API_KEY`; override with `BIRDCLAW_AI_MODEL`, `BIRDCLAW_OPENAI_REASONING_EFFORT`, or `BIRDCLAW_OPENAI_SERVICE_TIER` when needed. Use `--language <locale-id>` or `BIRDCLAW_DIGEST_LANGUAGE` for localized reports.
 
 ```bash
 birdclaw today

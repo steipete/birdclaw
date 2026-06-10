@@ -107,7 +107,7 @@ birdclaw debug transport
 - uses `gpt-5.5`, medium reasoning, and priority service tier by default
 - requires `OPENAI_API_KEY`
 - excludes DMs unless `--include-dms` is passed
-- supports `--refresh`, `--model`, `--language <bcp47-tag>`, `--max-tweets`, and `--max-links`
+- supports `--refresh`, `--model`, `--language <locale-id>`, `--max-tweets`, and `--max-links`
 - reads the default report language from `BIRDCLAW_DIGEST_LANGUAGE`
 
 ### `digest [period]`

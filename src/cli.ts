@@ -1281,7 +1281,7 @@ program
 	.option("--model <model>", "OpenAI model id")
 	.option(
 		"--language <tag>",
-		"Report language as a BCP 47 tag, e.g. zh-CN (env: BIRDCLAW_DIGEST_LANGUAGE)",
+		"Report language as a Unicode locale id, e.g. zh-CN (env: BIRDCLAW_DIGEST_LANGUAGE)",
 	)
 	.option("--refresh", "Bypass the local digest cache")
 	.option("--max-tweets <n>", "Maximum tweet context", "5000")
@@ -1309,7 +1309,7 @@ program
 	.option("--model <model>", "OpenAI model id")
 	.option(
 		"--language <tag>",
-		"Report language as a BCP 47 tag, e.g. zh-CN (env: BIRDCLAW_DIGEST_LANGUAGE)",
+		"Report language as a Unicode locale id, e.g. zh-CN (env: BIRDCLAW_DIGEST_LANGUAGE)",
 	)
 	.option("--refresh", "Bypass the local digest cache")
 	.option("--max-tweets <n>", "Maximum tweet context", "5000")

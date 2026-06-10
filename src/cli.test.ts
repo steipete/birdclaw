@@ -214,7 +214,9 @@ vi.mock("#/lib/period-digest", () => ({
 		const trimmed = value?.trim();
 		if (!trimmed) return undefined;
 		if (trimmed === "ZH-cn") return "zh-CN";
-		throw new Error("Digest language must be a valid BCP 47 tag");
+		throw new Error(
+			"Digest language must be a valid Unicode locale identifier",
+		);
 	},
 	streamPeriodDigest: (...args: unknown[]) => streamPeriodDigestMock(...args),
 }));
@@ -2733,7 +2735,7 @@ describe("cli", () => {
 		expect(process.exitCode).toBe(1);
 		expect(streamPeriodDigestMock).not.toHaveBeenCalled();
 		expect(consoleErrorMock).toHaveBeenCalledWith(
-			expect.stringContaining("valid BCP 47 tag"),
+			expect.stringContaining("valid Unicode locale identifier"),
 		);
 		consoleErrorMock.mockRestore();
 	});
