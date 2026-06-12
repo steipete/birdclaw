@@ -2,6 +2,10 @@
 
 ## 0.8.1 - Unreleased
 
+### Changed
+
+- Refresh dependency backstop updates for `@steipete/sweet-cookie`, `@types/node`, the adopted TypeScript native-preview toolchain, and the pnpm 10 package-manager pin.
+
 ## 0.8.0 - 2026-06-10
 
 ### Added
