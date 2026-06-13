@@ -38,6 +38,8 @@
 	"scripts": {
 		"dev": "BIRDCLAW_LOCAL_WEB=1 vite dev --host 127.0.0.1 --port 3000",
 		"build": "vite build",
+		"build:public": "BIRDCLAW_WEB_PROFILE=public-readonly vite build",
+		"start:public": "BIRDCLAW_WEB_PROFILE=public-readonly node scripts/serve-build.mjs",
 		"preview": "vite preview",
 		"test": "node ./scripts/run-vitest.mjs run",
 		"coverage": "node ./scripts/run-vitest.mjs run --coverage",

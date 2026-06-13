@@ -227,10 +227,12 @@ function isInteractiveTarget(target: EventTarget | null) {
 export function TimelineCard({
 	item,
 	onReply,
+	showAnalysisControls = true,
 	showReplyControls = true,
 }: {
 	item: TimelineItem;
 	onReply: (tweetId: string) => void;
+	showAnalysisControls?: boolean;
 	showReplyControls?: boolean;
 }) {
 	const canReply =
@@ -446,20 +448,25 @@ export function TimelineCard({
 								<span className="text-[13px]">Reply</span>
 							</button>
 						) : null}
-						<a
-							aria-label={`Analyse @${displayAuthor.handle}`}
-							className={feedActionButtonClass}
-							href={`/profiles/${encodeURIComponent(displayAuthor.handle)}`}
-							onClick={(event) => {
-								event.stopPropagation();
-							}}
-							title={`Analyse @${displayAuthor.handle}`}
-						>
-							<span className={feedActionIconWrapClass}>
-								<UserSearch className={feedActionIconClass} strokeWidth={1.7} />
-							</span>
-							<span className="text-[13px]">Analyse</span>
-						</a>
+						{showAnalysisControls ? (
+							<a
+								aria-label={`Analyse @${displayAuthor.handle}`}
+								className={feedActionButtonClass}
+								href={`/profiles/${encodeURIComponent(displayAuthor.handle)}`}
+								onClick={(event) => {
+									event.stopPropagation();
+								}}
+								title={`Analyse @${displayAuthor.handle}`}
+							>
+								<span className={feedActionIconWrapClass}>
+									<UserSearch
+										className={feedActionIconClass}
+										strokeWidth={1.7}
+									/>
+								</span>
+								<span className="text-[13px]">Analyse</span>
+							</a>
+						) : null}
 						{showLikeIndicator ? (
 							<span
 								aria-label={`${formatCompactNumber(displayLikeCount)} likes`}

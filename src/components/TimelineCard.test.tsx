@@ -130,6 +130,20 @@ describe("TimelineCard", () => {
 		expect(onReply).toHaveBeenCalledWith("tweet_1");
 	});
 
+	it("can hide profile analysis controls", () => {
+		render(
+			<TimelineCard
+				item={item}
+				onReply={vi.fn()}
+				showAnalysisControls={false}
+			/>,
+		);
+
+		expect(
+			screen.queryByRole("link", { name: "Analyse @sam" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("renders retweets as the original tweet with repost attribution", () => {
 		const fetchMock = vi.fn().mockResolvedValue({
 			ok: true,

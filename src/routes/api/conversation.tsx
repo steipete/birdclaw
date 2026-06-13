@@ -5,7 +5,9 @@ import {
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
-import { getTweetConversation } from "#/lib/queries";
+import { sanitizePublicEmbeddedTweet } from "#/lib/public-tweet";
+import { getTweetConversation, isTweetInPublicTimeline } from "#/lib/queries";
+import { isPublicReadonlyWeb } from "#/lib/web-profile";
 
 function json(data: unknown, status = 200) {
 	return new Response(JSON.stringify(data), {
@@ -25,11 +27,17 @@ export const Route = createFileRoute("/api/conversation")({
 						const denied = sensitiveRequestErrorResponse(request);
 						if (denied) return denied;
 
-						yield* maybeAutoUpdateBackupEffect();
+						const publicReadonly = isPublicReadonlyWeb();
+						if (!publicReadonly) {
+							yield* maybeAutoUpdateBackupEffect();
+						}
 						const url = new URL(request.url);
 						const tweetId = url.searchParams.get("tweetId")?.trim();
 						if (!tweetId) {
 							return json({ ok: false, error: "Missing tweetId" }, 400);
+						}
+						if (publicReadonly && !isTweetInPublicTimeline(tweetId)) {
+							return json({ ok: false, error: "Tweet not found" }, 404);
 						}
 
 						const conversation = getTweetConversation(tweetId);
@@ -37,7 +45,15 @@ export const Route = createFileRoute("/api/conversation")({
 							return json({ ok: false, error: "Tweet not found" }, 404);
 						}
 
-						return json({ ok: true, ...conversation });
+						return json({
+							ok: true,
+							...conversation,
+							items: publicReadonly
+								? conversation.items
+										.filter((tweet) => isTweetInPublicTimeline(tweet.id))
+										.map(sanitizePublicEmbeddedTweet)
+								: conversation.items,
+						});
 					}),
 				),
 		},

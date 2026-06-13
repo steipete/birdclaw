@@ -7,13 +7,45 @@ import {
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
-import { queryResource } from "#/lib/queries";
+import {
+	sanitizePublicEmbeddedTweet,
+	sanitizePublicTweetEntities,
+} from "#/lib/public-tweet";
+import { isTweetInPublicTimeline, queryResource } from "#/lib/queries";
 import type {
 	DmQuery,
+	EmbeddedTweet,
 	ReplyFilter,
 	ResourceKind,
+	TimelineItem,
 	TimelineQualityFilter,
 } from "#/lib/types";
+import { isPublicReadonlyWeb } from "#/lib/web-profile";
+
+const PUBLIC_RESOURCES = new Set<ResourceKind>(["home", "mentions"]);
+
+function sanitizeVisibleEmbeddedTweet(
+	tweet: EmbeddedTweet | null | undefined,
+): EmbeddedTweet | null | undefined {
+	if (!tweet || !isTweetInPublicTimeline(tweet.id)) return null;
+	return sanitizePublicEmbeddedTweet(tweet);
+}
+
+function sanitizeTimelineItem(item: TimelineItem): TimelineItem {
+	return {
+		...item,
+		accountId: "",
+		accountHandle: "",
+		isReplied: false,
+		bookmarked: false,
+		liked: false,
+		qualityReason: undefined,
+		entities: sanitizePublicTweetEntities(item.entities),
+		replyToTweet: sanitizeVisibleEmbeddedTweet(item.replyToTweet),
+		quotedTweet: sanitizeVisibleEmbeddedTweet(item.quotedTweet),
+		retweetedTweet: sanitizeVisibleEmbeddedTweet(item.retweetedTweet),
+	};
+}
 
 function parseReplyFilter(value: string | null): ReplyFilter {
 	if (value === "replied" || value === "unreplied") {
@@ -53,24 +85,38 @@ export const Route = createFileRoute("/api/query")({
 						const denied = sensitiveRequestErrorResponse(request);
 						if (denied) return denied;
 
-						yield* maybeAutoUpdateBackupEffect();
 						const url = new URL(request.url);
 						const resource = (url.searchParams.get("resource") ??
 							"home") as ResourceKind;
+						const publicReadonly = isPublicReadonlyWeb();
+						if (publicReadonly && !PUBLIC_RESOURCES.has(resource)) {
+							return jsonResponse(
+								{ ok: false, message: "Resource is not available" },
+								{ status: 403 },
+							);
+						}
+						if (!publicReadonly) {
+							yield* maybeAutoUpdateBackupEffect();
+						}
 						const baseFilters = {
-							account: url.searchParams.get("account") ?? undefined,
+							account: publicReadonly
+								? undefined
+								: (url.searchParams.get("account") ?? undefined),
 							search: url.searchParams.get("search") ?? undefined,
-							replyFilter: parseReplyFilter(
-								url.searchParams.get("replyFilter"),
-							),
+							replyFilter: publicReadonly
+								? ("all" as const)
+								: parseReplyFilter(url.searchParams.get("replyFilter")),
 							since: url.searchParams.get("since") ?? undefined,
 							until: url.searchParams.get("until") ?? undefined,
 							includeReplies: url.searchParams.get("originalsOnly") !== "true",
 							qualityFilter: parseQualityFilter(
 								url.searchParams.get("qualityFilter"),
 							),
-							likedOnly: url.searchParams.get("liked") === "true",
-							bookmarkedOnly: url.searchParams.get("bookmarked") === "true",
+							likedOnly:
+								!publicReadonly && url.searchParams.get("liked") === "true",
+							bookmarkedOnly:
+								!publicReadonly &&
+								url.searchParams.get("bookmarked") === "true",
 							limit: parseBoundedInteger(url.searchParams.get("limit"), {
 								max: 200,
 							}),
@@ -101,12 +147,20 @@ export const Route = createFileRoute("/api/query")({
 							);
 						}
 
+						const response = queryResource(resource, {
+							...baseFilters,
+							resource,
+							untilId: url.searchParams.get("untilId") ?? undefined,
+						});
 						return jsonResponse(
-							queryResource(resource, {
-								...baseFilters,
-								resource,
-								untilId: url.searchParams.get("untilId") ?? undefined,
-							}),
+							publicReadonly
+								? {
+										...response,
+										items: (response.items as TimelineItem[]).map(
+											sanitizeTimelineItem,
+										),
+									}
+								: response,
 						);
 					}),
 				),

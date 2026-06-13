@@ -34,6 +34,7 @@ import {
 	sidebarNavClass,
 	sidebarShellClass,
 } from "#/lib/ui";
+import { isPublicReadonlyBuild } from "#/lib/web-profile";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { BirdclawMark } from "./BrandMark";
 import { ThemeSlider } from "./ThemeSlider";
@@ -54,6 +55,10 @@ const links = [
 	{ to: "/dms", label: "DMs", icon: Mail },
 	{ to: "/blocks", label: "Blocks", icon: ShieldOff },
 ] as const;
+
+const publicLinks = links.filter(
+	(link) => link.to === "/" || link.to === "/mentions",
+);
 
 export function AppNav({ compact = false }: { compact?: boolean }) {
 	const pathname = useRouterState({
@@ -79,7 +84,7 @@ export function AppNav({ compact = false }: { compact?: boolean }) {
 					</span>
 				</Link>
 				<nav className={sidebarNavClass} aria-label="Primary">
-					{links.map((link) => {
+					{(isPublicReadonlyBuild ? publicLinks : links).map((link) => {
 						const active = pathname === link.to;
 						const Icon = link.icon;
 						return (
@@ -111,7 +116,14 @@ export function AppNav({ compact = false }: { compact?: boolean }) {
 				</nav>
 			</div>
 			<div className={sidebarFooterClass}>
-				<AccountSwitcher action={<ThemeSlider compact />} />
+				{isPublicReadonlyBuild ? (
+					<div className="flex flex-col items-center gap-2 px-2 text-[11px] font-medium text-[var(--ink-soft)] min-[1100px]:items-start">
+						<span>Read-only</span>
+						<ThemeSlider compact />
+					</div>
+				) : (
+					<AccountSwitcher action={<ThemeSlider compact />} />
+				)}
 			</div>
 		</aside>
 	);

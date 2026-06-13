@@ -2,6 +2,10 @@
 
 ## 0.8.1 - Unreleased
 
+### Added
+
+- Add a production `public-readonly` web profile with loopback-only serving, read-only SQLite, an explicit API allowlist, sanitized timeline data, and a reduced reader UI for identity-aware reverse proxies.
+
 ## 0.8.0 - 2026-06-10
 
 ### Added
