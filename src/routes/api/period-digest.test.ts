@@ -70,7 +70,9 @@ describe("api period digest route", () => {
 		expect(response.headers.get("content-type")).toContain(
 			"application/x-ndjson",
 		);
-		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(response.headers.get("cache-control")).toBe(
+			"no-store, no-transform",
+		);
 		expect(await response.text()).toContain('"type":"done"');
 		expect(maybeAutoUpdateBackupMock).toHaveBeenCalledWith();
 		expect(streamPeriodDigestMock).toHaveBeenCalledWith(

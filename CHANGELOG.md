@@ -10,7 +10,7 @@
 
 ### Fixed
 
-- Keep long-running AI streams alive through reverse proxies and show actionable Today retry errors when a connection is interrupted.
+- Open long-running AI streams immediately, keep the Today digest within proxy limits by using the locally synchronized archive, and show actionable retry errors when a connection is interrupted.
 
 ## 0.8.0 - 2026-06-10
 

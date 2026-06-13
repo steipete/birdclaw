@@ -53,6 +53,8 @@ function digestUrl(
 	url.searchParams.set("includeDms", String(includeDms));
 	url.searchParams.set("maxTweets", "5000");
 	url.searchParams.set("maxLinks", "20");
+	// Cloudflare caps proxied requests; live timeline sync remains a separate job/UI action.
+	url.searchParams.set("liveSync", "false");
 	if (refresh) {
 		url.searchParams.set("refresh", "true");
 	}

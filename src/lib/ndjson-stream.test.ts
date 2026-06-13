@@ -34,9 +34,20 @@ describe("createEffectNdjsonResponse", () => {
 			'{"type":"status","label":"Starting"}\n',
 		);
 
+		const initialPadding = new TextDecoder().decode(
+			(await reader!.read()).value,
+		);
+		expect(initialPadding.trim()).toBe("");
+		expect(initialPadding.length).toBeGreaterThanOrEqual(16_384);
+		expect(resolveRun).toBeUndefined();
+		await vi.advanceTimersByTimeAsync(25);
+		expect(resolveRun).toBeTypeOf("function");
+
 		const heartbeat = reader!.read();
 		await vi.advanceTimersByTimeAsync(15_000);
-		expect(new TextDecoder().decode((await heartbeat).value)).toBe("\n");
+		const heartbeatText = new TextDecoder().decode((await heartbeat).value);
+		expect(heartbeatText.trim()).toBe("");
+		expect(heartbeatText.length).toBeGreaterThanOrEqual(16_384);
 
 		resolveRun?.();
 		await reader!.cancel();

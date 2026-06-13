@@ -220,7 +220,8 @@ describe("today route", () => {
 			urls.some(
 				(url) =>
 					url.searchParams.get("period") === "week" &&
-					url.searchParams.get("includeDms") === "true",
+					url.searchParams.get("includeDms") === "true" &&
+					url.searchParams.get("liveSync") === "false",
 			),
 		).toBe(true);
 	});

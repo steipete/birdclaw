@@ -3,6 +3,8 @@ import { runEffectBackground } from "./effect-runtime";
 
 const encoder = new TextEncoder();
 const HEARTBEAT_INTERVAL_MS = 15_000;
+const STREAM_START_DELAY_MS = 25;
+const FLUSH_PADDING = `${" ".repeat(16_384)}\n`;
 
 export function createEffectNdjsonResponse<Event>({
 	request,
@@ -29,10 +31,12 @@ export function createEffectNdjsonResponse<Event>({
 				const abortController = new AbortController();
 				let closed = false;
 				let heartbeat: ReturnType<typeof setInterval> | undefined;
+				let startTimer: ReturnType<typeof setTimeout> | undefined;
 
 				const cleanup = () => {
 					request.signal.removeEventListener("abort", abort);
 					if (heartbeat !== undefined) clearInterval(heartbeat);
+					if (startTimer !== undefined) clearTimeout(startTimer);
 				};
 				const abort = () => {
 					if (closed) return;
@@ -67,20 +71,33 @@ export function createEffectNdjsonResponse<Event>({
 					return;
 				}
 				for (const event of initialEvents) emit(event);
-				heartbeat = setInterval(() => enqueue("\n"), HEARTBEAT_INTERVAL_MS);
+				enqueue(FLUSH_PADDING);
+				heartbeat = setInterval(
+					() => enqueue(FLUSH_PADDING),
+					HEARTBEAT_INTERVAL_MS,
+				);
 
-				runEffectBackground(run({ signal: abortController.signal, emit }), {
-					onSuccess: close,
-					onFailure: (error) => {
+				startTimer = setTimeout(() => {
+					if (closed) return;
+					try {
+						runEffectBackground(run({ signal: abortController.signal, emit }), {
+							onSuccess: close,
+							onFailure: (error) => {
+								emit(errorEvent(error));
+								close();
+							},
+						});
+					} catch (error) {
 						emit(errorEvent(error));
 						close();
-					},
-				});
+					}
+				}, STREAM_START_DELAY_MS);
 			},
 		}),
 		{
 			headers: {
-				"cache-control": "no-store",
+				"cache-control": "no-store, no-transform",
+				"content-encoding": "identity",
 				"content-type": "application/x-ndjson; charset=utf-8",
 				"x-accel-buffering": "no",
 			},
