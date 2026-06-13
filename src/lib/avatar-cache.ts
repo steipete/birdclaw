@@ -32,10 +32,6 @@ function getAvatarCacheDir() {
 	return dir;
 }
 
-function getExistingAvatarCacheDir() {
-	return path.join(getBirdclawPaths().mediaThumbsDir, "avatars");
-}
-
 function getExtensionFromContentType(contentType: string | null) {
 	const mime = contentType?.split(";")[0].trim().toLowerCase() ?? "";
 	if (mime === "image/png") return ".png";
@@ -211,25 +207,6 @@ export function getAvatarCachePath(profileId: string, avatarUrl: string) {
 	);
 }
 
-function getExistingAvatarCachePath(profileId: string, avatarUrl: string) {
-	const normalizedAvatarUrl = normalizeAvatarUrl(avatarUrl);
-	if (!normalizedAvatarUrl) {
-		throw new Error("Missing avatar URL");
-	}
-
-	const hash = createHash("sha1").update(normalizedAvatarUrl).digest("hex");
-	const extension = normalizedAvatarUrl.startsWith("data:")
-		? getExtensionFromContentType(
-				/^data:([^;,]+)/i.exec(normalizedAvatarUrl)?.[1] ?? null,
-			)
-		: getExtensionFromAvatarUrl(normalizedAvatarUrl);
-
-	return path.join(
-		getExistingAvatarCacheDir(),
-		`${sanitizeFileToken(profileId)}-${hash}${extension}`,
-	);
-}
-
 function fetchRemoteAvatarEffect(avatarUrl: string) {
 	return Effect.gen(function* () {
 		const safeUrl = yield* trySync(() => assertSafeRemoteAvatarUrl(avatarUrl));
@@ -303,35 +280,6 @@ export function readCachedAvatarEffect(profileId: string) {
 		return {
 			buffer: payload.buffer,
 			contentType: payload.contentType,
-			cachePath,
-			avatarUrl: normalizedAvatarUrl,
-		};
-	});
-}
-
-export function readCachedAvatarOnlyEffect(profileId: string) {
-	return Effect.gen(function* () {
-		const avatarUrl = yield* trySync(() => getAvatarUrlForProfile(profileId));
-		if (!avatarUrl) {
-			return null;
-		}
-
-		const normalizedAvatarUrl = normalizeAvatarUrl(avatarUrl);
-		if (!normalizedAvatarUrl) {
-			return null;
-		}
-
-		const cachePath = yield* trySync(() =>
-			getExistingAvatarCachePath(profileId, normalizedAvatarUrl),
-		);
-		const buffer = yield* trySync(() => readFileSync(cachePath)).pipe(
-			Effect.catchAll(() => Effect.succeed(null)),
-		);
-		if (!buffer) return null;
-
-		return {
-			buffer,
-			contentType: getContentTypeFromExtension(path.extname(cachePath)),
 			cachePath,
 			avatarUrl: normalizedAvatarUrl,
 		};

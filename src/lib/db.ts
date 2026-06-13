@@ -2,7 +2,6 @@ import NativeSqliteDatabase, { type Database } from "./sqlite";
 import { Kysely, SqliteDialect } from "kysely";
 import { ensureBirdclawDirs, getBirdclawPaths } from "./config";
 import { seedDemoData } from "./seed";
-import { isPublicReadonlyWeb } from "./web-profile";
 
 export interface AccountsTable {
 	id: string;
@@ -1011,18 +1010,7 @@ function initDatabase(options: InitDatabaseOptions = {}) {
 
 	if (!nativeDb) {
 		const { dbPath } = getBirdclawPaths();
-		const publicReadonly = isPublicReadonlyWeb();
-		nativeDb = new NativeSqliteDatabase(dbPath, {
-			readonly: publicReadonly,
-		});
-		if (publicReadonly) {
-			kyselyDb = new Kysely<BirdclawDatabase>({
-				dialect: new SqliteDialect({
-					database: nativeDb,
-				}),
-			});
-			return;
-		}
+		nativeDb = new NativeSqliteDatabase(dbPath);
 		nativeDb.exec(BASE_SCHEMA_SQL);
 		ensureAccountExternalUserIdColumn(nativeDb);
 		ensureDmConversationInboxColumns(nativeDb);
@@ -1043,7 +1031,7 @@ function initDatabase(options: InitDatabaseOptions = {}) {
 			backfillTweetCollections(nativeDb);
 			backfillTweetAccountEdges(nativeDb);
 		}
-	} else if (!isPublicReadonlyWeb() && options.seedDemoData !== false) {
+	} else if (options.seedDemoData !== false) {
 		ensureDemoData(nativeDb);
 	}
 

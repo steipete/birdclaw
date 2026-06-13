@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,7 +15,6 @@ afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
-	delete process.env.BIRDCLAW_WEB_PROFILE;
 
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
@@ -63,50 +62,6 @@ describe("avatar api route", () => {
 		expect(response.headers.get("content-type")).toBe("image/png");
 		expect(Buffer.from(await response.arrayBuffer())).toEqual(
 			Buffer.from(onePixelPng, "base64"),
-		);
-	});
-
-	it("does not populate avatar cache in public read-only mode", async () => {
-		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-avatar-api-"));
-		tempDirs.push(tempDir);
-		process.env.BIRDCLAW_HOME = tempDir;
-
-		const db = getNativeDb();
-		db.prepare(
-			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-		).run(
-			"profile_public",
-			"public",
-			"Public",
-			"",
-			0,
-			18,
-			`data:image/png;base64,${onePixelPng}`,
-			"2026-03-08T12:00:00.000Z",
-		);
-		db.prepare(
-			`
-      insert into tweets (
-        id, account_id, author_profile_id, kind, text, created_at,
-        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
-        entities_json, media_json, quoted_tweet_id
-      ) values (
-        'tweet_public', 'acct_primary', 'profile_public', 'home', 'hello', ?,
-        0, null, 0, 0, 0, 0, '{}', '[]', null
-      )
-      `,
-		).run("2026-03-08T12:00:00.000Z");
-		process.env.BIRDCLAW_WEB_PROFILE = "public-readonly";
-
-		const response = await GET({
-			request: new Request(
-				"http://birdclaw.test/api/avatar?profileId=profile_public",
-			),
-		});
-
-		expect(response.status).toBe(404);
-		expect(existsSync(path.join(tempDir, "media", "thumbs", "avatars"))).toBe(
-			false,
 		);
 	});
 

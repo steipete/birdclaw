@@ -19,8 +19,6 @@ import {
 	getQueryEnvelope,
 	getQueryEnvelopeEffect,
 	getTweetConversation,
-	isProfileInPublicTimeline,
-	isTweetInPublicTimeline,
 	listDmConversations,
 	listTimelineItems,
 	queryResource,
@@ -1113,52 +1111,6 @@ describe("birdclaw queries", () => {
 			"conv_child",
 		]);
 		expect(conversation?.items[1]?.replyToId).toBe("conv_root");
-	});
-
-	it("only marks public timeline tweets as public conversation anchors", () => {
-		setupTempHome();
-		const db = getNativeDb();
-		const insertTweet = db.prepare(`
-      insert into tweets (
-        id, account_id, author_profile_id, kind, text, created_at,
-        is_replied, reply_to_id, like_count, media_count, bookmarked, liked,
-        entities_json, media_json, quoted_tweet_id
-      ) values (?, 'acct_primary', 'profile_me', ?, ?, ?, 0, null, 0, 0, 0, 0, '{}', '[]', null)
-    `);
-
-		insertTweet.run(
-			"public_anchor",
-			"home",
-			"Public",
-			"2026-03-10T10:00:00.000Z",
-		);
-		insertTweet.run(
-			"context_only",
-			"thread_context",
-			"Context",
-			"2026-03-10T10:01:00.000Z",
-		);
-
-		expect(isTweetInPublicTimeline("public_anchor")).toBe(true);
-		expect(isTweetInPublicTimeline("context_only")).toBe(false);
-		expect(isProfileInPublicTimeline("profile_me")).toBe(true);
-		expect(isProfileInPublicTimeline("missing_profile")).toBe(false);
-
-		db.prepare(
-			`
-      insert into tweet_account_edges (
-        account_id, tweet_id, kind, first_seen_at, last_seen_at,
-        seen_count, source, raw_json, updated_at
-      ) values (
-        'acct_primary', 'context_only', 'mention', ?, ?, 1, 'test', '{}', ?
-      )
-      `,
-		).run(
-			"2026-03-10T10:01:00.000Z",
-			"2026-03-10T10:01:00.000Z",
-			"2026-03-10T10:01:00.000Z",
-		);
-		expect(isTweetInPublicTimeline("context_only")).toBe(true);
 	});
 
 	it("preserves the selected reply chain before broad thread context", () => {

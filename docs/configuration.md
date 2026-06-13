@@ -82,14 +82,11 @@ See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge 
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `BIRDCLAW_HOME`                | Override the storage root (`~/.birdclaw` by default)                                                                                   |
 | `BIRDCLAW_CONFIG`              | Read and write config at a non-default path                                                                                            |
-| `BIRDCLAW_ACTIONS_TRANSPORT`   | Override moderation action transport with `auto`, `xurl`, or `bird` for one process                                                    |
+| `BIRDCLAW_ACTIONS_TRANSPORT`   | Override moderation action transport with `auto`, `xurl`, or `bird` for one process                                                     |
 | `BIRDCLAW_ALLOWED_HOSTS`       | Comma-separated extra Vite dev-server hostnames for `birdclaw serve` behind a trusted reverse proxy                                    |
 | `BIRDCLAW_LOCAL_WEB`           | Internal `birdclaw serve` marker for direct local-only loopback web APIs; forwarded/proxied requests still require remote-token config |
 | `BIRDCLAW_WEB_TOKEN`           | Optional app-level token for remote web API access; send as `x-birdclaw-token` or `birdclaw_token`                                     |
 | `BIRDCLAW_ALLOW_REMOTE_WEB`    | Set to `1` to allow remote access through a trusted private proxy                                                                      |
-| `BIRDCLAW_WEB_PROFILE`         | Set to `public-readonly` at build and runtime for the allowlisted, sanitized reader surface                                            |
-| `BIRDCLAW_HOST`                | Built server bind host; only loopback addresses are accepted                                                                           |
-| `BIRDCLAW_PORT`                | Built server port (`3100` by default)                                                                                                  |
 | `BIRDCLAW_DISABLE_LIVE_WRITES` | Set to `1` to block any live mutation (used by tests and CI)                                                                           |
 | `BIRDCLAW_BACKUP_AUTO_SYNC`    | Set to `0` to disable auto-sync for one process                                                                                        |
 | `NO_COLOR`                     | Disable ANSI color in human output                                                                                                     |

@@ -24,7 +24,6 @@ import {
 	tweetLinkClass,
 } from "#/lib/ui";
 import { safeHttpUrl } from "#/lib/url-safety";
-import { isPublicReadonlyBuild } from "#/lib/web-profile";
 import { AvatarChip } from "./AvatarChip";
 
 type VerticalBounds = { top: number; bottom: number };
@@ -135,13 +134,7 @@ export function ProfilePreview({
 		>
 			<a
 				className={profilePreviewTriggerClass}
-				href={
-					isPublicReadonlyBuild
-						? `https://x.com/${encodeURIComponent(profile.handle)}`
-						: `/profiles/${encodeURIComponent(profile.handle)}`
-				}
-				rel={isPublicReadonlyBuild ? "noreferrer" : undefined}
-				target={isPublicReadonlyBuild ? "_blank" : undefined}
+				href={`/profiles/${encodeURIComponent(profile.handle)}`}
 			>
 				{children}
 			</a>

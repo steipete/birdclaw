@@ -16,7 +16,6 @@ import {
 	siteShellClass,
 	siteShellDmClass,
 } from "#/lib/ui";
-import { isPublicReadonlyBuild } from "#/lib/web-profile";
 
 import appCss from "../styles.css?url";
 
@@ -59,7 +58,6 @@ function RootDocument({ children }: { children: ReactNode }) {
 	});
 	const wideMode =
 		pathname.startsWith("/dms") || pathname.startsWith("/network-map");
-	const publicPathAllowed = pathname === "/" || pathname === "/mentions";
 
 	return (
 		<html lang="en" suppressHydrationWarning>
@@ -72,13 +70,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 					<div className={wideMode ? siteShellDmClass : siteShellClass}>
 						<AppNav compact={wideMode} />
 						<main className={wideMode ? mainColumnDmClass : mainColumnClass}>
-							{isPublicReadonlyBuild && !publicPathAllowed ? (
-								<div className="px-4 py-10 text-[var(--ink-soft)]">
-									This view is not available in the read-only reader.
-								</div>
-							) : (
-								children
-							)}
+							{children}
 						</main>
 					</div>
 				</ThemeProvider>

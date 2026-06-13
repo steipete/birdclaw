@@ -2,13 +2,10 @@
 
 ## 0.8.1 - Unreleased
 
-### Added
-
-- Add a production `public-readonly` web profile with loopback-only serving, read-only SQLite, an explicit API allowlist, sanitized timeline data, and a reduced reader UI for identity-aware reverse proxies.
-
 ### Changed
 
 - Refresh dependency backstop updates for `@steipete/sweet-cookie`, `@types/node`, the adopted TypeScript native-preview toolchain, and the pnpm 10 package-manager pin.
+- Remove the separate public read-only web profile; deployments can expose the full private app behind an external authentication boundary.
 
 ## 0.8.0 - 2026-06-10
 

@@ -13,7 +13,6 @@ afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
-	delete process.env.BIRDCLAW_WEB_PROFILE;
 
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
@@ -21,30 +20,6 @@ afterEach(() => {
 });
 
 describe("database init", () => {
-	it("keeps repeated public reader access read-only", () => {
-		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-db-"));
-		tempDirs.push(tempDir);
-		process.env.BIRDCLAW_HOME = tempDir;
-
-		const writableDb = getNativeDb();
-		expect(
-			writableDb.prepare("select count(*) as count from accounts").get(),
-		).toEqual({ count: 2 });
-		resetDatabaseForTests();
-
-		process.env.BIRDCLAW_WEB_PROFILE = "public-readonly";
-		const readonlyDb = getNativeDb();
-		expect(
-			readonlyDb.prepare("select count(*) as count from accounts").get(),
-		).toEqual({ count: 2 });
-		expect(getNativeDb()).toBe(readonlyDb);
-		expect(() =>
-			readonlyDb
-				.prepare("insert into accounts (id, name, handle) values (?, ?, ?)")
-				.run("forbidden", "Forbidden", "@forbidden"),
-		).toThrow(/readonly/i);
-	});
-
 	it("seeds demo data after an initial unseeded open", () => {
 		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-db-"));
 		tempDirs.push(tempDir);

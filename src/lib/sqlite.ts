@@ -4,6 +4,7 @@ export type Database = NativeSqliteDatabase;
 
 type DatabaseOptions = {
 	readonly?: boolean;
+	fileMustExist?: boolean;
 };
 
 type PragmaOptions = {

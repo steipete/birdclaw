@@ -1,16 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Effect } from "effect";
-import {
-	readCachedAvatarEffect,
-	readCachedAvatarOnlyEffect,
-} from "#/lib/avatar-cache";
+import { readCachedAvatarEffect } from "#/lib/avatar-cache";
 import {
 	jsonResponse,
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
-import { isProfileInPublicTimeline } from "#/lib/queries";
-import { isPublicReadonlyWeb } from "#/lib/web-profile";
 
 export const Route = createFileRoute("/api/avatar")({
 	server: {
@@ -31,18 +26,9 @@ export const Route = createFileRoute("/api/avatar")({
 							);
 						}
 
-						const publicReadonly = isPublicReadonlyWeb();
-						if (publicReadonly && !isProfileInPublicTimeline(profileId)) {
-							return jsonResponse(
-								{ ok: false, message: "Avatar not found" },
-								{ status: 404 },
-							);
-						}
-						const avatar = yield* (
-							publicReadonly
-								? readCachedAvatarOnlyEffect(profileId)
-								: readCachedAvatarEffect(profileId)
-						).pipe(Effect.catchAll(() => Effect.succeed(null)));
+						const avatar = yield* readCachedAvatarEffect(profileId).pipe(
+							Effect.catchAll(() => Effect.succeed(null)),
+						);
 						if (!avatar) {
 							return jsonResponse(
 								{ ok: false, message: "Avatar not found" },

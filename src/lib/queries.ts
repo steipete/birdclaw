@@ -775,38 +775,6 @@ export function getQueryEnvelopeEffect(): Effect.Effect<
 	});
 }
 
-export function getPublicQueryEnvelopeEffect(): Effect.Effect<
-	QueryEnvelope,
-	unknown
-> {
-	return Effect.gen(function* () {
-		const nativeDb = yield* trySync(() => getNativeDb());
-		const homeCount = yield* trySync(() =>
-			countTimelineEdges(nativeDb, "home"),
-		);
-		const mentionCount = yield* trySync(() =>
-			countTimelineEdges(nativeDb, "mention"),
-		);
-
-		return {
-			stats: {
-				home: homeCount,
-				mentions: mentionCount,
-				dms: 0,
-				needsReply: 0,
-				inbox: 0,
-			},
-			accounts: [],
-			archives: [],
-			transport: {
-				installed: false,
-				availableTransport: "local",
-				statusText: "Read-only archive",
-			},
-		};
-	});
-}
-
 export function getQueryEnvelope(): Promise<QueryEnvelope> {
 	return runEffectPromise(getQueryEnvelopeEffect());
 }
@@ -1441,49 +1409,6 @@ export function getTweetConversation(
 		anchorId: anchor.id,
 		items,
 	};
-}
-
-export function isTweetInPublicTimeline(tweetId: string): boolean {
-	const db = getNativeDb();
-	const row = db
-		.prepare(
-			`
-      select 1
-      from tweet_account_edges
-      where tweet_id = ?
-        and kind in ('home', 'mention')
-      union all
-      select 1
-      from tweets
-      where id = ?
-        and kind in ('home', 'mention')
-      limit 1
-      `,
-		)
-		.get(tweetId, tweetId);
-	return Boolean(row);
-}
-
-export function isProfileInPublicTimeline(profileId: string): boolean {
-	const db = getNativeDb();
-	const row = db
-		.prepare(
-			`
-      select 1
-      from tweets t
-      join tweet_account_edges edge on edge.tweet_id = t.id
-      where t.author_profile_id = ?
-        and edge.kind in ('home', 'mention')
-      union all
-      select 1
-      from tweets
-      where author_profile_id = ?
-        and kind in ('home', 'mention')
-      limit 1
-      `,
-		)
-		.get(profileId, profileId);
-	return Boolean(row);
 }
 
 export function listDmConversations({

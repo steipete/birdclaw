@@ -1,14 +1,7 @@
 import { Effect } from "effect";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
-import { isPublicReadonlyWeb } from "./web-profile";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-const PUBLIC_READONLY_API_PATHS = new Set([
-	"/api/avatar",
-	"/api/conversation",
-	"/api/query",
-	"/api/status",
-]);
 
 export function jsonResponse(data: unknown, init?: ResponseInit) {
 	const headers = new Headers(init?.headers);
@@ -139,18 +132,6 @@ function sameRequestOrigin(request: Request, origin: string, url: URL) {
 
 export function sensitiveRequestErrorResponse(request: Request) {
 	const url = new URL(request.url);
-	if (
-		isPublicReadonlyWeb() &&
-		(request.method !== "GET" || !PUBLIC_READONLY_API_PATHS.has(url.pathname))
-	) {
-		return jsonResponse(
-			{
-				ok: false,
-				message: "This Birdclaw deployment is read-only",
-			},
-			{ status: 403 },
-		);
-	}
 	const token = requestWebTokenStatus(request);
 	const isLocalRequest =
 		allowsUnauthenticatedLocalWeb() &&
@@ -159,8 +140,7 @@ export function sensitiveRequestErrorResponse(request: Request) {
 	const fetchSite = request.headers.get("sec-fetch-site");
 	const origin = request.headers.get("origin");
 	const allowRemoteEnv = process.env.BIRDCLAW_ALLOW_REMOTE_WEB === "1";
-	const allowTrustedRemote =
-		(allowRemoteEnv || isPublicReadonlyWeb()) && !token.configured;
+	const allowTrustedRemote = allowRemoteEnv && !token.configured;
 
 	if (isTestEnvironment() && !token.valid) return null;
 
@@ -201,7 +181,7 @@ export function sensitiveRequestErrorResponse(request: Request) {
 		);
 	}
 
-	const allowRemote = allowTrustedRemote || (allowRemoteEnv && token.valid);
+	const allowRemote = allowRemoteEnv && (token.valid || allowTrustedRemote);
 	if (!allowRemote && !isLocalRequest) {
 		return jsonResponse(
 			{ ok: false, message: "Remote web API access is disabled" },

@@ -6,11 +6,7 @@ import {
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
-import {
-	getPublicQueryEnvelopeEffect,
-	getQueryEnvelopeEffect,
-} from "#/lib/queries";
-import { isPublicReadonlyWeb } from "#/lib/web-profile";
+import { getQueryEnvelopeEffect } from "#/lib/queries";
 
 export const Route = createFileRoute("/api/status")({
 	server: {
@@ -21,9 +17,6 @@ export const Route = createFileRoute("/api/status")({
 						const denied = sensitiveRequestErrorResponse(request);
 						if (denied) return denied;
 
-						if (isPublicReadonlyWeb()) {
-							return jsonResponse(yield* getPublicQueryEnvelopeEffect());
-						}
 						yield* maybeAutoUpdateBackupEffect();
 						return jsonResponse(yield* getQueryEnvelopeEffect());
 					}),
