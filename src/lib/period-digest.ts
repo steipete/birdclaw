@@ -6,10 +6,14 @@ import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { getLinkInsights } from "./link-insights";
 import { syncMentionThreadsEffect } from "./mention-threads-live";
 import { syncMentionsEffect } from "./mentions-live";
-import { listDmConversations, listTimelineItems } from "./queries";
+import {
+	getTweetsByIds,
+	listDmConversations,
+	listTimelineItems,
+} from "./queries";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { syncHomeTimelineEffect, type HomeTimelineMode } from "./timeline-live";
-import type { ProfileRecord, TweetEntities } from "./types";
+import type { EmbeddedTweet, ProfileRecord, TweetEntities } from "./types";
 
 export type PeriodDigestPreset = "today" | "yesterday" | "24h" | "week";
 export type PeriodDigestSourceKind =
@@ -222,6 +226,7 @@ const DEFAULT_LIVE_MENTIONS_LIMIT = 100;
 const DEFAULT_LIVE_MENTIONS_MAX_PAGES = undefined;
 const DEFAULT_LIVE_THREAD_LIMIT = 12;
 const DEFAULT_LIVE_THREAD_TIMEOUT_MS = 5_000;
+const DEFAULT_DIGEST_FRESHNESS_MS = 5 * 60_000;
 const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
 const VISIBLE_DELIMITER_HOLD = 8;
@@ -360,6 +365,26 @@ function compactTweet(
 		needsReply: !item.isReplied,
 		replyToId: item.replyToId ?? null,
 		replyToTweet,
+	};
+}
+
+function compactEmbeddedTweet(item: EmbeddedTweet): CompactTweet {
+	return {
+		id: item.id,
+		url: tweetUrl(item.author.handle, item.id),
+		source: "home",
+		author: item.author.handle,
+		name: item.author.displayName,
+		authorProfile: item.author,
+		createdAt: item.createdAt,
+		text: item.text,
+		entities: item.entities,
+		likeCount: item.likeCount ?? 0,
+		liked: Boolean(item.liked),
+		bookmarked: Boolean(item.bookmarked),
+		needsReply: !item.isReplied,
+		replyToId: item.replyToId ?? null,
+		replyToTweet: null,
 	};
 }
 
@@ -879,6 +904,110 @@ function digestCacheKey(
 	return parts.join(":");
 }
 
+function latestDigestCacheKey(options: PeriodDigestOptions) {
+	const period = normalizePeriod(options.period);
+	const window = resolvePeriodDigestWindow(options);
+	const identity = {
+		period,
+		day:
+			period === "today" || period === "yesterday"
+				? window.since
+				: localDateStart(new Date()).toISOString(),
+		since: options.since?.trim() || null,
+		until: options.until?.trim() || null,
+		account: options.account?.trim() || null,
+		includeDms: Boolean(options.includeDms),
+		maxTweets: Math.max(
+			20,
+			Math.trunc(options.maxTweets ?? DEFAULT_MAX_TWEETS),
+		),
+		maxLinks: Math.max(3, Math.trunc(options.maxLinks ?? DEFAULT_MAX_LINKS)),
+		model: modelFromOptions(options),
+		language: languageFromOptions(options) ?? null,
+		reasoningEffort: reasoningEffortFromOptions(options),
+		serviceTier: serviceTierFromOptions(options),
+	};
+	return `period-digest-latest:v1:${createHash("sha1")
+		.update(JSON.stringify(identity))
+		.digest("hex")}`;
+}
+
+function collectDigestTweetIds(digest: PeriodDigest) {
+	const tweetIds = new Set(digest.sourceTweetIds);
+	for (const topic of digest.keyTopics) {
+		for (const tweetId of topic.tweetIds) tweetIds.add(tweetId);
+	}
+	for (const link of digest.notableLinks) {
+		for (const tweetId of link.sourceTweetIds) tweetIds.add(tweetId);
+	}
+	for (const action of digest.actionItems) {
+		if (action.tweetId) tweetIds.add(action.tweetId);
+	}
+	return [...tweetIds];
+}
+
+function enrichContextWithCitedTweets(
+	context: PeriodDigestContext,
+	digest: PeriodDigest,
+) {
+	const existingIds = new Set(context.tweets.map((tweet) => tweet.id));
+	const missingIds = collectDigestTweetIds(digest).filter(
+		(tweetId) => !existingIds.has(tweetId.replace(/^tweet_/, "")),
+	);
+	if (missingIds.length === 0) return context;
+	const citedTweets = getTweetsByIds(missingIds, context.account).map(
+		compactEmbeddedTweet,
+	);
+	return citedTweets.length > 0
+		? { ...context, tweets: [...context.tweets, ...citedTweets] }
+		: context;
+}
+
+interface CachedPeriodDigestValue {
+	context?: PeriodDigestContext;
+	digest: PeriodDigest;
+	markdown: string;
+	model: string;
+	reasoningEffort: string;
+	serviceTier: string;
+	updatedAt?: string;
+}
+
+function cachedDigestResult(
+	cached: { value: CachedPeriodDigestValue; updatedAt: string },
+	context: PeriodDigestContext,
+): PeriodDigestRunResult {
+	const digest = PeriodDigestSchema.parse(cached.value.digest);
+	return {
+		context: enrichContextWithCitedTweets(context, digest),
+		digest,
+		markdown: cached.value.markdown,
+		model: cached.value.model,
+		reasoningEffort: cached.value.reasoningEffort,
+		serviceTier: cached.value.serviceTier,
+		cached: true,
+		updatedAt: cached.value.updatedAt ?? cached.updatedAt,
+	};
+}
+
+function isFreshDigestCache(updatedAt: string) {
+	const timestamp = Date.parse(updatedAt);
+	return (
+		Number.isFinite(timestamp) &&
+		Date.now() - timestamp <= DEFAULT_DIGEST_FRESHNESS_MS
+	);
+}
+
+function emitCachedDigest(
+	result: PeriodDigestRunResult,
+	handlers: PeriodDigestStreamHandlers,
+) {
+	handlers.onEvent?.({ type: "start", context: result.context, cached: true });
+	handlers.onDelta?.(result.markdown);
+	handlers.onEvent?.({ type: "delta", delta: result.markdown });
+	handlers.onEvent?.({ type: "done", result });
+}
+
 function buildPrompt(
 	context: PeriodDigestContext,
 	options?: { language?: string },
@@ -1235,6 +1364,9 @@ function readOpenAIStreamEffect(
 					languageFromOptions(options),
 				),
 			);
+			const enrichedContext = yield* tryDigestSync(() =>
+				enrichContextWithCitedTweets(context, parsed.digest),
+			);
 			const cacheKey = digestCacheKey(context, options);
 			const updatedAt = yield* tryDigestSync(() =>
 				writeSyncCache(cacheKey, {
@@ -1248,7 +1380,7 @@ function readOpenAIStreamEffect(
 				}),
 			);
 			const result: PeriodDigestRunResult = {
-				context,
+				context: enrichedContext,
 				digest: parsed.digest,
 				markdown: parsed.markdown,
 				model: modelFromOptions(options),
@@ -1257,6 +1389,17 @@ function readOpenAIStreamEffect(
 				cached: false,
 				updatedAt,
 			};
+			yield* tryDigestSync(() =>
+				writeSyncCache(latestDigestCacheKey(options), {
+					context: result.context,
+					digest: result.digest,
+					markdown: result.markdown,
+					model: result.model,
+					reasoningEffort: result.reasoningEffort,
+					serviceTier: result.serviceTier,
+					updatedAt: result.updatedAt,
+				}),
+			);
 			handlers.onEvent?.({ type: "done", result });
 			return result;
 		}
@@ -1278,6 +1421,28 @@ export function streamPeriodDigestEffect(
 			...options,
 			language: yield* tryDigestSync(() => languageFromOptions(options)),
 		};
+		const latestCached = resolvedOptions.refresh
+			? null
+			: !resolvedOptions.liveSync
+				? yield* tryDigestSync(() =>
+						readSyncCache<CachedPeriodDigestValue>(
+							latestDigestCacheKey(resolvedOptions),
+						),
+					)
+				: null;
+		const latestContext = latestCached?.value.context;
+		if (
+			latestCached &&
+			latestContext &&
+			isFreshDigestCache(latestCached.value.updatedAt ?? latestCached.updatedAt)
+		) {
+			const result = yield* tryDigestSync(() =>
+				cachedDigestResult(latestCached, latestContext),
+			);
+			emitCachedDigest(result, handlers);
+			return result;
+		}
+
 		yield* refreshPeriodDigestInputsEffect(
 			resolvedOptions,
 			{ threads: false },
@@ -1290,30 +1455,25 @@ export function streamPeriodDigestEffect(
 		const cached = resolvedOptions.refresh
 			? null
 			: yield* tryDigestSync(() =>
-					readSyncCache<{
-						digest: PeriodDigest;
-						markdown: string;
-						model: string;
-						reasoningEffort: string;
-						serviceTier: string;
-					}>(cacheKey),
+					readSyncCache<CachedPeriodDigestValue>(cacheKey),
 				);
 
 		if (cached) {
-			const result: PeriodDigestRunResult = yield* tryDigestSync(() => ({
-				context,
-				digest: PeriodDigestSchema.parse(cached.value.digest),
-				markdown: cached.value.markdown,
-				model: cached.value.model,
-				reasoningEffort: cached.value.reasoningEffort,
-				serviceTier: cached.value.serviceTier,
-				cached: true,
-				updatedAt: cached.updatedAt,
-			}));
-			handlers.onEvent?.({ type: "start", context, cached: true });
-			handlers.onDelta?.(result.markdown);
-			handlers.onEvent?.({ type: "delta", delta: result.markdown });
-			handlers.onEvent?.({ type: "done", result });
+			const result = yield* tryDigestSync(() =>
+				cachedDigestResult(cached, context),
+			);
+			yield* tryDigestSync(() =>
+				writeSyncCache(latestDigestCacheKey(resolvedOptions), {
+					context: result.context,
+					digest: result.digest,
+					markdown: result.markdown,
+					model: result.model,
+					reasoningEffort: result.reasoningEffort,
+					serviceTier: result.serviceTier,
+					updatedAt: result.updatedAt,
+				}),
+			);
+			emitCachedDigest(result, handlers);
 			return result;
 		}
 

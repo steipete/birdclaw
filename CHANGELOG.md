@@ -11,6 +11,7 @@
 ### Fixed
 
 - Open long-running AI streams immediately, keep the Today digest within proxy limits by using the locally synchronized archive, and show actionable retry errors when a connection is interrupted.
+- Reuse freshly generated Today reports across reloads while background sync updates the archive, and hydrate locally stored cited tweets so source hovercards remain available outside the selected time window.
 
 ## 0.8.0 - 2026-06-10
 

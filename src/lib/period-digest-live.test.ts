@@ -131,12 +131,14 @@ describe("period digest live refresh", () => {
 
 		await streamPeriodDigest({ ...options, refresh: true });
 		syncMentionThreadsMock.mockClear();
+		syncHomeTimelineMock.mockClear();
+		syncMentionsMock.mockClear();
 		const cached = await streamPeriodDigest(options);
 
 		expect(cached.cached).toBe(true);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(syncHomeTimelineMock).toHaveBeenCalled();
-		expect(syncMentionsMock).toHaveBeenCalled();
+		expect(syncHomeTimelineMock).toHaveBeenCalledTimes(1);
+		expect(syncMentionsMock).toHaveBeenCalledTimes(1);
 		expect(syncHomeTimelineMock.mock.calls[0]?.[0]).toMatchObject({
 			limit: undefined,
 			maxPages: undefined,

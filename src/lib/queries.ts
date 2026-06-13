@@ -1286,6 +1286,67 @@ function getTweetById(
 	);
 }
 
+export function getTweetsByIds(
+	tweetIds: string[],
+	accountId?: string,
+): EmbeddedTweet[] {
+	const db = getNativeDb();
+	const scopedAccountId =
+		accountId && accountId !== "all" ? accountId : undefined;
+	const urlExpansionCache: UrlExpansionCache = new Map();
+	const profileByHandleCache: ProfileByHandleCache = new Map();
+	const resolveProfileByHandle = (handle: string) =>
+		getProfileByHandle(db, profileByHandleCache, handle);
+	const seen = new Set<string>();
+	const tweets: EmbeddedTweet[] = [];
+
+	for (const tweetId of tweetIds) {
+		const normalized = tweetId.trim().replace(/^tweet_/, "");
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		if (
+			scopedAccountId &&
+			!db
+				.prepare(
+					`
+					select 1
+					from tweets tweet
+					where tweet.id = ?
+						and (
+							tweet.account_id = ?
+							or exists (
+								select 1
+								from tweet_account_edges edge
+								where edge.account_id = ?
+									and edge.tweet_id = tweet.id
+							)
+							or exists (
+								select 1
+								from tweet_collections collection
+								where collection.account_id = ?
+									and collection.tweet_id = tweet.id
+							)
+						)
+					limit 1
+					`,
+				)
+				.get(normalized, scopedAccountId, scopedAccountId, scopedAccountId)
+		) {
+			continue;
+		}
+		const tweet = getTweetById(
+			db,
+			urlExpansionCache,
+			normalized,
+			resolveProfileByHandle,
+			scopedAccountId,
+		);
+		if (tweet) tweets.push(tweet);
+	}
+
+	return tweets;
+}
+
 function listTweetDescendants(
 	db: Database,
 	urlExpansionCache: UrlExpansionCache,
