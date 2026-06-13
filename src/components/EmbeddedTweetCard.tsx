@@ -1,4 +1,3 @@
-import { formatShortTimestamp } from "#/lib/present";
 import type { EmbeddedTweet } from "#/lib/types";
 import {
 	embeddedCardBodyClass,
@@ -10,6 +9,7 @@ import {
 	feedRowTimestampClass,
 } from "#/lib/ui";
 import { ProfilePreview } from "./ProfilePreview";
+import { SmartTimestamp } from "./SmartTimestamp";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
 
@@ -35,9 +35,10 @@ export function EmbeddedTweetCard({
 					</span>
 				</ProfilePreview>
 				<span className="text-[var(--ink-soft)]">·</span>
-				<span className={feedRowTimestampClass}>
-					{formatShortTimestamp(item.createdAt)}
-				</span>
+				<SmartTimestamp
+					className={feedRowTimestampClass}
+					value={item.createdAt}
+				/>
 			</header>
 			<TweetRichText
 				className={embeddedCardCopyClass}

@@ -8,7 +8,7 @@ import {
 	Repeat2,
 	UserSearch,
 } from "lucide-react";
-import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
+import { formatCompactNumber } from "#/lib/present";
 import { normalizeTweetUrlEntityRangeForText } from "#/lib/tweet-render";
 import type {
 	TimelineItem,
@@ -41,6 +41,7 @@ import { ConversationThread } from "./ConversationThread";
 import { EmbeddedTweetCard } from "./EmbeddedTweetCard";
 import { LinkPreviewCard } from "./LinkPreviewCard";
 import { ProfilePreview } from "./ProfilePreview";
+import { SmartTimestamp } from "./SmartTimestamp";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
 
@@ -312,9 +313,10 @@ export function TimelineCard({
 						</span>
 					</ProfilePreview>
 					<span className={feedRowDotClass}>·</span>
-					<span className={feedRowTimestampClass}>
-						{formatShortTimestamp(displayTweet.createdAt)}
-					</span>
+					<SmartTimestamp
+						className={feedRowTimestampClass}
+						value={displayTweet.createdAt}
+					/>
 					{canReply || hasConversation ? (
 						<span className="ml-auto inline-flex items-center gap-1">
 							{hasConversation ? (

@@ -1,5 +1,4 @@
 import { MessageCircle } from "lucide-react";
-import { formatShortTimestamp } from "#/lib/present";
 import type { EmbeddedTweet } from "#/lib/types";
 import {
 	cx,
@@ -11,6 +10,7 @@ import {
 import { AvatarChip } from "./AvatarChip";
 import { BirdclawEmpty, BirdclawLoading } from "./BrandMark";
 import { ProfilePreview } from "./ProfilePreview";
+import { SmartTimestamp } from "./SmartTimestamp";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
 
@@ -101,9 +101,10 @@ export function ConversationThread({
 										</span>
 									</ProfilePreview>
 									<span className="text-[var(--ink-soft)]">·</span>
-									<span className={feedRowTimestampClass}>
-										{formatShortTimestamp(tweet.createdAt)}
-									</span>
+									<SmartTimestamp
+										className={feedRowTimestampClass}
+										value={tweet.createdAt}
+									/>
 									{isAnchor ? (
 										<span className="ml-auto rounded-full bg-[var(--accent)] px-2 py-0.5 text-[11px] font-bold text-white">
 											selected

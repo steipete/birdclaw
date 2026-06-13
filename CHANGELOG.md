@@ -6,6 +6,7 @@
 
 - Refresh dependency backstop updates for `@steipete/sweet-cookie`, `@types/node`, the adopted TypeScript native-preview toolchain, and the pnpm 10 package-manager pin.
 - Remove the separate public read-only web profile; deployments can expose the full private app behind an external authentication boundary.
+- Show recent web timestamps as live relative time, then switch to calendar dates with exact local time on hover.
 
 ## 0.8.0 - 2026-06-10
 

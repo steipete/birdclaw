@@ -1,5 +1,5 @@
 import { CheckCircle2, Circle } from "lucide-react";
-import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
+import { formatCompactNumber } from "#/lib/present";
 import type { DmConversationItem, DmMessageItem } from "#/lib/types";
 import {
 	composerBarClass,
@@ -39,6 +39,7 @@ import {
 } from "#/lib/ui";
 import { AvatarChip } from "./AvatarChip";
 import { BirdclawEmpty } from "./BrandMark";
+import { SmartTimestamp } from "./SmartTimestamp";
 
 function MessageBubble({ message }: { message: DmMessageItem }) {
 	const outbound = message.direction === "outbound";
@@ -57,7 +58,7 @@ function MessageBubble({ message }: { message: DmMessageItem }) {
 			<div className={dmMessageMetaClass}>
 				<span>{message.sender.displayName}</span>
 				<span>·</span>
-				<span>{formatShortTimestamp(message.createdAt)}</span>
+				<SmartTimestamp value={message.createdAt} />
 			</div>
 		</div>
 	);
@@ -81,9 +82,13 @@ export function DmWorkspace({
 	onReplySend: (conversationId: string) => void;
 }) {
 	const participant = selectedConversation?.participant ?? null;
-	const subtitle = selectedConversation
-		? `${selectedConversation.isMessageRequest ? "Message request" : selectedConversation.needsReply ? "Reply open" : "We replied"} · last message ${formatShortTimestamp(selectedConversation.lastMessageAt)}`
-		: "No conversation selected";
+	const selectedStatus = selectedConversation
+		? selectedConversation.isMessageRequest
+			? "Message request"
+			: selectedConversation.needsReply
+				? "Reply open"
+				: "We replied"
+		: null;
 
 	return (
 		<section aria-label="DM workspace" className={dmShellClass}>
@@ -119,9 +124,10 @@ export function DmWorkspace({
 											@{conversation.participant.handle}
 										</span>
 									</div>
-									<span className={dmListTimestampClass}>
-										{formatShortTimestamp(conversation.lastMessageAt)}
-									</span>
+									<SmartTimestamp
+										className={dmListTimestampClass}
+										value={conversation.lastMessageAt}
+									/>
 								</div>
 								<p className={dmListPreviewClass}>
 									{conversation.lastMessagePreview}
@@ -176,7 +182,18 @@ export function DmWorkspace({
 									<div className={dmThreadNameClass}>
 										{selectedConversation.participant.displayName}
 									</div>
-									<div className={dmThreadSubtitleClass}>{subtitle}</div>
+									<div className={dmThreadSubtitleClass}>
+										{selectedStatus && selectedConversation ? (
+											<>
+												{selectedStatus} · last message{" "}
+												<SmartTimestamp
+													value={selectedConversation.lastMessageAt}
+												/>
+											</>
+										) : (
+											"No conversation selected"
+										)}
+									</div>
 								</div>
 							</div>
 							<button

@@ -18,7 +18,8 @@ import {
 	LinkSkeletonRows,
 } from "#/components/FeedState";
 import { ProfilePreview } from "#/components/ProfilePreview";
-import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
+import { SmartTimestamp } from "#/components/SmartTimestamp";
+import { formatCompactNumber } from "#/lib/present";
 import type {
 	LinkInsightItem,
 	LinkInsightKind,
@@ -393,7 +394,7 @@ function MentionCard({
 					rel="noreferrer"
 					target="_blank"
 				>
-					{formatShortTimestamp(mention.createdAt)}
+					<SmartTimestamp value={mention.createdAt} />
 				</a>
 			</div>
 			<p className="m-0 whitespace-pre-wrap text-[14px] leading-[1.45] text-[var(--ink)] [overflow-wrap:anywhere]">
@@ -633,7 +634,7 @@ function LinkInsightRow({
 						<span>/</span>
 						<SharerStrip item={item} />
 						<span>/</span>
-						<span>{formatShortTimestamp(item.lastSeenAt)}</span>
+						<SmartTimestamp value={item.lastSeenAt} />
 					</div>
 					<VideoPreview item={item} />
 				</div>

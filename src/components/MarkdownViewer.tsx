@@ -6,7 +6,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
+import { formatCompactNumber } from "#/lib/present";
 import type { PeriodDigestContext } from "#/lib/period-digest";
 import type { ProfileAnalysisContext } from "#/lib/profile-analysis";
 import { renderTweetPlainText } from "#/lib/tweet-render";
@@ -15,6 +15,7 @@ import { cx, tweetLinkClass, tweetMentionClass } from "#/lib/ui";
 import { safeHttpUrl } from "#/lib/url-safety";
 import { AvatarChip } from "./AvatarChip";
 import { ProfilePreview } from "./ProfilePreview";
+import { SmartTimestamp } from "./SmartTimestamp";
 
 type CitationTweet = PeriodDigestContext["tweets"][number];
 type CitationContext = PeriodDigestContext | ProfileAnalysisContext;
@@ -231,7 +232,7 @@ function TweetPreviewToken({
 					<span className="min-w-0">
 						<span className="block truncate font-bold">{tweet.name}</span>
 						<span className="block truncate text-[12px] text-[var(--ink-soft)]">
-							@{tweet.author} · {formatShortTimestamp(tweet.createdAt)}
+							@{tweet.author} · <SmartTimestamp value={tweet.createdAt} />
 						</span>
 					</span>
 				</span>

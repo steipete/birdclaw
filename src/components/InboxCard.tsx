@@ -5,7 +5,7 @@ import {
 	ExternalLink,
 	MessageCircle,
 } from "lucide-react";
-import { formatCompactNumber, formatShortTimestamp } from "#/lib/present";
+import { formatCompactNumber } from "#/lib/present";
 import type { InboxItem } from "#/lib/types";
 import {
 	composerBarClass,
@@ -30,6 +30,7 @@ import {
 	timestampClass,
 } from "#/lib/ui";
 import { AvatarChip } from "./AvatarChip";
+import { SmartTimestamp } from "./SmartTimestamp";
 
 export function InboxCard({
 	item,
@@ -65,9 +66,10 @@ export function InboxCard({
 						</span>
 					</span>
 					<span className={feedRowDotClass}>·</span>
-					<span className={feedRowTimestampClass}>
-						{formatShortTimestamp(item.createdAt)}
-					</span>
+					<SmartTimestamp
+						className={feedRowTimestampClass}
+						value={item.createdAt}
+					/>
 					<span className="ml-auto flex items-center gap-1.5">
 						<span className={cx(pillClass, pillSoftClass)}>
 							{item.entityKind}
