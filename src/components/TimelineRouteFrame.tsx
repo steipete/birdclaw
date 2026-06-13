@@ -11,6 +11,7 @@ import { TimelineCard } from "#/components/TimelineCard";
 import { ConversationSurfaceScope } from "#/lib/conversation-surface";
 import type { QueryEnvelope, ReplyFilter } from "#/lib/types";
 import type { WebSyncKind } from "#/lib/web-sync";
+import { isPublicReadonlyBuild } from "#/lib/web-profile";
 import {
 	cx,
 	feedClass,
@@ -66,8 +67,9 @@ export function TimelineRouteFrame({
 	emptyDetail,
 	subtitle,
 }: TimelineRouteFrameProps) {
-	const [replyFilter, setReplyFilter] =
-		useState<ReplyFilter>(initialReplyFilter);
+	const [replyFilter, setReplyFilter] = useState<ReplyFilter>(
+		isPublicReadonlyBuild ? "all" : initialReplyFilter,
+	);
 	const [search, setSearch] = useState("");
 	const {
 		meta,
@@ -97,13 +99,15 @@ export function TimelineRouteFrame({
 						<h1 className={pageTitleClass}>{title}</h1>
 						<p className={pageSubtitleClass}>{subtitleText}</p>
 					</div>
-					<SyncNowButton
-						accounts={meta?.accounts}
-						kind={syncKind}
-						label={syncLabel}
-						onSynced={refreshLocalView}
-						showAccountPicker
-					/>
+					{isPublicReadonlyBuild ? null : (
+						<SyncNowButton
+							accounts={meta?.accounts}
+							kind={syncKind}
+							label={syncLabel}
+							onSynced={refreshLocalView}
+							showAccountPicker
+						/>
+					)}
 				</div>
 				<div className="px-4 pb-3">
 					<label className={searchFieldShellClass}>
@@ -116,25 +120,29 @@ export function TimelineRouteFrame({
 						/>
 					</label>
 				</div>
-				<div className={tabStripClass}>
-					{TABS.map((tab) => {
-						const active = replyFilter === tab.value;
-						return (
-							<button
-								key={tab.value}
-								type="button"
-								aria-pressed={active}
-								className={cx(tabButtonClass, active && tabButtonActiveClass)}
-								onClick={() => setReplyFilter(tab.value)}
-							>
-								<span className="relative inline-flex flex-col items-center justify-center py-1">
-									{tab.label}
-									{active ? <span className={tabButtonIndicatorClass} /> : null}
-								</span>
-							</button>
-						);
-					})}
-				</div>
+				{isPublicReadonlyBuild ? null : (
+					<div className={tabStripClass}>
+						{TABS.map((tab) => {
+							const active = replyFilter === tab.value;
+							return (
+								<button
+									key={tab.value}
+									type="button"
+									aria-pressed={active}
+									className={cx(tabButtonClass, active && tabButtonActiveClass)}
+									onClick={() => setReplyFilter(tab.value)}
+								>
+									<span className="relative inline-flex flex-col items-center justify-center py-1">
+										{tab.label}
+										{active ? (
+											<span className={tabButtonIndicatorClass} />
+										) : null}
+									</span>
+								</button>
+							);
+						})}
+					</div>
+				)}
 			</header>
 			{replyError ? (
 				<p className={cx(timestampClass, "px-4 py-2 text-red-500")}>
@@ -165,7 +173,13 @@ export function TimelineRouteFrame({
 						<FeedEmpty detail={emptyDetail} label={emptyLabel} />
 					) : null}
 					{items.map((item) => (
-						<TimelineCard key={item.id} item={item} onReply={replyToTweet} />
+						<TimelineCard
+							key={item.id}
+							item={item}
+							onReply={replyToTweet}
+							showAnalysisControls={!isPublicReadonlyBuild}
+							showReplyControls={!isPublicReadonlyBuild}
+						/>
 					))}
 					{!loading && !error && hasMore ? (
 						<div className="flex justify-center py-4">

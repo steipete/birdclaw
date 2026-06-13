@@ -277,6 +277,20 @@ Use the Sync button in Home, Mentions, Likes, Bookmarks, or DMs to run the match
 
 When running behind a trusted reverse proxy such as Tailscale Serve, add any extra proxy hostnames to `BIRDCLAW_ALLOWED_HOSTS`. The clawmac Tailscale hostname is allowed by default.
 
+For an identity-aware external reader, build and run the separate read-only
+profile behind a trusted loopback proxy:
+
+```bash
+pnpm build:public
+pnpm start:public
+```
+
+The public profile only serves status, Home/Mentions timeline queries,
+public-timeline conversations, and already-cached avatar reads. It blocks every
+write/private API, omits accounts, DMs, archives, transport state, and private
+tweet state, and opens SQLite read-only. Keep the full UI on a separate private
+endpoint.
+
 First moderation pass:
 
 ```bash

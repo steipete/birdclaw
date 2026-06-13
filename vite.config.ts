@@ -10,6 +10,10 @@ const extraAllowedHosts =
 		.filter(Boolean) ?? [];
 
 const config = defineConfig({
+	define: {
+		__BIRDCLAW_PUBLIC_READONLY__:
+			process.env.BIRDCLAW_WEB_PROFILE === "public-readonly",
+	},
 	plugins: [
 		devtools(),
 		tailwindcss(),
