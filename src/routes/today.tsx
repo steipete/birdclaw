@@ -77,11 +77,30 @@ async function digestRequestError(response: Response) {
 	} catch {
 		detail = "";
 	}
+	if (response.status === 524) {
+		return new Error(
+			"Digest startup timed out at Cloudflare (524). Retry to open a new stream.",
+		);
+	}
 	return new Error(
 		detail
 			? `Digest request failed (${status}): ${detail}`
 			: `Digest request failed (${status})`,
 	);
+}
+
+function digestStreamError(cause: unknown, phase: string) {
+	const message = cause instanceof Error ? cause.message : String(cause);
+	if (
+		cause instanceof TypeError &&
+		/network error|failed to fetch|load failed/i.test(message)
+	) {
+		return `Digest connection was interrupted while ${phase.toLowerCase()}. Retry to continue.`;
+	}
+	if (cause instanceof SyntaxError) {
+		return `Digest stream returned invalid data while ${phase.toLowerCase()}. Retry to continue.`;
+	}
+	return message || "Digest failed";
 }
 
 function formatCounts(context: PeriodDigestContext | null) {
@@ -200,8 +219,11 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 			setError(null);
 			setStatus("Starting digest");
 			setLoading(true);
+			let latestStatus = "Starting digest";
+			let completed = false;
 
 			fetch(digestUrl(period, includeDms, refresh), {
+				cache: "no-store",
 				signal: controller.signal,
 			})
 				.then(async (response) => {
@@ -217,7 +239,14 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 					const pump = (): Promise<void> =>
 						reader.read().then(({ done, value }) => {
 							if (!isActiveRequest()) return;
-							if (done) return;
+							if (done) {
+								if (!completed) {
+									throw new Error(
+										`Digest connection closed while ${latestStatus.toLowerCase()}. Retry to continue.`,
+									);
+								}
+								return;
+							}
 							buffer += decoder.decode(value, { stream: true });
 							let newline = buffer.indexOf("\n");
 							while (newline >= 0) {
@@ -227,17 +256,18 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 									const event = JSON.parse(line) as PeriodDigestStreamEvent;
 									if (!isActiveRequest()) return;
 									if (event.type === "status") {
-										setStatus(
-											event.detail
-												? `${event.label} · ${event.detail}`
-												: event.label,
-										);
+										latestStatus = event.detail
+											? `${event.label} · ${event.detail}`
+											: event.label;
+										setStatus(latestStatus);
 									} else if (event.type === "start") {
 										setContext(event.context);
 									} else if (event.type === "delta") {
-										setStatus("Streaming AI summary");
+										latestStatus = "Streaming AI summary";
+										setStatus(latestStatus);
 										setMarkdown((current) => current + event.delta);
 									} else if (event.type === "done") {
+										completed = true;
 										setResult(event.result);
 										setContext(event.result.context);
 										setMarkdown(event.result.markdown);
@@ -245,6 +275,7 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 											event.result.cached ? "Loaded cached report" : "Ready",
 										);
 									} else if (event.type === "error") {
+										completed = true;
 										setError(event.error);
 										setStatus("Digest failed");
 									}
@@ -257,7 +288,7 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 				})
 				.catch((cause: unknown) => {
 					if (!isActiveRequest()) return;
-					setError(cause instanceof Error ? cause.message : "Digest failed");
+					setError(digestStreamError(cause, latestStatus));
 					setStatus("Digest failed");
 				})
 				.finally(() => {
@@ -421,7 +452,24 @@ function TodayRoute() {
 				</div>
 			</header>
 
-			{error ? <div className={errorCopyClass}>{error}</div> : null}
+			{error ? (
+				<div
+					className={cx(
+						errorCopyClass,
+						"flex items-center justify-between gap-3",
+					)}
+					role="alert"
+				>
+					<span>{error}</span>
+					<button
+						className="shrink-0 font-semibold underline underline-offset-2"
+						onClick={() => run(true)}
+						type="button"
+					>
+						Retry
+					</button>
+				</div>
+			) : null}
 
 			<div className="border-b border-[var(--line)] px-4 py-2 text-[13px] text-[var(--ink-soft)]">
 				<span className="inline-flex items-center gap-1">
@@ -436,7 +484,9 @@ function TodayRoute() {
 						? status
 						: result
 							? `${result.cached ? "Cached" : "Ready"} · ${result.context.window.label}`
-							: "Ready"}
+							: error
+								? "Digest failed"
+								: "Ready"}
 				</span>
 			</div>
 
@@ -447,7 +497,11 @@ function TodayRoute() {
 				/>
 			) : (
 				<div className="px-4 py-5 text-[14px] text-[var(--ink-soft)]">
-					{loading ? status : "Waiting for the first tokens..."}
+					{loading
+						? status
+						: error
+							? "No digest was generated. Retry to start a new run."
+							: "Waiting for the first tokens..."}
 				</div>
 			)}
 		</div>

@@ -1,19 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Effect } from "effect";
 import { maybeAutoUpdateBackupEffect } from "#/lib/backup";
-import { runEffectBackground } from "#/lib/effect-runtime";
 import {
 	parseBoundedInteger,
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
+import { createEffectNdjsonResponse } from "#/lib/ndjson-stream";
 import {
 	streamProfileAnalysisEffect,
 	type ProfileAnalysisOptions,
 	type ProfileAnalysisStreamEvent,
 } from "#/lib/profile-analysis";
-
-const encoder = new TextEncoder();
 
 function parseBoolean(value: string | null) {
 	return value === "true" || value === "1" || value === "yes";
@@ -57,10 +55,6 @@ function parseOptions(url: URL): ProfileAnalysisOptions {
 	};
 }
 
-function encodeEvent(event: ProfileAnalysisStreamEvent) {
-	return encoder.encode(`${JSON.stringify(event)}\n`);
-}
-
 export const Route = createFileRoute("/api/profile-analysis")({
 	server: {
 		handlers: {
@@ -72,79 +66,30 @@ export const Route = createFileRoute("/api/profile-analysis")({
 
 						const url = new URL(request.url);
 						const options = parseOptions(url);
-						let abortAnalysis: (() => void) | undefined;
-
-						return new Response(
-							new ReadableStream({
-								cancel() {
-									abortAnalysis?.();
+						return createEffectNdjsonResponse<ProfileAnalysisStreamEvent>({
+							request,
+							initialEvents: [
+								{
+									type: "status",
+									label: "Starting profile analysis",
 								},
-								start(controller) {
-									const abortController = new AbortController();
-									let closed = false;
-									const close = () => {
-										closed = true;
-										abortController.abort();
-									};
-									const closeController = () => {
-										request.signal.removeEventListener("abort", onAbort);
-										if (!closed) {
-											closed = true;
-											controller.close();
-										}
-									};
-									const onAbort = () => close();
-									request.signal.addEventListener("abort", onAbort, {
-										once: true,
-									});
-									abortAnalysis = close;
-									const enqueue = (event: ProfileAnalysisStreamEvent) => {
-										if (closed) return;
-										try {
-											controller.enqueue(encodeEvent(event));
-										} catch {
-											close();
-										}
-									};
-									enqueue({
-										type: "status",
-										label: "Starting profile analysis",
-									});
-
-									runEffectBackground(
-										Effect.gen(function* () {
-											yield* maybeAutoUpdateBackupEffect();
-											return yield* streamProfileAnalysisEffect(
-												{
-													...options,
-													signal: abortController.signal,
-												},
-												{ onEvent: enqueue },
-											);
-										}),
-										{
-											onSuccess: closeController,
-											onFailure: (error) => {
-												enqueue({
-													type: "error",
-													error:
-														error instanceof Error
-															? error.message
-															: "Profile analysis failed",
-												});
-												closeController();
-											},
-										},
+							],
+							run: ({ signal, emit }) =>
+								Effect.gen(function* () {
+									yield* maybeAutoUpdateBackupEffect();
+									return yield* streamProfileAnalysisEffect(
+										{ ...options, signal },
+										{ onEvent: emit },
 									);
-								},
+								}),
+							errorEvent: (error) => ({
+								type: "error",
+								error:
+									error instanceof Error
+										? error.message
+										: "Profile analysis failed",
 							}),
-							{
-								headers: {
-									"cache-control": "no-store",
-									"content-type": "application/x-ndjson; charset=utf-8",
-								},
-							},
-						);
+						});
 					}),
 				),
 		},

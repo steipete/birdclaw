@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Effect } from "effect";
 import { maybeAutoUpdateBackupEffect } from "#/lib/backup";
-import { runEffectBackground } from "#/lib/effect-runtime";
 import {
 	parseBoundedInteger,
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
+import { createEffectNdjsonResponse } from "#/lib/ndjson-stream";
 import {
 	streamSearchDiscussionEffect,
 	type SearchDiscussionOptions,
@@ -15,7 +15,6 @@ import {
 } from "#/lib/search-discussion";
 import type { TweetSearchMode } from "#/lib/tweet-search-live";
 
-const encoder = new TextEncoder();
 const MAX_DISCUSSION_SEARCH_LIMIT = 20_000;
 const MAX_DISCUSSION_SEARCH_PAGES = 200;
 
@@ -73,10 +72,6 @@ function parseOptions(url: URL): SearchDiscussionOptions {
 	};
 }
 
-function encodeEvent(event: SearchDiscussionStreamEvent) {
-	return encoder.encode(`${JSON.stringify(event)}\n`);
-}
-
 export const Route = createFileRoute("/api/search-discussion")({
 	server: {
 		handlers: {
@@ -88,80 +83,29 @@ export const Route = createFileRoute("/api/search-discussion")({
 
 						const url = new URL(request.url);
 						const options = parseOptions(url);
-						let abortDiscussion: (() => void) | undefined;
-
-						return new Response(
-							new ReadableStream({
-								cancel() {
-									abortDiscussion?.();
-								},
-								start(controller) {
-									const abortController = new AbortController();
-									let closed = false;
-									const close = () => {
-										closed = true;
-										abortController.abort();
-									};
-									const closeController = () => {
-										request.signal.removeEventListener("abort", onAbort);
-										if (!closed) {
-											closed = true;
-											controller.close();
-										}
-									};
-									const onAbort = () => close();
-									request.signal.addEventListener("abort", onAbort, {
-										once: true,
-									});
-									abortDiscussion = close;
-									const enqueue = (event: SearchDiscussionStreamEvent) => {
-										if (closed) return;
-										try {
-											controller.enqueue(encodeEvent(event));
-										} catch {
-											close();
-										}
-									};
-
-									runEffectBackground(
-										maybeAutoUpdateBackupEffect().pipe(
-											Effect.flatMap(() => {
-												if (closed || abortController.signal.aborted) {
-													return Effect.succeed(undefined);
-												}
-												return streamSearchDiscussionEffect(
+						return createEffectNdjsonResponse<SearchDiscussionStreamEvent>({
+							request,
+							run: ({ signal, emit }) =>
+								maybeAutoUpdateBackupEffect().pipe(
+									Effect.flatMap(() =>
+										signal.aborted
+											? Effect.succeed(undefined)
+											: streamSearchDiscussionEffect(
 													{
 														...options,
-														signal: abortController.signal,
+														signal,
 														prefetchAvatars: true,
 													},
-													{ onEvent: enqueue },
-												);
-											}),
-										),
-										{
-											onSuccess: closeController,
-											onFailure: (error) => {
-												enqueue({
-													type: "error",
-													error:
-														error instanceof Error
-															? error.message
-															: "Discussion failed",
-												});
-												closeController();
-											},
-										},
-									);
-								},
+													{ onEvent: emit },
+												),
+									),
+								),
+							errorEvent: (error) => ({
+								type: "error",
+								error:
+									error instanceof Error ? error.message : "Discussion failed",
 							}),
-							{
-								headers: {
-									"cache-control": "no-store",
-									"content-type": "application/x-ndjson; charset=utf-8",
-								},
-							},
-						);
+						});
 					}),
 				),
 		},

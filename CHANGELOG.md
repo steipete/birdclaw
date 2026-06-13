@@ -8,6 +8,10 @@
 - Remove the separate public read-only web profile; deployments can expose the full private app behind an external authentication boundary.
 - Show recent web timestamps as live relative time, then switch to calendar dates with exact local time on hover.
 
+### Fixed
+
+- Keep long-running AI streams alive through reverse proxies and show actionable Today retry errors when a connection is interrupted.
+
 ## 0.8.0 - 2026-06-10
 
 ### Added

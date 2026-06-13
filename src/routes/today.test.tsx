@@ -253,6 +253,31 @@ describe("today route", () => {
 		).toBeInTheDocument();
 	});
 
+	it("shows an actionable message when the digest connection drops", async () => {
+		const fetchMock = vi.fn(async () => {
+			throw new TypeError("network error");
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		render(<TodayRoute />);
+
+		expect(
+			await screen.findByText(
+				"Digest connection was interrupted while starting digest. Retry to continue.",
+			),
+		).toBeInTheDocument();
+		expect(screen.getByText("Digest failed")).toBeInTheDocument();
+		expect(
+			screen.getByText("No digest was generated. Retry to start a new run."),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("Waiting for the first tokens..."),
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+	});
+
 	it("shows fetch status before the first markdown token", async () => {
 		let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
 		const encoder = new TextEncoder();
