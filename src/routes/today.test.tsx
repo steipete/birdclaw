@@ -176,10 +176,8 @@ describe("today route", () => {
 		expect(screen.queryByText(/Action items/i)).toBeNull();
 		expect(screen.queryByText("# Today")).not.toBeInTheDocument();
 		expect(screen.getByText("Reply:")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "@alice" })).toHaveAttribute(
-			"href",
-			"/profiles/alice",
-		);
+		const aliceLink = screen.getByRole("link", { name: "@alice" });
+		expect(aliceLink).toHaveAttribute("href", "/profiles/alice");
 		expect(screen.getByRole("link", { name: "tweet_1" })).toHaveAttribute(
 			"href",
 			"https://x.com/alice/status/tweet_1",
@@ -188,11 +186,13 @@ describe("today route", () => {
 			screen.getByText("3 home · 2 mentions · 4 links"),
 		).toBeInTheDocument();
 		await waitFor(() =>
-			expect(screen.getAllByText("Alice Fresh").length).toBeGreaterThan(0),
+			expect(urls.some((url) => url.pathname === "/api/profile-hydrate")).toBe(
+				true,
+			),
 		);
-		expect(
-			screen.getAllByRole("img", { name: "Alice Fresh" })[0],
-		).toHaveAttribute(
+		fireEvent.pointerEnter(aliceLink.parentElement as Element);
+		await screen.findByText("Alice Fresh");
+		expect(screen.getByRole("img", { name: "Alice Fresh" })).toHaveAttribute(
 			"src",
 			expect.stringContaining("/api/avatar?profileId=profile_alice&v="),
 		);

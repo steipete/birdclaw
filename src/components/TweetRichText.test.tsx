@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { TweetRichText } from "./TweetRichText";
 
@@ -50,11 +50,15 @@ describe("TweetRichText", () => {
 			/>,
 		);
 
-		expect(screen.getAllByText("@amelia")[0]).toBeInTheDocument();
+		const mention = screen.getAllByText("@amelia")[0];
+		expect(mention).toBeInTheDocument();
 		expect(
 			screen.getByRole("link", { name: "example.com/demo" }),
 		).toHaveAttribute("href", "https://example.com/demo");
 		expect(screen.getByText("#birdclaw")).toBeInTheDocument();
+		fireEvent.pointerEnter(
+			mention.closest(".profile-preview-trigger")?.parentElement as Element,
+		);
 		expect(screen.getByText("Design systems")).toBeInTheDocument();
 	});
 

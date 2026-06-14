@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProfileRouteView } from "./profiles.$handle";
 
@@ -199,13 +205,17 @@ describe("profile route", () => {
 			"href",
 			"/profiles/Qantas",
 		);
-		expect(await screen.findByText("Agent tooling.")).toBeInTheDocument();
-		expect(screen.getByText("Business news.")).toBeInTheDocument();
-		expect(
-			screen.getByText("Massachusetts Institute of Technology."),
-		).toBeInTheDocument();
-		expect(screen.getByText("Technology company.")).toBeInTheDocument();
-		expect(screen.getByText("Airline.")).toBeInTheDocument();
+		for (const [handle, bio] of [
+			["@openclaw", "Agent tooling."],
+			["@forbes", "Business news."],
+			["@MIT", "Massachusetts Institute of Technology."],
+			["@Microsoft", "Technology company."],
+			["@Qantas", "Airline."],
+		] as const) {
+			const link = screen.getByRole("link", { name: handle });
+			fireEvent.pointerEnter(link.parentElement as Element);
+			expect(screen.getByText(bio)).toBeInTheDocument();
+		}
 		expect(
 			await screen.findByText("Peter ships agent tools with practical taste."),
 		).toBeInTheDocument();

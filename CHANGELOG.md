@@ -2,6 +2,10 @@
 
 ## 0.8.2 - Unreleased
 
+### Fixed
+
+- Keep tweet and profile hover previews outside wrapped links, flip them to the roomier vertical side, and constrain them to the viewport.
+
 ## 0.8.1 - 2026-06-13
 
 ### Changed

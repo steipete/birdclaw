@@ -1,11 +1,4 @@
-import {
-	Fragment,
-	type MouseEventHandler,
-	type ReactNode,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { Fragment, type MouseEventHandler, type ReactNode } from "react";
 import { formatCompactNumber } from "#/lib/present";
 import type { PeriodDigestContext } from "#/lib/period-digest";
 import type { ProfileAnalysisContext } from "#/lib/profile-analysis";
@@ -14,34 +7,16 @@ import type { ProfileRecord } from "#/lib/types";
 import { cx, tweetLinkClass, tweetMentionClass } from "#/lib/ui";
 import { safeHttpUrl } from "#/lib/url-safety";
 import { AvatarChip } from "./AvatarChip";
+import { useFloatingPreview } from "./FloatingPreview";
 import { ProfilePreview } from "./ProfilePreview";
 import { SmartTimestamp } from "./SmartTimestamp";
 
 type CitationTweet = PeriodDigestContext["tweets"][number];
 type CitationContext = PeriodDigestContext | ProfileAnalysisContext;
-type VerticalBounds = { top: number; bottom: number };
-
 type InlineLookup = {
 	tweetsById: Map<string, CitationTweet>;
 	profilesByHandle: Map<string, ProfileRecord>;
 };
-
-function nearestVerticalClipBounds(element: HTMLElement): VerticalBounds {
-	let top = 0;
-	let bottom = window.innerHeight;
-	for (
-		let current = element.parentElement;
-		current;
-		current = current.parentElement
-	) {
-		const style = window.getComputedStyle(current);
-		if (!/(auto|scroll|hidden|clip)/.test(style.overflowY)) continue;
-		const rect = current.getBoundingClientRect();
-		top = Math.max(top, rect.top);
-		bottom = Math.min(bottom, rect.bottom);
-	}
-	return { top, bottom };
-}
 
 function normalizeTweetReference(value: string) {
 	return value
@@ -135,13 +110,16 @@ function TweetSourceLink({
 	children,
 	href,
 	onClick,
+	describedBy,
 }: {
 	children: ReactNode;
 	href: string;
 	onClick?: MouseEventHandler<HTMLAnchorElement>;
+	describedBy?: string;
 }) {
 	return (
 		<a
+			aria-describedby={describedBy}
 			className="rounded-sm px-0.5 text-[var(--accent)] hover:bg-[var(--accent-soft)] hover:no-underline"
 			href={href}
 			onClick={onClick}
@@ -160,93 +138,64 @@ function TweetPreviewToken({
 	tweet: CitationTweet;
 	children: ReactNode;
 }) {
-	const [open, setOpen] = useState(false);
-	const [placeAbove, setPlaceAbove] = useState(false);
-	const shellRef = useRef<HTMLSpanElement | null>(null);
-	const cardRef = useRef<HTMLSpanElement | null>(null);
-
-	useLayoutEffect(() => {
-		if (!open) return;
-		const updatePlacement = () => {
-			const shell = shellRef.current;
-			if (!shell) return;
-			const shellRect = shell.getBoundingClientRect();
-			const card = cardRef.current;
-			const cardRect = card?.getBoundingClientRect();
-			const cardHeight = Math.max(
-				card?.offsetHeight ?? 0,
-				cardRect?.height ?? 0,
-				220,
-			);
-			const bounds = nearestVerticalClipBounds(shell);
-			const belowSpace = bounds.bottom - shellRect.bottom;
-			const aboveSpace = shellRect.top - bounds.top;
-			setPlaceAbove(belowSpace < cardHeight + 18 && aboveSpace >= belowSpace);
-		};
-		updatePlacement();
-		const frame = window.requestAnimationFrame(updatePlacement);
-		return () => window.cancelAnimationFrame(frame);
-	}, [open]);
-
-	function closePreview() {
-		setOpen(false);
-	}
+	const preview = useFloatingPreview();
 
 	const previewText = renderTweetPlainText(tweet.text, tweet.entities ?? {});
 
 	return (
 		<span
-			ref={shellRef}
-			className="relative inline align-baseline"
-			onBlur={closePreview}
-			onFocus={() => setOpen(true)}
-			onPointerEnter={() => setOpen(true)}
-			onPointerLeave={closePreview}
+			ref={preview.referenceRef}
+			className="inline align-baseline"
+			{...preview.referenceProps}
 		>
 			<TweetSourceLink
+				describedBy={preview.open ? preview.floatingId : undefined}
 				href={getTweetUrl(tweet)}
 				onClick={(event) => {
-					closePreview();
+					preview.closePreview();
 					event.currentTarget.blur();
 				}}
 			>
 				{children}
 			</TweetSourceLink>
-			<span
-				ref={cardRef}
-				aria-hidden={!open}
-				className={cx(
-					"absolute left-1/2 z-40 w-[360px] -translate-x-1/2 rounded-2xl border border-[var(--line)] bg-[var(--bg-elevated)] p-3 text-left text-[14px] leading-[1.4] text-[var(--ink)] shadow-[0_14px_40px_var(--shadow-strong)]",
-					placeAbove ? "bottom-[calc(100%+10px)]" : "top-[calc(100%+10px)]",
-					open ? "block" : "hidden",
-				)}
-			>
-				<span className="mb-2 flex items-center gap-2">
-					<AvatarChip
-						avatarUrl={tweet.authorProfile.avatarUrl}
-						hue={tweet.authorProfile.avatarHue}
-						name={tweet.name}
-						profileId={tweet.authorProfile.id}
-						size="small"
-					/>
-					<span className="min-w-0">
-						<span className="block truncate font-bold">{tweet.name}</span>
-						<span className="block truncate text-[12px] text-[var(--ink-soft)]">
-							@{tweet.author} · <SmartTimestamp value={tweet.createdAt} />
+			{preview.open ? (
+				<span
+					id={preview.floatingId}
+					ref={preview.floatingRef}
+					className="fixed z-40 w-[360px] overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--bg-elevated)] p-3 text-left text-[14px] leading-[1.4] text-[var(--ink)] shadow-[0_14px_40px_var(--shadow-strong)]"
+					role="tooltip"
+					style={preview.floatingStyle}
+					{...preview.floatingProps}
+				>
+					<span className="block" data-floating-preview-content>
+						<span className="mb-2 flex items-center gap-2">
+							<AvatarChip
+								avatarUrl={tweet.authorProfile.avatarUrl}
+								hue={tweet.authorProfile.avatarHue}
+								name={tweet.name}
+								profileId={tweet.authorProfile.id}
+								size="small"
+							/>
+							<span className="min-w-0">
+								<span className="block truncate font-bold">{tweet.name}</span>
+								<span className="block truncate text-[12px] text-[var(--ink-soft)]">
+									@{tweet.author} · <SmartTimestamp value={tweet.createdAt} />
+								</span>
+							</span>
+						</span>
+						<span className="line-clamp-6 whitespace-pre-wrap [overflow-wrap:anywhere]">
+							{previewText}
+						</span>
+						<span className="mt-2 flex gap-3 text-[12px] text-[var(--ink-soft)]">
+							<span>{tweet.source}</span>
+							{tweet.likeCount > 0 ? (
+								<span>{formatCompactNumber(tweet.likeCount)} likes</span>
+							) : null}
+							{tweet.needsReply ? <span>reply open</span> : null}
 						</span>
 					</span>
 				</span>
-				<span className="line-clamp-6 whitespace-pre-wrap [overflow-wrap:anywhere]">
-					{previewText}
-				</span>
-				<span className="mt-2 flex gap-3 text-[12px] text-[var(--ink-soft)]">
-					<span>{tweet.source}</span>
-					{tweet.likeCount > 0 ? (
-						<span>{formatCompactNumber(tweet.likeCount)} likes</span>
-					) : null}
-					{tweet.needsReply ? <span>reply open</span> : null}
-				</span>
-			</span>
+			) : null}
 		</span>
 	);
 }

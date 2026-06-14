@@ -1,10 +1,4 @@
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PeriodDigestContext } from "#/lib/period-digest";
 import type { ProfileAnalysisContext } from "#/lib/profile-analysis";
@@ -259,14 +253,14 @@ describe("MarkdownViewer", () => {
 			"href",
 			"https://x.com/steipete/status/2055621934319030779",
 		);
-		expect(
-			screen.getByRole("link", {
-				name: "describes the OpenClaw team structure",
-			}),
-		).toHaveAttribute(
+		const openClawCitation = screen.getByRole("link", {
+			name: "describes the OpenClaw team structure",
+		});
+		expect(openClawCitation).toHaveAttribute(
 			"href",
 			"https://x.com/openclaw/status/2055858095759229148",
 		);
+		fireEvent.pointerEnter(openClawCitation.parentElement as Element);
 		expect(screen.getByAltText("OpenClaw")).toHaveAttribute(
 			"src",
 			"/api/avatar?profileId=profile_user_42&v=https%3A%2F%2Fpbs.twimg.com%2Fprofile_images%2Fopenclaw_normal.jpg",
@@ -515,15 +509,13 @@ describe("MarkdownViewer", () => {
 			/>,
 		);
 
-		expect(screen.getByRole("link", { name: "@OpenAI" })).toHaveAttribute(
-			"href",
-			"/profiles/OpenAI",
-		);
-		expect(screen.getByRole("link", { name: "@openclaw" })).toHaveAttribute(
-			"href",
-			"/profiles/openclaw",
-		);
+		const openAiLink = screen.getByRole("link", { name: "@OpenAI" });
+		expect(openAiLink).toHaveAttribute("href", "/profiles/OpenAI");
+		const openClawLink = screen.getByRole("link", { name: "@openclaw" });
+		expect(openClawLink).toHaveAttribute("href", "/profiles/openclaw");
+		fireEvent.pointerEnter(openAiLink.parentElement as Element);
 		expect(screen.getByText("AI research and products.")).toBeInTheDocument();
+		fireEvent.pointerEnter(openClawLink.parentElement as Element);
 		expect(screen.getByText("Agent tooling")).toBeInTheDocument();
 	});
 
@@ -632,176 +624,15 @@ describe("MarkdownViewer", () => {
 			name: "“autonomous agents running on goAT”",
 		});
 		const wrapper = link.parentElement;
-		const preview = screen
-			.getByText(/https:\/\/goat\.network\/agents/)
-			.closest("[aria-hidden]");
-
-		expect(preview).toHaveAttribute("aria-hidden", "true");
 		expect(wrapper).not.toBeNull();
+		expect(screen.queryByText(/https:\/\/goat\.network\/agents/)).toBeNull();
 
 		fireEvent.pointerEnter(wrapper as Element);
-		expect(preview).toHaveAttribute("aria-hidden", "false");
+		expect(screen.getByRole("tooltip")).toHaveTextContent(
+			/https:\/\/goat\.network\/agents/,
+		);
 
 		fireEvent.click(link, { metaKey: true });
-		expect(preview).toHaveAttribute("aria-hidden", "true");
-	});
-
-	it("places tweet previews above the citation when the viewport is tight below", async () => {
-		const originalInnerHeight = window.innerHeight;
-		const originalRect = HTMLElement.prototype.getBoundingClientRect;
-		const originalOffsetHeight = Object.getOwnPropertyDescriptor(
-			HTMLElement.prototype,
-			"offsetHeight",
-		);
-		Object.defineProperty(window, "innerHeight", {
-			configurable: true,
-			value: 220,
-		});
-		HTMLElement.prototype.getBoundingClientRect = () =>
-			({
-				bottom: 196,
-				height: 18,
-				left: 120,
-				right: 220,
-				top: 178,
-				width: 100,
-				x: 120,
-				y: 178,
-				toJSON: () => ({}),
-			}) as DOMRect;
-		Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-			configurable: true,
-			get() {
-				return 160;
-			},
-		});
-
-		try {
-			render(
-				<MarkdownViewer
-					context={context}
-					markdown={
-						"ChainZenit reacted positively to “autonomous agents running on goAT” (tweet_2056286865875935400)."
-					}
-				/>,
-			);
-
-			const link = screen.getByRole("link", {
-				name: "“autonomous agents running on goAT”",
-			});
-			const wrapper = link.parentElement;
-			const preview = screen
-				.getByText(/https:\/\/goat\.network\/agents/)
-				.closest("[aria-hidden]");
-			expect(wrapper).not.toBeNull();
-
-			fireEvent.pointerEnter(wrapper as Element);
-
-			await waitFor(() => {
-				expect(preview).toHaveClass("bottom-[calc(100%+10px)]");
-			});
-		} finally {
-			Object.defineProperty(window, "innerHeight", {
-				configurable: true,
-				value: originalInnerHeight,
-			});
-			HTMLElement.prototype.getBoundingClientRect = originalRect;
-			if (originalOffsetHeight) {
-				Object.defineProperty(
-					HTMLElement.prototype,
-					"offsetHeight",
-					originalOffsetHeight,
-				);
-			}
-		}
-	});
-
-	it("places tweet previews above when a clipping container is tight below", async () => {
-		const originalInnerHeight = window.innerHeight;
-		const originalRect = HTMLElement.prototype.getBoundingClientRect;
-		const originalOffsetHeight = Object.getOwnPropertyDescriptor(
-			HTMLElement.prototype,
-			"offsetHeight",
-		);
-		Object.defineProperty(window, "innerHeight", {
-			configurable: true,
-			value: 800,
-		});
-		HTMLElement.prototype.getBoundingClientRect = function () {
-			if (this instanceof HTMLElement && this.dataset.testid === "clip-box") {
-				return {
-					bottom: 260,
-					height: 220,
-					left: 0,
-					right: 680,
-					top: 40,
-					width: 680,
-					x: 0,
-					y: 40,
-					toJSON: () => ({}),
-				} as DOMRect;
-			}
-			return {
-				bottom: 230,
-				height: 18,
-				left: 120,
-				right: 220,
-				top: 212,
-				width: 100,
-				x: 120,
-				y: 212,
-				toJSON: () => ({}),
-			} as DOMRect;
-		};
-		Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-			configurable: true,
-			get() {
-				return 260;
-			},
-		});
-
-		try {
-			render(
-				<div
-					data-testid="clip-box"
-					style={{ height: 220, overflowY: "hidden" }}
-				>
-					<MarkdownViewer
-						context={context}
-						markdown={
-							"ChainZenit reacted positively to “autonomous agents running on goAT” (tweet_2056286865875935400)."
-						}
-					/>
-				</div>,
-			);
-
-			const link = screen.getByRole("link", {
-				name: "“autonomous agents running on goAT”",
-			});
-			const wrapper = link.parentElement;
-			const preview = screen
-				.getByText(/https:\/\/goat\.network\/agents/)
-				.closest("[aria-hidden]");
-			expect(wrapper).not.toBeNull();
-
-			fireEvent.pointerEnter(wrapper as Element);
-
-			await waitFor(() => {
-				expect(preview).toHaveClass("bottom-[calc(100%+10px)]");
-			});
-		} finally {
-			Object.defineProperty(window, "innerHeight", {
-				configurable: true,
-				value: originalInnerHeight,
-			});
-			HTMLElement.prototype.getBoundingClientRect = originalRect;
-			if (originalOffsetHeight) {
-				Object.defineProperty(
-					HTMLElement.prototype,
-					"offsetHeight",
-					originalOffsetHeight,
-				);
-			}
-		}
+		expect(screen.queryByRole("tooltip")).toBeNull();
 	});
 });

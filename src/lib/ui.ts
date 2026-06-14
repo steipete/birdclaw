@@ -311,7 +311,7 @@ export const profilePreviewTriggerClass =
 	"profile-preview-trigger inline-flex text-inherit";
 
 export const profilePreviewCardClass =
-	"pointer-events-none absolute left-0 z-30 grid w-[280px] gap-2 rounded-2xl border border-[var(--line)] bg-[var(--bg-elevated)] p-3 opacity-0 shadow-[0_8px_28px_var(--shadow-strong)] transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100";
+	"fixed z-40 w-[280px] overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--bg-elevated)] p-3 shadow-[0_8px_28px_var(--shadow-strong)]";
 
 export const profilePreviewHeaderClass = "flex items-center gap-3";
 

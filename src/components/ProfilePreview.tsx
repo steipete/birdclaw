@@ -1,10 +1,4 @@
-import {
-	Fragment,
-	type ReactNode,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { Fragment, type ReactNode } from "react";
 import { formatCompactNumber } from "#/lib/present";
 import {
 	collectTweetSegmentsForText,
@@ -25,25 +19,7 @@ import {
 } from "#/lib/ui";
 import { safeHttpUrl } from "#/lib/url-safety";
 import { AvatarChip } from "./AvatarChip";
-
-type VerticalBounds = { top: number; bottom: number };
-
-function nearestVerticalClipBounds(element: HTMLElement): VerticalBounds {
-	let top = 0;
-	let bottom = window.innerHeight;
-	for (
-		let current = element.parentElement;
-		current;
-		current = current.parentElement
-	) {
-		const style = window.getComputedStyle(current);
-		if (!/(auto|scroll|hidden|clip)/.test(style.overflowY)) continue;
-		const rect = current.getBoundingClientRect();
-		top = Math.max(top, rect.top);
-		bottom = Math.min(bottom, rect.bottom);
-	}
-	return { top, bottom };
-}
+import { useFloatingPreview } from "./FloatingPreview";
 
 function ProfilePreviewBio({ profile }: { profile: ProfileRecord }) {
 	const segments = collectTweetSegmentsForText(
@@ -98,74 +74,56 @@ export function ProfilePreview({
 	children: ReactNode;
 	className?: string;
 }) {
-	const [placeAbove, setPlaceAbove] = useState(false);
-	const shellRef = useRef<HTMLSpanElement | null>(null);
-	const cardRef = useRef<HTMLSpanElement | null>(null);
-
-	function updatePlacement() {
-		const shell = shellRef.current;
-		if (!shell) return;
-		const shellRect = shell.getBoundingClientRect();
-		const card = cardRef.current;
-		const cardRect = card?.getBoundingClientRect();
-		const cardHeight = Math.max(
-			card?.offsetHeight ?? 0,
-			cardRect?.height ?? 0,
-			180,
-		);
-		const bounds = nearestVerticalClipBounds(shell);
-		const belowSpace = bounds.bottom - shellRect.bottom;
-		const aboveSpace = shellRect.top - bounds.top;
-		setPlaceAbove(belowSpace < cardHeight + 18 && aboveSpace >= belowSpace);
-	}
-
-	useLayoutEffect(() => {
-		updatePlacement();
-		const frame = window.requestAnimationFrame(updatePlacement);
-		return () => window.cancelAnimationFrame(frame);
-	}, []);
+	const preview = useFloatingPreview();
 
 	return (
 		<span
-			ref={shellRef}
-			className={cx(profilePreviewClass, "group", className)}
-			onFocus={updatePlacement}
-			onPointerEnter={updatePlacement}
+			ref={preview.referenceRef}
+			className={cx(profilePreviewClass, className)}
+			{...preview.referenceProps}
 		>
 			<a
+				aria-controls={preview.open ? preview.floatingId : undefined}
+				aria-expanded={preview.open}
 				className={profilePreviewTriggerClass}
 				href={`/profiles/${encodeURIComponent(profile.handle)}`}
 			>
 				{children}
 			</a>
-			<span
-				ref={cardRef}
-				className={cx(
-					profilePreviewCardClass,
-					placeAbove
-						? "bottom-[calc(100%+8px)] -translate-y-1 group-hover:translate-y-0 group-focus-within:translate-y-0"
-						: "top-[calc(100%+8px)] translate-y-1 group-hover:translate-y-0 group-focus-within:translate-y-0",
-				)}
-			>
-				<span className={profilePreviewHeaderClass}>
-					<AvatarChip
-						avatarUrl={profile.avatarUrl}
-						hue={profile.avatarHue}
-						name={profile.displayName}
-						profileId={profile.id}
-					/>
-					<span className="flex min-w-0 flex-col">
-						<span className={profilePreviewNameClass}>
-							{profile.displayName}
+			{preview.open ? (
+				<span
+					aria-label={`${profile.displayName} profile preview`}
+					id={preview.floatingId}
+					ref={preview.floatingRef}
+					className={profilePreviewCardClass}
+					role="group"
+					style={preview.floatingStyle}
+					{...preview.floatingProps}
+				>
+					<span className="grid gap-2" data-floating-preview-content>
+						<span className={profilePreviewHeaderClass}>
+							<AvatarChip
+								avatarUrl={profile.avatarUrl}
+								hue={profile.avatarHue}
+								name={profile.displayName}
+								profileId={profile.id}
+							/>
+							<span className="flex min-w-0 flex-col">
+								<span className={profilePreviewNameClass}>
+									{profile.displayName}
+								</span>
+								<span className={profilePreviewHandleClass}>
+									@{profile.handle}
+								</span>
+							</span>
 						</span>
-						<span className={profilePreviewHandleClass}>@{profile.handle}</span>
+						{profile.bio ? <ProfilePreviewBio profile={profile} /> : null}
+						<span className={profilePreviewMetaClass}>
+							{formatCompactNumber(profile.followersCount)} followers
+						</span>
 					</span>
 				</span>
-				{profile.bio ? <ProfilePreviewBio profile={profile} /> : null}
-				<span className={profilePreviewMetaClass}>
-					{formatCompactNumber(profile.followersCount)} followers
-				</span>
-			</span>
+			) : null}
 		</span>
 	);
 }
