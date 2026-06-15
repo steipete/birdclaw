@@ -8,6 +8,7 @@ import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
@@ -310,7 +311,7 @@ function mergeTimelineCollectionIntoLocalStore(
 				countTweetMedia(tweet),
 				bookmarked,
 				liked,
-				JSON.stringify(tweet.entities ?? {}),
+				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
 				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 				quotedTweetId,
 			);

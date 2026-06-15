@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
 	collectTweetSegmentsForText,
 	enrichFallbackUrlEntities,
+	isTweetArticleUrlEntity,
 	normalizeTweetUrlEntityRangeForText,
 } from "#/lib/tweet-render";
 import type { TweetEntities } from "#/lib/types";
@@ -17,6 +18,14 @@ import { ProfilePreview } from "./ProfilePreview";
 
 function rangeKey(range: { start: number; end: number }) {
 	return `${range.start}:${range.end}`;
+}
+
+function isShortUrl(value: string) {
+	try {
+		return new URL(value).hostname.replace(/^www\./, "") === "t.co";
+	} catch {
+		return false;
+	}
 }
 
 export function TweetRichText({
@@ -37,6 +46,25 @@ export function TweetRichText({
 	const richEntities = enrichFallbackUrlEntities(text, entities);
 	const segments = collectTweetSegmentsForText(text, richEntities);
 	const hiddenRawRangeKeys = new Set(hiddenUrlRanges.map(rangeKey));
+	const article = entities.article;
+	if (article) {
+		const urlEntries = richEntities.urls ?? [];
+		const articleUrlEntries = urlEntries.filter((entry) =>
+			isTweetArticleUrlEntity(entry, article),
+		);
+		const onlyUrlEntry = urlEntries[0];
+		if (
+			articleUrlEntries.length === 0 &&
+			urlEntries.length === 1 &&
+			onlyUrlEntry &&
+			(isShortUrl(onlyUrlEntry.url) || isShortUrl(onlyUrlEntry.expandedUrl))
+		) {
+			articleUrlEntries.push(onlyUrlEntry);
+		}
+		for (const entry of articleUrlEntries) {
+			hiddenRawRangeKeys.add(rangeKey(entry));
+		}
+	}
 	const hiddenRangeKeys = new Set(hiddenRawRangeKeys);
 	for (const entry of richEntities.urls ?? []) {
 		if (!hiddenRawRangeKeys.has(rangeKey(entry))) continue;
@@ -46,10 +74,13 @@ export function TweetRichText({
 	}
 	const Wrapper = as;
 	let cursor = 0;
+	const hideArticleTitle =
+		entities.article && text.trim() === entities.article.title.trim();
+	const visibleSegments = hideArticleTitle ? [] : segments;
 
 	return (
 		<Wrapper className={className === "body-copy" ? bodyCopyClass : className}>
-			{segments.map((segment, index) => {
+			{visibleSegments.map((segment, index) => {
 				if (
 					segment.start < cursor ||
 					segment.end <= segment.start ||
@@ -122,7 +153,7 @@ export function TweetRichText({
 					</Fragment>
 				);
 			})}
-			{text.slice(cursor)}
+			{hideArticleTitle ? null : text.slice(cursor)}
 		</Wrapper>
 	);
 }

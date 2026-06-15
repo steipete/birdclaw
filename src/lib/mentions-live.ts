@@ -11,6 +11,7 @@ import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { serializeMentionItemsAsXurlCompatible } from "./mentions-export";
 import { listTimelineItems } from "./queries";
 import { deleteSyncCache, readSyncCache, writeSyncCache } from "./sync-cache";
+import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
 	ReplyFilter,
 	TweetEntities,
@@ -521,52 +522,7 @@ function findNewestArchiveMentionId(db: Database, accountId: string) {
 }
 
 function toLocalEntities(tweet: XurlMentionData): TweetEntities {
-	const raw = tweet.entities;
-	if (!raw || typeof raw !== "object") {
-		return {};
-	}
-
-	const entities = raw as Record<string, unknown>;
-	const rawMentions = Array.isArray(entities.mentions) ? entities.mentions : [];
-	const rawUrls = Array.isArray(entities.urls) ? entities.urls : [];
-
-	return {
-		...(rawMentions.length
-			? {
-					mentions: rawMentions.map((mention) => {
-						const value =
-							mention && typeof mention === "object"
-								? (mention as Record<string, unknown>)
-								: {};
-						return {
-							username: String(value.username ?? ""),
-							id: typeof value.id === "string" ? String(value.id) : undefined,
-							start: Number(value.start ?? 0),
-							end: Number(value.end ?? 0),
-						};
-					}),
-				}
-			: {}),
-		...(rawUrls.length
-			? {
-					urls: rawUrls.map((url) => {
-						const value =
-							url && typeof url === "object"
-								? (url as Record<string, unknown>)
-								: {};
-						return {
-							url: String(value.url ?? ""),
-							expandedUrl: String(value.expanded_url ?? value.url ?? ""),
-							displayUrl: String(
-								value.display_url ?? value.expanded_url ?? value.url ?? "",
-							),
-							start: Number(value.start ?? 0),
-							end: Number(value.end ?? 0),
-						};
-					}),
-				}
-			: {}),
-	};
+	return tweetEntitiesFromXurl(tweet.entities);
 }
 
 function replaceTweetFts(db: Database, tweetId: string, text: string) {

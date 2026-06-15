@@ -4,6 +4,7 @@ import { listThreadViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
+import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
@@ -415,7 +416,7 @@ function mergeMentionThreadIntoLocalStore({
 				replyToId ?? null,
 				Number(tweet.public_metrics?.like_count ?? 0),
 				countTweetMedia(tweet),
-				JSON.stringify(tweet.entities ?? {}),
+				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
 				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 			);
 			if (writeThreadContextEdges) {

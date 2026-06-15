@@ -956,6 +956,10 @@ describe("bird transport wrapper", () => {
 					authorId: "42",
 					author: { username: "sam" },
 					media: [{ url: "https://img.example/a.jpg" }],
+					article: {
+						title: "A frontier without an ecosystem is not stable",
+						previewText: "I have been thinking about the future of the firm.",
+					},
 					inReplyToStatusId: "",
 				},
 				{
@@ -972,6 +976,12 @@ describe("bird transport wrapper", () => {
 						created_at: "not-a-date",
 						conversation_id: "1",
 						entities: expect.objectContaining({
+							article: {
+								title: "A frontier without an ecosystem is not stable",
+								previewText:
+									"I have been thinking about the future of the firm.",
+								url: "https://x.com/sam/status/1",
+							},
 							urls: [
 								expect.objectContaining({ url: "https://img.example/a.jpg" }),
 							],

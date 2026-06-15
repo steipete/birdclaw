@@ -56,6 +56,24 @@ describe("tweet render helpers", () => {
 		);
 	});
 
+	it("normalizes Twitter Article metadata", () => {
+		expect(
+			tweetEntitiesFromXurl({
+				article: {
+					title: "A frontier without an ecosystem is not stable",
+					preview_text: "I have been thinking about the future of the firm.",
+					url: "https://x.com/satyanadella/status/2066182223213293753",
+				},
+			}),
+		).toEqual({
+			article: {
+				title: "A frontier without an ecosystem is not stable",
+				previewText: "I have been thinking about the future of the firm.",
+				url: "https://x.com/satyanadella/status/2066182223213293753",
+			},
+		});
+	});
+
 	it("normalizes X API profile description url entities", () => {
 		const entities = profileDescriptionEntitiesFromXurl({
 			description: {

@@ -29,6 +29,12 @@ interface BirdTweetAuthor {
 	name?: string;
 }
 
+interface BirdTweetArticle {
+	title?: string;
+	previewText?: string;
+	coverImageUrl?: string;
+}
+
 interface BirdTweetItem {
 	id: string;
 	text: string;
@@ -45,6 +51,7 @@ interface BirdTweetItem {
 	author?: BirdTweetAuthor;
 	authorId?: string;
 	media?: BirdTweetMedia[];
+	article?: BirdTweetArticle | null;
 }
 
 export interface BirdDmUser {
@@ -385,6 +392,29 @@ function toMediaEntities(media: BirdTweetMedia[] | undefined) {
 	};
 }
 
+function toTweetEntities(item: BirdTweetItem) {
+	const mediaEntities = toMediaEntities(item.media);
+	const title = item.article?.title?.trim();
+	if (!title) return mediaEntities;
+	const handle = item.author?.username?.replace(/^@/, "");
+	const url = handle
+		? `https://x.com/${handle}/status/${item.id}`
+		: `https://x.com/i/status/${item.id}`;
+	return {
+		...mediaEntities,
+		article: {
+			title,
+			url,
+			...(item.article?.previewText?.trim()
+				? { previewText: item.article.previewText.trim() }
+				: {}),
+			...(item.article?.coverImageUrl?.trim()
+				? { coverImageUrl: item.article.coverImageUrl.trim() }
+				: {}),
+		},
+	};
+}
+
 function toReferencedTweets(item: BirdTweetItem) {
 	const references: XurlReferencedTweet[] = [];
 	if (typeof item.inReplyToStatusId === "string" && item.inReplyToStatusId) {
@@ -434,7 +464,7 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 			text: item.text,
 			created_at: toIsoTimestamp(item.createdAt),
 			conversation_id: item.conversationId ?? item.id,
-			entities: toMediaEntities(item.media),
+			entities: toTweetEntities(item),
 			referenced_tweets: toReferencedTweets(item),
 			public_metrics: {
 				reply_count: Number(item.replyCount ?? 0),
@@ -1104,6 +1134,7 @@ export const __test__ = {
 	getBirdTweetItems,
 	getBirdTweetItem,
 	toMediaEntities,
+	toTweetEntities,
 	toReferencedTweets,
 	normalizeBirdTweets,
 };

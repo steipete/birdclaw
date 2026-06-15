@@ -5,6 +5,7 @@ import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { tweetEntitiesFromXurl } from "./tweet-render";
 import type { XurlMentionsResponse, XurlTweetsResponse } from "./types";
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
 import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
@@ -190,7 +191,7 @@ function mergeTweetSearchIntoLocalStore(
 				replyToId,
 				Number(tweet.public_metrics?.like_count ?? 0),
 				countTweetMedia(tweet),
-				JSON.stringify(tweet.entities ?? {}),
+				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
 				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 				quotedTweetId,
 			);

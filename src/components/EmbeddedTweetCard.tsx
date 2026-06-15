@@ -10,6 +10,7 @@ import {
 } from "#/lib/ui";
 import { ProfilePreview } from "./ProfilePreview";
 import { SmartTimestamp } from "./SmartTimestamp";
+import { TweetArticleCard } from "./TweetArticleCard";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
 
@@ -46,6 +47,9 @@ export function EmbeddedTweetCard({
 				text={item.text}
 			/>
 			<TweetMediaGrid items={item.media} />
+			{item.entities.article ? (
+				<TweetArticleCard article={item.entities.article} />
+			) : null}
 		</section>
 	);
 }

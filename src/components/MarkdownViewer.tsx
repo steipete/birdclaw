@@ -140,7 +140,16 @@ function TweetPreviewToken({
 }) {
 	const preview = useFloatingPreview();
 
-	const previewText = renderTweetPlainText(tweet.text, tweet.entities ?? {});
+	const article = tweet.entities?.article;
+	const renderedText = renderTweetPlainText(tweet.text, tweet.entities ?? {});
+	const previewText = article
+		? [article.title, article.previewText]
+				.filter(
+					(value, index, values): value is string =>
+						Boolean(value) && values.indexOf(value) === index,
+				)
+				.join("\n\n")
+		: renderedText;
 
 	return (
 		<span

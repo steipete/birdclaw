@@ -635,4 +635,46 @@ describe("MarkdownViewer", () => {
 		fireEvent.click(link, { metaKey: true });
 		expect(screen.queryByRole("tooltip")).toBeNull();
 	});
+
+	it("expands Twitter Articles inside citation popovers", () => {
+		const articleContext = {
+			...context,
+			tweets: [
+				{
+					...context.tweets[0],
+					id: "2066182223213293753",
+					url: "https://x.com/satyanadella/status/2066182223213293753",
+					author: "satyanadella",
+					name: "Satya Nadella",
+					text: "https://t.co/vLmiBKTtX3",
+					entities: {
+						article: {
+							title: "A frontier without an ecosystem is not stable",
+							previewText: "I have been thinking about the future of the firm.",
+							url: "https://x.com/satyanadella/status/2066182223213293753",
+						},
+					},
+				},
+			],
+		} satisfies PeriodDigestContext;
+		render(
+			<MarkdownViewer
+				context={articleContext}
+				markdown={"Satya published a new essay (2066182223213293753)."}
+			/>,
+		);
+
+		const link = screen.getByRole("link", {
+			name: "Satya published a new essay",
+		});
+		fireEvent.pointerEnter(link.parentElement as Element);
+
+		expect(screen.getByRole("tooltip")).toHaveTextContent(
+			"A frontier without an ecosystem is not stable",
+		);
+		expect(screen.getByRole("tooltip")).toHaveTextContent(
+			"I have been thinking about the future of the firm.",
+		);
+		expect(screen.getByRole("tooltip")).not.toHaveTextContent("t.co");
+	});
 });

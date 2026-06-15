@@ -407,7 +407,7 @@ function mergeXurlTweetsIntoLocalStore(
 				replyToId,
 				Number(tweet.public_metrics?.like_count ?? 0),
 				countTweetMedia(tweet),
-				JSON.stringify(tweet.entities ?? {}),
+				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
 				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 				quotedTweetId,
 			);
