@@ -7,6 +7,7 @@ import type { ProfileRecord } from "#/lib/types";
 import { cx, tweetLinkClass, tweetMentionClass } from "#/lib/ui";
 import { safeHttpUrl } from "#/lib/url-safety";
 import { AvatarChip } from "./AvatarChip";
+import { useAvatarPreload } from "./AvatarPreload";
 import { useFloatingPreview } from "./FloatingPreview";
 import { ProfilePreview } from "./ProfilePreview";
 import { SmartTimestamp } from "./SmartTimestamp";
@@ -139,6 +140,7 @@ function TweetPreviewToken({
 	children: ReactNode;
 }) {
 	const preview = useFloatingPreview();
+	useAvatarPreload(tweet.authorProfile.id, tweet.authorProfile.avatarUrl);
 
 	const article = tweet.entities?.article;
 	const renderedText = renderTweetPlainText(tweet.text, tweet.entities ?? {});

@@ -49,7 +49,7 @@ export function AvatarChip({
 	);
 }
 
-function avatarPath(profileId: string, avatarUrl: string) {
+export function avatarPath(profileId: string, avatarUrl: string) {
 	const query = new URLSearchParams({
 		profileId,
 		v: avatarUrl,

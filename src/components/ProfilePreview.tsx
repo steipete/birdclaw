@@ -19,6 +19,7 @@ import {
 } from "#/lib/ui";
 import { safeHttpUrl } from "#/lib/url-safety";
 import { AvatarChip } from "./AvatarChip";
+import { useAvatarPreload } from "./AvatarPreload";
 import { useFloatingPreview } from "./FloatingPreview";
 
 function ProfilePreviewBio({ profile }: { profile: ProfileRecord }) {
@@ -75,6 +76,7 @@ export function ProfilePreview({
 	className?: string;
 }) {
 	const preview = useFloatingPreview();
+	useAvatarPreload(profile.id, profile.avatarUrl);
 
 	return (
 		<span

@@ -6,6 +6,10 @@
 
 - Centralize SQLite writes and migrations, unify live-sync ingestion, and move retained web server state to TanStack Query for faster sidebar navigation and fewer duplicate reads.
 
+### Fixed
+
+- Preload hover-preview avatars after page load so citation and profile cards open with cached thumbnails.
+
 ## 0.8.2 - 2026-06-15
 
 ### Fixed
