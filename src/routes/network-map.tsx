@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	Globe2,
 	MapPin,
@@ -18,10 +17,8 @@ import {
 } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { MapRef } from "react-map-gl/mapbox";
-import { useSelectedAccountId } from "#/components/account-selection";
-import { fetchQueryEnvelope } from "#/lib/api-client";
-import type { NetworkMapKind, NetworkMapResponse } from "#/lib/network-map";
-import { queryKeys } from "#/lib/query-client";
+import { useNetworkMapController } from "#/components/network-map-controller";
+import type { NetworkMapResponse } from "#/lib/network-map";
 import {
 	cx,
 	errorCopyClass,
@@ -42,7 +39,6 @@ import {
 
 import {
 	CLUSTER_LEAF_SAMPLE_SIZE,
-	MAP_TYPES,
 	WORLD_VIEWPORT,
 	type ClusterAggregateProperties,
 	type ClusterResult,
@@ -52,12 +48,9 @@ import {
 	type SelectedOverlay,
 	avatarInitial,
 	avatarPath,
-	boundsContainFeature,
 	buildClusterIndex,
 	clusterGradient,
 	compareClusterFeatures,
-	featureMatchesSearch,
-	fetchMap,
 	formatNumber,
 	formatRelationship,
 	getClusterDisplayAnchor,
@@ -625,60 +618,21 @@ function VisibleProfilesPanel({
 }
 
 function NetworkMapRoute() {
-	const queryClient = useQueryClient();
-	const [type, setType] = useState<NetworkMapKind>("all");
-	const [viewport, setViewport] = useState<MapViewport>(WORLD_VIEWPORT);
-	const [visibleSearch, setVisibleSearch] = useState("");
-	const statusQuery = useQuery({
-		queryKey: queryKeys.status,
-		queryFn: ({ signal }) => fetchQueryEnvelope({ signal }),
-	});
-	const meta = statusQuery.data ?? null;
-	const selectedAccountId = useSelectedAccountId(meta?.accounts);
-	const mapQueryKey = [
-		...queryKeys.networkMap,
-		{ type, selectedAccountId: selectedAccountId ?? null },
-	] as const;
-	const mapQuery = useQuery({
-		queryKey: mapQueryKey,
-		queryFn: ({ signal }) => fetchMap(type, false, selectedAccountId, signal),
-		staleTime: 5 * 60_000,
-	});
-	const refreshMutation = useMutation({
-		mutationFn: () => fetchMap(type, true, selectedAccountId),
-		onSuccess: (nextData) => {
-			queryClient.setQueryData(mapQueryKey, nextData);
-		},
-	});
-	const data = mapQuery.data ?? null;
-	const loading = mapQuery.isPending || refreshMutation.isPending;
-	const queryError = refreshMutation.error ?? mapQuery.error;
-	const error = queryError
-		? queryError instanceof Error
-			? queryError.message
-			: "Map unavailable"
-		: null;
-
-	const visibleFeatures = useMemo(
-		() =>
-			(data?.features ?? [])
-				.slice()
-				.filter((feature) => boundsContainFeature(viewport.bounds, feature))
-				.sort(
-					(a, b) =>
-						b.properties.followersCount - a.properties.followersCount ||
-						a.properties.handle.localeCompare(b.properties.handle),
-				),
-		[data, viewport],
-	);
-
-	const filteredVisibleFeatures = useMemo(
-		() =>
-			visibleFeatures
-				.filter((feature) => featureMatchesSearch(feature, visibleSearch))
-				.slice(0, 160),
-		[visibleFeatures, visibleSearch],
-	);
+	const {
+		type,
+		setType,
+		viewport,
+		setViewport,
+		visibleSearch,
+		setVisibleSearch,
+		data,
+		loading,
+		error,
+		refresh,
+		visibleFeatures,
+		filteredVisibleFeatures,
+		mapTypes,
+	} = useNetworkMapController();
 
 	return (
 		<section className="flex min-h-screen flex-col min-[1180px]:h-screen min-[1180px]:min-h-0 min-[1180px]:overflow-hidden">
@@ -696,7 +650,7 @@ function NetworkMapRoute() {
 						<button
 							className={secondaryButtonClass}
 							type="button"
-							onClick={() => refreshMutation.mutate()}
+							onClick={() => refresh()}
 							disabled={loading}
 						>
 							<RefreshCw className={cx("size-4", loading && "animate-spin")} />
@@ -706,7 +660,7 @@ function NetworkMapRoute() {
 				</div>
 				<div className="border-t border-[var(--line)] px-4 py-3">
 					<div className={segmentedClass}>
-						{MAP_TYPES.map((item) => (
+						{mapTypes.map((item) => (
 							<button
 								key={item.value}
 								type="button"
