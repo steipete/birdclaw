@@ -8,6 +8,11 @@ import type { MentionsDataSource } from "./config";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
+import {
+	assertLiveAccountMatches,
+	resolveLiveSyncAccount,
+	type LiveSyncAccount,
+} from "./live-sync-engine";
 import { serializeMentionItemsAsXurlCompatible } from "./mentions-export";
 import { listTimelineItems } from "./timeline-read-model";
 import { deleteSyncCache, readSyncCache, writeSyncCache } from "./sync-cache";
@@ -428,71 +433,20 @@ function writeMentionHighWaterId(
 	writeSyncCache(getMentionHighWaterKey({ mode, accountId }), { sinceId }, db);
 }
 
-function resolveAccount(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare(
-					"select id, handle, external_user_id from accounts where id = ?",
-				)
-				.get(accountId) as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		username: row.handle.replace(/^@/, ""),
-		externalUserId:
-			typeof row.external_user_id === "string" &&
-			row.external_user_id.trim().length > 0
-				? row.external_user_id.trim()
-				: undefined,
-	};
-}
-
-function verifyBirdAccountMatchesEffect({
-	accountId,
-	username,
-	externalUserId,
-}: ReturnType<typeof resolveAccount>) {
+function verifyBirdAccountMatchesEffect(account: LiveSyncAccount) {
 	return Effect.gen(function* () {
 		const authenticated = yield* getAuthenticatedBirdAccountEffect();
-		if (
-			externalUserId &&
-			authenticated.id &&
-			authenticated.id === externalUserId
-		) {
-			return;
-		}
-		if (externalUserId && authenticated.id) {
-			return yield* Effect.fail(
-				new Error(
-					`bird is authenticated as user ${authenticated.id}; refusing to sync into ${accountId} (${externalUserId})`,
-				),
-			);
-		}
-		if (authenticated.username.toLowerCase() !== username.toLowerCase()) {
-			return yield* Effect.fail(
-				new Error(
-					`bird is authenticated as @${authenticated.username}; refusing to sync into ${accountId} (@${username})`,
-				),
-			);
-		}
+		return yield* Effect.try({
+			try: () =>
+				assertLiveAccountMatches({
+					source: "bird",
+					account,
+					liveUsername: authenticated.username,
+					liveExternalUserId: authenticated.id,
+				}),
+			catch: (error) =>
+				error instanceof Error ? error : new Error(String(error)),
+		});
 	});
 }
 
@@ -634,7 +588,7 @@ function fetchMentionsViaXurlEffect({
 	startTime,
 	onProgress,
 }: {
-	resolvedAccount: ReturnType<typeof resolveAccount>;
+	resolvedAccount: LiveSyncAccount;
 	limit: number;
 	all: boolean;
 	parsedMaxPages: number | null;
@@ -755,7 +709,9 @@ export function syncMentionsEffect({
 			(parsedMaxPages !== null ||
 				Boolean(explicitSinceId || explicitStartTime));
 		const db = yield* trySync(() => getNativeDb());
-		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const resolvedAccount = yield* trySync(() =>
+			resolveLiveSyncAccount(db, account),
+		);
 		const cursorShape: MentionScanShape = {
 			endpoint: "mentions",
 			mode: primaryMode,
@@ -1036,7 +992,9 @@ function exportMentionsViaCachedLiveSourceEffect({
 		const fetchAll = primaryMode === "xurl" && (all || parsedMaxPages !== null);
 
 		const db = yield* trySync(() => getNativeDb());
-		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const resolvedAccount = yield* trySync(() =>
+			resolveLiveSyncAccount(db, account),
+		);
 		const cacheKey = getMentionsFetchModeKey({
 			scope: "export",
 			mode,

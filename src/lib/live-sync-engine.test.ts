@@ -9,7 +9,10 @@ import { resetDatabaseWriterForTests } from "./database-writer";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import {
+	assertLiveAccountMatches,
+	createLiveTransportAdapter,
 	fetchWithTransportFallbackEffect,
+	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
 } from "./live-sync-engine";
 import { writeSyncCache } from "./sync-cache";
@@ -34,6 +37,59 @@ function setupDatabase() {
 }
 
 describe("live sync engine", () => {
+	it("resolves default and selected accounts", () => {
+		const db = setupDatabase();
+		db.prepare(
+			"insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+		).run("main", "Main", "@main", null, "bird", 1, "2024-01-01");
+		db.prepare(
+			"insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+		).run(
+			"secondary",
+			"Secondary",
+			"@secondary",
+			"222",
+			"bird",
+			0,
+			"2024-01-02",
+		);
+
+		expect(resolveLiveSyncAccount(db)).toEqual({
+			accountId: "main",
+			username: "main",
+			isDefault: true,
+		});
+		expect(resolveLiveSyncAccount(db, "secondary")).toEqual({
+			accountId: "secondary",
+			username: "secondary",
+			externalUserId: "222",
+			isDefault: false,
+		});
+	});
+
+	it("normalizes adapter errors and rejects account mismatches", async () => {
+		const adapter = createLiveTransportAdapter(
+			"bird",
+			Effect.fail("transport failed"),
+		);
+		await expect(runEffectPromise(adapter.fetch)).rejects.toThrow(
+			"transport failed",
+		);
+		expect(() =>
+			assertLiveAccountMatches({
+				source: "bird",
+				account: {
+					accountId: "main",
+					username: "main",
+					externalUserId: "111",
+					isDefault: true,
+				},
+				liveUsername: "other",
+				liveExternalUserId: "222",
+			}),
+		).toThrow("refusing to sync");
+	});
+
 	it("falls through transport adapters in order", async () => {
 		const result = await runEffectPromise(
 			fetchWithTransportFallbackEffect([

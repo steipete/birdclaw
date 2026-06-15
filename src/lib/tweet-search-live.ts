@@ -5,6 +5,7 @@ import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import {
 	normalizeCacheTtlMs,
+	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
 } from "./live-sync-engine";
 import type { XurlMentionsResponse, XurlTweetsResponse } from "./types";
@@ -83,32 +84,6 @@ function normalizeTime(value: string | undefined, optionName: string) {
 		throw new Error(`${optionName} must be a valid date`);
 	}
 	return date.toISOString();
-}
-
-function resolveAccount(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare("select id, handle from accounts where id = ?")
-				.get(accountId) as { id: string; handle: string } | undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as { id: string; handle: string } | undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		username: row.handle.replace(/^@/, ""),
-	};
 }
 
 function mergeTweetSearchIntoLocalStore(
@@ -398,7 +373,9 @@ export function syncTweetSearchEffect({
 		);
 		const ttlMs = normalizeCacheTtlMs(cacheTtlMs, DEFAULT_CACHE_TTL_MS);
 		const db = getNativeDb();
-		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const resolvedAccount = yield* trySync(() =>
+			resolveLiveSyncAccount(db, account),
+		);
 		const accountId = resolvedAccount.accountId;
 		if (mode === "local") {
 			return {

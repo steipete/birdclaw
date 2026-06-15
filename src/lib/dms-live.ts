@@ -9,6 +9,11 @@ import {
 } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
+import {
+	assertLiveAccountMatches,
+	resolveLiveSyncAccount,
+	type LiveSyncAccount,
+} from "./live-sync-engine";
 import { collectPaginatedEffect } from "./paginated-sync";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import type { XurlDmEventsResponse, XurlMentionUser } from "./types";
@@ -66,11 +71,6 @@ function parseSyncMode(mode: DirectMessagesSyncMode | undefined) {
 	throw new Error("--mode must be auto, bird, or xurl");
 }
 
-function normalizeExternalUserId(value: string | null | undefined) {
-	const trimmed = value?.trim();
-	return trimmed ? trimmed : undefined;
-}
-
 function makePreviewMessageId(conversationId: string): string {
 	return `${PREVIEW_MESSAGE_ID_PREFIX}${conversationId}`;
 }
@@ -84,39 +84,6 @@ function deleteDmFtsRows(db: Database, messageIds: string[]) {
 			`delete from dm_fts where message_id in (${chunk.map(() => "?").join(",")})`,
 		).run(...chunk);
 	}
-}
-
-function resolveAccount(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare(
-					"select id, handle, external_user_id from accounts where id = ?",
-				)
-				.get(accountId) as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		username: row.handle.replace(/^@/, ""),
-		externalUserId: normalizeExternalUserId(row.external_user_id),
-	};
 }
 
 function toIsoTimestamp(value?: string) {
@@ -203,36 +170,21 @@ function getLatestEvent(events: BirdDmEvent[]) {
 
 function assertAuthenticatedBirdAccountMatches({
 	source,
-	accountId,
-	username,
-	externalUserId,
+	account,
 	liveUsername,
 	liveExternalUserId,
 }: {
 	source: "bird" | "xurl";
-	accountId: string;
-	username: string;
-	externalUserId?: string;
+	account: LiveSyncAccount;
 	liveUsername: string;
 	liveExternalUserId?: string;
 }) {
-	if (
-		externalUserId &&
-		liveExternalUserId &&
-		liveExternalUserId === externalUserId
-	) {
-		return;
-	}
-	if (externalUserId && liveExternalUserId) {
-		throw new Error(
-			`${source} is authenticated as user ${liveExternalUserId}; refusing to sync into ${accountId} (${externalUserId})`,
-		);
-	}
-	if (liveUsername.toLowerCase() !== username.toLowerCase()) {
-		throw new Error(
-			`${source} is authenticated as @${liveUsername}; refusing to sync into ${accountId} (@${username})`,
-		);
-	}
+	assertLiveAccountMatches({
+		source,
+		account,
+		liveUsername,
+		liveExternalUserId,
+	});
 }
 
 function getAuthenticatedXurlAccount(payload: Record<string, unknown> | null): {
@@ -773,7 +725,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 			);
 		}
 		const db = getNativeDb();
-		const resolvedAccount = resolveAccount(db, account);
+		const resolvedAccount = resolveLiveSyncAccount(db, account);
 		const pageKey = allPages
 			? "all-pages"
 			: `max-pages:${String(maxPages ?? 0)}`;
@@ -817,9 +769,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 					}
 					assertAuthenticatedBirdAccountMatches({
 						source: "xurl",
-						accountId: resolvedAccount.accountId,
-						username: resolvedAccount.username,
-						externalUserId: resolvedAccount.externalUserId,
+						account: resolvedAccount,
 						liveUsername: authenticated.username ?? resolvedAccount.username,
 						liveExternalUserId: authenticated.id,
 					});
@@ -870,9 +820,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 				const authenticated = yield* getAuthenticatedBirdAccountEffect();
 				assertAuthenticatedBirdAccountMatches({
 					source: "bird",
-					accountId: resolvedAccount.accountId,
-					username: resolvedAccount.username,
-					externalUserId: resolvedAccount.externalUserId,
+					account: resolvedAccount,
 					liveUsername: authenticated.username,
 					liveExternalUserId: authenticated.id,
 				});

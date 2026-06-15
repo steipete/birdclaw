@@ -4,6 +4,7 @@ import { listThreadViaBirdEffect } from "./bird";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
+import { resolveLiveSyncAccount } from "./live-sync-engine";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
@@ -105,32 +106,6 @@ function getRemainingThreadTimeoutMs(
 	}
 	return remainingMs;
 }
-function resolveAccount(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare("select id, handle from accounts where id = ?")
-				.get(accountId) as { id: string; handle: string } | undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as { id: string; handle: string } | undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		handle: row.handle.replace(/^@/, "").toLowerCase(),
-	};
-}
-
 function getReplyToId(tweet: XurlMentionData) {
 	return tweet.referenced_tweets?.find((entry) => entry.type === "replied_to")
 		?.id;
@@ -681,7 +656,9 @@ export function syncMentionThreadsEffect({
 			parseNonNegativeInteger(maxPages, "--max-pages"),
 		);
 		const db = yield* trySync(() => getNativeDb());
-		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const resolvedAccount = yield* trySync(() =>
+			resolveLiveSyncAccount(db, account),
+		);
 		const mentions = yield* trySync(() =>
 			tweetIds
 				? listMentionsByIds(
@@ -746,7 +723,7 @@ export function syncMentionThreadsEffect({
 						mergeMentionThreadIntoLocalStore({
 							db: writeDb,
 							accountId: resolvedAccount.accountId,
-							accountHandle: resolvedAccount.handle,
+							accountHandle: resolvedAccount.username.toLowerCase(),
 							mentionIds: mentionIdSet,
 							payload: fetchResult.payload,
 							source: parsedMode,

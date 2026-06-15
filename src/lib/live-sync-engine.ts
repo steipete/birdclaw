@@ -8,6 +8,13 @@ export interface LiveTransportAdapter<Source extends string, Payload> {
 	fetch: Effect.Effect<Payload, Error>;
 }
 
+export interface LiveSyncAccount {
+	accountId: string;
+	username: string;
+	externalUserId?: string;
+	isDefault: boolean;
+}
+
 interface CachedLiveSyncOptions<Source extends string, Payload, Persisted> {
 	db: Database;
 	cacheKey: string;
@@ -30,6 +37,94 @@ export interface CachedLiveSyncResult<
 
 function toError(error: unknown) {
 	return error instanceof Error ? error : new Error(String(error));
+}
+
+export function resolveLiveSyncAccount(
+	db: Database,
+	accountId?: string,
+): LiveSyncAccount {
+	const row = accountId
+		? (db
+				.prepare(
+					"select id, handle, external_user_id, is_default from accounts where id = ?",
+				)
+				.get(accountId) as
+				| {
+						id: string;
+						handle: string;
+						external_user_id: string | null;
+						is_default: number;
+				  }
+				| undefined)
+		: (db
+				.prepare(
+					`
+          select id, handle, external_user_id, is_default
+          from accounts
+          order by is_default desc, created_at asc
+          limit 1
+          `,
+				)
+				.get() as
+				| {
+						id: string;
+						handle: string;
+						external_user_id: string | null;
+						is_default: number;
+				  }
+				| undefined);
+
+	if (!row) {
+		throw new Error(`Unknown account: ${accountId ?? "default"}`);
+	}
+
+	const externalUserId = row.external_user_id?.trim();
+	return {
+		accountId: row.id,
+		username: row.handle.replace(/^@/, ""),
+		...(externalUserId ? { externalUserId } : {}),
+		isDefault: row.is_default === 1,
+	};
+}
+
+export function createLiveTransportAdapter<Source extends string, Payload>(
+	source: Source,
+	fetch: Effect.Effect<Payload, unknown>,
+): LiveTransportAdapter<Source, Payload> {
+	return {
+		source,
+		fetch: fetch.pipe(Effect.mapError(toError)),
+	};
+}
+
+export function assertLiveAccountMatches({
+	source,
+	account,
+	liveUsername,
+	liveExternalUserId,
+}: {
+	source: string;
+	account: LiveSyncAccount;
+	liveUsername: string;
+	liveExternalUserId?: string;
+}) {
+	if (
+		account.externalUserId &&
+		liveExternalUserId &&
+		account.externalUserId === liveExternalUserId
+	) {
+		return;
+	}
+	if (account.externalUserId && liveExternalUserId) {
+		throw new Error(
+			`${source} is authenticated as user ${liveExternalUserId}; refusing to sync into ${account.accountId} (${account.externalUserId})`,
+		);
+	}
+	if (liveUsername.toLowerCase() !== account.username.toLowerCase()) {
+		throw new Error(
+			`${source} is authenticated as @${liveUsername}; refusing to sync into ${account.accountId} (@${account.username})`,
+		);
+	}
 }
 
 export function normalizeCacheTtlMs(

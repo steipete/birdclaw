@@ -4,8 +4,9 @@ import { listHomeTimelineViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import {
-	type LiveTransportAdapter,
+	createLiveTransportAdapter,
 	normalizeCacheTtlMs,
+	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
 } from "./live-sync-engine";
 import { collectPaginatedEffect } from "./paginated-sync";
@@ -120,48 +121,6 @@ function mergeTimelinePayloads(
 	} satisfies XurlMentionsResponse;
 }
 
-function resolveAccount(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare(
-					"select id, handle, external_user_id, is_default as isDefault from accounts where id = ?",
-				)
-				.get(accountId) as
-				| ({ id: string; handle: string; external_user_id: string | null } & {
-						isDefault: number;
-				  })
-				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id, is_default as isDefault
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| ({ id: string; handle: string; external_user_id: string | null } & {
-						isDefault: number;
-				  })
-				| undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		isDefault: row.isDefault === 1,
-		username: row.handle.replace(/^@/, ""),
-		externalUserId:
-			typeof row.external_user_id === "string" &&
-			row.external_user_id.trim().length > 0
-				? row.external_user_id.trim()
-				: undefined,
-	};
-}
-
 function mergeHomeTimelineIntoLocalStore(
 	db: Database,
 	accountId: string,
@@ -218,7 +177,7 @@ export function syncHomeTimelineEffect({
 				? Infinity
 				: parseMaxPages(maxPages);
 		const db = getNativeDb();
-		const resolvedAccount = resolveAccount(db, account);
+		const resolvedAccount = resolveLiveSyncAccount(db, account);
 		const accountId = resolvedAccount.accountId;
 		const effectiveMode =
 			parsedMode === "auto" &&
@@ -280,23 +239,15 @@ export function syncHomeTimelineEffect({
 			maxResults: finiteFallbackLimit,
 			following,
 		});
-		const adapter = (
-			source: "bird" | "xurl",
-			fetch: Effect.Effect<XurlMentionsResponse, unknown>,
-		): LiveTransportAdapter<"bird" | "xurl", XurlMentionsResponse> => ({
-			source,
-			fetch: fetch.pipe(
-				Effect.mapError((error) =>
-					error instanceof Error ? error : new Error(String(error)),
-				),
-			),
-		});
 		const transports =
 			effectiveMode === "xurl"
-				? [adapter("xurl", fetchViaXurl)]
+				? [createLiveTransportAdapter("xurl", fetchViaXurl)]
 				: effectiveMode === "bird"
-					? [adapter("bird", fetchViaBird)]
-					: [adapter("xurl", fetchViaXurl), adapter("bird", fetchViaBird)];
+					? [createLiveTransportAdapter("bird", fetchViaBird)]
+					: [
+							createLiveTransportAdapter("xurl", fetchViaXurl),
+							createLiveTransportAdapter("bird", fetchViaBird),
+						];
 		const syncResult = yield* runCachedLiveSyncEffect({
 			db,
 			cacheKey,

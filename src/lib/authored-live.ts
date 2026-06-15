@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { resolveLiveSyncAccount } from "./live-sync-engine";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
@@ -361,43 +362,6 @@ function getOldestTweetId(tweets: XurlMentionData[]) {
 	}, null);
 }
 
-function resolveAccount(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare(
-					"select id, handle, external_user_id from accounts where id = ?",
-				)
-				.get(accountId) as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		username: row.handle.replace(/^@/, ""),
-		externalUserId:
-			typeof row.external_user_id === "string" &&
-			row.external_user_id.length > 0
-				? row.external_user_id
-				: undefined,
-	};
-}
-
 function normalizeUsername(value: string) {
 	return value.replace(/^@/, "").trim().toLowerCase();
 }
@@ -450,7 +414,9 @@ function resolveAuthoredIdentityEffect({
 			return yield* Effect.fail(new AuthoredSyncError(status.statusText, 4));
 		}
 
-		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const resolvedAccount = yield* trySync(() =>
+			resolveLiveSyncAccount(db, account),
+		);
 		if (resolvedAccount.externalUserId) {
 			return {
 				...resolvedAccount,

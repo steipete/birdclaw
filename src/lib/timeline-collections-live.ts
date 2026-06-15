@@ -7,8 +7,9 @@ import {
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import {
-	type LiveTransportAdapter,
+	createLiveTransportAdapter,
 	normalizeCacheTtlMs,
+	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
 } from "./live-sync-engine";
 import type {
@@ -74,43 +75,6 @@ function assertXurlLimit(limit: number) {
 	if (limit < MIN_XURL_LIMIT || limit > MAX_XURL_LIMIT) {
 		throw new Error("xurl mode requires --limit between 5 and 100");
 	}
-}
-
-function resolveAccount(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare(
-					"select id, handle, external_user_id from accounts where id = ?",
-				)
-				.get(accountId) as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		username: row.handle.replace(/^@/, ""),
-		externalUserId:
-			typeof row.external_user_id === "string" &&
-			row.external_user_id.length > 0
-				? row.external_user_id
-				: undefined,
-	};
 }
 
 function mergePayloads(pages: XurlMentionsResponse[]): XurlMentionsResponse {
@@ -376,7 +340,9 @@ export function syncTimelineCollectionEffect({
 		}
 
 		const db = yield* trySync(() => getNativeDb());
-		const resolvedAccount = yield* trySync(() => resolveAccount(db, account));
+		const resolvedAccount = yield* trySync(() =>
+			resolveLiveSyncAccount(db, account),
+		);
 		const cacheMaxPages = mode === "bird" ? parsedMaxPages : xurlMaxPages;
 		const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${earlyStop ? ":early-stop" : ""}`;
 
@@ -403,19 +369,15 @@ export function syncTimelineCollectionEffect({
 			all,
 			maxPages: parsedMaxPages,
 		});
-		const adapter = (
-			source: "bird" | "xurl",
-			fetch: Effect.Effect<XurlMentionsResponse, unknown>,
-		): LiveTransportAdapter<"bird" | "xurl", XurlMentionsResponse> => ({
-			source,
-			fetch: fetch.pipe(Effect.mapError(toError)),
-		});
 		const transports =
 			mode === "bird"
-				? [adapter("bird", birdFetch)]
+				? [createLiveTransportAdapter("bird", birdFetch)]
 				: mode === "xurl"
-					? [adapter("xurl", xurlFetch)]
-					: [adapter("xurl", xurlFetch), adapter("bird", birdFetch)];
+					? [createLiveTransportAdapter("xurl", xurlFetch)]
+					: [
+							createLiveTransportAdapter("xurl", xurlFetch),
+							createLiveTransportAdapter("bird", birdFetch),
+						];
 		const syncResult = yield* runCachedLiveSyncEffect({
 			db,
 			cacheKey,

@@ -625,6 +625,11 @@ describe("mention thread sync", () => {
 
 	it("classifies xurl context tweets authored by the account as home", async () => {
 		setupTempHome();
+		getNativeDb()
+			.prepare(
+				"update accounts set handle = '@Steipete' where id = 'acct_primary'",
+			)
+			.run();
 		insertMention(
 			"mention_own_context",
 			"reply to own context",
