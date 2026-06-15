@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
-import { findArchivesEffect } from "./archive-finder";
+import { findArchivesCachedEffect } from "./archive-finder";
 import { getDb, getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { fetchProfileAffiliations } from "./profile-affiliations";
@@ -701,10 +701,9 @@ function getAccountProfileMeta(
 		| undefined;
 }
 
-export function getQueryEnvelopeEffect(): Effect.Effect<
-	QueryEnvelope,
-	unknown
-> {
+export function getQueryEnvelopeEffect({
+	includeArchives = true,
+}: { includeArchives?: boolean } = {}): Effect.Effect<QueryEnvelope, unknown> {
 	return Effect.gen(function* () {
 		const db = yield* trySync(() => getDb());
 		const nativeDb = yield* trySync(() => getNativeDb());
@@ -736,7 +735,9 @@ export function getQueryEnvelopeEffect(): Effect.Effect<
 					.orderBy("name", "asc")
 					.execute(),
 			),
-			archives: findArchivesEffect(),
+			archives: includeArchives
+				? findArchivesCachedEffect()
+				: Effect.succeed([]),
 			transport: getTransportStatusEffect(),
 		});
 

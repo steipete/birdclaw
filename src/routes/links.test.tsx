@@ -178,6 +178,26 @@ describe("links route", () => {
 		render(<LinksRoute />);
 
 		expect(await screen.findByText("Example story")).toBeInTheDocument();
+		const defaultCallsBeforeRemount = queryUrls.filter(
+			(url) =>
+				url.pathname === "/api/link-insights" &&
+				url.searchParams.get("kind") === "links" &&
+				url.searchParams.get("range") === "week" &&
+				url.searchParams.get("sort") === "rank",
+		).length;
+		cleanup();
+		render(<LinksRoute />);
+
+		expect(screen.getByText("Example story")).toBeInTheDocument();
+		expect(
+			queryUrls.filter(
+				(url) =>
+					url.pathname === "/api/link-insights" &&
+					url.searchParams.get("kind") === "links" &&
+					url.searchParams.get("range") === "week" &&
+					url.searchParams.get("sort") === "rank",
+			),
+		).toHaveLength(defaultCallsBeforeRemount);
 		await waitFor(
 			() => {
 				const hydrationUrl = queryUrls.find(

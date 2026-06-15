@@ -16,25 +16,6 @@ vi.mock("@tanstack/react-router", () => ({
 	}) => select({ location: { pathname: routerState.path } }),
 }));
 
-vi.mock("@tanstack/react-devtools", () => ({
-	TanStackDevtools: ({
-		plugins,
-	}: {
-		plugins: Array<{ name: string; render: ReactNode }>;
-	}) => (
-		<div data-testid="devtools">
-			{plugins[0]?.name}
-			{plugins[0]?.render}
-		</div>
-	),
-}));
-
-vi.mock("@tanstack/react-router-devtools", () => ({
-	TanStackRouterDevtoolsPanel: () => (
-		<div data-testid="router-devtools-panel">router panel</div>
-	),
-}));
-
 vi.mock("#/components/AppNav", () => ({
 	AppNav: (props: { compact?: boolean }) => {
 		appNavProps.push(props);
@@ -79,8 +60,7 @@ describe("root route", () => {
 		expect(markup).toContain("max-w-[1280px]");
 		expect(markup).toContain("child content");
 		expect(markup).toContain('data-testid="scripts"');
-		expect(markup).toContain("Tanstack Router");
-		expect(markup).toContain("router panel");
+		expect(markup).not.toContain("Tanstack Router");
 		expect(appNavProps).toEqual([{ compact: false }]);
 	});
 

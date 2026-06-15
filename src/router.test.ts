@@ -7,5 +7,6 @@ describe("router", () => {
 
 		expect(router.options.scrollRestoration).toBe(true);
 		expect(router.options.defaultPreload).toBe("intent");
+		expect(router.options.defaultPreloadStaleTime).toBe(60_000);
 	});
 });

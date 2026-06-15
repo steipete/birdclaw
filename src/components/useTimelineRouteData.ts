@@ -6,13 +6,30 @@ import type {
 	TimelineItem,
 } from "#/lib/types";
 import {
+	fetchCachedQueryResponse,
 	fetchQueryEnvelope,
-	fetchQueryResponse,
+	invalidateCachedQueryResponse,
+	invalidateCachedQueryResponses,
 	postAction,
+	readCachedQueryEnvelope,
 } from "#/lib/api-client";
+import {
+	deleteClientCache,
+	deleteClientCacheByPrefix,
+	readClientCache,
+	writeClientCache,
+} from "#/lib/client-cache";
 import { useSelectedAccountId } from "./account-selection";
+import { useDebouncedValue } from "./useDebouncedValue";
 
 const PAGE_SIZE = 50;
+const TIMELINE_VIEW_CACHE_PREFIX = "timeline-view:";
+const TIMELINE_VIEW_CACHE_MAX_AGE_MS = 5 * 60_000;
+
+interface TimelineViewSnapshot {
+	items: TimelineItem[];
+	hasMore: boolean;
+}
 
 interface UseTimelineRouteDataOptions {
 	resource: Exclude<ResourceKind, "dms">;
@@ -23,6 +40,53 @@ interface UseTimelineRouteDataOptions {
 	bookmarkedOnly?: boolean;
 }
 
+function buildTimelineQueryUrl({
+	resource,
+	search,
+	replyFilter,
+	likedOnly,
+	bookmarkedOnly,
+	selectedAccountId,
+	refreshTick,
+	until,
+	untilId,
+}: {
+	resource: Exclude<ResourceKind, "dms">;
+	search: string;
+	replyFilter?: ReplyFilter;
+	likedOnly: boolean;
+	bookmarkedOnly: boolean;
+	selectedAccountId?: string;
+	refreshTick: number;
+	until?: string;
+	untilId?: string;
+}) {
+	const params = new URLSearchParams({
+		resource,
+		limit: String(PAGE_SIZE),
+	});
+	if (selectedAccountId) params.set("account", selectedAccountId);
+	params.set("refresh", String(refreshTick));
+	if (replyFilter) params.set("replyFilter", replyFilter);
+	if (likedOnly) params.set("liked", "true");
+	if (bookmarkedOnly) params.set("bookmarked", "true");
+	if (search.trim()) params.set("search", search.trim());
+	if (until) params.set("until", until);
+	if (untilId) params.set("untilId", untilId);
+	params.sort();
+	const base =
+		typeof window === "undefined"
+			? "http://birdclaw.local"
+			: window.location.origin;
+	return new URL(`/api/query?${params.toString()}`, base).toString();
+}
+
+function timelineViewCacheKey(requestUrl: string) {
+	const url = new URL(requestUrl, "http://birdclaw.local");
+	url.searchParams.delete("refresh");
+	return `${TIMELINE_VIEW_CACHE_PREFIX}${url.pathname}?${url.searchParams.toString()}`;
+}
+
 export function useTimelineRouteData({
 	resource,
 	search,
@@ -31,75 +95,98 @@ export function useTimelineRouteData({
 	likedOnly = false,
 	bookmarkedOnly = false,
 }: UseTimelineRouteDataOptions) {
-	const [meta, setMeta] = useState<QueryEnvelope | null>(null);
-	const [items, setItems] = useState<TimelineItem[]>([]);
-	const [loading, setLoading] = useState(true);
+	const [meta, setMeta] = useState<QueryEnvelope | null>(
+		() => readCachedQueryEnvelope() ?? null,
+	);
+	const selectedAccountId = useSelectedAccountId(meta?.accounts);
+	const debouncedSearch = useDebouncedValue(search, 180);
+	const initialRequestUrl = buildTimelineQueryUrl({
+		resource,
+		search: debouncedSearch,
+		replyFilter,
+		likedOnly,
+		bookmarkedOnly,
+		selectedAccountId,
+		refreshTick: 0,
+	});
+	const initialSnapshot = useRef(
+		readClientCache<TimelineViewSnapshot>(
+			timelineViewCacheKey(initialRequestUrl),
+			TIMELINE_VIEW_CACHE_MAX_AGE_MS,
+		),
+	);
+	const [items, setItems] = useState<TimelineItem[]>(
+		() => initialSnapshot.current?.items ?? [],
+	);
+	const [loading, setLoading] = useState(() => !initialSnapshot.current);
 	const [error, setError] = useState<string | null>(null);
 	const [replyError, setReplyError] = useState<string | null>(null);
 	const [refreshTick, setRefreshTick] = useState(0);
-	const [hasMore, setHasMore] = useState(false);
+	const [hasMore, setHasMore] = useState(
+		() => initialSnapshot.current?.hasMore ?? false,
+	);
 	const [loadingMore, setLoadingMore] = useState(false);
-	const selectedAccountId = useSelectedAccountId(meta?.accounts);
 	// Bumped whenever the active filters change. A `loadMore` request that
 	// resolves against a stale generation is discarded so its older page is
 	// never appended to a freshly loaded feed.
 	const generationRef = useRef(0);
 	const loadMoreControllerRef = useRef<AbortController | null>(null);
+	const activeRequestUrlRef = useRef(initialRequestUrl);
 
-	async function loadStatus() {
-		setMeta(await fetchQueryEnvelope());
+	async function loadStatus(force = false) {
+		setMeta(await fetchQueryEnvelope(undefined, { force }));
 	}
 
 	useEffect(() => {
 		void loadStatus();
 	}, []);
 
-	// Build the /api/query URL for the current filters. Passing the last item's
-	// (createdAt, id) requests the next (older) page via the server's keyset
-	// cursor, which is deterministic across duplicate timestamps.
-	function buildQueryUrl(until?: string, untilId?: string) {
-		const url = new URL("/api/query", window.location.origin);
-		url.searchParams.set("resource", resource);
-		url.searchParams.set("refresh", String(refreshTick));
-		url.searchParams.set("limit", String(PAGE_SIZE));
-		if (selectedAccountId) {
-			url.searchParams.set("account", selectedAccountId);
-		}
-		if (replyFilter) {
-			url.searchParams.set("replyFilter", replyFilter);
-		}
-		if (likedOnly) {
-			url.searchParams.set("liked", "true");
-		}
-		if (bookmarkedOnly) {
-			url.searchParams.set("bookmarked", "true");
-		}
-		if (search.trim()) {
-			url.searchParams.set("search", search.trim());
-		}
-		if (until) {
-			url.searchParams.set("until", until);
-		}
-		if (untilId) {
-			url.searchParams.set("untilId", untilId);
-		}
-		return url;
-	}
-
 	useEffect(() => {
 		generationRef.current += 1;
 		loadMoreControllerRef.current?.abort();
 		const controller = new AbortController();
 		let active = true;
+		const requestUrl = buildTimelineQueryUrl({
+			resource,
+			search: debouncedSearch,
+			replyFilter,
+			likedOnly,
+			bookmarkedOnly,
+			selectedAccountId,
+			refreshTick,
+		});
+		const viewCacheKey = timelineViewCacheKey(requestUrl);
+		activeRequestUrlRef.current = requestUrl;
 		setError(null);
-		setLoading(true);
 		setLoadingMore(false);
-		fetchQueryResponse(buildQueryUrl(), { signal: controller.signal })
+		const cached = readClientCache<TimelineViewSnapshot>(
+			viewCacheKey,
+			TIMELINE_VIEW_CACHE_MAX_AGE_MS,
+		);
+		if (cached) {
+			setItems(cached.items);
+			setHasMore(cached.hasMore);
+			setLoading(false);
+			return () => {
+				active = false;
+				controller.abort();
+			};
+		}
+
+		setItems([]);
+		setHasMore(false);
+		setLoading(true);
+		fetchCachedQueryResponse(requestUrl, { signal: controller.signal })
 			.then((data) => {
 				if (!active) return;
 				const next = data.items as TimelineItem[];
 				setItems(next);
-				setHasMore(next.length >= PAGE_SIZE);
+				const nextHasMore = next.length >= PAGE_SIZE;
+				setHasMore(nextHasMore);
+				writeClientCache(viewCacheKey, {
+					items: next,
+					hasMore: nextHasMore,
+				});
 			})
 			.catch((fetchError: unknown) => {
 				if (
@@ -127,12 +214,12 @@ export function useTimelineRouteData({
 		};
 	}, [
 		bookmarkedOnly,
+		debouncedSearch,
 		errorFallback,
 		likedOnly,
 		refreshTick,
 		replyFilter,
 		resource,
-		search,
 		selectedAccountId,
 	]);
 
@@ -147,7 +234,13 @@ export function useTimelineRouteData({
 		loadMoreControllerRef.current = controller;
 		setLoadingMore(true);
 		try {
-			const data = await fetchQueryResponse(buildQueryUrl(until, untilId), {
+			const nextPageUrl = new URL(
+				activeRequestUrlRef.current,
+				window.location.origin,
+			);
+			nextPageUrl.searchParams.set("until", until);
+			nextPageUrl.searchParams.set("untilId", untilId);
+			const data = await fetchCachedQueryResponse(nextPageUrl, {
 				signal: controller.signal,
 			});
 			// Discard if the filters changed (new generation) while in flight.
@@ -155,7 +248,12 @@ export function useTimelineRouteData({
 			const page = data.items as TimelineItem[];
 			setItems((prev) => {
 				const seen = new Set(prev.map((item) => item.id));
-				return [...prev, ...page.filter((item) => !seen.has(item.id))];
+				const next = [...prev, ...page.filter((item) => !seen.has(item.id))];
+				writeClientCache(timelineViewCacheKey(activeRequestUrlRef.current), {
+					items: next,
+					hasMore: page.length >= PAGE_SIZE,
+				});
+				return next;
 			});
 			setHasMore(page.length >= PAGE_SIZE);
 		} catch (loadError) {
@@ -175,12 +273,16 @@ export function useTimelineRouteData({
 	}
 
 	function retry() {
+		invalidateCachedQueryResponse(activeRequestUrlRef.current);
+		deleteClientCache(timelineViewCacheKey(activeRequestUrlRef.current));
 		setRefreshTick((value) => value + 1);
 	}
 
 	function refreshLocalView() {
+		invalidateCachedQueryResponses();
+		deleteClientCacheByPrefix(TIMELINE_VIEW_CACHE_PREFIX);
 		setRefreshTick((value) => value + 1);
-		void loadStatus();
+		void loadStatus(true);
 	}
 
 	async function replyToTweet(tweetId: string) {

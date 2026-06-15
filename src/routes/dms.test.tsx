@@ -210,12 +210,16 @@ describe("dms route", () => {
 		await waitFor(() => {
 			expect(queryUrls.at(-1)?.searchParams.get("sort")).toBe("followers");
 		});
+		const callsBeforeCachedReturn = queryUrls.length;
 
 		fireEvent.click(screen.getByRole("button", { name: "Newest" }));
 
 		await waitFor(() => {
-			expect(queryUrls.at(-1)?.searchParams.get("sort")).toBe("recent");
+			expect(
+				screen.getByRole("button", { name: "Newest" }).className,
+			).toContain("bg-[var(--bg-active)]");
 		});
+		expect(queryUrls).toHaveLength(callsBeforeCachedReturn);
 	});
 
 	it("restores dm draft and shows transport errors", async () => {

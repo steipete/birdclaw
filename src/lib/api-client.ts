@@ -1,5 +1,11 @@
 import { Data, Effect } from "effect";
 import { z } from "zod";
+import {
+	deleteClientCache,
+	deleteClientCacheByPrefix,
+	loadClientCache,
+	readClientCache,
+} from "./client-cache";
 import { runEffectPromise } from "./effect-runtime";
 import type {
 	DmConversationItem,
@@ -105,6 +111,15 @@ const webSyncJobSchema = z
 
 const actionResponseSchema = jsonRecordSchema;
 const SYNC_POLL_INTERVAL_MS = 500;
+const STATUS_CACHE_KEY = "api:/status";
+const QUERY_CACHE_PREFIX = "api:/query:";
+const STATUS_CACHE_MAX_AGE_MS = 60_000;
+const QUERY_CACHE_MAX_AGE_MS = 5 * 60_000;
+
+interface ClientFetchCacheOptions {
+	force?: boolean;
+	maxAgeMs?: number;
+}
 
 export class ApiFetchError extends Data.TaggedError("ApiFetchError")<{
 	readonly message: string;
@@ -146,6 +161,55 @@ function readJsonEffect(response: Response) {
 
 function runApiEffect<T, E>(effect: Effect.Effect<T, E>) {
 	return runEffectPromise(effect);
+}
+
+function splitSignal(init?: RequestInit) {
+	if (!init) return { requestInit: undefined, signal: undefined };
+	const { signal, ...requestInit } = init;
+	return { requestInit, signal: signal ?? undefined };
+}
+
+function waitForSignal<T>(promise: Promise<T>, signal?: AbortSignal) {
+	if (!signal) return promise;
+	if (signal.aborted) {
+		return Promise.reject(
+			new DOMException("The operation was aborted.", "AbortError"),
+		);
+	}
+
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = () => {
+			reject(new DOMException("The operation was aborted.", "AbortError"));
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+		promise.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			},
+		);
+	});
+}
+
+function queryCacheKey(input: RequestInfo | URL) {
+	const raw =
+		typeof input === "string"
+			? input
+			: input instanceof URL
+				? input.toString()
+				: input.url;
+	const base =
+		typeof window === "undefined"
+			? "http://birdclaw.local"
+			: window.location.origin;
+	const url = new URL(raw, base);
+	url.searchParams.delete("refresh");
+	url.searchParams.sort();
+	return `${QUERY_CACHE_PREFIX}${url.pathname}?${url.searchParams.toString()}`;
 }
 
 export function fetchJsonEffect<T>(
@@ -191,8 +255,27 @@ export function fetchJson<T>(
 	return runApiEffect(fetchJsonEffect(input, init, schema, fallbackMessage));
 }
 
-export function fetchQueryEnvelope(init?: RequestInit) {
-	return runApiEffect(fetchQueryEnvelopeEffect(init));
+export function readCachedQueryEnvelope() {
+	return readClientCache<QueryEnvelope>(
+		STATUS_CACHE_KEY,
+		STATUS_CACHE_MAX_AGE_MS,
+	);
+}
+
+export function fetchQueryEnvelope(
+	init?: RequestInit,
+	{
+		force = false,
+		maxAgeMs = STATUS_CACHE_MAX_AGE_MS,
+	}: ClientFetchCacheOptions = {},
+) {
+	const { requestInit, signal } = splitSignal(init);
+	const request = loadClientCache(
+		STATUS_CACHE_KEY,
+		() => runApiEffect(fetchQueryEnvelopeEffect(requestInit)),
+		{ force, maxAgeMs },
+	);
+	return waitForSignal(request, signal);
 }
 
 export function fetchQueryEnvelopeEffect(init?: RequestInit) {
@@ -209,6 +292,38 @@ export function fetchQueryResponse(
 	init?: RequestInit,
 ) {
 	return runApiEffect(fetchQueryResponseEffect(input, init));
+}
+
+export function readCachedQueryResponse(input: RequestInfo | URL) {
+	return readClientCache<QueryResponse>(
+		queryCacheKey(input),
+		QUERY_CACHE_MAX_AGE_MS,
+	);
+}
+
+export function fetchCachedQueryResponse(
+	input: RequestInfo | URL,
+	init?: RequestInit,
+	{
+		force = false,
+		maxAgeMs = QUERY_CACHE_MAX_AGE_MS,
+	}: ClientFetchCacheOptions = {},
+) {
+	const { requestInit, signal } = splitSignal(init);
+	const request = loadClientCache(
+		queryCacheKey(input),
+		() => runApiEffect(fetchQueryResponseEffect(input, requestInit)),
+		{ force, maxAgeMs },
+	);
+	return waitForSignal(request, signal);
+}
+
+export function invalidateCachedQueryResponse(input: RequestInfo | URL) {
+	deleteClientCache(queryCacheKey(input));
+}
+
+export function invalidateCachedQueryResponses() {
+	deleteClientCacheByPrefix(QUERY_CACHE_PREFIX);
 }
 
 export function fetchQueryResponseEffect(

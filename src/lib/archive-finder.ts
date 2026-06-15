@@ -8,11 +8,16 @@ import { runEffectPromise, tryPromise } from "./effect-runtime";
 import type { ArchiveCandidate } from "./types";
 
 const execAsync = promisify(exec);
+const ARCHIVE_DISCOVERY_CACHE_MS = 5 * 60_000;
 const ARCHIVE_NAME_PATTERNS = [
 	/^twitter-.*\.zip$/i,
 	/^x-.*\.zip$/i,
 	/archive.*\.zip$/i,
 ];
+let archiveDiscoveryCache:
+	| { value: ArchiveCandidate[]; updatedAt: number }
+	| undefined;
+let archiveDiscoveryInFlight: Promise<ArchiveCandidate[]> | undefined;
 
 function formatFileSize(bytes: number): string {
 	const units = ["B", "KB", "MB", "GB"];
@@ -142,6 +147,39 @@ export function findArchivesEffect(): Effect.Effect<
 	});
 }
 
+export function findArchivesCachedEffect(): Effect.Effect<
+	ArchiveCandidate[],
+	unknown
+> {
+	return Effect.suspend(() => {
+		const cached = archiveDiscoveryCache;
+		if (cached && Date.now() - cached.updatedAt < ARCHIVE_DISCOVERY_CACHE_MS) {
+			return Effect.succeed(cached.value);
+		}
+		if (archiveDiscoveryInFlight) {
+			return Effect.promise(() => archiveDiscoveryInFlight!);
+		}
+
+		const request = runEffectPromise(findArchivesEffect())
+			.then((value) => {
+				archiveDiscoveryCache = { value, updatedAt: Date.now() };
+				return value;
+			})
+			.finally(() => {
+				if (archiveDiscoveryInFlight === request) {
+					archiveDiscoveryInFlight = undefined;
+				}
+			});
+		archiveDiscoveryInFlight = request;
+		return Effect.promise(() => request);
+	});
+}
+
 export function findArchives(): Promise<ArchiveCandidate[]> {
 	return runEffectPromise(findArchivesEffect());
+}
+
+export function clearArchiveFinderCacheForTests() {
+	archiveDiscoveryCache = undefined;
+	archiveDiscoveryInFlight = undefined;
 }

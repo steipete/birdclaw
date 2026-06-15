@@ -18,7 +18,9 @@ export const Route = createFileRoute("/api/status")({
 						if (denied) return denied;
 
 						yield* maybeAutoUpdateBackupEffect();
-						return jsonResponse(yield* getQueryEnvelopeEffect());
+						return jsonResponse(
+							yield* getQueryEnvelopeEffect({ includeArchives: false }),
+						);
 					}),
 				),
 		},

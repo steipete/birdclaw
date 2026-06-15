@@ -84,6 +84,39 @@ describe("home route", () => {
 		});
 	});
 
+	it("restores timeline data without refetching after a sidebar-style remount", async () => {
+		let queryCalls = 0;
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/status")) {
+				return Response.json({
+					stats: { home: 1, mentions: 0, dms: 0, needsReply: 0, inbox: 0 },
+					transport: { statusText: "local" },
+					accounts: [],
+					archives: [],
+				});
+			}
+			if (url.includes("/api/query")) {
+				queryCalls += 1;
+				return Response.json({
+					resource: "home",
+					items: [{ id: "tweet_cached", text: "Cached post" }],
+				});
+			}
+			throw new Error(`Unexpected fetch ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const first = render(<HomeRoute />);
+		expect(await screen.findByText("Cached post")).toBeInTheDocument();
+		first.unmount();
+
+		render(<HomeRoute />);
+
+		expect(screen.getByText("Cached post")).toBeInTheDocument();
+		expect(queryCalls).toBe(1);
+	});
+
 	it("shows reply transport errors without dropping the timeline", async () => {
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {

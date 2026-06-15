@@ -44,6 +44,11 @@ vi.mock("./archive-finder", async () => {
 				try: () => mocks.findArchives(),
 				catch: toError,
 			}),
+		findArchivesCachedEffect: () =>
+			Effect.tryPromise({
+				try: () => mocks.findArchives(),
+				catch: toError,
+			}),
 	};
 });
 
@@ -1214,6 +1219,17 @@ describe("birdclaw queries", () => {
 			transport: { availableTransport: "xurl" },
 		});
 		expect(mocks.findArchives).toHaveBeenCalledTimes(1);
+		expect(mocks.getTransportStatus).toHaveBeenCalledTimes(1);
+	});
+
+	it("skips archive discovery for the web status envelope", async () => {
+		setupTempHome();
+
+		await expect(
+			Effect.runPromise(getQueryEnvelopeEffect({ includeArchives: false })),
+		).resolves.toMatchObject({ archives: [] });
+
+		expect(mocks.findArchives).not.toHaveBeenCalled();
 		expect(mocks.getTransportStatus).toHaveBeenCalledTimes(1);
 	});
 

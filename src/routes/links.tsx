@@ -19,6 +19,11 @@ import {
 } from "#/components/FeedState";
 import { ProfilePreview } from "#/components/ProfilePreview";
 import { SmartTimestamp } from "#/components/SmartTimestamp";
+import {
+	loadClientCache,
+	readClientCache,
+	writeClientCache,
+} from "#/lib/client-cache";
 import { formatCompactNumber } from "#/lib/present";
 import type {
 	LinkInsightItem,
@@ -56,6 +61,10 @@ const LINK_INSIGHTS_LIMIT = 30;
 const LINK_INSIGHTS_COMMENTS_LIMIT = 30;
 const PROFILE_HYDRATION_LIMIT = 30;
 const PROFILE_HYDRATION_DELAY_MS = 1200;
+const LINK_INSIGHTS_CACHE_PREFIX = "link-insights:";
+const LINK_INSIGHTS_CACHE_MAX_AGE_MS = 5 * 60_000;
+const LINK_PROFILE_HYDRATED_CACHE_PREFIX = "link-profile-hydrated:";
+const hydratingLinkProfileHandles = new Set<string>();
 
 const ranges: Array<{ value: LinkInsightRange; label: string }> = [
 	{ value: "today", label: "Today" },
@@ -85,6 +94,19 @@ function insightCacheKey(
 	refreshTick: number,
 ) {
 	return `${kind}:${range}:${sort}:${source}:${refreshTick}`;
+}
+
+function sharedInsightCacheKey(
+	kind: LinkInsightKind,
+	range: LinkInsightRange,
+	sort: LinkInsightSort,
+	source: LinkInsightSource,
+) {
+	return `${LINK_INSIGHTS_CACHE_PREFIX}${kind}:${range}:${sort}:${source}`;
+}
+
+function hydratedProfileCacheKey(handle: string) {
+	return `${LINK_PROFILE_HYDRATED_CACHE_PREFIX}${handle.toLowerCase()}`;
 }
 
 function linkInsightsUrl(
@@ -651,8 +673,16 @@ function LinksRoute() {
 	const [sort, setSort] = useState<LinkInsightSort>("rank");
 	const [search, setSearch] = useState("");
 	const [refreshTick, setRefreshTick] = useState(0);
-	const hydratedHandlesRef = useRef(new Set<string>());
-	const cacheRef = useRef(new Map<string, LinkInsightResponse>());
+	const initialCacheKey = insightCacheKey(kind, range, sort, source, 0);
+	const initialSharedData = readClientCache<LinkInsightResponse>(
+		sharedInsightCacheKey(kind, range, sort, source),
+		LINK_INSIGHTS_CACHE_MAX_AGE_MS,
+	);
+	const cacheRef = useRef(
+		new Map<string, LinkInsightResponse>(
+			initialSharedData ? [[initialCacheKey, initialSharedData]] : [],
+		),
+	);
 	const inFlightRef = useRef(new Set<string>());
 	const mountedRef = useRef(true);
 	const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
@@ -680,14 +710,35 @@ function LinksRoute() {
 			if (cacheRef.current.has(key) || inFlightRef.current.has(key)) {
 				return;
 			}
+			const sharedKey = sharedInsightCacheKey(fetchKind, range, sort, source);
+			if (refreshTick === 0) {
+				const cached = readClientCache<LinkInsightResponse>(
+					sharedKey,
+					LINK_INSIGHTS_CACHE_MAX_AGE_MS,
+				);
+				if (cached) {
+					cacheRef.current.set(key, cached);
+					bumpCacheVersion((value) => value + 1);
+					return;
+				}
+			}
 			inFlightRef.current.add(key);
 			setErrorByKey((current) => {
 				const rest = { ...current };
 				delete rest[key];
 				return rest;
 			});
-			fetch(linkInsightsUrl(fetchKind, range, sort, source, refreshTick))
-				.then((response) => response.json())
+			loadClientCache(
+				sharedKey,
+				() =>
+					fetch(
+						linkInsightsUrl(fetchKind, range, sort, source, refreshTick),
+					).then((response) => response.json() as Promise<LinkInsightResponse>),
+				{
+					force: refreshTick > 0,
+					maxAgeMs: LINK_INSIGHTS_CACHE_MAX_AGE_MS,
+				},
+			)
 				.then((response: LinkInsightResponse) => {
 					cacheRef.current.set(key, response);
 					if (mountedRef.current) {
@@ -732,7 +783,9 @@ function LinksRoute() {
 
 	useEffect(() => {
 		const handles = collectProfilesForHydration(data).filter(
-			(handle) => !hydratedHandlesRef.current.has(handle.toLowerCase()),
+			(handle) =>
+				!readClientCache<boolean>(hydratedProfileCacheKey(handle)) &&
+				!hydratingLinkProfileHandles.has(handle.toLowerCase()),
 		);
 		if (handles.length === 0) {
 			return;
@@ -742,19 +795,30 @@ function LinksRoute() {
 		const url = new URL("/api/profile-hydrate", window.location.origin);
 		url.searchParams.set("handles", handles.join(","));
 		for (const handle of handles) {
-			hydratedHandlesRef.current.add(handle.toLowerCase());
+			hydratingLinkProfileHandles.add(handle.toLowerCase());
 		}
+		const finishHydration = (succeeded: boolean) => {
+			for (const handle of handles) {
+				const normalized = handle.toLowerCase();
+				hydratingLinkProfileHandles.delete(normalized);
+				if (succeeded) {
+					writeClientCache(hydratedProfileCacheKey(normalized), true);
+				}
+			}
+		};
 
 		let idleId: number | null = null;
 		const runHydration = () => {
 			fetch(url, { signal: controller.signal })
 				.then((response) => response.json())
 				.then((response: { hydratedProfiles?: number }) => {
+					finishHydration(true);
 					if ((response.hydratedProfiles ?? 0) > 0) {
 						setRefreshTick((value) => value + 1);
 					}
 				})
 				.catch((error: unknown) => {
+					finishHydration(false);
 					if (error instanceof DOMException && error.name === "AbortError") {
 						return;
 					}
@@ -771,6 +835,7 @@ function LinksRoute() {
 
 		return () => {
 			controller.abort();
+			finishHydration(false);
 			window.clearTimeout(timer);
 			if (idleId !== null && "cancelIdleCallback" in window) {
 				window.cancelIdleCallback(idleId);

@@ -284,7 +284,10 @@ export function TimelineCard({
 
 	return (
 		<article
-			className={cx(feedRowClass, "cursor-pointer")}
+			className={cx(
+				feedRowClass,
+				"cursor-pointer [content-visibility:auto] [contain-intrinsic-size:auto_280px]",
+			)}
 			data-perf="timeline-card"
 			onFocus={conversation.prefetch}
 			onMouseEnter={conversation.prefetch}

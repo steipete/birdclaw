@@ -18,6 +18,33 @@ const SCENARIOS = {
 		path: "/mentions",
 		ready: async (page) => waitForAny(page, ['[data-perf="timeline-card"]']),
 	},
+	"sidebar-roundtrip": {
+		path: "/",
+		ready: async (page) => waitForAny(page, ['[data-perf="timeline-card"]']),
+		action: async (page) => {
+			await page.getByRole("link", { name: "Mentions" }).click();
+			await page.waitForURL("**/mentions");
+			await waitForAny(page, ['[data-perf="timeline-card"]']);
+			const queryCallsBeforeReturn = await page.evaluate(
+				() =>
+					performance
+						.getEntriesByType("resource")
+						.filter((entry) => entry.name.includes("/api/query")).length,
+			);
+			await page.getByRole("link", { name: "Home" }).click();
+			await page.waitForURL((url) => url.pathname === "/");
+			await waitForAny(page, ['[data-perf="timeline-card"]']);
+			const queryCallsAfterReturn = await page.evaluate(
+				() =>
+					performance
+						.getEntriesByType("resource")
+						.filter((entry) => entry.name.includes("/api/query")).length,
+			);
+			if (queryCallsAfterReturn !== queryCallsBeforeReturn) {
+				throw new Error("Returning Home issued a new query request");
+			}
+		},
+	},
 	"mentions-search": {
 		path: "/mentions",
 		ready: async (page) => {

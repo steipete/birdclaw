@@ -6,9 +6,11 @@ import { FeedEmpty, FeedError, FeedLoading } from "#/components/FeedState";
 import { SyncNowButton } from "#/components/SyncNowButton";
 import { useSelectedAccountId } from "#/components/account-selection";
 import {
+	fetchCachedQueryResponse,
 	fetchQueryEnvelope,
-	fetchQueryResponse,
+	invalidateCachedQueryResponses,
 	postAction,
+	readCachedQueryResponse,
 } from "#/lib/api-client";
 import type {
 	DmConversationItem,
@@ -16,6 +18,7 @@ import type {
 	QueryEnvelope,
 	ReplyFilter,
 } from "#/lib/types";
+import { useDebouncedValue } from "#/components/useDebouncedValue";
 import {
 	cx,
 	pageHeaderClass,
@@ -83,9 +86,10 @@ function DmsRoute() {
 	const [error, setError] = useState<string | null>(null);
 	const [replyError, setReplyError] = useState<string | null>(null);
 	const selectedAccountId = useSelectedAccountId(meta?.accounts);
+	const debouncedSearch = useDebouncedValue(search, 180);
 
-	async function loadStatus() {
-		setMeta(await fetchQueryEnvelope());
+	async function loadStatus(force = false) {
+		setMeta(await fetchQueryEnvelope(undefined, { force }));
 	}
 
 	useEffect(() => {
@@ -113,29 +117,41 @@ function DmsRoute() {
 		if (selectedConversationId) {
 			url.searchParams.set("conversationId", selectedConversationId);
 		}
-		if (search.trim()) {
-			url.searchParams.set("search", search.trim());
+		if (debouncedSearch.trim()) {
+			url.searchParams.set("search", debouncedSearch.trim());
 		}
 
+		const applyResponse = (
+			data: Awaited<ReturnType<typeof fetchCachedQueryResponse>>,
+		) => {
+			const conversations = data.items as DmConversationItem[];
+			const nextSelected =
+				data.selectedConversation?.conversation.id ?? conversations[0]?.id;
+			setLoadedConversationId(data.selectedConversation?.conversation.id);
+			setItems(conversations);
+			setSelectedConversationId((current) => {
+				if (!current) return nextSelected;
+				return conversations.some((conversation) => conversation.id === current)
+					? current
+					: nextSelected;
+			});
+			setMessages(data.selectedConversation?.messages ?? []);
+		};
 		setError(null);
+		const cached = readCachedQueryResponse(url);
+		if (cached) {
+			applyResponse(cached);
+			setLoading(false);
+			return () => {
+				active = false;
+				controller.abort();
+			};
+		}
 		setLoading(true);
-		fetchQueryResponse(url, { signal: controller.signal })
+		fetchCachedQueryResponse(url, { signal: controller.signal })
 			.then((data) => {
 				if (!active) return;
-				const conversations = data.items as DmConversationItem[];
-				const nextSelected =
-					data.selectedConversation?.conversation.id ?? conversations[0]?.id;
-				setLoadedConversationId(data.selectedConversation?.conversation.id);
-				setItems(conversations);
-				setSelectedConversationId((current) => {
-					if (!current) return nextSelected;
-					return conversations.some(
-						(conversation) => conversation.id === current,
-					)
-						? current
-						: nextSelected;
-				});
-				setMessages(data.selectedConversation?.messages ?? []);
+				applyResponse(data);
 			})
 			.catch((fetchError: unknown) => {
 				if (
@@ -170,7 +186,7 @@ function DmsRoute() {
 		inboxFilter,
 		refreshTick,
 		replyFilter,
-		search,
+		debouncedSearch,
 		selectedConversationId,
 		selectedAccountId,
 		sort,
@@ -247,6 +263,7 @@ function DmsRoute() {
 				text,
 			});
 
+			invalidateCachedQueryResponses();
 			setSelectedConversationId(conversationId);
 			setRefreshTick((value) => value + 1);
 		} catch (error) {
@@ -258,8 +275,9 @@ function DmsRoute() {
 	}
 
 	function refreshLocalView() {
+		invalidateCachedQueryResponses();
 		setRefreshTick((value) => value + 1);
-		void loadStatus();
+		void loadStatus(true);
 	}
 
 	return (

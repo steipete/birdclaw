@@ -54,10 +54,7 @@
 	"dependencies": {
 		"@steipete/sweet-cookie": "^0.4.0",
 		"@tailwindcss/vite": "^4.3.0",
-		"@tanstack/devtools-vite": "0.7.0",
-		"@tanstack/react-devtools": "0.10.5",
 		"@tanstack/react-router": "1.170.15",
-		"@tanstack/react-router-devtools": "1.167.0",
 		"@tanstack/react-router-ssr-query": "1.167.1",
 		"@tanstack/react-start": "1.168.25",
 		"@tanstack/router-plugin": "^1.168.18",
