@@ -1,5 +1,6 @@
+import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __test__ } from "./AvatarPreload";
+import { __test__, useAvatarPreload } from "./AvatarPreload";
 
 class MockImage {
 	static instances: MockImage[] = [];
@@ -37,6 +38,22 @@ function installBrowserMocks() {
 	);
 	vi.stubGlobal("cancelIdleCallback", vi.fn());
 	return idleCallbacks;
+}
+
+function installIntersectionObserverMock() {
+	const callbacks: IntersectionObserverCallback[] = [];
+	const disconnect = vi.fn();
+	const observe = vi.fn();
+	class MockIntersectionObserver {
+		constructor(callback: IntersectionObserverCallback) {
+			callbacks.push(callback);
+		}
+
+		disconnect = disconnect;
+		observe = observe;
+	}
+	vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+	return { callbacks, disconnect, observe };
 }
 
 function runIdle(callback: IdleRequestCallback | undefined) {
@@ -84,6 +101,36 @@ describe("avatar preloading", () => {
 		__test__.queueAvatarPreload("profile_sam", avatarUrl);
 		runIdle(idleCallbacks.shift());
 
+		expect(MockImage.instances).toHaveLength(1);
+	});
+
+	it("waits until a hover trigger is near the viewport", () => {
+		setReadyState("complete");
+		const idleCallbacks = installBrowserMocks();
+		const intersection = installIntersectionObserverMock();
+		const node = document.createElement("span");
+
+		renderHook(() =>
+			useAvatarPreload(
+				{ current: node },
+				"profile_sam",
+				"https://pbs.twimg.com/profile_images/123/avatar.jpg",
+			),
+		);
+
+		expect(intersection.observe).toHaveBeenCalledWith(node);
+		expect(idleCallbacks).toHaveLength(0);
+		const observer = {
+			disconnect: intersection.disconnect,
+		} as unknown as IntersectionObserver;
+		intersection.callbacks[0]?.(
+			[{ isIntersecting: true } as IntersectionObserverEntry],
+			observer,
+		);
+		expect(intersection.disconnect).toHaveBeenCalled();
+		expect(idleCallbacks).toHaveLength(1);
+
+		runIdle(idleCallbacks.shift());
 		expect(MockImage.instances).toHaveLength(1);
 	});
 

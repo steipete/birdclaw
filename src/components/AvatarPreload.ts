@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { type RefObject, useEffect } from "react";
 import { avatarPath } from "./AvatarChip";
 
 const MAX_CONCURRENT_PRELOADS = 4;
 const IDLE_TIMEOUT_MS = 2500;
+const PRELOAD_ROOT_MARGIN = "800px 0px";
 
 const queuedSources: string[] = [];
 const knownSources = new Set<string>();
@@ -93,10 +94,30 @@ function queueAvatarPreload(profileId?: string, avatarUrl?: string) {
 	scheduleAfterPageLoad();
 }
 
-export function useAvatarPreload(profileId?: string, avatarUrl?: string) {
+export function useAvatarPreload(
+	reference: RefObject<Element | null>,
+	profileId?: string,
+	avatarUrl?: string,
+) {
 	useEffect(() => {
-		queueAvatarPreload(profileId, avatarUrl);
-	}, [avatarUrl, profileId]);
+		if (!profileId || !avatarUrl) return;
+		const node = reference.current;
+		if (!node || typeof IntersectionObserver === "undefined") {
+			queueAvatarPreload(profileId, avatarUrl);
+			return;
+		}
+
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (!entries.some((entry) => entry.isIntersecting)) return;
+				observer.disconnect();
+				queueAvatarPreload(profileId, avatarUrl);
+			},
+			{ rootMargin: PRELOAD_ROOT_MARGIN },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, [avatarUrl, profileId, reference]);
 }
 
 function resetPreloader() {

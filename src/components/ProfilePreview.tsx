@@ -76,7 +76,7 @@ export function ProfilePreview({
 	className?: string;
 }) {
 	const preview = useFloatingPreview();
-	useAvatarPreload(profile.id, profile.avatarUrl);
+	useAvatarPreload(preview.referenceRef, profile.id, profile.avatarUrl);
 
 	return (
 		<span

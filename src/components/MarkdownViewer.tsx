@@ -140,7 +140,11 @@ function TweetPreviewToken({
 	children: ReactNode;
 }) {
 	const preview = useFloatingPreview();
-	useAvatarPreload(tweet.authorProfile.id, tweet.authorProfile.avatarUrl);
+	useAvatarPreload(
+		preview.referenceRef,
+		tweet.authorProfile.id,
+		tweet.authorProfile.avatarUrl,
+	);
 
 	const article = tweet.entities?.article;
 	const renderedText = renderTweetPlainText(tweet.text, tweet.entities ?? {});
