@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.8.3 - Unreleased
+
 ## 0.8.2 - 2026-06-15
 
 ### Fixed
