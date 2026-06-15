@@ -1,13 +1,70 @@
 // @vitest-environment node
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import NativeSqliteDatabase from "./sqlite";
+import NativeSqliteDatabase, { SQLITE_BUSY_TIMEOUT_MS } from "./sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const tempDirs: string[] = [];
+
+async function waitForOutput(child: ChildProcess, expected: string) {
+	await new Promise<void>((resolve, reject) => {
+		let output = "";
+		const onData = (chunk: Buffer) => {
+			output += chunk.toString();
+			if (output.includes(expected)) {
+				cleanup();
+				resolve();
+			}
+		};
+		const onExit = (code: number | null) => {
+			cleanup();
+			reject(new Error(`lock holder exited before ready (${code})`));
+		};
+		const cleanup = () => {
+			child.stdout?.off("data", onData);
+			child.off("exit", onExit);
+		};
+		child.stdout?.on("data", onData);
+		child.on("exit", onExit);
+	});
+}
+
+async function stopChild(child: ChildProcess) {
+	if (child.exitCode !== null) return;
+	await new Promise<void>((resolve) => {
+		child.once("exit", () => resolve());
+		child.kill();
+	});
+}
+
+function spawnWriteLockHolder(dbPath: string, holdMs: number) {
+	return spawn(
+		process.execPath,
+		[
+			"-e",
+			`
+        const { DatabaseSync } = require("node:sqlite");
+        const db = new DatabaseSync(process.argv[1], { timeout: 1000 });
+        db.exec("pragma journal_mode = wal; begin immediate");
+        db.prepare(
+          "insert or replace into sync_cache (cache_key, value_json, updated_at) values ('test:lock', '{}', '2026-06-15T00:00:00.000Z')"
+        ).run();
+        process.stdout.write("locked\\n");
+        setTimeout(() => {
+          db.exec("commit");
+          db.close();
+        }, Number(process.argv[2]));
+      `,
+			dbPath,
+			String(holdMs),
+		],
+		{ stdio: ["ignore", "pipe", "inherit"] },
+	);
+}
 
 afterEach(() => {
 	resetDatabaseForTests();
@@ -238,7 +295,28 @@ describe("database init", () => {
 		const busyTimeout = db.pragma("busy_timeout", {
 			simple: true,
 		}) as number;
-		expect(busyTimeout).toBe(5000);
+		expect(busyTimeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
+	});
+
+	it("does not request a write lock for completed startup backfills", async () => {
+		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-db-lock-"));
+		tempDirs.push(tempDir);
+		process.env.BIRDCLAW_HOME = tempDir;
+
+		getNativeDb();
+		resetDatabaseForTests();
+
+		const dbPath = path.join(tempDir, "birdclaw.sqlite");
+		const holder = spawnWriteLockHolder(dbPath, 1500);
+		await waitForOutput(holder, "locked");
+
+		const startedAt = Date.now();
+		try {
+			getNativeDb({ seedDemoData: false });
+			expect(Date.now() - startedAt).toBeLessThan(900);
+		} finally {
+			await stopChild(holder);
+		}
 	});
 });
 
@@ -247,9 +325,49 @@ describe("native sqlite compatibility wrapper", () => {
 		const db = new NativeSqliteDatabase(":memory:");
 
 		try {
-			expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+			expect(db.pragma("busy_timeout", { simple: true })).toBe(
+				SQLITE_BUSY_TIMEOUT_MS,
+			);
 		} finally {
 			db.close();
+		}
+	});
+
+	it("waits for the writer slot before a transaction reads and writes", async () => {
+		const tempDir = mkdtempSync(
+			path.join(os.tmpdir(), "birdclaw-sqlite-lock-"),
+		);
+		tempDirs.push(tempDir);
+		const dbPath = path.join(tempDir, "database.sqlite");
+		const setupDb = new NativeSqliteDatabase(dbPath);
+		setupDb.exec(`
+      pragma journal_mode = wal;
+      create table sync_cache (
+        cache_key text primary key,
+        value_json text not null,
+        updated_at text not null
+      );
+      create table events (name text);
+    `);
+		setupDb.close();
+
+		const holder = spawnWriteLockHolder(dbPath, 500);
+		await waitForOutput(holder, "locked");
+		const contender = new NativeSqliteDatabase(dbPath, { timeout: 2000 });
+		const startedAt = Date.now();
+
+		try {
+			contender.transaction(() => {
+				contender.prepare("select count(*) from events").get();
+				contender.prepare("insert into events (name) values (?)").run("waited");
+			})();
+			expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
+			expect(contender.prepare("select name from events").all()).toEqual([
+				{ name: "waited" },
+			]);
+		} finally {
+			contender.close();
+			await stopChild(holder);
 		}
 	});
 

@@ -5,6 +5,7 @@ export type Database = NativeSqliteDatabase;
 type DatabaseOptions = {
 	readonly?: boolean;
 	fileMustExist?: boolean;
+	timeout?: number;
 };
 
 type PragmaOptions = {
@@ -15,6 +16,8 @@ type RunResult = {
 	changes: number;
 	lastInsertRowid: number;
 };
+
+export const SQLITE_BUSY_TIMEOUT_MS = 30_000;
 
 function bindArgs(parameters: unknown[]) {
 	if (parameters.length === 1 && Array.isArray(parameters[0])) {
@@ -87,7 +90,7 @@ export class NativeSqliteDatabase {
 	constructor(path: string, options: DatabaseOptions = {}) {
 		this.db = new DatabaseSync(path, {
 			readOnly: options.readonly,
-			timeout: 5000,
+			timeout: options.timeout ?? SQLITE_BUSY_TIMEOUT_MS,
 		});
 	}
 
@@ -123,7 +126,7 @@ export class NativeSqliteDatabase {
 		return (...args: TArgs) => {
 			const nested = this.db.isTransaction;
 			const savepoint = `__birdclaw_tx_${++this.transactionDepth}`;
-			this.exec(nested ? `savepoint ${savepoint}` : "begin");
+			this.exec(nested ? `savepoint ${savepoint}` : "begin immediate");
 			try {
 				const result = fn(...args);
 				this.exec(nested ? `release ${savepoint}` : "commit");

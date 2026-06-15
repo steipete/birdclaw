@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Wait for concurrent SQLite writers before starting write transactions and avoid unnecessary legacy backfill writes during normal startup.
 - Retain timeline and DM data across sidebar navigation, deduplicate status reads, debounce searches, skip unused Spotlight archive scans in web status, and remove TanStack debug controls.
 - Keep tweet and profile hover previews outside wrapped links, flip them to the roomier vertical side, and constrain them to the viewport.
 - Expand Twitter Articles into titled preview cards and citation popovers instead of showing bare `t.co` links.

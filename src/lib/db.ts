@@ -1,4 +1,7 @@
-import NativeSqliteDatabase, { type Database } from "./sqlite";
+import NativeSqliteDatabase, {
+	type Database,
+	SQLITE_BUSY_TIMEOUT_MS,
+} from "./sqlite";
 import { Kysely, SqliteDialect } from "kysely";
 import { ensureBirdclawDirs, getBirdclawPaths } from "./config";
 import { seedDemoData } from "./seed";
@@ -326,7 +329,7 @@ export interface InitDatabaseOptions {
 
 const BASE_SCHEMA_SQL = `
   pragma journal_mode = wal;
-  pragma busy_timeout = 5000;
+  pragma busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};
   pragma foreign_keys = on;
 
   create table if not exists accounts (
@@ -948,6 +951,34 @@ function ensureFollowGraphTables(db: Database) {
 }
 
 function backfillTweetCollections(db: Database) {
+	const missingKinds = (
+		[
+			["likes", "liked"],
+			["bookmarks", "bookmarked"],
+		] as const
+	).filter(([, column]) =>
+		db
+			.prepare(
+				`
+        select 1
+        from tweets as tweet
+        where tweet.${column} = 1
+          and not exists (
+            select 1
+            from tweet_collections as collection
+            where collection.account_id = tweet.account_id
+              and collection.tweet_id = tweet.id
+              and collection.kind = ?
+          )
+        limit 1
+      `,
+			)
+			.get(column === "liked" ? "likes" : "bookmarks"),
+	);
+	if (missingKinds.length === 0) {
+		return;
+	}
+
 	const now = new Date().toISOString();
 	const insert = db.prepare(`
     insert or ignore into tweet_collections (
@@ -963,12 +994,34 @@ function backfillTweetCollections(db: Database) {
   `);
 
 	db.transaction(() => {
-		insert.run("likes", now, "likes");
-		insert.run("bookmarks", now, "bookmarks");
+		for (const [kind] of missingKinds) {
+			insert.run(kind, now, kind);
+		}
 	})();
 }
 
 function backfillTweetAccountEdges(db: Database) {
+	const missing = db
+		.prepare(
+			`
+      select 1
+      from tweets as tweet
+      where tweet.kind in ('home', 'mention')
+        and not exists (
+          select 1
+          from tweet_account_edges as edge
+          where edge.account_id = tweet.account_id
+            and edge.tweet_id = tweet.id
+            and edge.kind = tweet.kind
+        )
+      limit 1
+    `,
+		)
+		.get();
+	if (!missing) {
+		return;
+	}
+
 	const now = new Date().toISOString();
 	db.prepare(`
     insert or ignore into tweet_account_edges (
