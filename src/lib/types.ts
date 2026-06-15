@@ -101,10 +101,18 @@ export interface TweetHashtagEntity {
 	end: number;
 }
 
+export interface TweetArticle {
+	title: string;
+	previewText?: string;
+	url: string;
+	coverImageUrl?: string;
+}
+
 export interface TweetEntities {
 	mentions?: TweetMentionEntity[];
 	urls?: TweetUrlEntity[];
 	hashtags?: TweetHashtagEntity[];
+	article?: TweetArticle;
 }
 
 export interface TweetMediaItem {

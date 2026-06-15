@@ -727,6 +727,61 @@ describe("TimelineCard", () => {
 		).toBeNull();
 	});
 
+	it("expands Twitter Articles and hides their shortlinks", () => {
+		const { container } = render(
+			<TimelineCard
+				item={{
+					...item,
+					id: "2066182223213293753",
+					text: "A frontier without an ecosystem is not stable",
+					entities: {
+						urls: [
+							{
+								url: "https://t.co/vLmiBKTtX3",
+								expandedUrl: "https://x.com/i/article/2065582894790365184",
+								displayUrl: "x.com/i/article/2065…",
+								start: 0,
+								end: 0,
+							},
+						],
+						article: {
+							title: "A frontier without an ecosystem is not stable",
+							previewText: "I have been thinking about the future of the firm.",
+							url: "https://x.com/satyanadella/status/2066182223213293753",
+						},
+					},
+					media: [],
+					mediaCount: 0,
+					replyToTweet: null,
+					quotedTweet: null,
+				}}
+				onReply={vi.fn()}
+			/>,
+		);
+
+		expect(
+			screen.getByRole("link", {
+				name: "Read article: A frontier without an ecosystem is not stable",
+			}),
+		).toHaveAttribute(
+			"href",
+			"https://x.com/satyanadella/status/2066182223213293753",
+		);
+		expect(
+			screen.getByText("I have been thinking about the future of the firm."),
+		).toBeInTheDocument();
+		expect(
+			screen.getAllByText("A frontier without an ecosystem is not stable"),
+		).toHaveLength(1);
+		expect(screen.queryByText(/t\.co\/vLmiBKTtX3/)).toBeNull();
+		expect(
+			container.querySelectorAll("[data-perf='tweet-article-card']"),
+		).toHaveLength(1);
+		expect(
+			container.querySelector("[data-perf='link-preview-card']"),
+		).toBeNull();
+	});
+
 	it("tolerates archived media URL entities without display URLs", () => {
 		render(
 			<TimelineCard

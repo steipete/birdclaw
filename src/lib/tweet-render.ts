@@ -1,4 +1,5 @@
 import type {
+	TweetArticle,
 	TweetEntities,
 	TweetHashtagEntity,
 	TweetMentionEntity,
@@ -57,6 +58,34 @@ export function displayUrlForLink(url: string) {
 	}
 }
 
+function comparableUrl(value: string) {
+	try {
+		const parsed = new URL(value);
+		return `${parsed.protocol}//${parsed.hostname.replace(/^www\./, "")}${parsed.pathname}`;
+	} catch {
+		return value.split("?")[0] ?? value;
+	}
+}
+
+export function isTweetArticleUrlEntity(
+	entry: TweetUrlEntity,
+	article: TweetArticle,
+) {
+	if (comparableUrl(entry.expandedUrl) === comparableUrl(article.url)) {
+		return true;
+	}
+	try {
+		const parsed = new URL(entry.expandedUrl);
+		const host = parsed.hostname.replace(/^www\./, "");
+		return (
+			(host === "x.com" || host === "twitter.com") &&
+			parsed.pathname.startsWith("/i/article/")
+		);
+	} catch {
+		return false;
+	}
+}
+
 function asRecord(value: unknown) {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
@@ -68,6 +97,9 @@ export function tweetEntitiesFromXurl(raw: unknown): TweetEntities {
 	const rawMentions = Array.isArray(entities.mentions) ? entities.mentions : [];
 	const rawUrls = Array.isArray(entities.urls) ? entities.urls : [];
 	const rawHashtags = Array.isArray(entities.hashtags) ? entities.hashtags : [];
+	const rawArticle = asRecord(entities.article);
+	const articleTitle = String(rawArticle.title ?? "").trim();
+	const articleUrl = String(rawArticle.url ?? "").trim();
 
 	return {
 		...(rawMentions.length
@@ -102,6 +134,23 @@ export function tweetEntitiesFromXurl(raw: unknown): TweetEntities {
 							),
 							start: Number(value.start ?? 0),
 							end: Number(value.end ?? 0),
+							...(typeof value.title === "string"
+								? { title: value.title }
+								: {}),
+							...(typeof value.description === "string" ||
+							value.description === null
+								? { description: value.description }
+								: {}),
+							...(typeof value.imageUrl === "string"
+								? { imageUrl: value.imageUrl }
+								: typeof value.image_url === "string"
+									? { imageUrl: value.image_url }
+									: {}),
+							...(typeof value.siteName === "string"
+								? { siteName: value.siteName }
+								: typeof value.site_name === "string"
+									? { siteName: value.site_name }
+									: {}),
 						};
 					}),
 				}
@@ -116,6 +165,35 @@ export function tweetEntitiesFromXurl(raw: unknown): TweetEntities {
 							end: Number(value.end ?? 0),
 						};
 					}),
+				}
+			: {}),
+		...(articleTitle && articleUrl
+			? {
+					article: {
+						title: articleTitle,
+						url: articleUrl,
+						...(typeof (rawArticle.previewText ?? rawArticle.preview_text) ===
+							"string" &&
+						String(rawArticle.previewText ?? rawArticle.preview_text).trim()
+							? {
+									previewText: String(
+										rawArticle.previewText ?? rawArticle.preview_text,
+									).trim(),
+								}
+							: {}),
+						...(typeof (
+							rawArticle.coverImageUrl ?? rawArticle.cover_image_url
+						) === "string" &&
+						String(
+							rawArticle.coverImageUrl ?? rawArticle.cover_image_url,
+						).trim()
+							? {
+									coverImageUrl: String(
+										rawArticle.coverImageUrl ?? rawArticle.cover_image_url,
+									).trim(),
+								}
+							: {}),
+					},
 				}
 			: {}),
 	};

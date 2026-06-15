@@ -206,6 +206,64 @@ describe("live home timeline sync", () => {
 		expect(row.media_json).toBe(existingMediaJson);
 	});
 
+	it("persists Twitter Article metadata for timeline cards and popovers", async () => {
+		makeTempHome();
+		listHomeTimelineViaBirdMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "2066182223213293753",
+					author_id: "20571756",
+					text: "A frontier without an ecosystem is not stable",
+					created_at: "2026-06-14T15:33:24.000Z",
+					entities: {
+						article: {
+							title: "A frontier without an ecosystem is not stable",
+							previewText: "I have been thinking about the future of the firm.",
+							url: "https://x.com/satyanadella/status/2066182223213293753",
+						},
+					},
+				},
+			],
+			includes: {
+				users: [
+					{
+						id: "20571756",
+						username: "satyanadella",
+						name: "Satya Nadella",
+					},
+				],
+			},
+			meta: { result_count: 1 },
+		});
+		const { syncHomeTimeline } = await import("./timeline-live");
+
+		await syncHomeTimeline({
+			account: "acct_primary",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(
+			listTimelineItems({
+				resource: "home",
+				account: "acct_primary",
+				search: "frontier",
+				limit: 5,
+			}),
+		).toEqual([
+			expect.objectContaining({
+				id: "2066182223213293753",
+				entities: expect.objectContaining({
+					article: {
+						title: "A frontier without an ecosystem is not stable",
+						previewText: "I have been thinking about the future of the firm.",
+						url: "https://x.com/satyanadella/status/2066182223213293753",
+					},
+				}),
+			}),
+		]);
+	});
+
 	it("fetches paginated xurl home timeline and stores reply context", async () => {
 		makeTempHome();
 		const db = getNativeDb();

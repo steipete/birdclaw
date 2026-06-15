@@ -9,7 +9,10 @@ import {
 	UserSearch,
 } from "lucide-react";
 import { formatCompactNumber } from "#/lib/present";
-import { normalizeTweetUrlEntityRangeForText } from "#/lib/tweet-render";
+import {
+	isTweetArticleUrlEntity,
+	normalizeTweetUrlEntityRangeForText,
+} from "#/lib/tweet-render";
 import type {
 	TimelineItem,
 	TweetEntities,
@@ -42,6 +45,7 @@ import { EmbeddedTweetCard } from "./EmbeddedTweetCard";
 import { LinkPreviewCard } from "./LinkPreviewCard";
 import { ProfilePreview } from "./ProfilePreview";
 import { SmartTimestamp } from "./SmartTimestamp";
+import { TweetArticleCard } from "./TweetArticleCard";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 import { TweetRichText } from "./TweetRichText";
 
@@ -213,6 +217,9 @@ function getVisibleUrlCards(
 ) {
 	return (entities.urls ?? []).filter((entry) => {
 		if (isUnresolvedShortUrlEntity(entry)) return false;
+		if (entities.article && isTweetArticleUrlEntity(entry, entities.article)) {
+			return false;
+		}
 		if (!quotedTweetId) return true;
 		return !entry.expandedUrl.includes(quotedTweetId);
 	});
@@ -363,6 +370,9 @@ export function TimelineCard({
 							text={displayTweet.text}
 						/>
 						<TweetMediaGrid items={displayTweet.media} />
+						{displayTweet.entities.article ? (
+							<TweetArticleCard article={displayTweet.entities.article} />
+						) : null}
 						{visibleUrlCards.map((entry, index) => (
 							<LinkPreviewCard
 								key={`${entry.expandedUrl}-${String(index)}`}
@@ -380,6 +390,9 @@ export function TimelineCard({
 							text={item.text}
 						/>
 						<TweetMediaGrid items={item.media} />
+						{item.entities.article ? (
+							<TweetArticleCard article={item.entities.article} />
+						) : null}
 						{item.replyToTweet ? (
 							<div className={embeddedCardClass}>
 								<EmbeddedTweetCard

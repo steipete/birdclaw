@@ -5,6 +5,7 @@
 ### Fixed
 
 - Keep tweet and profile hover previews outside wrapped links, flip them to the roomier vertical side, and constrain them to the viewport.
+- Expand Twitter Articles into titled preview cards and citation popovers instead of showing bare `t.co` links.
 
 ## 0.8.1 - 2026-06-13
 

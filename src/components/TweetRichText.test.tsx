@@ -96,6 +96,59 @@ describe("TweetRichText", () => {
 		expect(container).not.toHaveTextContent("Read: example.com/demo");
 	});
 
+	it("hides shortlinks when Twitter Article metadata is available", () => {
+		const { container } = render(
+			<TweetRichText
+				entities={{
+					article: {
+						title: "A frontier without an ecosystem is not stable",
+						previewText: "The future of the firm.",
+						url: "https://x.com/satyanadella/status/2066182223213293753",
+					},
+				}}
+				text="https://t.co/vLmiBKTtX3"
+			/>,
+		);
+
+		expect(container.firstElementChild).toBeEmptyDOMElement();
+		expect(within(container).queryByText(/t\.co/)).toBeNull();
+	});
+
+	it("keeps unrelated shortlinks beside a Twitter Article link", () => {
+		const text =
+			"A frontier without an ecosystem is not stable https://t.co/article https://t.co/other";
+		render(
+			<TweetRichText
+				entities={{
+					urls: [
+						{
+							url: "https://t.co/article",
+							expandedUrl: "https://x.com/i/article/2065582894790365184",
+							displayUrl: "x.com/i/article/2065…",
+							...codePointRange(text, "https://t.co/article"),
+						},
+						{
+							url: "https://t.co/other",
+							expandedUrl: "https://example.com/other",
+							displayUrl: "example.com/other",
+							...codePointRange(text, "https://t.co/other"),
+						},
+					],
+					article: {
+						title: "A frontier without an ecosystem is not stable",
+						url: "https://x.com/satyanadella/status/2066182223213293753",
+					},
+				}}
+				text={text}
+			/>,
+		);
+
+		expect(screen.queryByText("x.com/i/article/2065…")).toBeNull();
+		expect(
+			screen.getByRole("link", { name: "example.com/other" }),
+		).toHaveAttribute("href", "https://example.com/other");
+	});
+
 	it("links mention entities even without hydrated profile previews", () => {
 		render(
 			<TweetRichText
