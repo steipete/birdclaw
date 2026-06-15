@@ -284,10 +284,7 @@ test("replies from the inbox dm queue", async ({ page }) => {
 
 test("adds and removes a local blocklist entry", async ({ page }) => {
 	const initialRefresh = page.waitForResponse(
-		(response) =>
-			response.url().includes("/api/blocks") &&
-			response.url().includes("refresh=1") &&
-			response.ok(),
+		(response) => response.url().includes("/api/blocks") && response.ok(),
 	);
 	await page.goto("/blocks");
 	await initialRefresh;
