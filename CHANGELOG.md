@@ -2,6 +2,10 @@
 
 ## 0.8.5 - Unreleased
 
+### Fixed
+
+- Keep large Likes, Bookmarks, and Today digest reads on indexed tweet lookups instead of blocking the web server with quadratic SQLite scans.
+
 ## 0.8.4 - 2026-06-19
 
 ### Changed

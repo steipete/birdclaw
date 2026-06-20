@@ -711,16 +711,85 @@ describe("birdclaw queries", () => {
 			"bookmarks",
 			"2026-03-09T00:00:00.000Z",
 		);
+		insertTestCollection(
+			db,
+			"tweet_saved_live",
+			"likes",
+			"2026-03-09T00:00:00.000Z",
+		);
 
 		const liked = listTimelineItems({ resource: "home", likedOnly: true });
 		const bookmarked = listTimelineItems({
 			resource: "home",
 			bookmarkedOnly: true,
 		});
+		const likedAndBookmarked = listTimelineItems({
+			resource: "home",
+			likedOnly: true,
+			bookmarkedOnly: true,
+		});
 
 		expect(liked.every((item) => item.liked)).toBe(true);
 		expect(bookmarked.map((item) => item.id)).toContain("tweet_saved_live");
 		expect(bookmarked.every((item) => item.bookmarked)).toBe(true);
+		expect(likedAndBookmarked).toContainEqual(
+			expect.objectContaining({
+				id: "tweet_saved_live",
+				liked: true,
+				bookmarked: true,
+			}),
+		);
+	});
+
+	it("keeps date-scoped saved timelines fast with a large collection", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.exec(`
+      with recursive sequence(value) as (
+        select 1
+        union all
+        select value + 1 from sequence where value < 10000
+      )
+      insert into tweets (
+        id, author_profile_id, text, created_at, is_replied, reply_to_id,
+        like_count, media_count, entities_json, media_json, quoted_tweet_id
+      )
+      select
+        'tweet_saved_perf_' || value,
+        (select id from profiles order by id limit 1),
+        'saved performance fixture ' || value,
+        '2026-01-01T00:00:00.000Z',
+        0, null, 0, 0, '{}', '[]', null
+      from sequence;
+
+      insert into tweet_collections (
+        account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+      )
+      select
+        (select id from accounts order by is_default desc, id limit 1),
+        id,
+        'likes',
+        created_at,
+        'test',
+        '{}',
+        created_at
+      from tweets
+      where id like 'tweet_saved_perf_%';
+    `);
+
+		const startedAt = performance.now();
+		const items = listTimelineItems({
+			resource: "home",
+			likedOnly: true,
+			since: "2027-01-01T00:00:00.000Z",
+			until: "2027-01-02T00:00:00.000Z",
+			limit: 1667,
+		});
+		const durationMs = performance.now() - startedAt;
+
+		expect(items).toEqual([]);
+		// The indexed plan is normally single-digit milliseconds; leave ample CI room.
+		expect(durationMs).toBeLessThan(500);
 	});
 
 	it("paginates past a shared created_at boundary using the id cursor", () => {

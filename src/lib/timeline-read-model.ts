@@ -534,12 +534,14 @@ export function listTimelineItems({
 		qualityFilter === "all";
 
 	if (likedOnly || bookmarkedOnly) {
+		// This CTE is also reused by the all-account dedupe subquery below. Keep
+		// both passes on tweet lookups so SQLite cannot choose a quadratic kind scan.
 		if (likedOnly && bookmarkedOnly) {
 			timelineEdgesCte = `
         with timeline_edges as (
           select likes.account_id, likes.tweet_id, 'home' as kind, likes.raw_json
-          from tweet_collections likes
-	          join tweet_collections bookmarks
+	          from tweet_collections likes indexed by idx_tweet_collections_tweet
+	          join tweet_collections bookmarks indexed by idx_tweet_collections_tweet
             on bookmarks.account_id = likes.account_id
             and bookmarks.tweet_id = likes.tweet_id
 	            and bookmarks.kind = 'bookmarks'
@@ -551,7 +553,7 @@ export function listTimelineItems({
 			timelineEdgesCte = `
 	        with timeline_edges as (
 	          select account_id, tweet_id, 'home' as kind, raw_json
-	          from tweet_collections
+	          from tweet_collections indexed by idx_tweet_collections_tweet
 	          where kind = ?
 	        )
 				`;
