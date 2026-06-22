@@ -84,7 +84,3 @@ import { db } from "#/lib/db";
 - Route files that end in `.test.ts` or `.test.tsx` are ignored by the TanStack Start router
 - Dependencies on `@typescript/native-preview` (tsgo) — typecheck uses native TypeScript compiler
 - **Always place `<script>` tags in `<body>`, never in `<head>`.** Failing rules: (1) no `<script>` after `<HeadContent />` — TanStack Start manages `<head>` during SSR causing hydration mismatches. (2) `<script>` elements belong in `<body>` to avoid SSR serialization conflicts. Place blocking scripts (theme, preload) as the first child of `<body>`.
-
-## Additional instruction files
-
-- `docs/mcode-rules.md` — platform-level lint/execution rules (referenced by `opencode.json`)
