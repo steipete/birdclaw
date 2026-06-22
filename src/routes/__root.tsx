@@ -61,9 +61,9 @@ function RootDocument({ children }: { children: ReactNode }) {
 		<html lang="en" suppressHydrationWarning>
 			<head>
 				<HeadContent />
-				<script suppressHydrationWarning>{themeScript}</script>
 			</head>
 			<body className={bodyClass}>
+				<script suppressHydrationWarning>{themeScript}</script>
 				<BirdclawQueryProvider>
 					<ThemeProvider>
 						<div className={siteShellClass}>
