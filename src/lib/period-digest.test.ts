@@ -92,6 +92,7 @@ describe("period digest", () => {
 
 		expect(first.hash).toBe(second.hash);
 		expect(first.tweets.length).toBeGreaterThan(0);
+		expect(first.tweets.some((tweet) => tweet.media.length > 0)).toBe(true);
 		expect(first.counts.home).toBeGreaterThan(0);
 		const profile = first.tweets[0]?.authorProfile;
 		expect(profile).toBeDefined();

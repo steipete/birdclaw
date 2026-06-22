@@ -16,6 +16,7 @@ import {
 	type OpenAIStreamState,
 	processOpenAIResponseSseChunk,
 } from "./openai-response-runtime";
+import { parseJsonField } from "./query-read-model-shared";
 import { listTimelineItems } from "./timeline-read-model";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import {
@@ -23,7 +24,7 @@ import {
 	type SyncTweetSearchResult,
 	type TweetSearchMode,
 } from "./tweet-search-live";
-import type { ProfileRecord } from "./types";
+import type { ProfileRecord, TweetEntities, TweetMediaItem } from "./types";
 
 export type SearchDiscussionSource =
 	| "all"
@@ -69,6 +70,8 @@ interface CompactSearchTweet {
 	authorProfile: ProfileRecord;
 	createdAt: string;
 	text: string;
+	entities?: TweetEntities;
+	media: TweetMediaItem[];
 	likeCount: number;
 	liked: boolean;
 	bookmarked: boolean;
@@ -182,6 +185,8 @@ function compactTweet(
 		authorProfile: item.author,
 		createdAt: item.createdAt,
 		text: item.text,
+		entities: item.entities,
+		media: item.media,
 		likeCount: item.likeCount,
 		liked: item.liked,
 		bookmarked: item.bookmarked,
@@ -231,7 +236,9 @@ function collectLiveSearchTweets(
         t.created_at,
         t.is_replied,
         t.like_count,
-        t.media_count,
+			t.media_count,
+			t.entities_json,
+			t.media_json,
         case
           when exists (
             select 1 from tweet_collections collection
@@ -295,6 +302,8 @@ function collectLiveSearchTweets(
 				},
 				createdAt: String(row.created_at),
 				text: String(row.text),
+				entities: parseJsonField<TweetEntities>(row.entities_json, {}),
+				media: parseJsonField<TweetMediaItem[]>(row.media_json, []),
 				likeCount: Number(row.like_count),
 				liked: Boolean(row.liked),
 				bookmarked: Boolean(row.bookmarked),

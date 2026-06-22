@@ -408,7 +408,7 @@ export function DiscussRouteView({
 
 			{markdown ? (
 				<MarkdownViewer
-					context={(result?.context ?? context) as never}
+					context={result?.context ?? context}
 					markdown={markdown}
 				/>
 			) : (

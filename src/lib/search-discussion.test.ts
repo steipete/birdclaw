@@ -71,6 +71,20 @@ describe("search discussion", () => {
 		expect(context.hash).toHaveLength(40);
 	});
 
+	it("keeps tweet media available for discussion citation popovers", () => {
+		const context = collectSearchDiscussionContext({
+			query: "developer-platform",
+			limit: 20,
+		});
+
+		expect(context.tweets[0]?.media).toEqual([
+			expect.objectContaining({
+				type: "image",
+				altText: "Pricing survey chart",
+			}),
+		]);
+	});
+
 	it("keeps live search scoped to the search bucket", () => {
 		const context = collectSearchDiscussionContext({
 			query: "local-first",

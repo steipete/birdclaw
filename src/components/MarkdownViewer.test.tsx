@@ -55,6 +55,7 @@ const context = {
 			liked: false,
 			bookmarked: false,
 			needsReply: true,
+			media: [],
 		},
 		{
 			id: "2057574939775938900",
@@ -74,6 +75,7 @@ const context = {
 			liked: false,
 			bookmarked: false,
 			needsReply: false,
+			media: [],
 		},
 		{
 			id: "2057578665408434460",
@@ -93,6 +95,7 @@ const context = {
 			liked: false,
 			bookmarked: false,
 			needsReply: false,
+			media: [],
 		},
 	],
 	dms: [],
@@ -676,5 +679,56 @@ describe("MarkdownViewer", () => {
 			"I have been thinking about the future of the firm.",
 		);
 		expect(screen.getByRole("tooltip")).not.toHaveTextContent("t.co");
+	});
+
+	it("shows tweet images in citation popovers instead of a media shortlink", () => {
+		const mediaContext = {
+			...context,
+			tweets: [
+				{
+					...context.tweets[0],
+					text: "News from Europe https://t.co/media",
+					entities: {
+						urls: [
+							{
+								url: "https://pbs.twimg.com/media/demo.jpg",
+								expandedUrl: "https://pbs.twimg.com/media/demo.jpg",
+								displayUrl: "https://pbs.twimg.com/media/demo.jpg",
+								start: 0,
+								end: 0,
+							},
+						],
+					},
+					media: [
+						{
+							url: "https://pbs.twimg.com/media/demo.jpg",
+							type: "image" as const,
+							altText: "Fugu benchmark chart",
+						},
+					],
+				},
+			],
+		} satisfies PeriodDigestContext;
+		render(
+			<MarkdownViewer
+				context={mediaContext}
+				markdown={
+					"The benchmark result drew attention (tweet_2056286865875935400)."
+				}
+			/>,
+		);
+
+		fireEvent.pointerEnter(
+			screen.getByRole("link", { name: "The benchmark result drew attention" })
+				.parentElement as Element,
+		);
+
+		const tooltip = screen.getByRole("tooltip");
+		expect(tooltip).toHaveTextContent("News from Europe");
+		expect(tooltip).not.toHaveTextContent("t.co/media");
+		expect(screen.getByAltText("Fugu benchmark chart")).toHaveAttribute(
+			"src",
+			"https://pbs.twimg.com/media/demo.jpg",
+		);
 	});
 });

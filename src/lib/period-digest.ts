@@ -22,7 +22,12 @@ import {
 } from "./openai-response-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { syncHomeTimelineEffect, type HomeTimelineMode } from "./timeline-live";
-import type { EmbeddedTweet, ProfileRecord, TweetEntities } from "./types";
+import type {
+	EmbeddedTweet,
+	ProfileRecord,
+	TweetEntities,
+	TweetMediaItem,
+} from "./types";
 
 export type PeriodDigestPreset = "today" | "yesterday" | "24h" | "week";
 export type PeriodDigestSourceKind =
@@ -160,6 +165,7 @@ interface CompactTweet {
 	createdAt: string;
 	text: string;
 	entities?: TweetEntities;
+	media: TweetMediaItem[];
 	likeCount: number;
 	liked: boolean;
 	bookmarked: boolean;
@@ -348,6 +354,7 @@ function compactTweet(
 		createdAt: item.createdAt,
 		text: item.text,
 		entities: item.entities,
+		media: item.media,
 		likeCount: item.likeCount,
 		liked: item.liked,
 		bookmarked: item.bookmarked,
@@ -368,6 +375,7 @@ function compactEmbeddedTweet(item: EmbeddedTweet): CompactTweet {
 		createdAt: item.createdAt,
 		text: item.text,
 		entities: item.entities,
+		media: item.media,
 		likeCount: item.likeCount ?? 0,
 		liked: Boolean(item.liked),
 		bookmarked: Boolean(item.bookmarked),

@@ -2,6 +2,10 @@
 
 ## 0.8.6 - Unreleased
 
+### Fixed
+
+- Show inline tweet images in Today citation popovers instead of leaving media-only `t.co` links in the preview text.
+
 ## 0.8.5 - 2026-06-21
 
 ### Fixed

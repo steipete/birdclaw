@@ -2,8 +2,9 @@ import { Fragment, type MouseEventHandler, type ReactNode } from "react";
 import { formatCompactNumber } from "#/lib/present";
 import type { PeriodDigestContext } from "#/lib/period-digest";
 import type { ProfileAnalysisContext } from "#/lib/profile-analysis";
+import type { SearchDiscussionContext } from "#/lib/search-discussion";
 import { renderTweetPlainText } from "#/lib/tweet-render";
-import type { ProfileRecord } from "#/lib/types";
+import type { ProfileRecord, TweetEntities, TweetMediaItem } from "#/lib/types";
 import { tweetLinkClass, tweetMentionClass } from "#/lib/ui";
 import { safeHttpUrl } from "#/lib/url-safety";
 import { AvatarChip } from "./AvatarChip";
@@ -12,8 +13,26 @@ import { useFloatingPreview } from "./FloatingPreview";
 import { ProfilePreview } from "./ProfilePreview";
 import { SmartTimestamp } from "./SmartTimestamp";
 
-type CitationTweet = PeriodDigestContext["tweets"][number];
-export type CitationContext = PeriodDigestContext | ProfileAnalysisContext;
+type CitationTweet = {
+	id: string;
+	url: string;
+	source: string;
+	author: string;
+	name: string;
+	authorProfile: ProfileRecord;
+	createdAt: string;
+	text: string;
+	entities?: TweetEntities;
+	media?: TweetMediaItem[];
+	likeCount: number;
+	liked: boolean;
+	bookmarked: boolean;
+	needsReply: boolean;
+};
+export type CitationContext =
+	| PeriodDigestContext
+	| ProfileAnalysisContext
+	| SearchDiscussionContext;
 type InlineLookup = {
 	tweetsById: Map<string, CitationTweet>;
 	profilesByHandle: Map<string, ProfileRecord>;
@@ -107,6 +126,107 @@ function getFallbackTweetUrl(tweetId: string) {
 	return `https://x.com/i/status/${normalizeTweetReference(tweetId)}`;
 }
 
+function comparableUrl(value: string) {
+	try {
+		const parsed = new URL(value);
+		return `${parsed.protocol}//${parsed.hostname}${parsed.pathname}`;
+	} catch {
+		return value.split("?")[0] ?? value;
+	}
+}
+
+function isOwnStatusMediaUrl(value: string, tweetId: string) {
+	try {
+		const parsed = new URL(value);
+		const host = parsed.hostname.replace(/^www\./, "");
+		if (host !== "x.com" && host !== "twitter.com") return false;
+		return new RegExp(
+			`/status/${tweetId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(?:photo|video)(?:/|$)`,
+		).test(parsed.pathname);
+	} catch {
+		return false;
+	}
+}
+
+function previewTextWithoutMediaLink(
+	text: string,
+	tweet: CitationTweet,
+	media: TweetMediaItem[],
+) {
+	if (media.length === 0) return text;
+	const match = /(https?:\/\/[^\s]+)\s*$/.exec(text);
+	if (!match) return text;
+	const trailingUrl = match[1];
+	if (!trailingUrl) return text;
+	const mediaUrls = new Set(
+		media.flatMap((item) =>
+			item.thumbnailUrl ? [item.url, item.thumbnailUrl] : [item.url],
+		),
+	);
+	const comparableTrailing = comparableUrl(trailingUrl);
+	const directlyMatchesMedia = [...mediaUrls].some(
+		(url) => comparableUrl(url) === comparableTrailing,
+	);
+	const mediaEntityLostItsRange = (tweet.entities?.urls ?? []).some((entry) => {
+		if (entry.end > entry.start) return false;
+		return [...mediaUrls].some(
+			(url) => comparableUrl(url) === comparableUrl(entry.expandedUrl),
+		);
+	});
+	const isUnresolvedShortUrl = (() => {
+		try {
+			return new URL(trailingUrl).hostname.replace(/^www\./, "") === "t.co";
+		} catch {
+			return false;
+		}
+	})();
+	if (
+		!directlyMatchesMedia &&
+		!isOwnStatusMediaUrl(trailingUrl, tweet.id) &&
+		!(isUnresolvedShortUrl && mediaEntityLostItsRange)
+	) {
+		return text;
+	}
+	return text.slice(0, match.index).trimEnd();
+}
+
+function TweetPreviewMedia({ items }: { items: TweetMediaItem[] }) {
+	const images = items
+		.flatMap((item) => {
+			const url =
+				item.type === "image"
+					? safeHttpUrl(item.thumbnailUrl ?? item.url)
+					: safeHttpUrl(item.thumbnailUrl);
+			return url ? [{ item, url }] : [];
+		})
+		.slice(0, 4);
+	if (images.length === 0) return null;
+
+	return (
+		<span
+			className={
+				images.length === 1
+					? "mt-2 block overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--bg-active)]"
+					: "mt-2 grid grid-cols-2 gap-1.5 overflow-hidden rounded-xl"
+			}
+		>
+			{images.map(({ item, url }, index) => (
+				<img
+					key={`${url}-${String(index)}`}
+					alt={item.altText ?? `Tweet media ${String(index + 1)}`}
+					className={
+						images.length === 1
+							? "block max-h-64 w-full object-contain"
+							: "block aspect-square size-full rounded-lg border border-[var(--line)] object-cover"
+					}
+					decoding="async"
+					src={url}
+				/>
+			))}
+		</span>
+	);
+}
+
 function TweetSourceLink({
 	children,
 	href,
@@ -147,6 +267,7 @@ function TweetPreviewToken({
 	);
 
 	const article = tweet.entities?.article;
+	const media = tweet.media ?? [];
 	const renderedText = renderTweetPlainText(tweet.text, tweet.entities ?? {});
 	const previewText = article
 		? [article.title, article.previewText]
@@ -155,7 +276,7 @@ function TweetPreviewToken({
 						Boolean(value) && values.indexOf(value) === index,
 				)
 				.join("\n\n")
-		: renderedText;
+		: previewTextWithoutMediaLink(renderedText, tweet, media);
 
 	return (
 		<span
@@ -201,6 +322,7 @@ function TweetPreviewToken({
 						<span className="line-clamp-6 whitespace-pre-wrap [overflow-wrap:anywhere]">
 							{previewText}
 						</span>
+						<TweetPreviewMedia items={media} />
 						<span className="mt-2 flex gap-3 text-[12px] text-[var(--ink-soft)]">
 							<span>{tweet.source}</span>
 							{tweet.likeCount > 0 ? (
@@ -622,6 +744,7 @@ function profileAnalysisTweetToCitation(
 		liked: false,
 		bookmarked: false,
 		needsReply: false,
+		media: [],
 	};
 }
 
@@ -643,6 +766,7 @@ function conversationTweetToCitation(
 		liked: false,
 		bookmarked: false,
 		needsReply: false,
+		media: [],
 	};
 }
 
