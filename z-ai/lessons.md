@@ -1,0 +1,1 @@
+- Treat uncommitted user-visible changes as user-owned until proven otherwise. Before moving them to a preservation branch or describing them as agent work, ask whether they should stay on the current branch or be committed to the target branch.
