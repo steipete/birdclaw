@@ -10,6 +10,7 @@ import {
 
 afterEach(() => {
 	delete process.env.OPENAI_API_KEY;
+	delete process.env.OPENAI_BASE_URL;
 	vi.unstubAllGlobals();
 });
 
@@ -75,5 +76,31 @@ describe("OpenAI response runtime", () => {
 		await expect(
 			Effect.runPromise(requestOpenAIResponseEffect({ body: {} })),
 		).rejects.toThrow("400 bad request");
+	});
+
+	it("uses OPENAI_BASE_URL for response requests", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+
+		await Effect.runPromise(
+			requestOpenAIResponseEffect({
+				body: {},
+				runtime: {
+					fetch: fetchMock,
+					now: () => new Date("2026-06-24T00:00:00Z"),
+					random: () => 0,
+					env: (name) =>
+						name === "OPENAI_API_KEY"
+							? "test"
+							: name === "OPENAI_BASE_URL"
+								? "http://127.0.0.1:8080/openai/v1/"
+								: undefined,
+				},
+			}),
+		);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://127.0.0.1:8080/openai/v1/responses",
+			expect.any(Object),
+		);
 	});
 });

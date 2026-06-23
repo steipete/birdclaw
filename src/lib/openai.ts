@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { openAIEndpoint } from "./openai-url";
 
 export interface OpenAIInboxScore {
 	score: number;
@@ -47,7 +48,7 @@ export function scoreInboxItemWithOpenAIEffect(
 
 		const model = process.env.BIRDCLAW_OPENAI_MODEL || "gpt-5.2";
 		const response = yield* tryPromise(() =>
-			fetch("https://api.openai.com/v1/chat/completions", {
+			fetch(openAIEndpoint("chat/completions", process.env.OPENAI_BASE_URL), {
 				method: "POST",
 				headers: {
 					authorization: `Bearer ${apiKey}`,

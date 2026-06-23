@@ -82,7 +82,7 @@
 ### Fixed
 
 - Add accurate archive-first Sign in and archive-request onboarding, including account-binding requirements, current xurl/bird setup, scoped transport selection, and clean autolink rendering. (#46 - thanks @peetzweg)
-- Respect `OPENAI_BASE_URL` when sending Today/digest requests to OpenAI-compatible API endpoints.
+- Respect `OPENAI_BASE_URL` when sending OpenAI requests to compatible API endpoints.
 - Anchor Link Insights' Today range to UTC midnight so it matches stored `created_at` timestamps across local time zones.
 
 ## 0.7.0 - 2026-06-01

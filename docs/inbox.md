@@ -32,7 +32,7 @@ birdclaw inbox --kind mixed --limit 20 --json
 
 ## OpenAI scoring
 
-Pass `--score` to refresh stored OpenAI scores before listing. This requires `OPENAI_API_KEY` in the environment (or in `~/.profile`):
+Pass `--score` to refresh stored OpenAI scores before listing. This requires `OPENAI_API_KEY` in the environment (or in `~/.profile`). Set `OPENAI_BASE_URL` to use an OpenAI-compatible endpoint instead of the default OpenAI API:
 
 ```bash
 birdclaw inbox --score --hide-low-signal --limit 8 --json

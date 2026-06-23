@@ -4,6 +4,7 @@ import {
 	defaultRuntimeServices,
 	type RuntimeServices,
 } from "./runtime-services";
+import { openAIEndpoint } from "./openai-url";
 
 const DEFAULT_DELIMITER_PATTERN = /\n---\s*\n/;
 const DEFAULT_DELIMITER_HOLD = 8;
@@ -226,15 +227,18 @@ export function requestOpenAIResponseEffect({
 			return yield* Effect.fail(new Error("OPENAI_API_KEY is not set"));
 		}
 		const response = yield* tryPromise(() =>
-			runtime.fetch("https://api.openai.com/v1/responses", {
-				method: "POST",
-				signal,
-				headers: {
-					authorization: `Bearer ${apiKey}`,
-					"content-type": "application/json",
+			runtime.fetch(
+				openAIEndpoint("responses", runtime.env("OPENAI_BASE_URL")),
+				{
+					method: "POST",
+					signal,
+					headers: {
+						authorization: `Bearer ${apiKey}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify(body),
 				},
-				body: JSON.stringify(body),
-			}),
+			),
 		).pipe(Effect.mapError(toError));
 		if (!response.ok) {
 			const text = yield* tryPromise(() => response.text()).pipe(

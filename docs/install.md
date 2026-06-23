@@ -96,9 +96,11 @@ If you only run birdclaw via `launchd` (`jobs install-bookmarks-launchd`), `bird
 
 ```bash
 export OPENAI_API_KEY="sk-..."
+# Optional: route OpenAI calls to a compatible endpoint.
+export OPENAI_BASE_URL="http://127.0.0.1:8080/v1"
 ```
 
-Add it to `~/.profile` or your shell rc to persist. The inbox uses OpenAI for low-signal scoring; without the key, `inbox --score` is a no-op and the heuristic ranker still works.
+Add these to `~/.profile` or your shell rc to persist. The inbox uses OpenAI for low-signal scoring; without the key, `inbox --score` is a no-op and the heuristic ranker still works.
 
 ## Updating
 
