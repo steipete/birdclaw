@@ -120,7 +120,7 @@ birdclaw discuss "prototype" --include-dms --limit 500 --max-pages 5 --json
 `birdclaw discuss` runs live keyword search through `bird` first, falls back to
 `xurl` in `auto` mode, stores matched tweets as local `search` rows/edges, then
 streams an OpenAI Markdown summary and discussion over that context. It uses the
-same Responses API defaults as `birdclaw digest`: `gpt-5.5`, medium reasoning,
+same Responses API defaults as `birdclaw digest`: `gpt-5.5`, low reasoning,
 priority service tier, and a local context cache. DMs are excluded unless
 `--include-dms` is set. Use `--mode local` to discuss only previously stored
 matches.

@@ -10,6 +10,8 @@ import {
 
 afterEach(() => {
 	delete process.env.OPENAI_API_KEY;
+	delete process.env.BIRDCLAW_OPENAI_BASE_URL;
+	delete process.env.OPENAI_BASE_URL;
 	vi.unstubAllGlobals();
 });
 
@@ -75,5 +77,25 @@ describe("OpenAI response runtime", () => {
 		await expect(
 			Effect.runPromise(requestOpenAIResponseEffect({ body: {} })),
 		).rejects.toThrow("400 bad request");
+	});
+
+	it("allows OpenAI-compatible gateways without a local API key", async () => {
+		process.env.BIRDCLAW_OPENAI_BASE_URL = "http://localhost:4000/v1/";
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(
+			Effect.runPromise(
+				requestOpenAIResponseEffect({ body: { model: "local" } }),
+			),
+		).resolves.toBeInstanceOf(Response);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://localhost:4000/v1/responses",
+			expect.objectContaining({
+				headers: { "content-type": "application/json" },
+			}),
+		);
 	});
 });

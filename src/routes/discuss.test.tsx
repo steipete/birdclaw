@@ -72,7 +72,7 @@ function discussionResult(markdown: string) {
 		},
 		markdown,
 		model: "gpt-5.5",
-		reasoningEffort: "medium",
+		reasoningEffort: "low",
 		serviceTier: "priority",
 		cached: false,
 		updatedAt: "2026-05-23T08:20:00.000Z",

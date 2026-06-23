@@ -4,6 +4,14 @@ import {
 	defaultRuntimeServices,
 	type RuntimeServices,
 } from "./runtime-services";
+import {
+	openAIEndpoint,
+	openAIHeaders,
+	requireOpenAICredentials,
+	resolveOpenAIApiKey,
+	resolveOpenAIBaseUrl,
+} from "./openai-config";
+import { createPiCodexResponse, isPiCodexProviderEnabled } from "./pi-codex";
 
 const DEFAULT_DELIMITER_PATTERN = /\n---\s*\n/;
 const DEFAULT_DELIMITER_HOLD = 8;
@@ -221,18 +229,23 @@ export function requestOpenAIResponseEffect({
 	runtime?: RuntimeServices;
 }): Effect.Effect<Response, Error> {
 	return Effect.gen(function* () {
-		const apiKey = runtime.env("OPENAI_API_KEY");
-		if (!apiKey) {
-			return yield* Effect.fail(new Error("OPENAI_API_KEY is not set"));
+		if (isPiCodexProviderEnabled(runtime)) {
+			return yield* tryPromise(() => createPiCodexResponse(body, signal)).pipe(
+				Effect.mapError(toError),
+			);
+		}
+		const apiKey = resolveOpenAIApiKey(runtime);
+		const baseUrl = resolveOpenAIBaseUrl(runtime);
+		try {
+			requireOpenAICredentials(apiKey, baseUrl);
+		} catch (error) {
+			return yield* Effect.fail(toError(error));
 		}
 		const response = yield* tryPromise(() =>
-			runtime.fetch("https://api.openai.com/v1/responses", {
+			runtime.fetch(openAIEndpoint(baseUrl, "responses"), {
 				method: "POST",
 				signal,
-				headers: {
-					authorization: `Bearer ${apiKey}`,
-					"content-type": "application/json",
-				},
+				headers: openAIHeaders(apiKey),
 				body: JSON.stringify(body),
 			}),
 		).pipe(Effect.mapError(toError));

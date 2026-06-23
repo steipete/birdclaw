@@ -325,7 +325,7 @@ describe("search discussion", () => {
 			String(fetchMock.mock.calls[0]?.[1]?.body),
 		) as Record<string, unknown>;
 		expect(body.model).toBe("gpt-5.5");
-		expect(body.reasoning).toEqual({ effort: "medium" });
+		expect(body.reasoning).toEqual({ effort: "low" });
 		expect(body.service_tier).toBe("priority");
 		expect(body.stream).toBe(true);
 		expect(JSON.stringify(body)).toContain("What should I pay attention to?");

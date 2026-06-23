@@ -13,6 +13,8 @@ beforeEach(() => {
 afterEach(() => {
 	process.env.OPENAI_API_KEY = "";
 	delete process.env.BIRDCLAW_OPENAI_MODEL;
+	delete process.env.BIRDCLAW_OPENAI_BASE_URL;
+	delete process.env.OPENAI_BASE_URL;
 	vi.unstubAllGlobals();
 });
 
@@ -77,6 +79,50 @@ describe("openai inbox scoring", () => {
 			summary: "Strong ask",
 			reasoning: "Concrete and relevant",
 		});
+	});
+
+	it("posts inbox scoring requests to an OpenAI-compatible gateway", async () => {
+		process.env.OPENAI_API_KEY = "";
+		process.env.BIRDCLAW_OPENAI_BASE_URL = "http://localhost:4000/v1";
+		process.env.BIRDCLAW_OPENAI_MODEL = "local-model";
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					choices: [
+						{
+							message: {
+								content: JSON.stringify({
+									score: 12,
+									summary: "Low signal",
+									reasoning: "Generic note",
+								}),
+							},
+						},
+					],
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await scoreInboxItemWithOpenAI({
+			entityKind: "dm",
+			title: "DM",
+			text: "hello",
+			influenceScore: 10,
+			participant: {
+				handle: "sam",
+				displayName: "Sam",
+				bio: "bio",
+				followersCount: 10,
+			},
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://localhost:4000/v1/chat/completions",
+			expect.objectContaining({
+				headers: { "content-type": "application/json" },
+			}),
+		);
 	});
 
 	it("exposes inbox scoring as an Effect program", async () => {

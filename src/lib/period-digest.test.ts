@@ -201,7 +201,7 @@ describe("period digest", () => {
 		);
 	});
 
-	it("streams markdown, parses final JSON, and sends GPT-5.5 medium priority", async () => {
+	it("streams markdown, parses final JSON, and sends GPT-5.5 low priority", async () => {
 		const streamed = [
 			sseFrame({
 				type: "response.output_text.delta",
@@ -241,7 +241,7 @@ describe("period digest", () => {
 			String(fetchMock.mock.calls[0]?.[1]?.body),
 		) as Record<string, unknown>;
 		expect(body.model).toBe("gpt-5.5");
-		expect(body.reasoning).toEqual({ effort: "medium" });
+		expect(body.reasoning).toEqual({ effort: "low" });
 		expect(body.service_tier).toBe("priority");
 		expect(body.stream).toBe(true);
 	});
@@ -584,7 +584,7 @@ describe("period digest", () => {
 					digest: { title: "Invalid" },
 					markdown: "# Invalid",
 					model: "gpt-5.5",
-					reasoningEffort: "medium",
+					reasoningEffort: "low",
 					serviceTier: "priority",
 				}),
 			);

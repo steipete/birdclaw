@@ -140,7 +140,7 @@ describe("profile route", () => {
 							analysis: {},
 							markdown: "Peter ships agent tools with practical taste.",
 							model: "gpt-5.5",
-							reasoningEffort: "medium",
+							reasoningEffort: "low",
 							serviceTier: "priority",
 							cached: true,
 							updatedAt: "2026-05-31T12:00:00.000Z",

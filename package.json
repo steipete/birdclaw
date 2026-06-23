@@ -47,6 +47,7 @@
 		"docs:site": "node scripts/build-docs-site.mjs"
 	},
 	"dependencies": {
+		"@earendil-works/pi-ai": "0.79.10",
 		"@tanstack/react-query": "^5.101.0",
 		"@tanstack/react-router": "1.170.16",
 		"commander": "^15.0.0",

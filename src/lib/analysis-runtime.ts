@@ -10,7 +10,7 @@ import {
 } from "./runtime-services";
 
 const DEFAULT_MODEL = "gpt-5.5";
-const DEFAULT_REASONING_EFFORT = "medium";
+const DEFAULT_REASONING_EFFORT = "low";
 const DEFAULT_SERVICE_TIER = "priority";
 const DEFAULT_DELIMITER_PATTERN = /\n---\s*\n/;
 

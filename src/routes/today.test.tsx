@@ -100,7 +100,7 @@ function digestResult(label: string, markdown: string, includeDms = false) {
 		},
 		markdown,
 		model: "gpt-5.5",
-		reasoningEffort: "medium",
+		reasoningEffort: "low",
 		serviceTier: "priority",
 		cached: false,
 		updatedAt: "2026-05-16T12:00:00.000Z",

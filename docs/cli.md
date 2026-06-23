@@ -104,7 +104,7 @@ birdclaw debug transport
 
 - alias for `digest today`
 - streams Markdown as model tokens arrive
-- uses `gpt-5.5`, medium reasoning, and priority service tier by default
+- uses `gpt-5.5`, low reasoning, and priority service tier by default
 - requires `OPENAI_API_KEY`
 - excludes DMs unless `--include-dms` is passed
 - supports `--refresh`, `--model`, `--language <locale-id>`, `--max-tweets`, and `--max-links`

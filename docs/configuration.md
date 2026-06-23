@@ -92,7 +92,20 @@ See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge 
 | `BIRDCLAW_DISABLE_LIVE_WRITES` | Set to `1` to block any live mutation (used by tests and CI)                                                                                         |
 | `BIRDCLAW_BACKUP_AUTO_SYNC`    | Set to `0` to disable auto-sync for one process                                                                                                      |
 | `NO_COLOR`                     | Disable ANSI color in human output                                                                                                                   |
+| `BIRDCLAW_AI_PROVIDER`         | Set to `pi-codex` or `openai-codex` to use the Pi.dev Codex OAuth login instead of an OpenAI API key                                                  |
+| `PI_CODING_AGENT_DIR`          | Directory containing Pi OAuth credentials; defaults to `~/.pi/agent`                                                                                  |
+| `BIRDCLAW_PI_AUTH_PATH`        | Full path to Pi `auth.json`; overrides `PI_CODING_AGENT_DIR`                                                                                          |
 | `OPENAI_API_KEY`               | Enable inbox scoring and low-signal filtering                                                                                                        |
+| `BIRDCLAW_OPENAI_BASE_URL`     | Override the OpenAI API base URL for an OpenAI-compatible gateway such as LiteLLM, Ollama, or a private proxy                                         |
+| `OPENAI_BASE_URL`              | Fallback OpenAI-compatible base URL when `BIRDCLAW_OPENAI_BASE_URL` is not set                                                                        |
+| `BIRDCLAW_OPENAI_MODEL`        | Override the inbox scoring model; defaults to `gpt-5.5`                                                                                               |
+| `BIRDCLAW_AI_MODEL`            | Override digest, discussion, and profile-analysis model; defaults to `gpt-5.5`                                                                        |
+| `BIRDCLAW_OPENAI_REASONING_EFFORT` | Override Responses API reasoning effort for digest, discussion, and profile analysis; defaults to `low`                                           |
+| `BIRDCLAW_OPENAI_SERVICE_TIER` | Override Responses API service tier for digest, discussion, and profile analysis; defaults to `priority`                                              |
+
+When `BIRDCLAW_AI_PROVIDER=pi-codex`, Birdclaw reads the existing Pi Codex OAuth login from Pi's `auth.json`, refreshes it through the Pi SDK when needed, and calls the `openai-codex` provider. Run `pi`, use `/login`, and select ChatGPT Plus/Pro (Codex) before enabling this mode. Docker deployments should mount the Pi agent directory into the container and set `PI_CODING_AGENT_DIR` to that mounted path.
+
+When `BIRDCLAW_OPENAI_BASE_URL` or `OPENAI_BASE_URL` points away from `https://api.openai.com/v1`, `OPENAI_API_KEY` is optional so local gateways without bearer authentication can be used. The gateway must support the endpoints Birdclaw calls: `/v1/chat/completions` for inbox scoring and `/v1/responses` for digests, discussion summaries, and profile analysis.
 
 `BIRDCLAW_DISABLE_LIVE_WRITES=1` is set automatically in CI and Playwright runs so test code can never publish a tweet, send a DM, or block an account.
 
