@@ -29,7 +29,7 @@ function mockBirdRejectOnce(error: Error & { stderr?: string }) {
 function expectBirdCommandCall(callNumber: number, args: string[]) {
 	const call = execFileAsyncMock.mock.calls[callNumber - 1];
 	expect(call).toBeDefined();
-	expect(call[0]).toBe("/bin/bash");
+	expect(call[0]).toBe("bash");
 	expect((call[1] as string[])[0]).toBe("-c");
 	expect((call[1] as string[]).slice(4)).toEqual(["/tmp/bird", ...args]);
 	expect(call[2]).toEqual(

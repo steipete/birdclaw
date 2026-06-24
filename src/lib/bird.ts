@@ -289,7 +289,7 @@ export function runBirdJsonCommandEffect(
 			yield* Effect.tryPromise({
 				try: () =>
 					execFileAsync(
-						"/bin/bash",
+						"bash",
 						[
 							"-c",
 							BIRD_STDOUT_REDIRECT_SCRIPT,
@@ -527,12 +527,11 @@ export function listMentionsViaBirdEffect({
 	profileName?: string;
 }): Effect.Effect<XurlMentionsResponse, unknown> {
 	return Effect.gen(function* () {
-		const stdout = yield* runBirdJsonCommandEffect([
-			"mentions",
-			"-n",
-			String(maxResults),
-			"--json",
-		], undefined, profileName);
+		const stdout = yield* runBirdJsonCommandEffect(
+			["mentions", "-n", String(maxResults), "--json"],
+			undefined,
+			profileName,
+		);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdTweetsPayloadEffect(payload, "mentions");
 	});
@@ -565,7 +564,11 @@ function listTweetsViaBirdCommandEffect({
 		if (maxPages !== undefined) {
 			args.push("--max-pages", String(maxPages));
 		}
-		const stdout = yield* runBirdJsonCommandEffect(args, undefined, profileName);
+		const stdout = yield* runBirdJsonCommandEffect(
+			args,
+			undefined,
+			profileName,
+		);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdTweetsPayloadEffect(payload, command);
 	});
@@ -639,7 +642,11 @@ export function listUserTweetsViaBirdEffect(
 		if (cursor !== undefined) {
 			args.push("--cursor", cursor);
 		}
-		const stdout = yield* runBirdJsonCommandEffect(args, undefined, profileName);
+		const stdout = yield* runBirdJsonCommandEffect(
+			args,
+			undefined,
+			profileName,
+		);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdUserTweetsPayloadEffect(payload);
 	});
@@ -673,7 +680,11 @@ export function searchTweetsViaBirdEffect(
 		if (options.all && options.maxPages !== undefined) {
 			args.push("--max-pages", String(options.maxPages));
 		}
-		const stdout = yield* runBirdJsonCommandEffect(args, undefined, options.profileName);
+		const stdout = yield* runBirdJsonCommandEffect(
+			args,
+			undefined,
+			options.profileName,
+		);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdTweetsPayloadEffect(payload, "search");
 	});
@@ -736,7 +747,11 @@ export function listHomeTimelineViaBirdEffect({
 		if (following) {
 			args.push("--following");
 		}
-		const stdout = yield* runBirdJsonCommandEffect(args, undefined, profileName);
+		const stdout = yield* runBirdJsonCommandEffect(
+			args,
+			undefined,
+			profileName,
+		);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdTweetsPayloadEffect(payload, "home");
 	});
@@ -816,7 +831,11 @@ export function listFollowUsersViaBirdEffect({
 		if (maxPages !== undefined) {
 			args.push("--max-pages", String(maxPages));
 		}
-		const stdout = yield* runBirdJsonCommandEffect(args, undefined, profileName);
+		const stdout = yield* runBirdJsonCommandEffect(
+			args,
+			undefined,
+			profileName,
+		);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdFollowUsersEffect(
 			payload,
@@ -857,7 +876,11 @@ export function listThreadViaBirdEffect({
 		if (maxPages !== undefined) {
 			args.push("--max-pages", String(maxPages));
 		}
-		const stdout = yield* runBirdJsonCommandEffect(args, timeoutMs, profileName);
+		const stdout = yield* runBirdJsonCommandEffect(
+			args,
+			timeoutMs,
+			profileName,
+		);
 		const payload = yield* parseBirdJsonEffect(stdout);
 		return yield* normalizeBirdTweetsPayloadEffect(payload, "thread");
 	});
@@ -943,9 +966,11 @@ export function postTweetViaBirdEffect(
 	text: string,
 	profileName?: string,
 ): Effect.Effect<BirdWriteResponse, unknown> {
-	return runBirdJsonCommandEffect(["--plain", "tweet", text], undefined, profileName).pipe(
-		Effect.flatMap(birdWriteResponseEffect),
-	);
+	return runBirdJsonCommandEffect(
+		["--plain", "tweet", text],
+		undefined,
+		profileName,
+	).pipe(Effect.flatMap(birdWriteResponseEffect));
 }
 
 export function postTweetViaBird(text: string): Promise<BirdWriteResponse> {
@@ -957,9 +982,11 @@ export function replyToTweetViaBirdEffect(
 	text: string,
 	profileName?: string,
 ): Effect.Effect<BirdWriteResponse, unknown> {
-	return runBirdJsonCommandEffect(["--plain", "reply", tweetId, text], undefined, profileName).pipe(
-		Effect.flatMap(birdWriteResponseEffect),
-	);
+	return runBirdJsonCommandEffect(
+		["--plain", "reply", tweetId, text],
+		undefined,
+		profileName,
+	).pipe(Effect.flatMap(birdWriteResponseEffect));
 }
 
 export function replyToTweetViaBird(
@@ -1110,7 +1137,11 @@ export function lookupProfilesViaBirdEffect(
 		return Effect.succeed([]);
 	}
 
-	return runBirdJsonCommandEffect(["profiles", ...targets, "--json"], undefined, profileName).pipe(
+	return runBirdJsonCommandEffect(
+		["profiles", ...targets, "--json"],
+		undefined,
+		profileName,
+	).pipe(
 		Effect.flatMap((stdout) =>
 			Effect.gen(function* () {
 				const payload = (yield* parseBirdJsonEffect(
