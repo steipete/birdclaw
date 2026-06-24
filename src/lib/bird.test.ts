@@ -463,6 +463,58 @@ describe("bird transport wrapper", () => {
 		expectBirdCommandCall(1, ["home", "-n", "9", "--json", "--following"]);
 	});
 
+	it("maps bird user tweets json into xurl user-tweets payloads", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdStdoutOnce(
+			JSON.stringify({
+				tweets: [
+					{
+						id: "authored_1",
+						text: "authored from bird",
+						createdAt: "Mon May 04 07:19:34 +0000 2026",
+						authorId: "25401953",
+						author: { username: "steipete", name: "Peter" },
+						inReplyToStatusId: "root_1",
+					},
+				],
+				nextCursor: "next-1",
+			}),
+		);
+		const { listUserTweetsViaBird } = await import("./bird");
+
+		await expect(
+			listUserTweetsViaBird("steipete", {
+				maxResults: 9,
+				maxPages: 2,
+				cursor: "cursor-1",
+			}),
+		).resolves.toEqual({
+			items: [
+				expect.objectContaining({
+					id: "authored_1",
+					author_id: "25401953",
+					text: "authored from bird",
+					referenced_tweets: [{ type: "replied_to", id: "root_1" }],
+				}),
+			],
+			includes: {
+				users: [{ id: "25401953", username: "steipete", name: "Peter" }],
+			},
+			nextToken: "next-1",
+		});
+		expectBirdCommandCall(1, [
+			"user-tweets",
+			"steipete",
+			"-n",
+			"9",
+			"--json",
+			"--max-pages",
+			"2",
+			"--cursor",
+			"cursor-1",
+		]);
+	});
+
 	it("maps bird follower lists into xurl-compatible users", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
 		mockBirdStdoutOnce(

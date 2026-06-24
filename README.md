@@ -24,7 +24,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - selective archive re-imports for one stale slice without wiping the rest of the local store
 - archive import for bookmark exports when present
 - archive import streams bundled media files into the local originals cache and extracts `video_info.variants[]` for video and animated-GIF rows
-- live authored sync through `xurl`, plus likes and bookmarks through `xurl` or `bird`
+- live authored sync through `bird` or `xurl`, plus likes and bookmarks through `xurl` or `bird`
 - cache-first followers/following sync through `bird` or `xurl`
 - local follow graph queries for top followers, unfollows, mutuals, and non-mutual following
 - Git-friendly text backups with yearly tweet shards and per-conversation DM shards
@@ -301,10 +301,11 @@ pnpm cli search tweets --bookmarked --limit 20 --json
 
 ### Sync authored tweets, likes, bookmarks, home timeline, and mentions
 
-`auto` uses `bird` for timeline, mentions, likes, and bookmarks. Use `--mode xurl` only when you explicitly need an xurl-only surface such as authored sync, bounded historical reads, or repeated xurl collection paging. For repeated xurl collection syncs, add `--early-stop` to stop paging once a whole page already exists locally; without `--all` or `--max-pages`, it caps at 10 pages.
+`auto` uses `bird` for authored tweets, timeline, mentions, likes, and bookmarks. Use `--mode xurl` only when you explicitly need an xurl-only surface such as authored `--since-id`/`--until-id`, bounded historical reads, or repeated xurl collection paging. For repeated xurl collection syncs, add `--early-stop` to stop paging once a whole page already exists locally; without `--all` or `--max-pages`, it caps at 10 pages.
 
 ```bash
-pnpm cli sync authored --mode xurl --limit 100 --json
+pnpm cli sync authored --limit 100 --json
+pnpm cli sync authored --mode xurl --since-id 123 --limit 100 --json
 pnpm cli sync likes --mode auto --limit 100 --refresh --json
 pnpm cli sync bookmarks --mode auto --limit 100 --refresh --json
 pnpm cli sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json

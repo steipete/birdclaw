@@ -10,10 +10,35 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./queries";
 
 const mocks = vi.hoisted(() => ({
+	getAuthenticatedBirdAccount: vi.fn(),
 	getTransportStatus: vi.fn(),
+	listUserTweetsViaBird: vi.fn(),
 	listUserTweets: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
 }));
+
+vi.mock("./bird", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./bird")>();
+	const { Effect } = await import("effect");
+	const toError = (error: unknown) =>
+		error instanceof Error ? error : new Error(String(error));
+	return {
+		...actual,
+		getAuthenticatedBirdAccount: () => mocks.getAuthenticatedBirdAccount(),
+		getAuthenticatedBirdAccountEffect: () =>
+			Effect.tryPromise({
+				try: () => mocks.getAuthenticatedBirdAccount(),
+				catch: toError,
+			}),
+		listUserTweetsViaBird: (...args: unknown[]) =>
+			mocks.listUserTweetsViaBird(...args),
+		listUserTweetsViaBirdEffect: (...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => mocks.listUserTweetsViaBird(...args),
+				catch: toError,
+			}),
+	};
+});
 
 vi.mock("./xurl", () => ({
 	getTransportStatus: (...args: unknown[]) => mocks.getTransportStatus(...args),
@@ -79,10 +104,10 @@ function authoredEdgeCount(tweetId?: string) {
 		.get(...(tweetId ? [tweetId, "authored"] : ["authored"]));
 }
 
-function authoredCursor(accountId = "acct_primary") {
+function authoredCursor(accountId = "acct_primary", source = "xurl") {
 	const row = getNativeDb()
 		.prepare("select value_json from sync_cache where cache_key = ?")
-		.get(`authored:xurl:${accountId}:cursor`) as
+		.get(`authored:${source}:${accountId}:cursor`) as
 		| { value_json: string }
 		| undefined;
 	return row ? JSON.parse(row.value_json) : null;
@@ -153,6 +178,10 @@ function insertAuthoredEdge(
 
 describe("live authored tweet sync", () => {
 	beforeEach(() => {
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
 		mocks.getTransportStatus.mockResolvedValue({
 			installed: true,
 			availableTransport: "xurl",
@@ -198,6 +227,93 @@ describe("live authored tweet sync", () => {
 		expect(mocks.listUserTweets).toHaveBeenCalledTimes(1);
 	});
 
+	it("syncs authored tweets through bird without spending xurl", async () => {
+		makeTempHome();
+		mocks.listUserTweetsViaBird.mockResolvedValueOnce({
+			items: [authoredTweet("bird_authored_1", "bird authored")],
+			includes: {
+				users: [{ id: "25401953", username: "steipete", name: "Peter" }],
+			},
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		const result = await syncAuthoredTweets({ mode: "bird", limit: 5 });
+
+		expect(result).toMatchObject({
+			ok: true,
+			kind: "authored",
+			source: "bird",
+			count: 1,
+			nextSinceId: "bird_authored_1",
+		});
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+		expect(mocks.getAuthenticatedBirdAccount).toHaveBeenCalledTimes(1);
+		expect(mocks.listUserTweetsViaBird).toHaveBeenCalledWith(
+			"steipete",
+			expect.objectContaining({ maxResults: 5 }),
+		);
+		expect(authoredEdgeCount("bird_authored_1")).toEqual({ count: 1 });
+		expect(
+			getNativeDb()
+				.prepare(
+					"select source from tweet_account_edges where tweet_id = ? and kind = ?",
+				)
+				.get("bird_authored_1", "authored"),
+		).toEqual({ source: "bird" });
+	});
+
+	it("stores and resumes authored bird cursors", async () => {
+		makeTempHome();
+		mocks.listUserTweetsViaBird
+			.mockResolvedValueOnce({
+				items: [authoredTweet("bird_cursor_2", "newest bird page")],
+				nextToken: "cursor-2",
+			})
+			.mockResolvedValueOnce({
+				items: [],
+				nextToken: null,
+			});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		const partial = await syncAuthoredTweets({
+			mode: "bird",
+			limit: 5,
+			maxPages: 1,
+		});
+		const resumed = await syncAuthoredTweets({ mode: "bird", limit: 5 });
+
+		expect(partial).toMatchObject({
+			ok: false,
+			partial: true,
+			source: "bird",
+			nextToken: "cursor-2",
+			cursor: { paginationToken: "cursor-2", pending: true },
+		});
+		expect(resumed).toMatchObject({
+			ok: true,
+			source: "bird",
+			sinceId: null,
+		});
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+		expect(mocks.listUserTweetsViaBird).toHaveBeenNthCalledWith(
+			1,
+			"steipete",
+			expect.objectContaining({ maxResults: 5, maxPages: 1 }),
+		);
+		expect(mocks.listUserTweetsViaBird).toHaveBeenNthCalledWith(
+			2,
+			"steipete",
+			expect.objectContaining({ cursor: "cursor-2" }),
+		);
+		expect(authoredCursor("acct_primary", "bird")).toEqual({
+			state: "committed",
+			sinceId: "bird_cursor_2",
+		});
+	});
+
 	it("validates authored sync effects only when run", async () => {
 		makeTempHome();
 		const { syncAuthoredTweetsEffect } = await import("./authored-live");
@@ -209,6 +325,40 @@ describe("live authored tweet sync", () => {
 		);
 		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
 		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+	});
+
+	it("stops bird authored sync when it reaches the stored newest tweet", async () => {
+		makeTempHome();
+		mocks.listUserTweetsViaBird
+			.mockResolvedValueOnce({
+				items: [authoredTweet("300", "newest known")],
+				nextToken: null,
+			})
+			.mockResolvedValueOnce({
+				items: [
+					authoredTweet("400", "new tweet"),
+					authoredTweet("300", "newest known"),
+					authoredTweet("250", "older"),
+				],
+				nextToken: "older-cursor",
+			});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ mode: "bird", limit: 5 });
+		const result = await syncAuthoredTweets({ mode: "bird", limit: 5 });
+
+		expect(result).toMatchObject({
+			ok: true,
+			source: "bird",
+			nextSinceId: "400",
+			nextToken: "older-cursor",
+			partial: false,
+			cursor: { paginationToken: "older-cursor", pending: false },
+		});
+		expect(authoredCursor("acct_primary", "bird")).toEqual({
+			state: "committed",
+			sinceId: "400",
+		});
 	});
 
 	it("handles an empty authored response without moving the cursor", async () => {

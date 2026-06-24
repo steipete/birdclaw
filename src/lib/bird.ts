@@ -13,6 +13,7 @@ import type {
 	XurlMentionUser,
 	XurlReferencedTweet,
 	XurlTweetsResponse,
+	XurlUserTweetsResponse,
 } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -461,6 +462,51 @@ function normalizeBirdTweetsPayloadEffect(payload: unknown, command: string) {
 	});
 }
 
+function toUserTweetsResponse(
+	payload: XurlMentionsResponse,
+): XurlUserTweetsResponse {
+	const nextToken = payload.meta?.next_token;
+	return {
+		items: payload.data.map((tweet) => ({
+			id: tweet.id,
+			author_id: tweet.author_id,
+			text: tweet.text,
+			created_at: tweet.created_at,
+			conversation_id: tweet.conversation_id,
+			attachments: tweet.attachments,
+			entities: tweet.entities,
+			referenced_tweets: tweet.referenced_tweets,
+			public_metrics: tweet.public_metrics,
+			edit_history_tweet_ids: tweet.edit_history_tweet_ids,
+		})),
+		nextToken: typeof nextToken === "string" ? nextToken : null,
+		includes: payload.includes,
+	};
+}
+
+function normalizeBirdUserTweetsPayloadEffect(payload: unknown) {
+	return Effect.try({
+		try: () => {
+			const normalized = normalizeBirdTweets(
+				getBirdTweetItems(payload, "user-tweets"),
+			);
+			const response = toUserTweetsResponse(normalized);
+			if (
+				payload &&
+				typeof payload === "object" &&
+				typeof (payload as { nextCursor?: unknown }).nextCursor === "string"
+			) {
+				return {
+					...response,
+					nextToken: (payload as { nextCursor: string }).nextCursor,
+				};
+			}
+			return response;
+		},
+		catch: (error) => error,
+	});
+}
+
 function normalizeBirdTweetItemEffect(payload: unknown, command: string) {
 	return Effect.try({
 		try: () => getBirdTweetItem(payload, command),
@@ -552,6 +598,49 @@ export function listBookmarkedTweetsViaBird(options: {
 	maxPages?: number;
 }): Promise<XurlMentionsResponse> {
 	return runEffectPromise(listBookmarkedTweetsViaBirdEffect(options));
+}
+
+export function listUserTweetsViaBirdEffect(
+	userHandle: string,
+	{
+		maxResults,
+		maxPages,
+		cursor,
+	}: {
+		maxResults: number;
+		maxPages?: number;
+		cursor?: string;
+	},
+): Effect.Effect<XurlUserTweetsResponse, unknown> {
+	return Effect.gen(function* () {
+		const args = [
+			"user-tweets",
+			userHandle,
+			"-n",
+			String(maxResults),
+			"--json",
+		];
+		if (maxPages !== undefined) {
+			args.push("--max-pages", String(maxPages));
+		}
+		if (cursor !== undefined) {
+			args.push("--cursor", cursor);
+		}
+		const stdout = yield* runBirdJsonCommandEffect(args);
+		const payload = yield* parseBirdJsonEffect(stdout);
+		return yield* normalizeBirdUserTweetsPayloadEffect(payload);
+	});
+}
+
+export function listUserTweetsViaBird(
+	userHandle: string,
+	options: {
+		maxResults: number;
+		maxPages?: number;
+		cursor?: string;
+	},
+): Promise<XurlUserTweetsResponse> {
+	return runEffectPromise(listUserTweetsViaBirdEffect(userHandle, options));
 }
 
 export function searchTweetsViaBirdEffect(

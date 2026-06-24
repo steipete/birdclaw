@@ -8,6 +8,7 @@ import {
 	listLikedTweetsViaBirdEffect,
 	listMentionsViaBirdEffect,
 	listThreadViaBirdEffect,
+	listUserTweetsViaBirdEffect,
 	searchTweetsViaBirdEffect,
 } from "./bird";
 import {
@@ -36,6 +37,7 @@ export interface BirdReadTransport {
 	listLikes: typeof listLikedTweetsViaBirdEffect;
 	listMentions: typeof listMentionsViaBirdEffect;
 	listThread: typeof listThreadViaBirdEffect;
+	listUserTweets: typeof listUserTweetsViaBirdEffect;
 	searchTweets: typeof searchTweetsViaBirdEffect;
 }
 
@@ -98,6 +100,8 @@ export const liveTransportGateway: LiveTransportGateway = {
 		listLikes: (options) => listLikedTweetsViaBirdEffect(options),
 		listMentions: (options) => listMentionsViaBirdEffect(options),
 		listThread: (options) => listThreadViaBirdEffect(options),
+		listUserTweets: (userIdOrHandle, options) =>
+			listUserTweetsViaBirdEffect(userIdOrHandle, options),
 		searchTweets: (query, options) => searchTweetsViaBirdEffect(query, options),
 	},
 	xurl: {

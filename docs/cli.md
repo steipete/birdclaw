@@ -264,7 +264,7 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,follo
 - refresh cursors
 - refresh FTS incrementally
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
-- `sync authored` uses `xurl`, includes retweets, and resumes from a stored `since_id`
+- `sync authored` uses `bird` by default, includes retweets, and can use `xurl` for `--since-id`/`--until-id`
 - `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
 - `sync mentions` ingests recent mentions through `xurl` (default) or `bird` and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
 - `sync mention-threads` fetches conversation context for recent mentions through `bird thread` or `xurl`; pass `--mode xurl` when the `bird` CLI is unavailable, otherwise use `--delay-ms` and `--timeout-ms` to stay gentle on live X
@@ -286,7 +286,8 @@ Common flags:
 Examples:
 
 ```bash
-birdclaw sync authored --mode xurl --limit 100 --json
+birdclaw sync authored --limit 100 --json
+birdclaw sync authored --mode xurl --since-id 123 --limit 100 --json
 birdclaw sync likes --mode auto --limit 100 --refresh --json
 birdclaw sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --refresh --json

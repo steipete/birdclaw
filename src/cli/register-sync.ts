@@ -91,10 +91,10 @@ export function registerSyncCommands({
 
 	syncCommand
 		.command("authored")
-		.description("Refresh authenticated authored tweets through xurl")
+		.description("Refresh authenticated authored tweets through bird or xurl")
 		.option("--account <accountId>", "Account id")
-		.option("--mode <mode>", "xurl", "xurl")
-		.option("--limit <n>", "X API page size", "100")
+		.option("--mode <mode>", "bird or xurl", "bird")
+		.option("--limit <n>", "Page size or bird item count", "100")
 		.option("--max-pages <n>", "Stop after N pages and resume later")
 		.option("--since-id <tweetId>", "Override the stored since_id cursor")
 		.option(
@@ -119,7 +119,7 @@ export function registerSyncCommands({
 					{
 						ok: false,
 						kind: "authored",
-						source: "xurl",
+						source: options.mode ?? "bird",
 						error: errorMessage(error),
 					},
 					true,
