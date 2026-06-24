@@ -9,6 +9,7 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./queries";
 
 const mocks = vi.hoisted(() => ({
+	getAuthenticatedBirdAccount: vi.fn(),
 	listBookmarkedTweetsViaBird: vi.fn(),
 	listHomeTimelineViaBird: vi.fn(),
 	listLikedTweetsViaBird: vi.fn(),
@@ -18,6 +19,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./bird", () => ({
+	getAuthenticatedBirdAccountEffect: (profileName: string) =>
+		Effect.tryPromise({
+			try: () => mocks.getAuthenticatedBirdAccount(profileName),
+			catch: (error) => error,
+		}),
 	listBookmarkedTweetsViaBird: mocks.listBookmarkedTweetsViaBird,
 	listBookmarkedTweetsViaBirdEffect: (options: unknown) =>
 		Effect.tryPromise({
@@ -94,6 +100,26 @@ function setupTempHome() {
 	process.env.BIRDCLAW_HOME = tempRoot;
 	resetBirdclawPathsForTests();
 	resetDatabaseForTests();
+	const db = getNativeDb();
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-primary",
+		"acct_primary",
+	);
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-studio",
+		"acct_studio",
+	);
+	mocks.getAuthenticatedBirdAccount.mockImplementation((profileName: string) => {
+		if (profileName === "profile-studio") {
+			return Promise.resolve({
+				username: "birdclaw_lab",
+			});
+		}
+		return Promise.resolve({
+			id: "25401953",
+			username: "steipete",
+		});
+	});
 }
 
 afterEach(() => {
@@ -737,6 +763,7 @@ describe("live timeline collection sync", () => {
 			maxResults: 10,
 			all: true,
 			maxPages: 2,
+			profileName: "profile-primary",
 		});
 		expect(mocks.listBookmarkedTweetsViaXurl).not.toHaveBeenCalled();
 		expect(syncedBookmark).toMatchObject({
@@ -744,6 +771,38 @@ describe("live timeline collection sync", () => {
 			liked: false,
 			author: { handle: "amelia" },
 		});
+	});
+
+	it("rejects bird collection sync when the authenticated account mismatches", async () => {
+		setupTempHome();
+		mocks.getAuthenticatedBirdAccount.mockResolvedValueOnce({
+			id: "1995710751097659392",
+			username: "wrong_account",
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await expect(
+			syncTimelineCollection({
+				kind: "likes",
+				mode: "bird",
+				limit: 5,
+				refresh: true,
+			}),
+		).rejects.toThrow(
+			"bird is authenticated as user 1995710751097659392; refusing to sync into acct_primary (25401953)",
+		);
+		expect(mocks.getAuthenticatedBirdAccount).toHaveBeenCalledWith(
+			"profile-primary",
+		);
+		expect(mocks.listLikedTweetsViaBird).not.toHaveBeenCalled();
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from tweet_collections where source = 'bird'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
 	});
 
 	it("stops bird collection sync when an early-stop page is saturated", async () => {
@@ -783,6 +842,7 @@ describe("live timeline collection sync", () => {
 			maxResults: 5,
 			all: true,
 			maxPages: 1,
+			profileName: "profile-primary",
 		});
 		expect(mocks.listLikedTweetsViaXurl).not.toHaveBeenCalled();
 		expect(consoleError).toHaveBeenCalledWith(
@@ -819,6 +879,7 @@ describe("live timeline collection sync", () => {
 			maxResults: 5,
 			all: true,
 			maxPages: 1,
+			profileName: "profile-primary",
 		});
 		expect(mocks.listBookmarkedTweetsViaXurl).not.toHaveBeenCalled();
 		consoleError.mockRestore();
@@ -926,6 +987,7 @@ describe("live timeline collection sync", () => {
 			maxResults: 3,
 			all: false,
 			maxPages: 2,
+			profileName: "profile-primary",
 		});
 		expect(row).toMatchObject({
 			media_count: 1,
@@ -1006,6 +1068,7 @@ describe("live timeline collection sync", () => {
 		expect(mocks.listHomeTimelineViaBird).toHaveBeenCalledWith({
 			maxResults: 25,
 			following: true,
+			profileName: "profile-primary",
 		});
 		expect(syncedHomeItem).toMatchObject({
 			kind: "home",
@@ -1054,6 +1117,7 @@ describe("live timeline collection sync", () => {
 		expect(mocks.listHomeTimelineViaBird).toHaveBeenCalledWith({
 			maxResults: 25,
 			following: false,
+			profileName: "profile-primary",
 		});
 		expect(row).toMatchObject({
 			media_count: 1,

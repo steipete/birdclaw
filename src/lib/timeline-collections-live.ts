@@ -4,7 +4,9 @@ import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
 import { liveTransportGateway } from "./live-transport-gateway";
 import {
+	assertLiveAccountMatches,
 	createLiveTransportAdapter,
+	type LiveSyncAccount,
 	normalizeCacheTtlMs,
 	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
@@ -280,6 +282,31 @@ function fetchXurlCollectionEffect({
 	});
 }
 
+function verifyBirdCollectionAccountEffect(account: LiveSyncAccount) {
+	return Effect.gen(function* () {
+		if (!account.birdProfileName) {
+			return yield* Effect.fail(
+				new Error("bird_profile_name is required to use bird"),
+			);
+		}
+		const authenticated =
+			yield* liveTransportGateway.bird.getAuthenticatedAccount(
+				account.birdProfileName,
+			);
+		return yield* Effect.try({
+			try: () =>
+				assertLiveAccountMatches({
+					source: "bird",
+					account,
+					liveUsername: authenticated.username,
+					liveExternalUserId: authenticated.id,
+				}),
+			catch: (error) =>
+				error instanceof Error ? error : new Error(String(error)),
+		});
+	});
+}
+
 function fetchBirdCollectionEffect({
 	db,
 	kind,
@@ -289,6 +316,7 @@ function fetchBirdCollectionEffect({
 	maxPages,
 	earlyStop,
 	profileName,
+	account,
 }: {
 	db: Database;
 	kind: TimelineCollectionKind;
@@ -298,6 +326,7 @@ function fetchBirdCollectionEffect({
 	maxPages: number | null;
 	earlyStop: boolean;
 	profileName: string;
+	account: LiveSyncAccount;
 }) {
 	const fetchPage = (cursor?: string) =>
 		kind === "likes"
@@ -316,9 +345,15 @@ function fetchBirdCollectionEffect({
 					profileName,
 				});
 
-	if (!earlyStop) return fetchPage();
+	if (!earlyStop) {
+		return Effect.gen(function* () {
+			yield* verifyBirdCollectionAccountEffect(account);
+			return yield* fetchPage();
+		});
+	}
 
 	return Effect.gen(function* () {
+		yield* verifyBirdCollectionAccountEffect(account);
 		let saturatedAtPage: number | undefined;
 		const result = yield* runSyncPlanEffect({
 			fetchPage: ({ cursor, pageIndex }) =>
@@ -435,6 +470,7 @@ export function syncTimelineCollectionEffect({
 			maxPages: birdEarlyStopMaxPages,
 			earlyStop,
 			profileName: resolvedAccount.birdProfileName!,
+			account: resolvedAccount,
 		});
 		if (effectiveMode !== "xurl" && !resolvedAccount.birdProfileName?.trim()) {
 			return yield* Effect.fail(

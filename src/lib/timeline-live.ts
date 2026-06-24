@@ -4,7 +4,9 @@ import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import { liveTransportGateway } from "./live-transport-gateway";
 import {
+	assertLiveAccountMatches,
 	createLiveTransportAdapter,
+	type LiveSyncAccount,
 	normalizeCacheTtlMs,
 	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
@@ -167,6 +169,31 @@ function filterExistingTimelineTweets(
 	};
 }
 
+function verifyBirdTimelineAccountEffect(account: LiveSyncAccount) {
+	return Effect.gen(function* () {
+		const profileName = account.birdProfileName;
+		if (!profileName) {
+			return yield* Effect.fail(
+				new Error("bird_profile_name is required to use bird"),
+			);
+		}
+		const authenticated =
+			yield* liveTransportGateway.bird.getAuthenticatedAccount(profileName);
+		yield* Effect.try({
+			try: () =>
+				assertLiveAccountMatches({
+					source: "bird",
+					account,
+					liveUsername: authenticated.username,
+					liveExternalUserId: authenticated.id,
+				}),
+			catch: (error) =>
+				error instanceof Error ? error : new Error(String(error)),
+		});
+		return profileName;
+	});
+}
+
 export function syncHomeTimelineEffect({
 	account,
 	mode,
@@ -268,14 +295,10 @@ export function syncHomeTimelineEffect({
 			});
 			return mergeTimelinePayloads(result.pages, effectiveLimit);
 		});
-		const birdProfileName = resolvedAccount.birdProfileName;
 		const fetchViaBird = useBirdEarlyStop
 			? Effect.gen(function* () {
-					if (!birdProfileName) {
-						return yield* Effect.fail(
-							new Error("bird_profile_name is required to use bird"),
-						);
-					}
+					const profileName =
+						yield* verifyBirdTimelineAccountEffect(resolvedAccount);
 					const result = yield* runSyncPlanEffect({
 						fetchPage: ({ cursor }) =>
 							liveTransportGateway.bird
@@ -285,7 +308,7 @@ export function syncHomeTimelineEffect({
 									all: true,
 									maxPages: 1,
 									...(cursor ? { cursor } : {}),
-									profileName: birdProfileName,
+									profileName,
 								})
 								.pipe(
 									Effect.map((payload) => {
@@ -326,10 +349,14 @@ export function syncHomeTimelineEffect({
 						finiteFallbackLimit,
 					);
 				})
-			: liveTransportGateway.bird.listHomeTimeline({
-					maxResults: finiteFallbackLimit,
-					following,
-					profileName: birdProfileName!,
+			: Effect.gen(function* () {
+					const profileName =
+						yield* verifyBirdTimelineAccountEffect(resolvedAccount);
+					return yield* liveTransportGateway.bird.listHomeTimeline({
+						maxResults: finiteFallbackLimit,
+						following,
+						profileName,
+					});
 				});
 		const transports =
 			effectiveMode === "xurl"

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useMemo } from "react";
 import { liveDataSourcesResponseSchema } from "#/lib/api-contracts";
-import { fetchJson } from "#/lib/api-client";
+import { fetchJson, fetchQueryEnvelope } from "#/lib/api-client";
 import { queryKeys } from "#/lib/query-client";
 import type {
 	LiveDataSourceCapability,
@@ -29,14 +29,18 @@ import {
 	secondaryButtonClass,
 	statusCopyClass,
 } from "#/lib/ui";
+import { useSelectedAccountId } from "#/components/account-selection";
 
 export const Route = createFileRoute("/data-sources")({
 	component: DataSourcesRoute,
 });
 
-async function fetchDataSources() {
+async function fetchDataSources(accountId: string | undefined) {
+	const path = accountId
+		? `/api/data-sources?account=${encodeURIComponent(accountId)}`
+		: "/api/data-sources";
 	return fetchJson(
-		"/api/data-sources",
+		path,
 		undefined,
 		liveDataSourcesResponseSchema,
 		"Data source status failed",
@@ -173,9 +177,15 @@ function CapabilityRow({
 }
 
 function DataSourcesRoute() {
+	const statusQuery = useQuery({
+		queryKey: queryKeys.status,
+		queryFn: ({ signal }) => fetchQueryEnvelope({ signal }),
+	});
+	const accounts = statusQuery.data?.accounts ?? [];
+	const selectedAccountId = useSelectedAccountId(accounts);
 	const dataSourcesQuery = useQuery({
-		queryKey: queryKeys.dataSources,
-		queryFn: fetchDataSources,
+		queryKey: [...queryKeys.dataSources, selectedAccountId],
+		queryFn: () => fetchDataSources(selectedAccountId),
 		staleTime: 5 * 60_000,
 	});
 	const snapshot = dataSourcesQuery.data ?? null;

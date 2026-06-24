@@ -19,7 +19,11 @@ export const Route = createFileRoute("/api/data-sources")({
 
 						return jsonResponse(
 							liveDataSourcesResponseSchema.parse(
-								yield* getLiveDataSourcesEffect(),
+								yield* getLiveDataSourcesEffect({
+									accountId:
+										new URL(request.url).searchParams.get("account") ??
+										undefined,
+								}),
 							),
 						);
 					}),

@@ -73,8 +73,12 @@ function getBirdclawStatusEffect(): Effect.Effect<LiveDataSourceStatus, never> {
 	);
 }
 
-function getBirdStatusEffect(): Effect.Effect<LiveDataSourceStatus, never> {
-	const profileName = getBirdProfileName(getNativeDb());
+function getBirdStatusEffect({
+	accountId,
+}: {
+	accountId?: string;
+} = {}): Effect.Effect<LiveDataSourceStatus, never> {
+	const profileName = getBirdProfileName(getNativeDb(), accountId);
 	if (!profileName) {
 		return Effect.succeed({
 			source: "bird" as const,
@@ -211,13 +215,18 @@ const capabilities: LiveDataSourceCapability[] = [
 	},
 ];
 
-export function getLiveDataSourcesEffect(): Effect.Effect<
-	LiveDataSourcesResponse,
-	never
-> {
+export function getLiveDataSourcesEffect({
+	accountId,
+}: {
+	accountId?: string;
+} = {}): Effect.Effect<LiveDataSourcesResponse, never> {
 	return Effect.gen(function* () {
 		const sources = yield* Effect.all(
-			[getBirdclawStatusEffect(), getBirdStatusEffect(), getXurlStatusEffect()],
+			[
+				getBirdclawStatusEffect(),
+				getBirdStatusEffect({ accountId }),
+				getXurlStatusEffect(),
+			],
 			{ concurrency: "unbounded" },
 		);
 		return {

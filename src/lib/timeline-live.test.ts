@@ -8,6 +8,7 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./queries";
 
+const getAuthenticatedBirdAccountMock = vi.fn();
 const listHomeTimelineViaBirdMock = vi.fn();
 const listHomeTimelineViaXurlMock = vi.fn();
 
@@ -19,6 +20,11 @@ vi.mock("./bird", async () => {
 		listHomeTimelineViaBirdEffect: (...args: unknown[]) =>
 			Effect.tryPromise({
 				try: () => listHomeTimelineViaBirdMock(...args),
+				catch: (error) => error,
+			}),
+		getAuthenticatedBirdAccountEffect: (...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => getAuthenticatedBirdAccountMock(...args),
 				catch: (error) => error,
 			}),
 	};
@@ -43,6 +49,26 @@ function makeTempHome() {
 	);
 	tempDirs.push(tempDir);
 	process.env.BIRDCLAW_HOME = tempDir;
+	const db = getNativeDb();
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-primary",
+		"acct_primary",
+	);
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-studio",
+		"acct_studio",
+	);
+	getAuthenticatedBirdAccountMock.mockImplementation((profileName: string) => {
+		if (profileName === "profile-studio") {
+			return Promise.resolve({
+				username: "birdclaw_lab",
+			});
+		}
+		return Promise.resolve({
+			id: "25401953",
+			username: "steipete",
+		});
+	});
 	return tempDir;
 }
 
@@ -50,6 +76,7 @@ afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
+	getAuthenticatedBirdAccountMock.mockReset();
 	listHomeTimelineViaBirdMock.mockReset();
 	listHomeTimelineViaXurlMock.mockReset();
 
@@ -427,6 +454,30 @@ describe("live home timeline sync", () => {
 		expect(listHomeTimelineViaBirdMock).not.toHaveBeenCalled();
 	});
 
+	it("rejects bird home timeline sync when the authenticated account mismatches", async () => {
+		makeTempHome();
+		getAuthenticatedBirdAccountMock.mockResolvedValueOnce({
+			id: "1995710751097659392",
+			username: "wrong_account",
+		});
+		const { syncHomeTimeline } = await import("./timeline-live");
+
+		await expect(
+			syncHomeTimeline({
+				account: "acct_primary",
+				mode: "bird",
+				limit: 5,
+				refresh: true,
+			}),
+		).rejects.toThrow(
+			"bird is authenticated as user 1995710751097659392; refusing to sync into acct_primary (25401953)",
+		);
+		expect(getAuthenticatedBirdAccountMock).toHaveBeenCalledWith(
+			"profile-primary",
+		);
+		expect(listHomeTimelineViaBirdMock).not.toHaveBeenCalled();
+	});
+
 	it("uses bird directly for auto mode and rejects xurl for-you imports", async () => {
 		makeTempHome();
 		listHomeTimelineViaBirdMock.mockResolvedValueOnce({
@@ -512,6 +563,7 @@ describe("live home timeline sync", () => {
 			following: true,
 			all: true,
 			maxPages: 1,
+			profileName: "profile-primary",
 		});
 	});
 
