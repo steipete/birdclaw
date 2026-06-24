@@ -154,28 +154,41 @@ function defaultAccountId(db: Database) {
 	return row?.id;
 }
 
-function isExplicitNonDefaultAccount(
-	db: Database,
-	account: string | undefined,
-) {
-	if (!account) return false;
-	return account !== defaultAccountId(db);
+function isBirdAccountConfigured(db: Database, account: string | undefined) {
+	if (!account) return true;
+	const row = db
+		.prepare(
+			`
+      select id, is_default, bird_profile_name
+      from accounts
+      where id = ?
+      `,
+		)
+		.get(account) as
+		| { id: string; is_default: number; bird_profile_name: string | null }
+		| undefined;
+	if (!row) return account === defaultAccountId(db);
+	if (row.is_default === 1) return true;
+	return (
+		typeof row.bird_profile_name === "string" &&
+		row.bird_profile_name.trim() !== ""
+	);
 }
 
 function birdAccountError(kind: AccountSyncStepKind) {
-	return `Bird-backed ${kind} sync requires --allow-bird-account for non-default accounts; configure the account's bird profile name first.`;
+	return `Bird-backed ${kind} sync for a non-default account requires bird_profile_name. Run birdclaw accounts set-bird-profile for that account first.`;
 }
 
 function resolveCollectionModeForAccount({
 	mode,
-	allowBirdAccount,
+	birdAccountConfigured,
 }: {
 	mode: TimelineCollectionMode;
-	allowBirdAccount: boolean | undefined;
+	birdAccountConfigured: boolean;
 }) {
-	if (mode === "auto") return "bird";
-	if (allowBirdAccount || mode === "xurl") return mode;
-	return mode === "bird" ? undefined : "xurl";
+	if (mode === "xurl") return "xurl";
+	if (!birdAccountConfigured) return undefined;
+	return "bird";
 }
 
 async function runStep({
@@ -186,24 +199,18 @@ async function runStep({
 	maxPages,
 	refresh,
 	cacheTtlMs,
-	allowBirdAccount,
+	birdAccountConfigured,
 }: Required<
 	Pick<AccountSyncJobOptions, "mode" | "limit" | "maxPages" | "refresh">
 > &
-	Pick<AccountSyncJobOptions, "account" | "cacheTtlMs" | "allowBirdAccount"> & {
+	Pick<AccountSyncJobOptions, "account" | "cacheTtlMs"> & {
+		birdAccountConfigured: boolean;
 		kind: AccountSyncStepKind;
 	}): Promise<AccountSyncAuditStep> {
 	try {
 		if (kind === "timeline") {
-			const timelineMode =
-				mode === "auto"
-					? account
-						? allowBirdAccount
-							? "bird"
-							: "xurl"
-						: "auto"
-					: mode;
-			if (timelineMode === "bird" && !allowBirdAccount) {
+			const timelineMode = mode === "auto" ? (account ? "bird" : "auto") : mode;
+			if (timelineMode !== "xurl" && !birdAccountConfigured) {
 				return { kind, ok: false, count: 0, error: birdAccountError(kind) };
 			}
 			const result = await syncHomeTimeline({
@@ -223,11 +230,10 @@ async function runStep({
 			};
 		}
 		if (kind === "mentions") {
-			if (mode === "bird" && !allowBirdAccount) {
+			const mentionMode = mode === "auto" ? (account ? "bird" : "auto") : mode;
+			if (mentionMode !== "xurl" && !birdAccountConfigured) {
 				return { kind, ok: false, count: 0, error: birdAccountError(kind) };
 			}
-			const mentionMode =
-				mode === "auto" ? (allowBirdAccount ? "auto" : "xurl") : mode;
 			const result = await syncMentions({
 				account,
 				mode: mentionMode,
@@ -244,6 +250,9 @@ async function runStep({
 			};
 		}
 		if (kind === "mention-threads") {
+			if (!birdAccountConfigured) {
+				return { kind, ok: false, count: 0, error: birdAccountError(kind) };
+			}
 			const result = await syncMentionThreads({
 				account,
 				mode: "bird",
@@ -259,7 +268,7 @@ async function runStep({
 			};
 		}
 		if (kind === "dms") {
-			const dmMode = allowBirdAccount
+			const dmMode = birdAccountConfigured
 				? mode
 				: mode === "bird"
 					? undefined
@@ -285,7 +294,7 @@ async function runStep({
 		const collectionKind = kind as TimelineCollectionKind;
 		const collectionMode = resolveCollectionModeForAccount({
 			mode,
-			allowBirdAccount,
+			birdAccountConfigured,
 		});
 		if (!collectionMode) {
 			return { kind, ok: false, count: 0, error: birdAccountError(kind) };
@@ -350,9 +359,7 @@ export async function runAccountSyncJob({
 		...(cacheTtlMs === undefined ? {} : { cacheTtlMs }),
 		...(allowBirdAccount ? { allowBirdAccount } : {}),
 	};
-	const birdAccountAllowed =
-		!isExplicitNonDefaultAccount(database, account) ||
-		Boolean(allowBirdAccount);
+	const birdAccountConfigured = isBirdAccountConfigured(database, account);
 
 	const releaseLock = await acquireScheduledJobLock(
 		resolvedLockPath,
@@ -383,7 +390,7 @@ export async function runAccountSyncJob({
 					maxPages,
 					refresh,
 					cacheTtlMs,
-					allowBirdAccount: birdAccountAllowed,
+					birdAccountConfigured,
 				}),
 			);
 		}

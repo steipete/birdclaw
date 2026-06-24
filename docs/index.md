@@ -42,7 +42,7 @@ Stable `--json` envelopes go to stdout, progress and warnings to stderr — pipe
 - **Local web app** for `What happened`, `Home`, `Mentions`, `Likes`, `Bookmarks`, `DMs`, `Inbox`, and `Blocks` — light/dark/system theme, focused timeline lane, no dashboard chrome.
 - **AI-ranked inbox** (OpenAI) for low-signal filtering on mentions and DMs.
 - **Streaming AI digest** (OpenAI Responses API) for today, 24h, yesterday, or week, with DMs excluded unless explicitly enabled.
-- **Account-scoped moderation** with bulk blocklist import and a cookie-backed fallback when OAuth2 block writes get rejected.
+- **Account-scoped moderation** with bulk blocklist import and a bird relay/profile fallback when OAuth2 block writes get rejected.
 - **Git-friendly text backups** with yearly tweet shards and per-conversation DM shards — push the local SQLite truth into a private Git repo.
 
 ## Pick your path

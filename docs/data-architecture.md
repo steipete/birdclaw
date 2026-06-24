@@ -70,7 +70,7 @@ Reason:
 
 - working `xurl` already exists
 - users with `xurl` setup get zero-friction sync
-- `bird` can cover GraphQL/cookie-backed gaps if needed
+- `bird` can cover web/GraphQL relay-backed gaps if needed
 
 ### `xurl` compatibility
 
@@ -99,7 +99,7 @@ Treat `bird` the same way:
 - adapter, not architecture
 - subprocess or wrapper boundary
 - no dependency on `bird` config/storage as core truth
-- useful for GraphQL/cookie-backed reads or actions when `xurl` does not cover a surface
+- useful for web/GraphQL relay-backed reads or actions when `xurl` does not cover a surface
 
 ### Transport interface
 
@@ -468,7 +468,7 @@ Options by transport:
   - auth remains managed by `xurl`
 - `bird`
   - birdclaw shells out to `bird` or wraps a narrow stable surface
-  - useful for GraphQL/cookie-backed capabilities
+  - useful for web/GraphQL relay-backed capabilities
 
 ## Package Layout
 

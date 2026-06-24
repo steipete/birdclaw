@@ -46,6 +46,8 @@ User config:
 
 ```text
 birdclaw init
+birdclaw accounts set-bird-profile --account <accountId> --profile-name <name>
+birdclaw accounts clear-bird-profile --account <accountId>
 birdclaw auth status
 birdclaw auth use <transport>
 birdclaw import archive [path]
@@ -136,6 +138,16 @@ birdclaw debug transport
 
 - set preferred moderation action transport
 - allowed: `auto`, `xurl`, `bird`
+
+### `accounts set-bird-profile`
+
+- attaches a bird relay profile name to an existing Birdclaw account
+- account-scoped bird reads and writes pass it to `bird --profile-name`
+
+```bash
+birdclaw accounts set-bird-profile --account acct_primary --profile-name work
+birdclaw accounts clear-bird-profile --account acct_primary
+```
 
 ### `backup export`
 
@@ -320,13 +332,14 @@ Follow graph sync uses a 24-hour cache by default. Repeating the same sync comma
 - appends one JSONL audit entry per run to `~/.birdclaw/audit/account-sync.jsonl`
 - records each step independently with count, source, and error
 - uses `~/.birdclaw/locks/account-sync.lock` to skip overlapping runs
-- requires `--allow-bird-account` before Bird-backed steps write to a non-default `--account`
+- requires `bird_profile_name` before Bird-backed steps run for a non-default `--account`
 - exits non-zero when any step failed
 
 Examples:
 
 ```bash
-birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-pages 3 --refresh --allow-bird-account
+birdclaw accounts set-bird-profile --account acct_openclaw --profile-name work
+birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-pages 3 --refresh
 tail -n 20 ~/.birdclaw/audit/account-sync.jsonl | jq .
 ```
 
@@ -337,10 +350,10 @@ tail -n 20 ~/.birdclaw/audit/account-sync.jsonl | jq .
 - uses `launchctl load -w` unless `--no-load` is passed
 - `--steps <steps>` narrows the scheduled surfaces
 - `--env-path <path>` sources process environment variables for launchd
-- `--allow-bird-account` asserts that the selected account is configured for Bird-backed timeline, mentions, and DM steps
+- `--allow-bird-account` is deprecated; non-default Bird-backed steps are authorized by the account's `bird_profile_name`
 
 ```bash
-birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env --allow-bird-account
+birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env
 ```
 
 ### `jobs sync-bookmarks`
@@ -654,7 +667,7 @@ Flags:
 - add a local block entry for one account
 - accepts handle, `@handle`, Twitter URL, local profile id, or numeric Twitter user id
 - attempts live block transport via `xurl` when resolvable
-- falls back to the Twitter web cookie session if `xurl` is rejected for OAuth2 block writes
+- falls back to `bird` relay/profile transport if `xurl` is rejected for OAuth2 block writes
 - still records the local block if live transport is unavailable
 
 Flags:
@@ -677,7 +690,7 @@ Flags:
 
 - remove a local block entry for one account
 - attempts live unblock transport via `xurl` when resolvable
-- falls back to the Twitter web cookie session if `xurl` is rejected for OAuth2 block writes
+- falls back to `bird` relay/profile transport if `xurl` is rejected for OAuth2 block writes
 
 Flags:
 

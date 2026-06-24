@@ -32,7 +32,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--refresh", "Bypass live-cache freshness window")
 		.option(
 			"--allow-bird-account",
-			"Assert the account's bird profile is configured for Bird-backed steps",
+			"Deprecated; non-default Bird steps now require the account's bird profile name",
 		)
 		.option("--log <path>", "Audit JSONL path")
 		.action(async (options) => {
@@ -69,13 +69,10 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--no-refresh", "Allow live-cache reuse")
 		.option(
 			"--allow-bird-account",
-			"Assert the account's bird profile is configured for Bird-backed steps",
+			"Deprecated; non-default Bird steps now require the account's bird profile name",
 		)
 		.option("--log <path>", "Audit JSONL path")
-		.option(
-			"--env-path <path>",
-			"Shell env file to source before running",
-		)
+		.option("--env-path <path>", "Shell env file to source before running")
 		.option("--env-file <path>", "Deprecated alias for --env-path")
 		.option("--stdout <path>", "launchd stdout path")
 		.option("--stderr <path>", "launchd stderr path")
@@ -143,10 +140,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 		.option("--no-refresh", "Allow live-cache reuse")
 		.option("--log <path>", "Audit JSONL path")
-		.option(
-			"--env-path <path>",
-			"Shell env file to source before running",
-		)
+		.option("--env-path <path>", "Shell env file to source before running")
 		.option("--env-file <path>", "Deprecated alias for --env-path")
 		.option("--stdout <path>", "launchd stdout path")
 		.option("--stderr <path>", "launchd stderr path")

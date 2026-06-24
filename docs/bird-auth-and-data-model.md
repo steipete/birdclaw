@@ -39,6 +39,13 @@ Use `profileName` for:
 
 Do not treat `profileName` as Birdclaw identity. It is transport configuration attached to an account.
 
+Set or clear it with:
+
+```text
+birdclaw accounts set-bird-profile --account acct_primary --profile-name work
+birdclaw accounts clear-bird-profile --account acct_primary
+```
+
 ## Dependency Chain
 
 The clean flow is:

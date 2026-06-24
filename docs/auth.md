@@ -8,7 +8,7 @@ description: "Connect birdclaw to X through xurl or bird, verify each tool, and 
 birdclaw keeps its database local. Archive import needs no X credentials. Live reads and writes are delegated to external CLIs:
 
 - [`xurl`](https://github.com/xdevplatform/xurl) uses the official X API and your own developer app.
-- [`bird`](https://github.com/steipete/bird) uses the active browser session through X's web API.
+- [`bird`](https://github.com/steipete/bird) uses a selected relay profile through X's web API.
 
 Install either tool or both. Transport selection is workflow-specific: sync commands expose `--mode`, while `auth use` only controls moderation writes such as block, unblock, mute, and unmute.
 
@@ -35,7 +35,7 @@ Alternatively, use xurl's [no-sudo install script](https://github.com/xdevplatfo
 
 ## Set up bird
 
-Install bird, sign in to x.com in Safari, Chrome, or Firefox, then verify the detected account:
+Install bird, configure its relay profile, then verify the selected account:
 
 ```text
 npm install -g @steipete/bird
@@ -43,6 +43,15 @@ bird whoami
 ```
 
 bird uses the selected relay profile for auth. If you need to adjust how the relay profile is selected, see the bird CLI docs for `--profile-name` and related profile configuration.
+
+Attach that relay profile to the Birdclaw account that should use it:
+
+```text
+birdclaw accounts set-bird-profile --account acct_primary --profile-name work
+birdclaw accounts clear-bird-profile --account acct_primary
+```
+
+When `bird_profile_name` is set, account-scoped bird reads and writes pass it to `bird` as `--profile-name`. When it is unset, bird keeps using its own default profile/config.
 
 ## Verify xurl in birdclaw
 

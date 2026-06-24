@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { createCommandContext } from "#/cli/command-context";
+import { registerAccountCommands } from "#/cli/register-accounts";
 import { registerAnalysisCommands } from "#/cli/register-analysis";
 import { registerComposeCommands } from "#/cli/register-compose";
 import { registerCoreCommands } from "#/cli/register-core";
@@ -44,6 +45,7 @@ const program = new Command()
 const commandContext = createCommandContext(program);
 
 registerCoreCommands(commandContext);
+registerAccountCommands(commandContext);
 registerSearchCommands(commandContext);
 registerAnalysisCommands(commandContext);
 registerMentionCommands(commandContext);

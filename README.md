@@ -69,7 +69,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - import batch blocklists in one call
 - add / remove local mutes
 - sync remote blocks through `xurl` when available
-- fall back to the Twitter web cookie session when OAuth2 block writes are rejected
+- fall back to `bird` relay/profile transport when OAuth2 block writes are rejected
 
 ### Safety
 
@@ -178,7 +178,7 @@ Notes:
 - Node `25.8.1` or Node 26.x
 - `pnpm`
 - macOS recommended for Spotlight archive discovery
-- `bird` optional for cookie-backed timeline, mentions, likes, bookmarks, profiles, and tweet/reply writes
+- `bird` optional for relay/profile-backed timeline, mentions, likes, bookmarks, profiles, and tweet/reply writes
 - `xurl` optional for authored sync, bounded historical reads, and explicit accepted-DM operations
 - OpenAI API key optional for inbox scoring; set `OPENAI_BASE_URL` to use an OpenAI-compatible endpoint
 
@@ -230,6 +230,12 @@ birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 ```
 
 Don't have an archive yet? Request it from <https://x.com/settings/download_your_data>; X emails a download link when it is ready, which may take a few days. A fresh Birdclaw database needs the archive import to establish account identity before live sync. See [Archive Import → Get an archive](docs/archive.md#get-an-archive).
+
+When using bird with a relay profile, attach that profile to the imported account:
+
+```bash
+birdclaw accounts set-bird-profile --account acct_primary --profile-name work
+```
 
 Optional profile hydration can improve bios, follower counts, and avatars, but it performs live X profile reads and can spend API credits on large archives:
 
@@ -610,17 +616,18 @@ Read paths such as CLI search, inbox, API status/query, and web startup pull + m
 `birdclaw jobs sync-account` refreshes home timeline, mentions, mention threads, likes, bookmarks, and DMs for a selected account, then appends a per-step audit entry.
 
 ```bash
-birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-pages 3 --refresh --allow-bird-account
+birdclaw accounts set-bird-profile --account acct_openclaw --profile-name work
+birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-pages 3 --refresh
 tail -n 5 ~/.birdclaw/audit/account-sync.jsonl | jq .
 ```
 
 On macOS, install the 30-minute LaunchAgent:
 
 ```bash
-birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env --allow-bird-account
+birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw
 ```
 
-Use `--env-path ~/.config/bird/openclaw.env` when launchd needs account-specific `bird` cookies. Pass `--allow-bird-account` only when those cookies match `--account`; otherwise Bird-backed timeline, mentions, and DM steps refuse non-default account writes to avoid misattribution. Use `--steps timeline,mentions,dms` to narrow the scheduled surfaces.
+Set `bird_profile_name` on non-default accounts before running bird-backed scheduled syncs. Bird-backed steps refuse non-default accounts without it to avoid misattribution. `--allow-bird-account` is deprecated and no longer authorizes bird use by itself. Use `--env-path` only for process-level environment variables, and `--steps timeline,mentions,dms` to narrow the scheduled surfaces.
 
 `birdclaw jobs sync-bookmarks` refreshes live bookmarks and appends one JSONL audit entry per run. Each entry includes host, timestamps, duration, before/after bookmark counts, source transport, fetched count, backup sync result, and any error.
 
@@ -637,7 +644,7 @@ On macOS, install the 3-hour LaunchAgent after choosing the Birdclaw executable 
 birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdclaw
 ```
 
-If the machine uses `bird` with browser cookies that are not available to launchd, write an export-only env file with mode `0600` and install with `--env-path ~/.config/bird/env.sh`. Birdclaw sources that file inside the scheduled process without storing the secrets in the plist.
+If the scheduled process needs relay-level environment variables, write an export-only env file with mode `0600` and install with `--env-path ~/.config/bird/env.sh`. Birdclaw sources that file inside the scheduled process without storing the values in the plist.
 
 The LaunchAgent writes `~/Library/LaunchAgents/com.steipete.birdclaw.bookmarks-sync.plist`, runs at load, then every 10,800 seconds. It writes the audit log to `~/.birdclaw/audit/bookmarks-sync.jsonl` and stdout/stderr to `~/.birdclaw/logs/bookmarks-sync.*.log`. A lock file prevents overlapping runs and records an `already-running` skip when needed. The default job fetches up to 5 pages every 3 hours; pass `--all` if you want every retrievable page each run.
 

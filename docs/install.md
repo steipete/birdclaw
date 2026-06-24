@@ -17,7 +17,7 @@ description: "Install birdclaw via Homebrew, npm, or from source. Optional xurl 
 Optional but encouraged:
 
 - [`xurl`](https://github.com/xdevplatform/xurl) — official-API live reads/writes (likes, bookmarks, blocks, mutes, posting)
-- [`bird`](https://github.com/steipete/bird) — browser-cookie-backed reads/writes for surfaces where `xurl` is rate-limited or unavailable
+- [`bird`](https://github.com/steipete/bird) — relay/profile-backed reads/writes for surfaces where `xurl` is rate-limited or unavailable
 - `OPENAI_API_KEY` — inbox scoring and low-signal filtering
 
 birdclaw still works in pure local/archive mode without any of the above.
@@ -88,9 +88,15 @@ npm install -g @steipete/bird
 bird whoami
 ```
 
-bird reads cookies from a logged-in Safari, Chrome, or Firefox profile. This matters most for timeline, mentions, likes/bookmarks, profile lookups, tweet/reply writes, and moderation flows where X rejects OAuth2 writes. The current bird CLI does not expose DMs.
+bird uses its configured relay profile for auth. This matters most for timeline, mentions, likes/bookmarks, profile lookups, tweet/reply writes, and moderation flows where X rejects OAuth2 writes. The current bird CLI does not expose DMs.
 
-If you only run birdclaw via `launchd` (`jobs install-bookmarks-launchd`), `bird` may need its `AUTH_TOKEN`/`CT0` exported via an env file because launchd does not see your interactive browser session. See [Jobs](jobs.md#env-files-for-launchd).
+For non-default Birdclaw accounts, attach the bird relay profile before scheduled syncs:
+
+```text
+birdclaw accounts set-bird-profile --account acct_openclaw --profile-name work
+```
+
+If you only run birdclaw via `launchd`, use an env file only for process-level settings such as a relay base URL. Account selection still comes from the account's stored `bird_profile_name`. See [Jobs](jobs.md#env-files-for-launchd).
 
 ## Optional: OpenAI
 

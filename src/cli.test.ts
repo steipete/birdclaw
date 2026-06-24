@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ensureBirdclawDirsMock = vi.fn();
 const getBirdclawPathsMock = vi.fn();
+const setAccountBirdProfileMock = vi.fn();
+const clearAccountBirdProfileMock = vi.fn();
 const resolveMentionsDataSourceMock = vi.fn();
 const setActionsTransportMock = vi.fn();
 const getQueryEnvelopeMock = vi.fn();
@@ -105,6 +107,13 @@ vi.mock("#/lib/archive-import", () => ({
 		"following",
 	],
 	importArchive: (...args: unknown[]) => importArchiveMock(...args),
+}));
+
+vi.mock("#/lib/accounts", () => ({
+	clearAccountBirdProfile: (...args: unknown[]) =>
+		clearAccountBirdProfileMock(...args),
+	setAccountBirdProfile: (...args: unknown[]) =>
+		setAccountBirdProfileMock(...args),
 }));
 
 vi.mock("#/lib/backup", async (importOriginal) => {
@@ -287,6 +296,8 @@ describe("cli", () => {
 		consoleLogMock.mockClear();
 		ensureBirdclawDirsMock.mockReset();
 		getBirdclawPathsMock.mockReset();
+		setAccountBirdProfileMock.mockReset();
+		clearAccountBirdProfileMock.mockReset();
 		resolveMentionsDataSourceMock.mockReset();
 		setActionsTransportMock.mockReset();
 		getQueryEnvelopeMock.mockReset();
@@ -367,6 +378,16 @@ describe("cli", () => {
 			configPath: "/tmp/.birdclaw/config.json",
 			transport,
 		}));
+		setAccountBirdProfileMock.mockResolvedValue({
+			ok: true,
+			accountId: "acct_primary",
+			birdProfileName: "work",
+		});
+		clearAccountBirdProfileMock.mockResolvedValue({
+			ok: true,
+			accountId: "acct_primary",
+			birdProfileName: null,
+		});
 		getQueryEnvelopeMock.mockResolvedValue({
 			stats: { home: 4, mentions: 2, dms: 4, needsReply: 2, inbox: 4 },
 			transport: { statusText: "local", installed: false },
@@ -588,6 +609,43 @@ describe("cli", () => {
 		expect(setActionsTransportMock).toHaveBeenCalledWith("xurl");
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"transport": "xurl"'),
+		);
+	});
+
+	it("sets and clears account bird profile names", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"accounts",
+			"set-bird-profile",
+			"--account",
+			"acct_primary",
+			"--profile-name",
+			"work",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"accounts",
+			"clear-bird-profile",
+			"--account",
+			"acct_primary",
+		]);
+
+		expect(setAccountBirdProfileMock).toHaveBeenCalledWith(
+			"acct_primary",
+			"work",
+		);
+		expect(clearAccountBirdProfileMock).toHaveBeenCalledWith("acct_primary");
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"birdProfileName": "work"'),
+		);
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"birdProfileName": null'),
 		);
 	});
 

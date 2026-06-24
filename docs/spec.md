@@ -151,7 +151,7 @@ Do not copy:
 - CLI tone and flag ergonomics
 - output modes: human vs `--json` vs `--plain`
 - cursor pagination and retry logic
-- GraphQL/cookie-backed capability adapter
+- web/GraphQL relay-backed capability adapter
 
 ### From `xurl`
 

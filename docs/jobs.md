@@ -10,7 +10,8 @@ description: "Scheduler-friendly bookmark sync with launchd integration, audit l
 ## `jobs sync-account`
 
 ```bash
-birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-pages 3 --refresh --allow-bird-account
+birdclaw accounts set-bird-profile --account acct_openclaw --profile-name work
+birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-pages 3 --refresh
 ```
 
 What it does:
@@ -25,10 +26,10 @@ What it does:
 Install the LaunchAgent:
 
 ```bash
-birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env --allow-bird-account
+birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env
 ```
 
-The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job. `--env-path ~/.config/bird/openclaw.env` still works for process environment variables, but bird account selection now comes from the account's stored relay profile name. Pass `--allow-bird-account` only when that account is intentionally configured for bird-backed steps. DM steps require explicit xurl mode while bird lacks DM support.
+The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job. `--env-path ~/.config/bird/openclaw.env` still works for process environment variables, but bird account selection comes from the account's stored relay profile name. Non-default accounts must have `bird_profile_name` before bird-backed steps run. `--allow-bird-account` is deprecated and no longer authorizes bird use by itself. DM steps require explicit xurl mode while bird lacks DM support.
 
 ## `jobs sync-bookmarks`
 
@@ -100,8 +101,7 @@ The recommended pattern:
 mkdir -p ~/.config/bird
 chmod 700 ~/.config/bird
 cat > ~/.config/bird/env.sh <<'SH'
-export AUTH_TOKEN="..."
-export CT0="..."
+export TWITTER_RELAY_BASE_URL="https://relay.internal"
 SH
 chmod 600 ~/.config/bird/env.sh
 

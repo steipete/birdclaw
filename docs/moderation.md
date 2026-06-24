@@ -1,6 +1,6 @@
 ---
 title: Moderation
-description: "Account-scoped blocks, mutes, bans, and bulk blocklist imports with cookie-backed write fallback."
+description: "Account-scoped blocks, mutes, bans, and bulk blocklist imports with bird relay/profile write fallback."
 ---
 
 # Moderation
@@ -28,7 +28,7 @@ Accepts a handle (`amelia`), `@handle`, Twitter URL, local profile id, or numeri
 
 Live transport order for `auto`:
 
-1. `bird` — cookie-backed, verified with `bird status`.
+1. `bird` — relay/profile-backed, verified with `bird whoami`.
 2. `xurl` — used when `bird` fails and the selected account matches the authenticated xurl account.
 
 When both live transports fail, the local block is not recorded. Use `blocks record` for a local-only row.

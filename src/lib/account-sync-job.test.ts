@@ -67,6 +67,34 @@ describe("account sync job", () => {
 		}
 	});
 
+	function makeAccountsDb({
+		defaultAccount = "acct_primary",
+		profiles = {},
+	}: {
+		defaultAccount?: string;
+		profiles?: Record<string, string | null>;
+	}) {
+		return {
+			prepare: (sql: string) => ({
+				get: (account?: string) => {
+					if (sql.includes("where id = ?")) {
+						if (!account) return undefined;
+						return {
+							id: account,
+							is_default: account === defaultAccount ? 1 : 0,
+							bird_profile_name: profiles[account] ?? null,
+						};
+					}
+					return {
+						id: defaultAccount,
+						is_default: 1,
+						bird_profile_name: profiles[defaultAccount] ?? null,
+					};
+				},
+			}),
+		} as never;
+	}
+
 	it("parses comma-separated step lists", () => {
 		expect(parseAccountSyncSteps("timeline,mentions,dms")).toEqual([
 			"timeline",
@@ -173,15 +201,11 @@ describe("account sync job", () => {
 		});
 	});
 
-	it("refuses Bird-backed non-default account sync without an assertion", async () => {
+	it("refuses Bird-backed non-default account sync without a bird profile", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = makeAccountsDb({ profiles: { acct_openclaw: null } });
 
 		const result = await runAccountSyncJob({
 			account: "acct_openclaw",
@@ -199,7 +223,7 @@ describe("account sync job", () => {
 				{
 					kind: "timeline",
 					ok: false,
-					error: expect.stringContaining("--allow-bird-account"),
+					error: expect.stringContaining("bird_profile_name"),
 				},
 			],
 		});
@@ -209,11 +233,7 @@ describe("account sync job", () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = makeAccountsDb({ profiles: { acct_openclaw: "work" } });
 		syncTimelineCollectionMock.mockResolvedValue({
 			source: "bird",
 			count: 4,
@@ -240,15 +260,11 @@ describe("account sync job", () => {
 		});
 	});
 
-	it("refuses explicit Bird saved collection syncs for non-default accounts without an assertion", async () => {
+	it("refuses explicit Bird saved collection syncs for non-default accounts without a bird profile", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = makeAccountsDb({ profiles: { acct_openclaw: null } });
 
 		const result = await runAccountSyncJob({
 			account: "acct_openclaw",
@@ -266,7 +282,35 @@ describe("account sync job", () => {
 				{
 					kind: "bookmarks",
 					ok: false,
-					error: expect.stringContaining("--allow-bird-account"),
+					error: expect.stringContaining("bird_profile_name"),
+				},
+			],
+		});
+	});
+
+	it("does not let deprecated allow flag bypass a missing bird profile", async () => {
+		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+		const logPath = path.join(tempDir, "audit.jsonl");
+		const lockPath = path.join(tempDir, "sync.lock");
+
+		const result = await runAccountSyncJob({
+			account: "acct_openclaw",
+			steps: ["mentions"],
+			mode: "bird",
+			allowBirdAccount: true,
+			logPath,
+			lockPath,
+			db: makeAccountsDb({ profiles: { acct_openclaw: null } }),
+		});
+
+		expect(syncMentionsMock).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			ok: false,
+			steps: [
+				{
+					kind: "mentions",
+					ok: false,
+					error: expect.stringContaining("bird_profile_name"),
 				},
 			],
 		});
@@ -299,15 +343,11 @@ describe("account sync job", () => {
 		});
 	});
 
-	it("runs Bird-backed non-default account steps when explicitly allowed", async () => {
+	it("runs Bird-backed non-default account steps when a bird profile is configured", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = makeAccountsDb({ profiles: { acct_openclaw: "work" } });
 		syncHomeTimelineMock.mockResolvedValue({
 			source: "bird",
 			count: 10,
@@ -325,7 +365,6 @@ describe("account sync job", () => {
 			account: "acct_openclaw",
 			steps: ["timeline", "mentions", "dms"],
 			mode: "bird",
-			allowBirdAccount: true,
 			limit: 120,
 			maxPages: 4,
 			refresh: false,
@@ -366,7 +405,6 @@ describe("account sync job", () => {
 			ok: true,
 			options: {
 				account: "acct_openclaw",
-				allowBirdAccount: true,
 				refresh: false,
 				cacheTtlMs: 1000,
 			},
@@ -378,15 +416,10 @@ describe("account sync job", () => {
 		});
 	});
 
-	it("uses bird timeline mode for allowed non-default auto jobs", async () => {
+	it("uses bird timeline mode for profiled non-default auto jobs", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
 		syncHomeTimelineMock.mockResolvedValue({
 			source: "bird",
 			count: 10,
@@ -396,10 +429,9 @@ describe("account sync job", () => {
 			account: "acct_openclaw",
 			steps: ["timeline"],
 			mode: "auto",
-			allowBirdAccount: true,
 			logPath,
 			lockPath,
-			db,
+			db: makeAccountsDb({ profiles: { acct_openclaw: "work" } }),
 		});
 
 		expect(syncHomeTimelineMock).toHaveBeenCalledWith(
@@ -422,11 +454,7 @@ describe("account sync job", () => {
 			limit: 100,
 			logPath,
 			lockPath,
-			db: {
-				prepare: () => ({
-					get: () => ({ id: "acct_primary" }),
-				}),
-			} as never,
+			db: makeAccountsDb({ profiles: { acct_openclaw: "work" } }),
 		});
 
 		expect(syncMentionThreadsMock).toHaveBeenCalledWith(

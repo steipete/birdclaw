@@ -56,7 +56,7 @@ In paged `xurl` mode, `--limit` is the **page size**, not the total returned cou
 
 ### `bird`
 
-Shells out to your local `bird` CLI, normalizes the response into the same `xurl`-compatible shape, and caches it. Useful when `xurl` is rate-limited or when an account only has cookie-backed access:
+Shells out to your local `bird` CLI, normalizes the response into the same `xurl`-compatible shape, and caches it. Useful when `xurl` is rate-limited or when an account only has relay/profile-backed access:
 
 ```bash
 birdclaw mentions export --mode bird --limit 20
