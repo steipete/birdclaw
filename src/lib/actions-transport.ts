@@ -7,6 +7,7 @@ import {
 } from "./bird-actions";
 import { type ActionsTransport, resolveActionsTransport } from "./config";
 import { Effect } from "effect";
+import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { profileHandleKey } from "./profile-row";
 import type {
@@ -57,6 +58,15 @@ function liveWritesDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
 }
 
+function readBirdProfileName(accountId: string) {
+	const db = getNativeDb();
+	const row = db
+		.prepare("select bird_profile_name from accounts where id = ?")
+		.get(accountId) as { bird_profile_name: string | null } | undefined;
+	const profileName = row?.bird_profile_name?.trim();
+	return profileName && profileName.length > 0 ? profileName : null;
+}
+
 function verifyExpectedAccountEffect(
 	expectedAccount: ExpectedActionAccount | undefined,
 ) {
@@ -98,16 +108,17 @@ function verifyExpectedAccountEffect(
 function runBirdActionEffect(
 	action: ModerationAction,
 	query: string,
+	profileName: string,
 ): Effect.Effect<ActionTransportResult, unknown> {
 	return Effect.gen(function* () {
 		const result = yield* tryPromise(() =>
 			action === "block"
-				? blockUserViaBird(query)
+				? blockUserViaBird(query, profileName)
 				: action === "unblock"
-					? unblockUserViaBird(query)
+					? unblockUserViaBird(query, profileName)
 					: action === "mute"
-						? muteUserViaBird(query)
-						: unmuteUserViaBird(query),
+						? muteUserViaBird(query, profileName)
+						: unmuteUserViaBird(query, profileName),
 		);
 
 		return {
@@ -132,6 +143,7 @@ function getVerifyExpectation(action: ModerationAction) {
 function runXurlActionEffect(
 	action: ModerationAction,
 	query: string,
+	profileName: string,
 	targetUserId?: string,
 	verifiedSourceUserId?: string | null,
 ): Effect.Effect<ActionTransportResult, unknown> {
@@ -177,7 +189,9 @@ function runXurlActionEffect(
 			};
 		}
 
-		const status = yield* tryPromise(() => readBirdStatusViaBird(query));
+		const status = yield* tryPromise(() =>
+			readBirdStatusViaBird(query, profileName),
+		);
 		const { field: verifyField, expected: expectedValue } =
 			getVerifyExpectation(action);
 		const actualValue =
@@ -233,22 +247,54 @@ export function runModerationActionEffect({
 			);
 
 		if (requestedTransport === "bird") {
-			return yield* runBirdActionEffect(action, query);
+			const profileName = expectedAccount?.id
+				? readBirdProfileName(expectedAccount.id)
+				: null;
+			if (!profileName) {
+				return {
+					ok: false,
+					output: "bird_profile_name is required to use bird",
+					transport: "bird",
+				};
+			}
+			return yield* runBirdActionEffect(action, query, profileName);
 		}
 		if (requestedTransport === "xurl") {
 			const accountCheck = yield* verifyXurlAccount();
 			if (accountCheck && typeof accountCheck === "object") {
 				return accountCheck;
 			}
+			const profileName = expectedAccount?.id
+				? readBirdProfileName(expectedAccount.id)
+				: null;
+			if (!profileName) {
+				return {
+					ok: false,
+					output: "bird_profile_name is required to verify bird status",
+					transport: "xurl",
+				};
+			}
 			return yield* runXurlActionEffect(
 				action,
 				query,
+				profileName,
 				targetUserId,
 				typeof accountCheck === "string" ? accountCheck : null,
 			);
 		}
 
-		const birdResult = yield* runBirdActionEffect(action, query);
+		const profileName = expectedAccount?.id
+			? readBirdProfileName(expectedAccount.id)
+			: null;
+		if (!profileName) {
+			return {
+				ok: false,
+				output: "bird_profile_name is required to use bird",
+				transport: "bird",
+			};
+		}
+
+		const birdResult = yield* runBirdActionEffect(action, query, profileName);
 		if (birdResult.ok) {
 			return birdResult;
 		}
@@ -267,6 +313,7 @@ export function runModerationActionEffect({
 		const xurlResult = yield* runXurlActionEffect(
 			action,
 			query,
+			profileName!,
 			targetUserId,
 			typeof accountCheck === "string" ? accountCheck : null,
 		);

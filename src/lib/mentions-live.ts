@@ -421,11 +421,15 @@ function writeMentionHighWaterId(
 
 function verifyBirdAccountMatchesEffect(account: LiveSyncAccount) {
 	return Effect.gen(function* () {
-		const authenticated = account.birdProfileName
-			? yield* liveTransportGateway.bird.getAuthenticatedAccount(
-					account.birdProfileName,
-				)
-			: yield* liveTransportGateway.bird.getAuthenticatedAccount();
+		if (!account.birdProfileName) {
+			return yield* Effect.fail(
+				new Error("bird_profile_name is required to use bird"),
+			);
+		}
+		const authenticated =
+			yield* liveTransportGateway.bird.getAuthenticatedAccount(
+				account.birdProfileName,
+			);
 		return yield* Effect.try({
 			try: () =>
 				assertLiveAccountMatches({
@@ -637,11 +641,11 @@ function fetchMentionsViaBirdEffect({
 	profileName,
 }: {
 	limit: number;
-	profileName?: string;
+	profileName: string;
 }) {
 	return liveTransportGateway.bird.listMentions({
 		maxResults: limit,
-		...(profileName ? { profileName } : {}),
+		profileName,
 	});
 }
 
@@ -833,9 +837,7 @@ export function syncMentionsEffect({
 						Effect.flatMap(() =>
 							fetchMentionsViaBirdEffect({
 								limit,
-								...(resolvedAccount.birdProfileName
-									? { profileName: resolvedAccount.birdProfileName }
-									: {}),
+								profileName: resolvedAccount.birdProfileName!,
 							}),
 						),
 					)
@@ -1015,7 +1017,12 @@ function exportMentionsViaCachedLiveSourceEffect({
 		const liveResult = yield* (
 			primaryMode === "bird"
 				? verifyBirdAccountMatchesEffect(resolvedAccount).pipe(
-						Effect.flatMap(() => fetchMentionsViaBirdEffect({ limit })),
+						Effect.flatMap(() =>
+							fetchMentionsViaBirdEffect({
+								limit,
+								profileName: resolvedAccount.birdProfileName!,
+							}),
+						),
 					)
 				: fetchMentionsViaXurlEffect({
 						resolvedAccount,

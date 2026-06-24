@@ -307,7 +307,7 @@ function fetchFollowGraphViaBirdEffect({
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
-	profileName?: string;
+	profileName: string;
 }): Effect.Effect<MergedFollowPayload, unknown> {
 	return Effect.gen(function* () {
 		const birdLimit = Math.min(limit, BIRD_FOLLOW_PAGE_LIMIT);
@@ -324,7 +324,7 @@ function fetchFollowGraphViaBirdEffect({
 			maxResults: Math.min(birdLimit, maxResources ?? birdLimit),
 			all: true,
 			maxPages: Number.isFinite(cappedMaxPages) ? cappedMaxPages : undefined,
-			...(profileName ? { profileName } : {}),
+			profileName,
 		});
 		return mergePages(
 			[payload],
@@ -353,7 +353,7 @@ function fetchFollowGraphEffect({
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
-	profileName?: string;
+	profileName: string;
 }): Effect.Effect<
 	{ source: FollowGraphLiveSource; payload: MergedFollowPayload },
 	unknown
@@ -368,7 +368,7 @@ function fetchFollowGraphEffect({
 					limit,
 					maxPages,
 					maxResources,
-					...(profileName ? { profileName } : {}),
+					profileName,
 				}),
 			};
 		}
@@ -392,7 +392,7 @@ function fetchFollowGraphEffect({
 			limit,
 			maxPages,
 			maxResources,
-			...(profileName ? { profileName } : {}),
+			profileName,
 		}).pipe(
 			Effect.map((payload) => ({ ok: true as const, payload })),
 			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
@@ -703,6 +703,12 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 		const useCache = Boolean(
 			!options.refresh && cached && cacheAgeMs <= cacheTtlMs,
 		);
+		const birdProfileName = account.birdProfileName;
+		if (!birdProfileName && mode !== "xurl") {
+			return yield* Effect.fail(
+				new Error("bird_profile_name is required to use bird"),
+			);
+		}
 
 		const liveResult = useCache
 			? undefined
@@ -714,9 +720,7 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 					limit,
 					maxPages,
 					maxResources,
-					...(account.birdProfileName
-						? { profileName: account.birdProfileName }
-						: {}),
+					profileName: birdProfileName!,
 				});
 		const payload = useCache ? cached!.value : liveResult!.payload;
 

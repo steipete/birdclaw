@@ -1,5 +1,6 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
+import { getBirdProfileName } from "./bird-profile";
 import { lookupProfileViaBirdEffect } from "./bird";
 import { runEffectPromise } from "./effect-runtime";
 import { syncIdentitySearchIndexForProfileIds } from "./identity-search-index";
@@ -171,7 +172,12 @@ export function hydrateProfileAffiliationOrganizationsEffect(
 					return true;
 				}
 
-				const user = yield* lookupProfileViaBirdEffect(handle);
+				const profileName = getBirdProfileName(db);
+				if (!profileName) {
+					result.skipped += 1;
+					return true;
+				}
+				const user = yield* lookupProfileViaBirdEffect(handle, profileName);
 				if (!user) {
 					result.skipped += 1;
 					return true;

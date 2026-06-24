@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const execFileAsyncMock = vi.fn();
+const PROFILE_NAME = "test-profile";
 
 vi.mock("node:child_process", () => ({
 	execFile: Object.assign(vi.fn(), {
@@ -31,7 +32,12 @@ function expectBirdCommandCall(callNumber: number, args: string[]) {
 	expect(call).toBeDefined();
 	expect(call[0]).toBe("bash");
 	expect((call[1] as string[])[0]).toBe("-c");
-	expect((call[1] as string[]).slice(4)).toEqual(["/tmp/bird", ...args]);
+	const commandArgs = call[1] as string[];
+	const normalizedArgs =
+		commandArgs[5] === "--profile-name"
+			? commandArgs.slice(7)
+			: commandArgs.slice(5);
+	expect(normalizedArgs).toEqual(args);
 	expect(call[2]).toEqual(
 		expect.objectContaining({ maxBuffer: expect.any(Number) }),
 	);
@@ -56,7 +62,9 @@ describe("bird transport wrapper", () => {
 		let promise: Promise<unknown> | undefined;
 
 		expect(() => {
-			promise = runEffectPromise(runBirdJsonCommandEffect(["mentions"]));
+			promise = runEffectPromise(
+				runBirdJsonCommandEffect(["mentions"], PROFILE_NAME),
+			);
 		}).not.toThrow();
 		await expect(promise).rejects.toThrow(/JSON/);
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
@@ -95,6 +103,7 @@ describe("bird transport wrapper", () => {
 
 		const payload = await listMentionsViaBird({
 			maxResults: 12,
+			profileName: PROFILE_NAME,
 		});
 
 		expectBirdCommandCall(1, ["mentions", "-n", "12", "--json"]);
@@ -153,7 +162,10 @@ describe("bird transport wrapper", () => {
 		);
 		const { listMentionsViaBirdEffect } = await import("./bird");
 
-		const effect = listMentionsViaBirdEffect({ maxResults: 3 });
+		const effect = listMentionsViaBirdEffect({
+			maxResults: 3,
+			profileName: PROFILE_NAME,
+		});
 
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
 		await expect(Effect.runPromise(effect)).resolves.toEqual(
@@ -171,7 +183,11 @@ describe("bird transport wrapper", () => {
 		const { searchTweetsViaBird } = await import("./bird");
 
 		await expect(
-			searchTweetsViaBird("ChatGPT", { maxResults: 5, maxPages: 1 }),
+			searchTweetsViaBird("ChatGPT", {
+				maxResults: 5,
+				maxPages: 1,
+				profileName: PROFILE_NAME,
+			}),
 		).resolves.toEqual({
 			data: [],
 			includes: undefined,
@@ -189,6 +205,7 @@ describe("bird transport wrapper", () => {
 			maxResults: 5,
 			all: true,
 			maxPages: 2,
+			profileName: PROFILE_NAME,
 		});
 		expectBirdCommandCall(2, [
 			"search",
@@ -231,7 +248,9 @@ describe("bird transport wrapper", () => {
 
 		const { listMentionsViaBird } = await import("./bird");
 
-		await expect(listMentionsViaBird({ maxResults: 2 })).resolves.toEqual({
+		await expect(
+			listMentionsViaBird({ maxResults: 2, profileName: PROFILE_NAME }),
+		).resolves.toEqual({
 			data: [
 				expect.objectContaining({
 					id: "tweet_2",
@@ -283,7 +302,9 @@ describe("bird transport wrapper", () => {
 			},
 		});
 
-		await expect(listMentionsViaBird({ maxResults: 0 })).resolves.toEqual({
+		await expect(
+			listMentionsViaBird({ maxResults: 0, profileName: PROFILE_NAME }),
+		).resolves.toEqual({
 			data: [],
 			includes: undefined,
 			meta: {
@@ -300,9 +321,9 @@ describe("bird transport wrapper", () => {
 
 		const { listMentionsViaBird } = await import("./bird");
 
-		await expect(listMentionsViaBird({ maxResults: 10 })).rejects.toThrow(
-			"bird mentions returned unexpected JSON",
-		);
+		await expect(
+			listMentionsViaBird({ maxResults: 10, profileName: PROFILE_NAME }),
+		).rejects.toThrow("bird mentions returned unexpected JSON");
 	});
 
 	it("explains how to configure bird when the binary is missing", async () => {
@@ -316,9 +337,9 @@ describe("bird transport wrapper", () => {
 
 		const { listMentionsViaBird } = await import("./bird");
 
-		await expect(listMentionsViaBird({ maxResults: 10 })).rejects.toThrow(
-			"bird command unavailable: /missing/bird",
-		);
+		await expect(
+			listMentionsViaBird({ maxResults: 10, profileName: PROFILE_NAME }),
+		).rejects.toThrow("bird command unavailable: /missing/bird");
 	});
 
 	it("tolerates bird json with raw newlines inside tweet text", async () => {
@@ -328,7 +349,9 @@ describe("bird transport wrapper", () => {
 		);
 		const { listLikedTweetsViaBird } = await import("./bird");
 
-		await expect(listLikedTweetsViaBird({ maxResults: 1 })).resolves.toEqual(
+		await expect(
+			listLikedTweetsViaBird({ maxResults: 1, profileName: PROFILE_NAME }),
+		).resolves.toEqual(
 			expect.objectContaining({
 				data: [
 					expect.objectContaining({
@@ -363,7 +386,7 @@ describe("bird transport wrapper", () => {
 
 		const { getAuthenticatedBirdAccount } = await import("./bird");
 
-		await expect(getAuthenticatedBirdAccount()).resolves.toEqual({
+		await expect(getAuthenticatedBirdAccount(PROFILE_NAME)).resolves.toEqual({
 			id: "25401953",
 			username: "steipete",
 		});
@@ -410,7 +433,9 @@ describe("bird transport wrapper", () => {
 		const { listBookmarkedTweetsViaBird, listLikedTweetsViaBird } =
 			await import("./bird");
 
-		await expect(listLikedTweetsViaBird({ maxResults: 5 })).resolves.toEqual({
+		await expect(
+			listLikedTweetsViaBird({ maxResults: 5, profileName: PROFILE_NAME }),
+		).resolves.toEqual({
 			data: [expect.objectContaining({ id: "liked_1", author_id: "42" })],
 			includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
 			meta: expect.objectContaining({ result_count: 1 }),
@@ -420,6 +445,7 @@ describe("bird transport wrapper", () => {
 				maxResults: 7,
 				all: true,
 				maxPages: 2,
+				profileName: PROFILE_NAME,
 			}),
 		).resolves.toEqual({
 			data: [expect.objectContaining({ id: "bookmark_1", author_id: "43" })],
@@ -454,7 +480,11 @@ describe("bird transport wrapper", () => {
 		const { listHomeTimelineViaBird } = await import("./bird");
 
 		await expect(
-			listHomeTimelineViaBird({ maxResults: 9, following: true }),
+			listHomeTimelineViaBird({
+				maxResults: 9,
+				following: true,
+				profileName: PROFILE_NAME,
+			}),
 		).resolves.toEqual({
 			data: [expect.objectContaining({ id: "home_1", author_id: "45" })],
 			includes: { users: [{ id: "45", username: "riley", name: "Riley" }] },
@@ -487,6 +517,7 @@ describe("bird transport wrapper", () => {
 				maxResults: 9,
 				maxPages: 2,
 				cursor: "cursor-1",
+				profileName: PROFILE_NAME,
 			}),
 		).resolves.toEqual({
 			items: [
@@ -554,6 +585,7 @@ describe("bird transport wrapper", () => {
 				maxResults: 100,
 				all: true,
 				maxPages: 2,
+				profileName: PROFILE_NAME,
 			}),
 		).resolves.toEqual({
 			data: [
@@ -576,6 +608,7 @@ describe("bird transport wrapper", () => {
 			listFollowUsersViaBird({
 				direction: "following",
 				maxResults: 10,
+				profileName: PROFILE_NAME,
 			}),
 		).resolves.toEqual({
 			data: [
@@ -626,7 +659,12 @@ describe("bird transport wrapper", () => {
 		const { listThreadViaBird } = await import("./bird");
 
 		await expect(
-			listThreadViaBird({ tweetId: "reply_1", maxPages: 2, timeoutMs: 5000 }),
+			listThreadViaBird({
+				tweetId: "reply_1",
+				maxPages: 2,
+				timeoutMs: 5000,
+				profileName: PROFILE_NAME,
+			}),
 		).resolves.toEqual({
 			data: [
 				expect.objectContaining({
@@ -670,7 +708,11 @@ describe("bird transport wrapper", () => {
 		const { listBookmarkedTweetsViaBird } = await import("./bird");
 
 		await expect(
-			listBookmarkedTweetsViaBird({ maxResults: 5, all: true }),
+			listBookmarkedTweetsViaBird({
+				maxResults: 5,
+				all: true,
+				profileName: PROFILE_NAME,
+			}),
 		).resolves.toEqual({
 			data: [expect.objectContaining({ id: "bookmark_2", author_id: "44" })],
 			includes: { users: [{ id: "44", username: "jules", name: "Jules" }] },
@@ -695,7 +737,9 @@ describe("bird transport wrapper", () => {
 		);
 		const { lookupTweetsByIdsViaBird } = await import("./bird");
 
-		await expect(lookupTweetsByIdsViaBird(["tweet_1"])).resolves.toEqual({
+		await expect(
+			lookupTweetsByIdsViaBird(["tweet_1"], PROFILE_NAME),
+		).resolves.toEqual({
 			data: [
 				expect.objectContaining({
 					id: "tweet_1",
@@ -733,7 +777,7 @@ describe("bird transport wrapper", () => {
 		);
 		const { lookupProfileViaBird } = await import("./bird");
 
-		await expect(lookupProfileViaBird("42")).resolves.toEqual({
+		await expect(lookupProfileViaBird("42", PROFILE_NAME)).resolves.toEqual({
 			id: "42",
 			username: "sam",
 			name: "Sam",
@@ -765,14 +809,16 @@ describe("bird transport wrapper", () => {
 		);
 		const { postTweetViaBird, replyToTweetViaBird } = await import("./bird");
 
-		await expect(postTweetViaBird("hello bird")).resolves.toEqual({
-			ok: true,
-			output: expect.stringContaining("12345"),
-			tweetId: "12345",
-			transport: "bird",
-		});
+		await expect(postTweetViaBird("hello bird", PROFILE_NAME)).resolves.toEqual(
+			{
+				ok: true,
+				output: expect.stringContaining("12345"),
+				tweetId: "12345",
+				transport: "bird",
+			},
+		);
 		await expect(
-			replyToTweetViaBird("tweet_parent", "hello parent"),
+			replyToTweetViaBird("tweet_parent", "hello parent", PROFILE_NAME),
 		).resolves.toEqual({
 			ok: true,
 			output: expect.stringContaining("67890"),
@@ -808,7 +854,10 @@ describe("bird transport wrapper", () => {
 		);
 
 		const { lookupProfilesViaBird } = await import("./bird");
-		const results = await lookupProfilesViaBird(["@github", "missing"]);
+		const results = await lookupProfilesViaBird(
+			["@github", "missing"],
+			PROFILE_NAME,
+		);
 
 		expectBirdCommandCall(1, ["profiles", "github", "missing", "--json"]);
 		expect(results).toEqual([
@@ -835,9 +884,9 @@ describe("bird transport wrapper", () => {
 
 		const { lookupProfilesViaBird } = await import("./bird");
 
-		await expect(lookupProfilesViaBird(["github"])).rejects.toThrow(
-			"unknown command profiles",
-		);
+		await expect(
+			lookupProfilesViaBird(["github"], PROFILE_NAME),
+		).rejects.toThrow("unknown command profiles");
 		expectBirdCommandCall(1, ["profiles", "github", "--json"]);
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 	});

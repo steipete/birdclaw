@@ -58,7 +58,7 @@ function toError(error: unknown) {
 	return error instanceof Error ? error : new Error(String(error));
 }
 
-function runBirdJsonCommandEffect(args: string[], profileName?: string) {
+function runBirdJsonCommandEffect(args: string[], profileName: string) {
 	return Effect.gen(function* () {
 		const { stdout } = yield* runBirdCommandEffect(
 			withBirdProfileName(args, profileName),
@@ -83,7 +83,7 @@ function safeBirdProfileArg(query: string) {
 
 export function readBirdStatusViaBirdEffect(
 	query: string,
-	profileName?: string,
+	profileName: string,
 ) {
 	return Effect.gen(function* () {
 		const safeQuery = yield* Effect.try({
@@ -97,8 +97,8 @@ export function readBirdStatusViaBirdEffect(
 	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
-export function readBirdStatusViaBird(query: string) {
-	return runEffectPromise(readBirdStatusViaBirdEffect(query));
+export function readBirdStatusViaBird(query: string, profileName: string) {
+	return runEffectPromise(readBirdStatusViaBirdEffect(query, profileName));
 }
 
 function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
@@ -161,10 +161,7 @@ function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
 	};
 }
 
-export function lookupProfileViaBirdEffect(
-	query: string,
-	profileName?: string,
-) {
+export function lookupProfileViaBirdEffect(query: string, profileName: string) {
 	return Effect.gen(function* () {
 		const safeQuery = yield* Effect.try({
 			try: () => safeBirdProfileArg(query),
@@ -181,8 +178,8 @@ export function lookupProfileViaBirdEffect(
 	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
-export function lookupProfileViaBird(query: string) {
-	return runEffectPromise(lookupProfileViaBirdEffect(query));
+export function lookupProfileViaBird(query: string, profileName: string) {
+	return runEffectPromise(lookupProfileViaBirdEffect(query, profileName));
 }
 
 function runVerifiedBirdMutationEffect({
@@ -196,7 +193,7 @@ function runVerifiedBirdMutationEffect({
 	query: string;
 	verifyField: "blocking" | "muting";
 	expectedValue: boolean;
-	profileName?: string;
+	profileName: string;
 }) {
 	return Effect.gen(function* () {
 		const safeQuery = yield* Effect.try({
@@ -251,7 +248,7 @@ function runVerifiedBirdMutationEffect({
 	});
 }
 
-export function blockUserViaBirdEffect(query: string, profileName?: string) {
+export function blockUserViaBirdEffect(query: string, profileName: string) {
 	return runVerifiedBirdMutationEffect({
 		action: "block",
 		query,
@@ -261,11 +258,11 @@ export function blockUserViaBirdEffect(query: string, profileName?: string) {
 	});
 }
 
-export function blockUserViaBird(query: string, profileName?: string) {
+export function blockUserViaBird(query: string, profileName: string) {
 	return runEffectPromise(blockUserViaBirdEffect(query, profileName));
 }
 
-export function unblockUserViaBirdEffect(query: string, profileName?: string) {
+export function unblockUserViaBirdEffect(query: string, profileName: string) {
 	return runVerifiedBirdMutationEffect({
 		action: "unblock",
 		query,
@@ -275,11 +272,11 @@ export function unblockUserViaBirdEffect(query: string, profileName?: string) {
 	});
 }
 
-export function unblockUserViaBird(query: string, profileName?: string) {
+export function unblockUserViaBird(query: string, profileName: string) {
 	return runEffectPromise(unblockUserViaBirdEffect(query, profileName));
 }
 
-export function muteUserViaBirdEffect(query: string, profileName?: string) {
+export function muteUserViaBirdEffect(query: string, profileName: string) {
 	return runVerifiedBirdMutationEffect({
 		action: "mute",
 		query,
@@ -289,11 +286,11 @@ export function muteUserViaBirdEffect(query: string, profileName?: string) {
 	});
 }
 
-export function muteUserViaBird(query: string, profileName?: string) {
+export function muteUserViaBird(query: string, profileName: string) {
 	return runEffectPromise(muteUserViaBirdEffect(query, profileName));
 }
 
-export function unmuteUserViaBirdEffect(query: string, profileName?: string) {
+export function unmuteUserViaBirdEffect(query: string, profileName: string) {
 	return runVerifiedBirdMutationEffect({
 		action: "unmute",
 		query,
@@ -303,6 +300,6 @@ export function unmuteUserViaBirdEffect(query: string, profileName?: string) {
 	});
 }
 
-export function unmuteUserViaBird(query: string, profileName?: string) {
+export function unmuteUserViaBird(query: string, profileName: string) {
 	return runEffectPromise(unmuteUserViaBirdEffect(query, profileName));
 }

@@ -31,7 +31,7 @@ This page tracks where Birdclaw is already bird-first, where xurl still remains,
 
 | Job | Current status | Notes |
 | --- | --- | --- |
-| `jobs sync-account` | `bird-first` | Timeline and mentions prefer bird. Likes and bookmarks now use bird for both default and non-default accounts. Timeline, likes, and bookmarks use local-row early-stop in steady state. Mention threads now use bird. DMs remain xurl where needed. |
+| `jobs sync-account` | `bird-first` | Timeline and mentions prefer bird. Likes and bookmarks now use bird when the account has a bird relay profile name. Timeline, likes, and bookmarks use local-row early-stop in steady state. Mention threads now use bird. DMs remain xurl where needed. |
 | `jobs sync-bookmarks` | `bird-first` | Uses the shared collection sync path and therefore prefers bird. |
 | `jobs install-account-launchd` | `bird-first` | Installs the account sync job above. |
 | `jobs install-bookmarks-launchd` | `bird-first` | Installs the bookmark sync job above. |
@@ -40,7 +40,7 @@ This page tracks where Birdclaw is already bird-first, where xurl still remains,
 
 | Endpoint / action | Current status | Notes |
 | --- | --- | --- |
-| `/api/sync timeline` | `bird-first` | Default account uses bird; non-default account handling remains account-aware. |
+| `/api/sync timeline` | `bird-first` | Default account uses bird when configured; account handling remains account-aware. |
 | `/api/sync mentions` | `bird-first` | Mentions ingest is bird-first, and mention-thread hydration now uses bird. |
 | `/api/sync likes` | `bird-first` | Uses the shared collection path. |
 | `/api/sync bookmarks` | `bird-first` | Uses the shared collection path. |

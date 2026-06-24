@@ -1,6 +1,7 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
 import { lookupProfileViaBird } from "./bird-actions";
+import { getBirdProfileName } from "./bird-profile";
 import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
@@ -121,13 +122,24 @@ export function resolveProfileEffect(
 
 		let user: XurlMentionUser | undefined;
 		let lastError: unknown;
+		const birdProfileName = getBirdProfileName(db);
 
-		const birdResult = yield* tryPromise(() =>
-			lookupProfileViaBird(local?.profile.handle ?? normalizedQuery),
-		).pipe(
-			Effect.map((value) => ({ ok: true as const, value })),
-			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
-		);
+		const birdResult = birdProfileName
+			? yield* tryPromise(() =>
+					lookupProfileViaBird(
+						local?.profile.handle ?? normalizedQuery,
+						birdProfileName,
+					),
+				).pipe(
+					Effect.map((value) => ({ ok: true as const, value })),
+					Effect.catchAll((error) =>
+						Effect.succeed({ ok: false as const, error }),
+					),
+				)
+			: {
+					ok: false as const,
+					error: new Error("bird_profile_name is required to use bird"),
+				};
 		if (birdResult.ok) {
 			user = birdResult.value ?? undefined;
 		} else {

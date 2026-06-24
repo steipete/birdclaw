@@ -630,7 +630,7 @@ On macOS, install the 30-minute LaunchAgent:
 birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw
 ```
 
-Set `bird_profile_name` on non-default accounts before running bird-backed scheduled syncs. Bird-backed steps refuse non-default accounts without it to avoid misattribution. `--allow-bird-account` is deprecated and no longer authorizes bird use by itself. Use `--env-path` only for process-level environment variables, and `--steps timeline,mentions,dms` to narrow the scheduled surfaces.
+Set `bird_profile_name` on any account before running bird-backed scheduled syncs. Bird-backed steps refuse accounts without it to avoid misattribution. `--allow-bird-account` is deprecated and no longer authorizes bird use by itself. Use `--env-path` only for process-level environment variables, and `--steps timeline,mentions,dms` to narrow the scheduled surfaces.
 
 `birdclaw jobs sync-bookmarks` refreshes live bookmarks and appends one JSONL audit entry per run. Each entry includes host, timestamps, duration, before/after bookmark counts, source transport, fetched count, backup sync result, and any error.
 

@@ -175,15 +175,18 @@ function fetchBirdSearchEffect({
 	query,
 	limit,
 	maxPages,
+	profileName,
 }: {
 	query: string;
 	limit: number;
 	maxPages: number;
+	profileName: string;
 }) {
 	return liveTransportGateway.bird.searchTweets(query, {
 		maxResults: Math.min(limit, XURL_PAGE_SIZE),
 		all: maxPages > 1 || limit > XURL_PAGE_SIZE,
 		maxPages,
+		profileName,
 	});
 }
 
@@ -234,6 +237,7 @@ function runModeEffect(
 		query: string;
 		accountId: string;
 		username: string;
+		profileName: string | null;
 		limit: number;
 		maxPages: number;
 		since?: string;
@@ -248,7 +252,12 @@ function runModeEffect(
 		const key = cacheKey({ ...options, mode });
 		const fetch =
 			mode === "bird"
-				? fetchBirdSearchEffect(options).pipe(Effect.mapError(toError))
+				? options.profileName
+					? fetchBirdSearchEffect({
+							...options,
+							profileName: options.profileName,
+						}).pipe(Effect.mapError(toError))
+					: Effect.fail(new Error("bird_profile_name is required to use bird"))
 				: fetchXurlSearchEffect(options);
 		const syncResult = yield* runCachedLiveSyncEffect({
 			db,
@@ -377,10 +386,23 @@ export function syncTweetSearchEffect({
 			} as const;
 		}
 
-		const runOptions = {
+		const runOptions: {
+			query: string;
+			accountId: string;
+			username: string;
+			profileName: string | null;
+			limit: number;
+			maxPages: number;
+			since?: string;
+			until?: string;
+			refresh: boolean;
+			cacheTtlMs: number;
+			timeoutMs?: number;
+		} = {
 			query: normalizedQuery,
 			accountId,
 			username: resolvedAccount.username,
+			profileName: resolvedAccount.birdProfileName ?? null,
 			limit: normalizedLimit,
 			maxPages: normalizedMaxPages,
 			since: normalizedSince,

@@ -32,7 +32,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--refresh", "Bypass live-cache freshness window")
 		.option(
 			"--allow-bird-account",
-			"Deprecated; non-default Bird steps now require the account's bird profile name",
+			"Deprecated; bird-backed steps now require the account's bird profile name",
 		)
 		.option("--log <path>", "Audit JSONL path")
 		.action(async (options) => {
@@ -69,7 +69,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--no-refresh", "Allow live-cache reuse")
 		.option(
 			"--allow-bird-account",
-			"Deprecated; non-default Bird steps now require the account's bird profile name",
+			"Deprecated; bird-backed steps now require the account's bird profile name",
 		)
 		.option("--log <path>", "Audit JSONL path")
 		.option("--env-path <path>", "Shell env file to source before running")

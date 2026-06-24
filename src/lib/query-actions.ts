@@ -108,9 +108,16 @@ function verifySelectedBirdAccountEffect(accountId: string) {
 		if (!account) {
 			return yield* Effect.fail(new Error(`Unknown account: ${accountId}`));
 		}
-		const authenticated = account.bird_profile_name
-			? yield* getAuthenticatedBirdAccountEffect(account.bird_profile_name)
-			: yield* getAuthenticatedBirdAccountEffect();
+		if (!account.bird_profile_name?.trim()) {
+			return yield* Effect.fail(
+				new Error(
+					`bird_profile_name is required to use bird for account ${accountId}; run birdclaw accounts set-bird-profile first`,
+				),
+			);
+		}
+		const authenticated = yield* getAuthenticatedBirdAccountEffect(
+			account.bird_profile_name,
+		);
 		const authenticatedId =
 			typeof authenticated?.id === "string" ? authenticated.id : "";
 		const authenticatedHandle =
@@ -277,9 +284,14 @@ export function createPostEffect(accountId: string, text: string) {
 
 		yield* verifySelectedBirdAccountEffect(accountId);
 		const birdProfileName = readBirdProfileName(accountId);
-		const transport = birdProfileName
-			? yield* postTweetViaBirdEffect(text, birdProfileName)
-			: yield* postTweetViaBirdEffect(text);
+		if (!birdProfileName) {
+			return yield* Effect.fail(
+				new Error(
+					`bird_profile_name is required to use bird for account ${accountId}; run birdclaw accounts set-bird-profile first`,
+				),
+			);
+		}
+		const transport = yield* postTweetViaBirdEffect(text, birdProfileName);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "post failed"));
 		}
@@ -346,9 +358,18 @@ export function createTweetReplyEffect(
 
 		yield* verifySelectedBirdAccountEffect(accountId);
 		const birdProfileName = readBirdProfileName(accountId);
-		const transport = birdProfileName
-			? yield* replyToTweetViaBirdEffect(tweetId, text, birdProfileName)
-			: yield* replyToTweetViaBirdEffect(tweetId, text);
+		if (!birdProfileName) {
+			return yield* Effect.fail(
+				new Error(
+					`bird_profile_name is required to use bird for account ${accountId}; run birdclaw accounts set-bird-profile first`,
+				),
+			);
+		}
+		const transport = yield* replyToTweetViaBirdEffect(
+			tweetId,
+			text,
+			birdProfileName,
+		);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "reply failed"));
 		}

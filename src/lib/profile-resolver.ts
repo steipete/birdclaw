@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 
+import { getBirdProfileName } from "./bird-profile";
 import { getNativeDb } from "./db";
 import {
 	lookupProfileViaBirdEffect,
@@ -38,6 +39,10 @@ function trySync<T>(try_: () => T) {
 		try: try_,
 		catch: toError,
 	});
+}
+
+function readBirdProfileName() {
+	return getBirdProfileName(getNativeDb());
 }
 
 export interface ResolveProfilesOptions {
@@ -133,10 +138,18 @@ function fetchProfileUserEffect(
 	xurlFallback: boolean,
 ): Effect.Effect<CachedProfileLookup, never> {
 	return Effect.gen(function* () {
-		const birdResult = yield* lookupProfileViaBirdEffect(externalUserId).pipe(
-			Effect.map((user) => ({ ok: true as const, user })),
-			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
-		);
+		const profileName = readBirdProfileName();
+		const birdResult = profileName
+			? yield* lookupProfileViaBirdEffect(externalUserId, profileName).pipe(
+					Effect.map((user) => ({ ok: true as const, user })),
+					Effect.catchAll((error) =>
+						Effect.succeed({ ok: false as const, error }),
+					),
+				)
+			: {
+					ok: false as const,
+					error: new Error("bird_profile_name is required to use bird"),
+				};
 		if (birdResult.ok) {
 			const birdUser = birdResult.user;
 			if (birdUser) {
@@ -186,11 +199,19 @@ function fetchProfileUsersEffect(
 		const uniqueIds = Array.from(new Set(externalUserIds));
 		const results = new Map<string, CachedProfileLookup>();
 		let unresolved = uniqueIds;
+		const profileName = readBirdProfileName();
 
-		const birdResult = yield* lookupProfilesViaBirdEffect(uniqueIds).pipe(
-			Effect.map((items) => ({ ok: true as const, items })),
-			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
-		);
+		const birdResult = profileName
+			? yield* lookupProfilesViaBirdEffect(uniqueIds, profileName).pipe(
+					Effect.map((items) => ({ ok: true as const, items })),
+					Effect.catchAll((error) =>
+						Effect.succeed({ ok: false as const, error }),
+					),
+				)
+			: {
+					ok: false as const,
+					error: new Error("bird_profile_name is required to use bird"),
+				};
 		if (birdResult.ok) {
 			const birdResults = birdResult.items;
 			for (const result of birdResults) {
@@ -428,6 +449,7 @@ export function resolveProfilesForHandlesEffect(
 ): Effect.Effect<HandleProfileResolveResult[], unknown> {
 	return Effect.gen(function* () {
 		const db = yield* trySync(() => getNativeDb());
+		const profileName = readBirdProfileName();
 		const xurlFallback = options.xurlFallback ?? true;
 		const targets = Array.from(
 			new Set(
@@ -441,10 +463,17 @@ export function resolveProfilesForHandlesEffect(
 		const results = new Map<string, HandleProfileResolveResult>();
 		let unresolved = targets;
 
-		const birdResult = yield* lookupProfilesViaBirdEffect(targets).pipe(
-			Effect.map((items) => ({ ok: true as const, items })),
-			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
-		);
+		const birdResult = profileName
+			? yield* lookupProfilesViaBirdEffect(targets, profileName).pipe(
+					Effect.map((items) => ({ ok: true as const, items })),
+					Effect.catchAll((error) =>
+						Effect.succeed({ ok: false as const, error }),
+					),
+				)
+			: {
+					ok: false as const,
+					error: new Error("bird_profile_name is required to use bird"),
+				};
 		if (birdResult.ok) {
 			const birdResults = birdResult.items;
 			for (const item of birdResults) {

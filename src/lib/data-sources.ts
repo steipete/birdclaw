@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { getNativeDb } from "./db";
+import { getBirdProfileName } from "./bird-profile";
 import type { LiveDataSourcesResponse } from "./api-contracts";
 import type {
 	LiveDataSourceAccount,
@@ -73,7 +74,19 @@ function getBirdclawStatusEffect(): Effect.Effect<LiveDataSourceStatus, never> {
 }
 
 function getBirdStatusEffect(): Effect.Effect<LiveDataSourceStatus, never> {
-	return getAuthenticatedBirdAccountEffect().pipe(
+	const profileName = getBirdProfileName(getNativeDb());
+	if (!profileName) {
+		return Effect.succeed({
+			source: "bird" as const,
+			label: "bird",
+			works: false,
+			status: "error" as const,
+			detail:
+				"bird_profile_name is required to use bird; run birdclaw accounts set-bird-profile first",
+			accounts: [],
+		});
+	}
+	return getAuthenticatedBirdAccountEffect(profileName).pipe(
 		Effect.map((account) => ({
 			source: "bird" as const,
 			label: "bird",

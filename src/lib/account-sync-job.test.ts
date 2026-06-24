@@ -201,7 +201,7 @@ describe("account sync job", () => {
 		});
 	});
 
-	it("refuses Bird-backed non-default account sync without a bird profile", async () => {
+	it("refuses Bird-backed account sync without a bird profile", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
@@ -209,6 +209,33 @@ describe("account sync job", () => {
 
 		const result = await runAccountSyncJob({
 			account: "acct_openclaw",
+			steps: ["timeline"],
+			mode: "bird",
+			logPath,
+			lockPath,
+			db,
+		});
+
+		expect(syncHomeTimelineMock).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			ok: false,
+			steps: [
+				{
+					kind: "timeline",
+					ok: false,
+					error: expect.stringContaining("bird_profile_name"),
+				},
+			],
+		});
+	});
+
+	it("refuses Bird-backed default account sync without a bird profile", async () => {
+		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+		const logPath = path.join(tempDir, "audit.jsonl");
+		const lockPath = path.join(tempDir, "sync.lock");
+		const db = makeAccountsDb({ profiles: { acct_primary: null } });
+
+		const result = await runAccountSyncJob({
 			steps: ["timeline"],
 			mode: "bird",
 			logPath,

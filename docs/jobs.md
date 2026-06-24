@@ -18,7 +18,7 @@ What it does:
 
 - refreshes home timeline, mentions, mention threads, likes, bookmarks, and DMs for one account
 - uses `bird` for home, mentions, and mention threads; DMs need explicit `xurl` mode for accepted-message imports while the current `bird` CLI lacks DM support
-- uses `bird` for likes and bookmarks, including non-default accounts
+- uses `bird` for likes and bookmarks when the account has a bird relay profile name
 - stops bird home/collection paging once it reaches already-local rows, so steady-state runs avoid walking old pages repeatedly
 - appends one JSONL audit entry per run to `~/.birdclaw/audit/account-sync.jsonl`
 - records each step independently so one rate-limited surface does not hide the others
@@ -30,7 +30,7 @@ Install the LaunchAgent:
 birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env
 ```
 
-The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job. `--env-path ~/.config/bird/openclaw.env` still works for process environment variables, but bird account selection comes from the account's stored relay profile name. Non-default accounts must have `bird_profile_name` before bird-backed steps run. `--allow-bird-account` is deprecated and no longer authorizes bird use by itself. DM steps require explicit xurl mode while bird lacks DM support.
+The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job. `--env-path ~/.config/bird/openclaw.env` still works for process environment variables, but bird account selection comes from the account's stored relay profile name. Accounts without `bird_profile_name` cannot use bird-backed steps. `--allow-bird-account` is deprecated and no longer authorizes bird use by itself. DM steps require explicit xurl mode while bird lacks DM support.
 
 ## `jobs sync-bookmarks`
 

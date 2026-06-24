@@ -90,7 +90,7 @@ bird whoami
 
 bird uses its configured relay profile for auth. This matters most for timeline, mentions, likes/bookmarks, profile lookups, tweet/reply writes, and moderation flows where X rejects OAuth2 writes. The current bird CLI does not expose DMs.
 
-For non-default Birdclaw accounts, attach the bird relay profile before scheduled syncs:
+For any Birdclaw account that should use bird-backed syncs, attach the bird relay profile before scheduled syncs:
 
 ```text
 birdclaw accounts set-bird-profile --account acct_openclaw --profile-name work

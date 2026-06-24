@@ -140,20 +140,6 @@ function readString(value: unknown, key: string) {
 	return typeof raw === "string" ? raw : undefined;
 }
 
-function defaultAccountId(db: Database) {
-	const row = db
-		.prepare(
-			`
-      select id
-      from accounts
-      order by is_default desc, created_at asc
-      limit 1
-      `,
-		)
-		.get() as { id: string } | undefined;
-	return row?.id;
-}
-
 function isBirdAccountConfigured(db: Database, account: string | undefined) {
 	if (!account) return true;
 	const row = db
@@ -167,8 +153,7 @@ function isBirdAccountConfigured(db: Database, account: string | undefined) {
 		.get(account) as
 		| { id: string; is_default: number; bird_profile_name: string | null }
 		| undefined;
-	if (!row) return account === defaultAccountId(db);
-	if (row.is_default === 1) return true;
+	if (!row) return false;
 	return (
 		typeof row.bird_profile_name === "string" &&
 		row.bird_profile_name.trim() !== ""
@@ -176,7 +161,7 @@ function isBirdAccountConfigured(db: Database, account: string | undefined) {
 }
 
 function birdAccountError(kind: AccountSyncStepKind) {
-	return `Bird-backed ${kind} sync for a non-default account requires bird_profile_name. Run birdclaw accounts set-bird-profile for that account first.`;
+	return `Bird-backed ${kind} sync requires bird_profile_name. Run birdclaw accounts set-bird-profile for that account first.`;
 }
 
 function resolveCollectionModeForAccount({

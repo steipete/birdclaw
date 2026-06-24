@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const execFileAsyncMock = vi.fn();
 const accessMock = vi.fn();
+const PROFILE_NAME = "test-profile";
 
 vi.mock("node:child_process", () => ({
 	execFile: vi.fn(),
@@ -40,13 +41,17 @@ describe("bird action transport wrapper", () => {
 			});
 
 		const { blockUserViaBird } = await import("./bird-actions");
-		const result = await blockUserViaBird("42");
+		const result = await blockUserViaBird("42", PROFILE_NAME);
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "/tmp/bird", [
+			"--profile-name",
+			PROFILE_NAME,
 			"block",
 			"42",
 		]);
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "/tmp/bird", [
+			"--profile-name",
+			PROFILE_NAME,
 			"status",
 			"42",
 			"--json",
@@ -69,7 +74,7 @@ describe("bird action transport wrapper", () => {
 		const { blockUserViaBirdEffect } = await import("./bird-actions");
 
 		await expect(
-			Effect.runPromise(blockUserViaBirdEffect("42")),
+			Effect.runPromise(blockUserViaBirdEffect("42", PROFILE_NAME)),
 		).resolves.toEqual({
 			ok: true,
 			output: "Blocked; verified blocking=true",
@@ -87,7 +92,7 @@ describe("bird action transport wrapper", () => {
 		const { lookupProfileViaBirdEffect } = await import("./bird-actions");
 
 		await expect(
-			Effect.runPromise(lookupProfileViaBirdEffect("@sam")),
+			Effect.runPromise(lookupProfileViaBirdEffect("@sam", PROFILE_NAME)),
 		).resolves.toMatchObject({
 			id: "42",
 			username: "sam",
@@ -105,7 +110,7 @@ describe("bird action transport wrapper", () => {
 			});
 
 		const { unblockUserViaBird } = await import("./bird-actions");
-		const result = await unblockUserViaBird("42");
+		const result = await unblockUserViaBird("42", PROFILE_NAME);
 
 		expect(result).toEqual({
 			ok: false,
@@ -119,7 +124,7 @@ describe("bird action transport wrapper", () => {
 		execFileAsyncMock.mockRejectedValue(new Error("bird down"));
 
 		const { muteUserViaBird } = await import("./bird-actions");
-		const result = await muteUserViaBird("42");
+		const result = await muteUserViaBird("42", PROFILE_NAME);
 
 		expect(result).toEqual({
 			ok: false,
@@ -138,10 +143,12 @@ describe("bird action transport wrapper", () => {
 			const { muteUserViaBird, lookupProfileViaBird } =
 				await import("./bird-actions");
 
-			await expect(muteUserViaBird("42")).resolves.toMatchObject({
+			await expect(muteUserViaBird("42", PROFILE_NAME)).resolves.toMatchObject({
 				ok: false,
 			});
-			await expect(lookupProfileViaBird("@sam")).resolves.toBeNull();
+			await expect(
+				lookupProfileViaBird("@sam", PROFILE_NAME),
+			).resolves.toBeNull();
 			expect(execFileAsyncMock).not.toHaveBeenCalled();
 		} finally {
 			rmSync(tempDir, { recursive: true, force: true });
@@ -153,7 +160,7 @@ describe("bird action transport wrapper", () => {
 		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 
 		const { muteUserViaBird } = await import("./bird-actions");
-		const result = await muteUserViaBird("42");
+		const result = await muteUserViaBird("42", PROFILE_NAME);
 
 		expect(result).toEqual({
 			ok: false,
@@ -167,7 +174,7 @@ describe("bird action transport wrapper", () => {
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 
 		const { muteUserViaBirdEffect } = await import("./bird-actions");
-		const effect = muteUserViaBirdEffect("42");
+		const effect = muteUserViaBirdEffect("42", PROFILE_NAME);
 
 		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 
@@ -187,7 +194,7 @@ describe("bird action transport wrapper", () => {
 		execFileAsyncMock.mockRejectedValue(error);
 
 		const { blockUserViaBird } = await import("./bird-actions");
-		const result = await blockUserViaBird("42");
+		const result = await blockUserViaBird("42", PROFILE_NAME);
 
 		expect(result).toEqual({
 			ok: false,
@@ -200,7 +207,7 @@ describe("bird action transport wrapper", () => {
 		execFileAsyncMock.mockRejectedValue("boom");
 
 		const { unmuteUserViaBird } = await import("./bird-actions");
-		const result = await unmuteUserViaBird("42");
+		const result = await unmuteUserViaBird("42", PROFILE_NAME);
 
 		expect(result).toEqual({
 			ok: false,
@@ -215,7 +222,7 @@ describe("bird action transport wrapper", () => {
 			.mockResolvedValueOnce({ stdout: JSON.stringify({ blocking: "yes" }) });
 
 		const { blockUserViaBird } = await import("./bird-actions");
-		const result = await blockUserViaBird("42");
+		const result = await blockUserViaBird("42", PROFILE_NAME);
 
 		expect(result).toEqual({
 			ok: false,
@@ -238,11 +245,11 @@ describe("bird action transport wrapper", () => {
 		const { muteUserViaBird, unmuteUserViaBird } =
 			await import("./bird-actions");
 
-		await expect(muteUserViaBird("42")).resolves.toEqual({
+		await expect(muteUserViaBird("42", PROFILE_NAME)).resolves.toEqual({
 			ok: true,
 			output: "Muted; verified muting=true",
 		});
-		await expect(unmuteUserViaBird("42")).resolves.toEqual({
+		await expect(unmuteUserViaBird("42", PROFILE_NAME)).resolves.toEqual({
 			ok: true,
 			output: "ok; verified muting=false",
 		});
@@ -258,10 +265,10 @@ describe("bird action transport wrapper", () => {
 
 		const { readBirdStatusViaBird } = await import("./bird-actions");
 
-		await expect(readBirdStatusViaBird("42")).resolves.toEqual({
+		await expect(readBirdStatusViaBird("42", PROFILE_NAME)).resolves.toEqual({
 			blocking: true,
 		});
-		await expect(readBirdStatusViaBird("42")).resolves.toBeNull();
+		await expect(readBirdStatusViaBird("42", PROFILE_NAME)).resolves.toBeNull();
 	});
 
 	it("looks up profiles and normalizes bird user payloads", async () => {
@@ -282,9 +289,11 @@ describe("bird action transport wrapper", () => {
 		});
 
 		const { lookupProfileViaBird } = await import("./bird-actions");
-		const result = await lookupProfileViaBird("@sam");
+		const result = await lookupProfileViaBird("@sam", PROFILE_NAME);
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("/tmp/bird", [
+			"--profile-name",
+			PROFILE_NAME,
 			"user",
 			"sam",
 			"-n",
@@ -315,8 +324,12 @@ describe("bird action transport wrapper", () => {
 
 		const { lookupProfileViaBird } = await import("./bird-actions");
 
-		await expect(lookupProfileViaBird("@missing")).resolves.toBeNull();
-		await expect(lookupProfileViaBird("@missing")).resolves.toBeNull();
+		await expect(
+			lookupProfileViaBird("@missing", PROFILE_NAME),
+		).resolves.toBeNull();
+		await expect(
+			lookupProfileViaBird("@missing", PROFILE_NAME),
+		).resolves.toBeNull();
 	});
 
 	it("normalizes optional profile fields from bird user payloads", async () => {
@@ -342,7 +355,7 @@ describe("bird action transport wrapper", () => {
 
 		const { lookupProfileViaBird } = await import("./bird-actions");
 
-		await expect(lookupProfileViaBird("@sam")).resolves.toEqual({
+		await expect(lookupProfileViaBird("@sam", PROFILE_NAME)).resolves.toEqual({
 			id: "42",
 			username: "@sam",
 			name: "Sam",

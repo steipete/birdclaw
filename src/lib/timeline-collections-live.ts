@@ -297,7 +297,7 @@ function fetchBirdCollectionEffect({
 	all: boolean;
 	maxPages: number | null;
 	earlyStop: boolean;
-	profileName?: string;
+	profileName: string;
 }) {
 	const fetchPage = (cursor?: string) =>
 		kind === "likes"
@@ -306,14 +306,14 @@ function fetchBirdCollectionEffect({
 					all: earlyStop ? true : all,
 					maxPages: earlyStop ? 1 : (maxPages ?? undefined),
 					...(cursor ? { cursor } : {}),
-					...(profileName ? { profileName } : {}),
+					profileName,
 				})
 			: liveTransportGateway.bird.listBookmarks({
 					maxResults: limit,
 					all: earlyStop ? true : all,
 					maxPages: earlyStop ? 1 : (maxPages ?? undefined),
 					...(cursor ? { cursor } : {}),
-					...(profileName ? { profileName } : {}),
+					profileName,
 				});
 
 	if (!earlyStop) return fetchPage();
@@ -434,10 +434,13 @@ export function syncTimelineCollectionEffect({
 			all,
 			maxPages: birdEarlyStopMaxPages,
 			earlyStop,
-			...(resolvedAccount.birdProfileName
-				? { profileName: resolvedAccount.birdProfileName }
-				: {}),
+			profileName: resolvedAccount.birdProfileName!,
 		});
+		if (effectiveMode !== "xurl" && !resolvedAccount.birdProfileName?.trim()) {
+			return yield* Effect.fail(
+				new Error("bird_profile_name is required to use bird"),
+			);
+		}
 		const transports =
 			effectiveMode === "bird"
 				? [createLiveTransportAdapter("bird", birdFetch)]

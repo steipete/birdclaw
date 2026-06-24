@@ -268,8 +268,14 @@ export function syncHomeTimelineEffect({
 			});
 			return mergeTimelinePayloads(result.pages, effectiveLimit);
 		});
+		const birdProfileName = resolvedAccount.birdProfileName;
 		const fetchViaBird = useBirdEarlyStop
 			? Effect.gen(function* () {
+					if (!birdProfileName) {
+						return yield* Effect.fail(
+							new Error("bird_profile_name is required to use bird"),
+						);
+					}
 					const result = yield* runSyncPlanEffect({
 						fetchPage: ({ cursor }) =>
 							liveTransportGateway.bird
@@ -279,9 +285,7 @@ export function syncHomeTimelineEffect({
 									all: true,
 									maxPages: 1,
 									...(cursor ? { cursor } : {}),
-									...(resolvedAccount.birdProfileName
-										? { profileName: resolvedAccount.birdProfileName }
-										: {}),
+									profileName: birdProfileName,
 								})
 								.pipe(
 									Effect.map((payload) => {
@@ -325,9 +329,7 @@ export function syncHomeTimelineEffect({
 			: liveTransportGateway.bird.listHomeTimeline({
 					maxResults: finiteFallbackLimit,
 					following,
-					...(resolvedAccount.birdProfileName
-						? { profileName: resolvedAccount.birdProfileName }
-						: {}),
+					profileName: birdProfileName!,
 				});
 		const transports =
 			effectiveMode === "xurl"
