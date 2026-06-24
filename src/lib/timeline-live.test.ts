@@ -105,7 +105,15 @@ describe("live home timeline sync", () => {
 				},
 			],
 			includes: {
-				users: [{ id: "42", username: "sam", name: "Sam" }],
+				users: [
+					{
+						id: "42",
+						username: "sam",
+						name: "Sam",
+						profile_image_url:
+							"https://pbs.twimg.com/profile_images/42/avatar_normal.jpg",
+					},
+				],
 			},
 			meta: { result_count: 1 },
 		});
@@ -137,6 +145,11 @@ describe("live home timeline sync", () => {
 			account_id: "acct_studio",
 			kind: "home",
 			source: "bird",
+		});
+		expect(
+			db.prepare("select avatar_url from profiles where handle = ?").get("sam"),
+		).toEqual({
+			avatar_url: "https://pbs.twimg.com/profile_images/42/avatar.jpg",
 		});
 		expect(
 			listTimelineItems({
