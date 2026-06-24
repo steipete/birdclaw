@@ -7,14 +7,14 @@ description: "Mentions ingest, cached live export, and conversation backfill —
 
 There are two commands and they do different things:
 
-- [`birdclaw sync mentions`](sync.md#sync-mentions) is the ingest path. It pulls live mentions through `xurl` (or `bird`), writes them into the canonical local store with `kind='mention'`, and exits. Run this on cron.
+- [`birdclaw sync mentions`](sync.md#sync-mentions) is the ingest path. It pulls live mentions through `bird` by default, with `xurl` as the explicit fallback, writes them into the canonical local store with `kind='mention'`, and exits. Run this on cron.
 - `birdclaw mentions export` is the read-side, agent-and-script-friendly view onto what `sync mentions` already wrote. It always emits JSON, supports three modes, and caches every live response so repeated reads do not keep spending the API budget.
 
 The full pipeline:
 
 ```bash
-birdclaw sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
-birdclaw sync mention-threads --mode xurl --limit 30 --json
+birdclaw sync mentions --limit 100 --max-pages 3 --refresh --json
+birdclaw sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 birdclaw mentions export --unreplied --limit 10 --json
 ```
 

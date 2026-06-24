@@ -266,8 +266,8 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,follo
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
 - `sync authored` uses `bird` by default, includes retweets, and can use `xurl` for `--since-id`/`--until-id`
 - `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
-- `sync mentions` ingests recent mentions through `xurl` (default) or `bird` and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
-- `sync mention-threads` fetches conversation context for recent mentions through `bird thread` or `xurl`; pass `--mode xurl` when the `bird` CLI is unavailable, otherwise use `--delay-ms` and `--timeout-ms` to stay gentle on live X
+- `sync mentions` ingests recent mentions through `bird` by default, with `xurl` as the explicit fallback, and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
+- `sync mention-threads` fetches conversation context for recent mentions through `bird thread` by default; pass `--mode xurl` when the `bird` CLI is unavailable, otherwise use `--delay-ms` and `--timeout-ms` to stay gentle on live X
 - `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` prefers `bird`, then falls back to `xurl`
 
 Common flags:
@@ -296,7 +296,6 @@ birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --
 birdclaw sync timeline --limit 100 --refresh --json
 birdclaw sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
 birdclaw sync mention-threads --mode bird --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
-birdclaw sync mention-threads --mode xurl --limit 30 --json
 ```
 
 Follow graph examples:
@@ -337,8 +336,8 @@ tail -n 20 ~/.birdclaw/audit/account-sync.jsonl | jq .
 - runs `jobs sync-account` every 30 minutes by default
 - uses `launchctl load -w` unless `--no-load` is passed
 - `--steps <steps>` narrows the scheduled surfaces
-- `--env-path <path>` sources account-specific `bird` cookies for launchd
-- `--allow-bird-account` asserts those cookies match `--account` for Bird-backed timeline, mentions, and DM steps
+- `--env-path <path>` sources process environment variables for launchd
+- `--allow-bird-account` asserts that the selected account is configured for Bird-backed timeline, mentions, and DM steps
 
 ```bash
 birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env --allow-bird-account
@@ -371,7 +370,7 @@ tail -n 20 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
 - runs `jobs sync-bookmarks` every 3 hours by default
 - uses `launchctl load -w` unless `--no-load` is passed
 - writes launchd stdout/stderr to `~/.birdclaw/logs/bookmarks-sync.*.log`
-- `--env-path <path>` sources an export-only shell env file inside the scheduled process, useful when `bird` needs `AUTH_TOKEN`/`CT0` outside an interactive browser session
+- `--env-path <path>` sources an export-only shell env file inside the scheduled process for process-level variables
 
 ```bash
 birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdclaw

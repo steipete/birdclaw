@@ -5,6 +5,7 @@ import { getReadDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import { getConversationThread } from "./dm-read-model";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { getBirdProfileName } from "./bird-profile";
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
 import {
 	getAuthenticatedBirdAccountEffect,
@@ -32,6 +33,11 @@ function liveWritesDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
 }
 
+function readBirdProfileName(accountId: string) {
+	const db = getReadDb();
+	return getBirdProfileName(db, accountId);
+}
+
 function verifySelectedXurlAccountEffect(accountId: string) {
 	return Effect.gen(function* () {
 		if (liveWritesDisabled()) return;
@@ -40,9 +46,15 @@ function verifySelectedXurlAccountEffect(accountId: string) {
 		const account = yield* trySync(
 			() =>
 				db
-					.prepare("select handle, external_user_id from accounts where id = ?")
+					.prepare(
+						"select handle, external_user_id, bird_profile_name from accounts where id = ?",
+					)
 					.get(accountId) as
-					| { handle: string; external_user_id: string | null }
+					| {
+							handle: string;
+							external_user_id: string | null;
+							bird_profile_name: string | null;
+					  }
 					| undefined,
 		);
 		if (!account) {
@@ -82,15 +94,23 @@ function verifySelectedBirdAccountEffect(accountId: string) {
 		const account = yield* trySync(
 			() =>
 				db
-					.prepare("select handle, external_user_id from accounts where id = ?")
+					.prepare(
+						"select handle, external_user_id, bird_profile_name from accounts where id = ?",
+					)
 					.get(accountId) as
-					| { handle: string; external_user_id: string | null }
+					| {
+							handle: string;
+							external_user_id: string | null;
+							bird_profile_name: string | null;
+					  }
 					| undefined,
 		);
 		if (!account) {
 			return yield* Effect.fail(new Error(`Unknown account: ${accountId}`));
 		}
-		const authenticated = yield* getAuthenticatedBirdAccountEffect();
+		const authenticated = account.bird_profile_name
+			? yield* getAuthenticatedBirdAccountEffect(account.bird_profile_name)
+			: yield* getAuthenticatedBirdAccountEffect();
 		const authenticatedId =
 			typeof authenticated?.id === "string" ? authenticated.id : "";
 		const authenticatedHandle =
@@ -256,7 +276,10 @@ export function createPostEffect(accountId: string, text: string) {
 		);
 
 		yield* verifySelectedBirdAccountEffect(accountId);
-		const transport = yield* postTweetViaBirdEffect(text);
+		const birdProfileName = readBirdProfileName(accountId);
+		const transport = birdProfileName
+			? yield* postTweetViaBirdEffect(text, birdProfileName)
+			: yield* postTweetViaBirdEffect(text);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "post failed"));
 		}
@@ -322,7 +345,10 @@ export function createTweetReplyEffect(
 		);
 
 		yield* verifySelectedBirdAccountEffect(accountId);
-		const transport = yield* replyToTweetViaBirdEffect(tweetId, text);
+		const birdProfileName = readBirdProfileName(accountId);
+		const transport = birdProfileName
+			? yield* replyToTweetViaBirdEffect(tweetId, text, birdProfileName)
+			: yield* replyToTweetViaBirdEffect(tweetId, text);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "reply failed"));
 		}

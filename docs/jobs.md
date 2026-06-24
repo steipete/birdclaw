@@ -16,7 +16,8 @@ birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-page
 What it does:
 
 - refreshes home timeline, mentions, mention threads, likes, bookmarks, and DMs for one account
-- uses `bird` for home and mentions; DMs need explicit `xurl` mode for accepted-message imports while the current `bird` CLI lacks DM support
+- uses `bird` for home, mentions, and mention threads; DMs need explicit `xurl` mode for accepted-message imports while the current `bird` CLI lacks DM support
+- uses `bird` for likes and bookmarks, including non-default accounts
 - appends one JSONL audit entry per run to `~/.birdclaw/audit/account-sync.jsonl`
 - records each step independently so one rate-limited surface does not hide the others
 - runs backup auto-sync after the scheduled refresh when enabled
@@ -27,7 +28,7 @@ Install the LaunchAgent:
 birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env --allow-bird-account
 ```
 
-The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job, or `--env-path ~/.config/bird/openclaw.env` when launchd needs account cookies. Pass `--allow-bird-account` only when the sourced cookies match `--account`; without it, Bird-backed timeline and mentions refuse non-default account writes. DM steps require explicit xurl mode while bird lacks DM support.
+The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job. `--env-path ~/.config/bird/openclaw.env` still works for process environment variables, but bird account selection now comes from the account's stored relay profile name. Pass `--allow-bird-account` only when that account is intentionally configured for bird-backed steps. DM steps require explicit xurl mode while bird lacks DM support.
 
 ## `jobs sync-bookmarks`
 
@@ -91,7 +92,7 @@ Flags:
 
 ### Env files for launchd
 
-When `bird` is the active transport for bookmarks, it usually needs `AUTH_TOKEN` and `CT0` cookies that come from a logged-in browser session. launchd does not see your interactive shell environment, so the scheduled process will fail unless you provide them.
+When a scheduled job needs environment variables, `launchd` does not see your interactive shell environment, so the process will fail unless you provide them. Bird itself is selected via the account's relay profile name; use the env file only for process-level variables the job still needs.
 
 The recommended pattern:
 
@@ -109,7 +110,7 @@ birdclaw --json jobs install-bookmarks-launchd \
   --env-path ~/.config/bird/env.sh
 ```
 
-The plist sources that file inside the scheduled process. The cookies stay on your machine, in your home directory, with mode `0600`. They are never written into the plist itself.
+The plist sources that file inside the scheduled process. Keep the file in your home directory with mode `0600`. It is never written into the plist itself.
 
 ## Useful checks
 
@@ -121,7 +122,7 @@ launchctl kickstart -k gui/$(id -u)/com.steipete.birdclaw.bookmarks-sync
 tail -n 1 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
 ```
 
-`kickstart -k` re-runs the job immediately, which is the fastest way to confirm cookies and config work end-to-end.
+`kickstart -k` re-runs the job immediately, which is the fastest way to confirm config work end-to-end.
 
 ## Uninstall
 

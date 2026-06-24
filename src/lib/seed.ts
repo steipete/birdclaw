@@ -37,8 +37,8 @@ export function seedDemoData(db: Database) {
 		new Date(linkNow.getTime() - minutes * 60_000).toISOString();
 
 	const insertAccount = db.prepare(`
-    insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
-    values (@id, @name, @handle, @externalUserId, @transport, @isDefault, @createdAt)
+    insert into accounts (id, name, handle, external_user_id, bird_profile_name, transport, is_default, created_at)
+    values (@id, @name, @handle, @externalUserId, @birdProfileName, @transport, @isDefault, @createdAt)
   `);
 
 	const insertProfile = db.prepare(`
@@ -114,6 +114,7 @@ export function seedDemoData(db: Database) {
 			name: "Peter",
 			handle: "@steipete",
 			externalUserId: "25401953",
+			birdProfileName: null,
 			transport: "xurl",
 			isDefault: 1,
 			createdAt: now.toISOString(),
@@ -123,6 +124,7 @@ export function seedDemoData(db: Database) {
 			name: "Studio",
 			handle: "@birdclaw_lab",
 			externalUserId: null,
+			birdProfileName: null,
 			transport: "xurl",
 			isDefault: 0,
 			createdAt: now.toISOString(),

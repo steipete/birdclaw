@@ -28,6 +28,7 @@ const BASE_SCHEMA_SQL = `
     name text not null,
     handle text not null unique,
     external_user_id text,
+    bird_profile_name text,
     transport text not null,
     is_default integer not null default 0,
     created_at text not null
@@ -435,6 +436,13 @@ function ensureAccountExternalUserIdColumn(db: Database) {
 	}
 }
 
+function ensureAccountBirdProfileNameColumn(db: Database) {
+	const columnNames = getColumnNames(db, "accounts");
+	if (!columnNames.has("bird_profile_name")) {
+		db.exec("alter table accounts add column bird_profile_name text");
+	}
+}
+
 function ensureDmConversationInboxColumns(db: Database) {
 	const columnNames = getColumnNames(db, "dm_conversations");
 	if (!columnNames.has("inbox_kind")) {
@@ -799,6 +807,13 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 		version: 2,
 		name: "normalize tweet account and collection state",
 		up: normalizeTweetState,
+	},
+	{
+		version: 3,
+		name: "add bird relay profile names to accounts",
+		up: (db) => {
+			ensureAccountBirdProfileNameColumn(db);
+		},
 	},
 ];
 

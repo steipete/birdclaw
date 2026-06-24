@@ -62,3 +62,5 @@ Stable `--json` envelopes go to stdout, progress and warnings to stderr — pipe
 Active development. Status: real and usable, not finished. Schema churn, transport gaps, and rough edges are expected while the core settles.
 
 The [changelog](https://github.com/steipete/birdclaw/blob/main/CHANGELOG.md) tracks what shipped recently. Goals and non-goals live in the [spec](spec.md). Released under the [MIT license](https://github.com/steipete/birdclaw/blob/main/LICENSE). Not affiliated with X Corp.
+
+Bird-first coverage and remaining xurl fallbacks are tracked in [Bird-First Status](bird-first-status.md).

@@ -205,7 +205,7 @@ describe("account sync job", () => {
 		});
 	});
 
-	it("forces non-default saved collection syncs through xurl without an assertion", async () => {
+	it("uses bird for non-default saved collection syncs when auto is selected", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
@@ -215,7 +215,7 @@ describe("account sync job", () => {
 			}),
 		} as never;
 		syncTimelineCollectionMock.mockResolvedValue({
-			source: "xurl",
+			source: "bird",
 			count: 4,
 		});
 
@@ -231,12 +231,12 @@ describe("account sync job", () => {
 			expect.objectContaining({
 				kind: "likes",
 				account: "acct_openclaw",
-				mode: "xurl",
+				mode: "bird",
 			}),
 		);
 		expect(result).toMatchObject({
 			ok: true,
-			steps: [{ kind: "likes", ok: true, count: 4, source: "xurl" }],
+			steps: [{ kind: "likes", ok: true, count: 4, source: "bird" }],
 		});
 	});
 
@@ -414,7 +414,7 @@ describe("account sync job", () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		syncMentionThreadsMock.mockRejectedValue(new Error("xurl failed"));
+		syncMentionThreadsMock.mockRejectedValue(new Error("bird failed"));
 
 		const result = await runAccountSyncJob({
 			account: "acct_openclaw",
@@ -432,7 +432,7 @@ describe("account sync job", () => {
 		expect(syncMentionThreadsMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				account: "acct_openclaw",
-				mode: "xurl",
+				mode: "bird",
 				limit: 30,
 				delayMs: 1500,
 				timeoutMs: 15000,
@@ -445,7 +445,7 @@ describe("account sync job", () => {
 					kind: "mention-threads",
 					ok: false,
 					count: 0,
-					error: "xurl failed",
+					error: "bird failed",
 				},
 			],
 		});

@@ -163,7 +163,7 @@ function isExplicitNonDefaultAccount(
 }
 
 function birdAccountError(kind: AccountSyncStepKind) {
-	return `Bird-backed ${kind} sync requires --allow-bird-account for non-default accounts; source matching cookies with --env-path first.`;
+	return `Bird-backed ${kind} sync requires --allow-bird-account for non-default accounts; configure the account's bird profile name first.`;
 }
 
 function resolveCollectionModeForAccount({
@@ -173,6 +173,7 @@ function resolveCollectionModeForAccount({
 	mode: TimelineCollectionMode;
 	allowBirdAccount: boolean | undefined;
 }) {
+	if (mode === "auto") return "bird";
 	if (allowBirdAccount || mode === "xurl") return mode;
 	return mode === "bird" ? undefined : "xurl";
 }
@@ -245,7 +246,7 @@ async function runStep({
 		if (kind === "mention-threads") {
 			const result = await syncMentionThreads({
 				account,
-				mode: "xurl",
+				mode: "bird",
 				limit: Math.min(30, limit),
 				delayMs: 1500,
 				timeoutMs: 15000,

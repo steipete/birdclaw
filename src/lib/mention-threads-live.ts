@@ -683,6 +683,9 @@ export function syncMentionThreadsEffect({
 								all,
 								maxPages: parsedMaxPages,
 								timeoutMs: parsedTimeoutMs,
+								...(resolvedAccount.birdProfileName
+									? { profileName: resolvedAccount.birdProfileName }
+									: {}),
 							})
 							.pipe(
 								Effect.map((payload) => ({

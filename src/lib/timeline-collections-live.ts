@@ -285,22 +285,26 @@ function fetchBirdCollectionEffect({
 	limit,
 	all,
 	maxPages,
+	profileName,
 }: {
 	kind: TimelineCollectionKind;
 	limit: number;
 	all: boolean;
 	maxPages: number | null;
+	profileName?: string;
 }) {
 	return kind === "likes"
 		? liveTransportGateway.bird.listLikes({
 				maxResults: limit,
 				all,
 				maxPages: maxPages ?? undefined,
+				...(profileName ? { profileName } : {}),
 			})
 		: liveTransportGateway.bird.listBookmarks({
 				maxResults: limit,
 				all,
 				maxPages: maxPages ?? undefined,
+				...(profileName ? { profileName } : {}),
 			});
 }
 
@@ -358,6 +362,9 @@ export function syncTimelineCollectionEffect({
 			limit,
 			all,
 			maxPages: parsedMaxPages,
+			...(resolvedAccount.birdProfileName
+				? { profileName: resolvedAccount.birdProfileName }
+				: {}),
 		});
 		const transports =
 			effectiveMode === "bird"

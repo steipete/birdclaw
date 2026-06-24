@@ -235,6 +235,9 @@ export function syncHomeTimelineEffect({
 		const fetchViaBird = liveTransportGateway.bird.listHomeTimeline({
 			maxResults: finiteFallbackLimit,
 			following,
+			...(resolvedAccount.birdProfileName
+				? { profileName: resolvedAccount.birdProfileName }
+				: {}),
 		});
 		const transports =
 			effectiveMode === "xurl"

@@ -111,10 +111,10 @@ On an explicit xurl run without `--since-id` or `--start-time`, Birdclaw seeds `
 
 ## sync mention-threads
 
-Fetch conversation context for recent mentions through `bird` or `xurl`:
+Fetch conversation context for recent mentions through `bird` by default, with `xurl` as a fallback when bird is unavailable:
 
 ```bash
-birdclaw sync mention-threads --mode bird --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
+birdclaw sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 birdclaw sync mention-threads --mode xurl --limit 30 --json
 ```
 

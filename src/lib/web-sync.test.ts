@@ -200,7 +200,7 @@ describe("web sync dispatcher", () => {
 		});
 		syncMentionThreadsMock.mockResolvedValue({
 			ok: true,
-			source: "xurl",
+			source: "bird",
 			mergedTweets: 17,
 			partial: true,
 			warnings: ["rate limited"],
@@ -217,7 +217,7 @@ describe("web sync dispatcher", () => {
 		});
 		expect(syncMentionThreadsMock).toHaveBeenCalledWith({
 			account: undefined,
-			mode: "xurl",
+			mode: "bird",
 			limit: 30,
 			delayMs: 1500,
 			timeoutMs: 15000,
@@ -249,10 +249,10 @@ describe("web sync dispatcher", () => {
 		});
 	});
 
-	it("uses account-targeted xurl mode for selected saved collection syncs", async () => {
+	it("uses bird mode for selected saved collection syncs", async () => {
 		syncTimelineCollectionMock.mockResolvedValue({
 			ok: true,
-			source: "xurl",
+			source: "bird",
 			count: 7,
 		});
 
@@ -261,7 +261,7 @@ describe("web sync dispatcher", () => {
 		expect(syncTimelineCollectionMock).toHaveBeenCalledWith({
 			kind: "likes",
 			account: "acct_studio",
-			mode: "xurl",
+			mode: "bird",
 			limit: 100,
 			maxPages: 5,
 			refresh: true,
@@ -334,7 +334,7 @@ describe("web sync dispatcher", () => {
 			.mockReturnValueOnce(studio.promise);
 		syncMentionThreadsMock.mockResolvedValue({
 			ok: true,
-			source: "xurl",
+			source: "bird",
 			mergedTweets: 0,
 			partial: false,
 		});
@@ -382,7 +382,7 @@ describe("web sync dispatcher", () => {
 		);
 		expect(syncHomeTimelineMock).toHaveBeenNthCalledWith(
 			2,
-			expect.objectContaining({ account: "acct_studio", mode: "xurl" }),
+			expect.objectContaining({ account: "acct_studio", mode: "bird" }),
 		);
 
 		pending.resolve({ ok: true, source: "bird", count: 1 });
@@ -419,7 +419,7 @@ describe("web sync dispatcher", () => {
 		syncMentionsMock.mockReturnValue(pending.promise);
 		syncMentionThreadsMock.mockResolvedValue({
 			ok: true,
-			source: "xurl",
+			source: "bird",
 			mergedTweets: 0,
 			partial: false,
 		});

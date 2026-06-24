@@ -140,7 +140,7 @@ function sanitizeImportedUrlExpansions(rows: BackupJsonRecord[]) {
 const definitions = {
 	accounts: {
 		exportSql: `
-      select id, name, handle, external_user_id, transport, is_default, created_at
+      select id, name, handle, external_user_id, bird_profile_name, transport, is_default, created_at
       from accounts
       order by id
     `,
@@ -148,12 +148,13 @@ const definitions = {
 		merge: {
 			order: 0,
 			sql: `
-      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
-      values (?, ?, ?, ?, ?, ?, ?)
+      insert into accounts (id, name, handle, external_user_id, bird_profile_name, transport, is_default, created_at)
+      values (?, ?, ?, ?, ?, ?, ?, ?)
       on conflict(id) do update set
         name = coalesce(nullif(excluded.name, ''), accounts.name),
         handle = coalesce(nullif(excluded.handle, ''), accounts.handle),
         external_user_id = coalesce(excluded.external_user_id, accounts.external_user_id),
+        bird_profile_name = coalesce(nullif(excluded.bird_profile_name, ''), accounts.bird_profile_name),
         transport = coalesce(nullif(excluded.transport, ''), accounts.transport),
         is_default = max(accounts.is_default, excluded.is_default),
         created_at = min(accounts.created_at, excluded.created_at)
@@ -163,6 +164,7 @@ const definitions = {
 				"name",
 				"handle",
 				"external_user_id",
+				"bird_profile_name",
 				"transport",
 				"is_default",
 				"created_at",

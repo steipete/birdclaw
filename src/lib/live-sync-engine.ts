@@ -13,6 +13,7 @@ export interface LiveSyncAccount {
 	accountId: string;
 	username: string;
 	externalUserId?: string;
+	birdProfileName?: string;
 	isDefault: boolean;
 }
 
@@ -43,20 +44,21 @@ export function resolveLiveSyncAccount(
 	const row = accountId
 		? (db
 				.prepare(
-					"select id, handle, external_user_id, is_default from accounts where id = ?",
+					"select id, handle, external_user_id, bird_profile_name, is_default from accounts where id = ?",
 				)
 				.get(accountId) as
 				| {
 						id: string;
 						handle: string;
 						external_user_id: string | null;
+						bird_profile_name: string | null;
 						is_default: number;
 				  }
 				| undefined)
 		: (db
 				.prepare(
 					`
-          select id, handle, external_user_id, is_default
+          select id, handle, external_user_id, bird_profile_name, is_default
           from accounts
           order by is_default desc, created_at asc
           limit 1
@@ -67,6 +69,7 @@ export function resolveLiveSyncAccount(
 						id: string;
 						handle: string;
 						external_user_id: string | null;
+						bird_profile_name: string | null;
 						is_default: number;
 				  }
 				| undefined);
@@ -76,10 +79,12 @@ export function resolveLiveSyncAccount(
 	}
 
 	const externalUserId = row.external_user_id?.trim();
+	const birdProfileName = row.bird_profile_name?.trim();
 	return {
 		accountId: row.id,
 		username: row.handle.replace(/^@/, ""),
 		...(externalUserId ? { externalUserId } : {}),
+		...(birdProfileName ? { birdProfileName } : {}),
 		isDefault: row.is_default === 1,
 	};
 }

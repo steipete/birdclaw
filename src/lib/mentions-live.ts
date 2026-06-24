@@ -421,8 +421,11 @@ function writeMentionHighWaterId(
 
 function verifyBirdAccountMatchesEffect(account: LiveSyncAccount) {
 	return Effect.gen(function* () {
-		const authenticated =
-			yield* liveTransportGateway.bird.getAuthenticatedAccount();
+		const authenticated = account.birdProfileName
+			? yield* liveTransportGateway.bird.getAuthenticatedAccount(
+					account.birdProfileName,
+				)
+			: yield* liveTransportGateway.bird.getAuthenticatedAccount();
 		return yield* Effect.try({
 			try: () =>
 				assertLiveAccountMatches({
@@ -629,8 +632,17 @@ function fetchMentionsViaXurlEffect({
 	});
 }
 
-function fetchMentionsViaBirdEffect({ limit }: { limit: number }) {
-	return liveTransportGateway.bird.listMentions({ maxResults: limit });
+function fetchMentionsViaBirdEffect({
+	limit,
+	profileName,
+}: {
+	limit: number;
+	profileName?: string;
+}) {
+	return liveTransportGateway.bird.listMentions({
+		maxResults: limit,
+		...(profileName ? { profileName } : {}),
+	});
 }
 
 function isMaxPagesPartial({
@@ -818,7 +830,14 @@ export function syncMentionsEffect({
 		const payload =
 			primaryMode === "bird"
 				? yield* verifyBirdAccountMatchesEffect(resolvedAccount).pipe(
-						Effect.flatMap(() => fetchMentionsViaBirdEffect({ limit })),
+						Effect.flatMap(() =>
+							fetchMentionsViaBirdEffect({
+								limit,
+								...(resolvedAccount.birdProfileName
+									? { profileName: resolvedAccount.birdProfileName }
+									: {}),
+							}),
+						),
 					)
 				: yield* fetchMentionsViaXurlEffect({
 						resolvedAccount,

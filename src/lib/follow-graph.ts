@@ -44,6 +44,7 @@ interface ResolvedAccount {
 	accountId: string;
 	username: string;
 	externalUserId?: string;
+	birdProfileName?: string;
 }
 
 interface MergedFollowPayload {
@@ -97,22 +98,32 @@ function resolveAccount(db: Database, accountId?: string): ResolvedAccount {
 	const row = accountId
 		? (db
 				.prepare(
-					"select id, handle, external_user_id from accounts where id = ?",
+					"select id, handle, external_user_id, bird_profile_name from accounts where id = ?",
 				)
 				.get(accountId) as
-				| { id: string; handle: string; external_user_id: string | null }
+				| {
+						id: string;
+						handle: string;
+						external_user_id: string | null;
+						bird_profile_name: string | null;
+				  }
 				| undefined)
 		: (db
 				.prepare(
 					`
-          select id, handle, external_user_id
+          select id, handle, external_user_id, bird_profile_name
           from accounts
           order by is_default desc, created_at asc
           limit 1
           `,
 				)
 				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
+				| {
+						id: string;
+						handle: string;
+						external_user_id: string | null;
+						bird_profile_name: string | null;
+				  }
 				| undefined);
 
 	if (!row) {
@@ -126,6 +137,11 @@ function resolveAccount(db: Database, accountId?: string): ResolvedAccount {
 			typeof row.external_user_id === "string" &&
 			row.external_user_id.length > 0
 				? row.external_user_id
+				: undefined,
+		birdProfileName:
+			typeof row.bird_profile_name === "string" &&
+			row.bird_profile_name.length > 0
+				? row.bird_profile_name
 				: undefined,
 	};
 }
@@ -284,12 +300,14 @@ function fetchFollowGraphViaBirdEffect({
 	limit,
 	maxPages,
 	maxResources,
+	profileName,
 }: {
 	direction: FollowDirection;
 	userId?: string;
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
+	profileName?: string;
 }): Effect.Effect<MergedFollowPayload, unknown> {
 	return Effect.gen(function* () {
 		const birdLimit = Math.min(limit, BIRD_FOLLOW_PAGE_LIMIT);
@@ -306,6 +324,7 @@ function fetchFollowGraphViaBirdEffect({
 			maxResults: Math.min(birdLimit, maxResources ?? birdLimit),
 			all: true,
 			maxPages: Number.isFinite(cappedMaxPages) ? cappedMaxPages : undefined,
+			...(profileName ? { profileName } : {}),
 		});
 		return mergePages(
 			[payload],
@@ -325,6 +344,7 @@ function fetchFollowGraphEffect({
 	limit,
 	maxPages,
 	maxResources,
+	profileName,
 }: {
 	mode: FollowGraphSyncMode;
 	direction: FollowDirection;
@@ -333,6 +353,7 @@ function fetchFollowGraphEffect({
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
+	profileName?: string;
 }): Effect.Effect<
 	{ source: FollowGraphLiveSource; payload: MergedFollowPayload },
 	unknown
@@ -347,6 +368,7 @@ function fetchFollowGraphEffect({
 					limit,
 					maxPages,
 					maxResources,
+					...(profileName ? { profileName } : {}),
 				}),
 			};
 		}
@@ -370,6 +392,7 @@ function fetchFollowGraphEffect({
 			limit,
 			maxPages,
 			maxResources,
+			...(profileName ? { profileName } : {}),
 		}).pipe(
 			Effect.map((payload) => ({ ok: true as const, payload })),
 			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
@@ -691,6 +714,9 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 					limit,
 					maxPages,
 					maxResources,
+					...(account.birdProfileName
+						? { profileName: account.birdProfileName }
+						: {}),
 				});
 		const payload = useCache ? cached!.value : liveResult!.payload;
 

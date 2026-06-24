@@ -12,6 +12,8 @@ birdclaw keeps its database local. Archive import needs no X credentials. Live r
 
 Install either tool or both. Transport selection is workflow-specific: sync commands expose `--mode`, while `auth use` only controls moderation writes such as block, unblock, mute, and unmute.
 
+For bird, Birdclaw now stores a relay `profileName` per account and passes it to the CLI as `--profile-name` for account-scoped reads and writes. That keeps account identity in Birdclaw and transport identity in bird.
+
 On a fresh Birdclaw database, import your X archive before the first live sync. Archive import replaces the bundled demo identity with your account identity. The current auth commands verify transports but do not bind a new database to the authenticated X account.
 
 ## Set up xurl
@@ -40,7 +42,7 @@ npm install -g @steipete/bird
 bird whoami
 ```
 
-bird reads `auth_token` and `ct0` cookies from the selected browser profile. If autodetection misses the right profile, see [bird authentication](https://github.com/steipete/bird#authentication-graphql) for cookie-source and profile flags.
+bird uses the selected relay profile for auth. If you need to adjust how the relay profile is selected, see the bird CLI docs for `--profile-name` and related profile configuration.
 
 ## Verify xurl in birdclaw
 
@@ -82,7 +84,7 @@ Supported modes differ by command; use `birdclaw sync <command> --help`.
 ## Security
 
 - xurl stores developer-app credentials and OAuth tokens under `~/.xurl`.
-- bird uses browser session cookies. Treat `auth_token` and `ct0` as full account credentials.
+- bird relay profiles are transport config. Treat the configured profile name as account-scoped transport data, not as Birdclaw identity.
 - Use archive-only mode when live access is unnecessary.
 - Set `BIRDCLAW_DISABLE_LIVE_WRITES=1` for development or dry runs.
 

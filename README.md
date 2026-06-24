@@ -317,7 +317,7 @@ pnpm cli sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
 pnpm cli sync mention-threads --limit 30 --delay-ms 1500 --timeout-ms 15000 --json
 ```
 
-Mention context is a two-step sync pipeline: run `sync mentions` to ingest recent mention rows with `kind='mention'`, then run `sync mention-threads --mode xurl` to fill parent/root conversation context.
+Mention context is a two-step sync pipeline: run `sync mentions` to ingest recent mention rows with `kind='mention'`, then run `sync mention-threads` to fill parent/root conversation context.
 
 ### Follow graph queries
 

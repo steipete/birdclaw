@@ -9,6 +9,7 @@ export interface AccountRecord {
 	name: string;
 	handle: string;
 	externalUserId?: string | null;
+	birdProfileName?: string | null;
 	profileId?: string;
 	avatarHue?: number;
 	avatarUrl?: string;

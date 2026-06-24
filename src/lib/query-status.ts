@@ -96,6 +96,7 @@ export function getQueryEnvelopeEffect({
 						name: string;
 						handle: string;
 						external_user_id: string | null;
+						bird_profile_name: string | null;
 						transport: string;
 						is_default: number;
 						created_at: string;
@@ -122,6 +123,7 @@ export function getQueryEnvelopeEffect({
 					name: row.name,
 					handle: row.handle,
 					externalUserId: row.external_user_id,
+					birdProfileName: row.bird_profile_name,
 					...(profile
 						? {
 								profileId: profile.id,

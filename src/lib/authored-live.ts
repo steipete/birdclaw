@@ -508,8 +508,11 @@ function resolveBirdAuthoredIdentityEffect({
 		const resolvedAccount = yield* trySync(() =>
 			resolveLiveSyncAccount(db, account),
 		);
-		const authenticated =
-			yield* liveTransportGateway.bird.getAuthenticatedAccount();
+		const authenticated = resolvedAccount.birdProfileName
+			? yield* liveTransportGateway.bird.getAuthenticatedAccount(
+					resolvedAccount.birdProfileName,
+				)
+			: yield* liveTransportGateway.bird.getAuthenticatedAccount();
 		const authenticatedUsername = normalizeUsername(authenticated.username);
 		const authenticatedId = authenticated.id ?? null;
 		const selectedUsername = normalizeUsername(resolvedAccount.username);
@@ -1004,6 +1007,9 @@ export function syncAuthoredTweetsEffect({
 							maxResults: pageLimit,
 							cursor: paginationToken,
 							...(parsedMaxPages !== null ? { maxPages: parsedMaxPages } : {}),
+							...(identity.birdProfileName
+								? { profileName: identity.birdProfileName }
+								: {}),
 						}),
 			getNextCursor: (page) => page.nextToken,
 			shouldStop: ({ page }) =>

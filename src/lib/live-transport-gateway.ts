@@ -92,7 +92,8 @@ function fromPromise<T>(run: () => PromiseLike<T>): Effect.Effect<T, Error> {
 
 export const liveTransportGateway: LiveTransportGateway = {
 	bird: {
-		getAuthenticatedAccount: () => getAuthenticatedBirdAccountEffect(),
+		getAuthenticatedAccount: (profileName) =>
+			getAuthenticatedBirdAccountEffect(profileName),
 		listBookmarks: (options) => listBookmarkedTweetsViaBirdEffect(options),
 		listDirectMessages: (options) => listDirectMessagesViaBirdEffect(options),
 		listFollowUsers: (options) => listFollowUsersViaBirdEffect(options),

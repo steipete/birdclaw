@@ -232,6 +232,7 @@ const accountRecordSchema: z.ZodType<AccountRecord> = z.object({
 	name: z.string().default(""),
 	handle: z.string().default(""),
 	externalUserId: z.string().nullable().optional(),
+	birdProfileName: z.string().nullable().optional(),
 	profileId: z.string().optional(),
 	avatarHue: z.number().optional(),
 	avatarUrl: z.string().optional(),
