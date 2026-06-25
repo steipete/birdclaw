@@ -46,7 +46,7 @@ interface BirdTweetItem {
 	inReplyToStatusId?: string | null;
 	quotedStatusId?: string | null;
 	retweetedStatusId?: string | null;
-	quotedTweet?: { id?: string | null } | null;
+	quotedTweet?: Partial<BirdTweetItem> | null;
 	retweetedTweet?: { id?: string | null } | null;
 	author?: BirdTweetAuthor;
 	authorId?: string;
@@ -444,9 +444,19 @@ function toReferencedTweets(item: BirdTweetItem) {
 	return references.length > 0 ? references : undefined;
 }
 
+function isHydratedBirdTweetItem(value: unknown): value is BirdTweetItem {
+	const item = value as BirdTweetItem | undefined;
+	return (
+		typeof item?.id === "string" &&
+		typeof item.text === "string" &&
+		typeof item.createdAt === "string"
+	);
+}
+
 function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 	const users = new Map<string, XurlMentionUser>();
-	const data = items.map((item): XurlMentionData => {
+	const includedTweets = new Map<string, XurlMentionData>();
+	const normalizeItem = (item: BirdTweetItem): XurlMentionData => {
 		const authorId = String(
 			item.authorId ?? item.author?.username ?? "unknown",
 		);
@@ -456,6 +466,13 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 				username: item.author?.username ?? `user_${authorId}`,
 				name: item.author?.name ?? item.author?.username ?? `user_${authorId}`,
 			});
+		}
+
+		if (isHydratedBirdTweetItem(item.quotedTweet)) {
+			const quotedTweet = normalizeItem(item.quotedTweet);
+			if (quotedTweet.id !== item.id) {
+				includedTweets.set(quotedTweet.id, quotedTweet);
+			}
 		}
 
 		return {
@@ -473,12 +490,19 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 			},
 			edit_history_tweet_ids: [item.id],
 		};
-	});
+	};
+	const data = items.map((item): XurlMentionData => normalizeItem(item));
+	const includes: XurlMentionsResponse["includes"] = {};
+	if (users.size > 0) {
+		includes.users = Array.from(users.values());
+	}
+	if (includedTweets.size > 0) {
+		includes.tweets = Array.from(includedTweets.values());
+	}
 
 	return {
 		data,
-		includes:
-			users.size > 0 ? { users: Array.from(users.values()) } : undefined,
+		includes: users.size > 0 || includedTweets.size > 0 ? includes : undefined,
 		meta: {
 			result_count: data.length,
 			page_count: 1,

@@ -365,7 +365,15 @@ function mergeXurlTweetsIntoLocalStore(
 	const existingTweet = db.prepare("select text from tweets where id = ?");
 	const seenAt = new Date().toISOString();
 	db.transaction(() => {
+		const primaryTweetIds = new Set(payload.data.map((tweet) => tweet.id));
+		const tweetsById = new Map<string, XurlTweetData>();
+		for (const tweet of payload.includes?.tweets ?? []) {
+			tweetsById.set(tweet.id, tweet);
+		}
 		for (const tweet of payload.data) {
+			tweetsById.set(tweet.id, tweet);
+		}
+		for (const tweet of tweetsById.values()) {
 			const authorId = tweet.author_id;
 			if (!authorId) continue;
 			const author = usersById.get(authorId);
@@ -396,14 +404,16 @@ function mergeXurlTweetsIntoLocalStore(
 				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 				quotedTweetId,
 			);
-			upsertTweetAccountEdge(db, {
-				accountId,
-				tweetId: tweet.id,
-				kind: edgeKind,
-				source,
-				seenAt,
-				rawJson: JSON.stringify(tweet),
-			});
+			if (primaryTweetIds.has(tweet.id)) {
+				upsertTweetAccountEdge(db, {
+					accountId,
+					tweetId: tweet.id,
+					kind: edgeKind,
+					source,
+					seenAt,
+					rawJson: JSON.stringify(tweet),
+				});
+			}
 			refreshTweetFts(db, tweet.id, tweet.text, previousText);
 		}
 	})();

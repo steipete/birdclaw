@@ -23,6 +23,17 @@ function getReferencedTweetId(tweet: XurlMentionData, type: string) {
 	);
 }
 
+function toCanonicalTweets(payload: XurlMentionsResponse) {
+	const tweetsById = new Map<string, XurlMentionData>();
+	for (const tweet of payload.includes?.tweets ?? []) {
+		tweetsById.set(tweet.id, tweet);
+	}
+	for (const tweet of payload.data) {
+		tweetsById.set(tweet.id, tweet);
+	}
+	return tweetsById.values();
+}
+
 export function replaceTweetFts(db: Database, tweetId: string, text: string) {
 	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
 	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
@@ -80,7 +91,8 @@ export function ingestTweetPayload(
 
 	db.transaction(() => {
 		const observedAt = new Date().toISOString();
-		for (const tweet of payload.data) {
+		const primaryTweetIds = new Set(payload.data.map((tweet) => tweet.id));
+		for (const tweet of toCanonicalTweets(payload)) {
 			const author = usersById.get(tweet.author_id);
 			const profile = author
 				? upsertProfileFromXUser(db, author)
@@ -100,7 +112,8 @@ export function ingestTweetPayload(
 				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 				quotedTweetId,
 			);
-			if (edgeKind) {
+			const isPrimaryTweet = primaryTweetIds.has(tweet.id);
+			if (edgeKind && isPrimaryTweet) {
 				upsertTweetAccountEdge(db, {
 					accountId,
 					tweetId: tweet.id,
@@ -110,16 +123,20 @@ export function ingestTweetPayload(
 					rawJson: JSON.stringify(tweet),
 				});
 			}
-			upsertCollection?.run(
-				accountId,
-				tweet.id,
-				collectionKind,
-				source,
-				JSON.stringify(tweet),
-				observedAt,
-			);
+			if (isPrimaryTweet) {
+				upsertCollection?.run(
+					accountId,
+					tweet.id,
+					collectionKind,
+					source,
+					JSON.stringify(tweet),
+					observedAt,
+				);
+			}
 			replaceTweetFts(db, tweet.id, tweet.text);
-			tweetIds.push(tweet.id);
+			if (isPrimaryTweet) {
+				tweetIds.push(tweet.id);
+			}
 		}
 	})();
 
