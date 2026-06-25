@@ -12,6 +12,10 @@ const deltaEventSchema = z.object({
 	type: z.literal("delta"),
 	delta: z.string(),
 });
+const reasoningEventSchema = z.object({
+	type: z.literal("reasoning"),
+	delta: z.string(),
+});
 const errorEventSchema = z.object({
 	type: z.literal("error"),
 	error: z.string(),
@@ -68,6 +72,7 @@ export const periodDigestStreamEventSchema = z.discriminatedUnion("type", [
 		cached: z.boolean(),
 	}),
 	deltaEventSchema,
+	reasoningEventSchema,
 	z.object({
 		type: z.literal("done"),
 		result: runResultSchema(periodContextSchema),

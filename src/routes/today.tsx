@@ -173,6 +173,8 @@ function applyHydratedProfilesToResult(
 function useDigestStream(period: PeriodOption, includeDms: boolean) {
 	const queryClient = useQueryClient();
 	const [markdown, setMarkdown] = useState("");
+	const [reasoning, setReasoning] = useState("");
+	const [reasoningOpen, setReasoningOpen] = useState(false);
 	const [context, setContext] = useState<PeriodDigestContext | null>(null);
 	const [result, setResult] = useState<PeriodDigestRunResult | null>(null);
 	const [status, setStatus] = useState("Starting digest");
@@ -180,6 +182,8 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 
 	const onStart = useCallback(() => {
 		setMarkdown("");
+		setReasoning("");
+		setReasoningOpen(false);
 		setContext(null);
 		setResult(null);
 		setStatus("Starting digest");
@@ -204,6 +208,10 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 			latestStatusRef.current = "Streaming AI summary";
 			setStatus(latestStatusRef.current);
 			setMarkdown((current) => current + event.delta);
+		} else if (event.type === "reasoning") {
+			latestStatusRef.current = "Reasoning";
+			setStatus(latestStatusRef.current);
+			setReasoning((current) => current + event.delta);
 		} else if (event.type === "done") {
 			setResult(event.result);
 			setContext(event.result.context);
@@ -297,7 +305,7 @@ function useDigestStream(period: PeriodOption, includeDms: boolean) {
 		};
 	}, [queryClient, result]);
 
-	return { context, error, loading, markdown, result, run, status };
+	return { context, error, loading, markdown, reasoning, reasoningOpen, setReasoningOpen, result, run, status };
 }
 
 function TodayRoute() {
@@ -325,7 +333,7 @@ export function TodayRouteView({
 	const updateSearch: RouteSearchChange<TodayRouteSearch> = (next, options) =>
 		onSearchChange ? onSearchChange(next, options) : setLocalSearch(next);
 	const { period, includeDms } = searchState;
-	const { context, error, loading, markdown, result, run, status } =
+	const { context, error, loading, markdown, reasoning, reasoningOpen, setReasoningOpen, result, run, status } =
 		useDigestStream(period, includeDms);
 	const sourceLabel = useMemo(
 		() => formatCounts(result?.context ?? context),
@@ -435,7 +443,25 @@ export function TodayRouteView({
 			) : (
 				<div className="px-4 py-5 text-[14px] text-[var(--ink-soft)]">
 					{loading
-						? status
+						? reasoning
+							? (
+								<div>
+									<button
+										type="button"
+										className="mb-2 inline-flex items-center gap-1 text-[13px] text-[var(--ink-soft)] hover:text-[var(--ink)]"
+										onClick={() => setReasoningOpen((o) => !o)}
+									>
+										<span className={cx("text-[10px] transition-transform", reasoningOpen && "rotate-90")}>▶</span>
+										{reasoningOpen ? "Hide reasoning" : "Show reasoning"}
+									</button>
+									{reasoningOpen ? (
+										<div className="max-w-prose whitespace-pre-wrap opacity-60 text-[13px]">{reasoning}</div>
+									) : (
+										<div className="text-[13px]">{status}</div>
+									)}
+								</div>
+							)
+							: status
 						: error
 							? "No digest was generated. Retry to start a new run."
 							: "Waiting for the first tokens..."}

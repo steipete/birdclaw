@@ -65,7 +65,7 @@ export function createAnalysisRequestBody({
 	system,
 	prompt,
 	stream,
-	maxOutputTokens = 7000,
+	maxOutputTokens,
 }: {
 	settings: AnalysisModelSettings;
 	system: string;
@@ -78,12 +78,14 @@ export function createAnalysisRequestBody({
 		service_tier: settings.serviceTier,
 		store: false,
 		...(stream ? { stream: true } : {}),
-		max_output_tokens: maxOutputTokens,
 		input: [
 			{ role: "system", content: system },
 			{ role: "user", content: prompt },
 		],
 	};
+	if (maxOutputTokens !== undefined) {
+		body.max_output_tokens = maxOutputTokens;
+	}
 	if (settings.reasoningEffort !== "none") {
 		body.reasoning = { effort: settings.reasoningEffort };
 	}
@@ -142,11 +144,13 @@ export function readHybridAnalysisStreamEffect<T>(
 		parse,
 		fallback,
 		onDelta,
+		onReasoning,
 		delimiterPattern = DEFAULT_DELIMITER_PATTERN,
 	}: {
 		parse: (value: unknown) => T;
 		fallback: (markdown: string) => T;
 		onDelta?: (delta: string) => void;
+		onReasoning?: (delta: string) => void;
 		delimiterPattern?: RegExp;
 	},
 ): Effect.Effect<HybridAnalysisResult<T>, Error> {
@@ -154,6 +158,7 @@ export function readHybridAnalysisStreamEffect<T>(
 		const stream = yield* readOpenAIResponseStreamEffect(response, {
 			delimiterPattern,
 			onDelta,
+			onReasoning,
 		});
 		const parsed = parseHybridAnalysis({
 			rawText: stream.rawText,
@@ -177,6 +182,7 @@ export function streamHybridAnalysisEffect<T>({
 	parse,
 	fallback,
 	onDelta,
+	onReasoning,
 	delimiterPattern = DEFAULT_DELIMITER_PATTERN,
 }: {
 	body: unknown;
@@ -185,6 +191,7 @@ export function streamHybridAnalysisEffect<T>({
 	parse: (value: unknown) => T;
 	fallback: (markdown: string) => T;
 	onDelta?: (delta: string) => void;
+	onReasoning?: (delta: string) => void;
 	delimiterPattern?: RegExp;
 }): Effect.Effect<HybridAnalysisResult<T>, Error> {
 	return Effect.gen(function* () {
@@ -197,6 +204,7 @@ export function streamHybridAnalysisEffect<T>({
 			parse,
 			fallback,
 			onDelta,
+			onReasoning,
 			delimiterPattern,
 		});
 	});

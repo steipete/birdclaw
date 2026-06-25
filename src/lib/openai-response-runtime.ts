@@ -72,6 +72,7 @@ function handleOpenAIEvent(
 	state: OpenAIStreamState,
 	event: Record<string, unknown>,
 	onDelta: ((delta: string) => void) | undefined,
+	onReasoning: ((delta: string) => void) | undefined,
 	delimiterPattern: RegExp,
 	delimiterHold: number,
 ) {
@@ -87,6 +88,13 @@ function handleOpenAIEvent(
 			delimiterPattern,
 			delimiterHold,
 		);
+		return;
+	}
+	if (
+		type === "response.reasoning_summary_text.delta" &&
+		typeof event.delta === "string"
+	) {
+		onReasoning?.(event.delta);
 		return;
 	}
 	if (type === "response.completed") {
@@ -128,10 +136,12 @@ export function processOpenAIResponseSseChunk(
 	chunk: string,
 	{
 		onDelta,
+		onReasoning,
 		delimiterPattern = DEFAULT_DELIMITER_PATTERN,
 		delimiterHold = DEFAULT_DELIMITER_HOLD,
 	}: {
 		onDelta?: (delta: string) => void;
+		onReasoning?: (delta: string) => void;
 		delimiterPattern?: RegExp;
 		delimiterHold?: number;
 	} = {},
@@ -152,6 +162,7 @@ export function processOpenAIResponseSseChunk(
 					state,
 					JSON.parse(data) as Record<string, unknown>,
 					onDelta,
+					onReasoning,
 					delimiterPattern,
 					delimiterHold,
 				);
@@ -167,6 +178,7 @@ export function readOpenAIResponseStreamEffect(
 	response: Response,
 	options: {
 		onDelta?: (delta: string) => void;
+		onReasoning?: (delta: string) => void;
 		delimiterPattern?: RegExp;
 		delimiterHold?: number;
 	} = {},

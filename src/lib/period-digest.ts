@@ -87,6 +87,7 @@ export type PeriodDigestStreamEvent =
 	| { type: "status"; label: string; detail?: string }
 	| { type: "start"; context: PeriodDigestContext; cached: boolean }
 	| { type: "delta"; delta: string }
+	| { type: "reasoning"; delta: string }
 	| { type: "done"; result: PeriodDigestRunResult }
 	| { type: "error"; error: string };
 
@@ -614,7 +615,7 @@ export function collectPeriodDigestContext(
 
 function languageFromOptions(options: PeriodDigestOptions) {
 	return normalizeDigestLanguage(
-		options.language ?? process.env.BIRDCLAW_DIGEST_LANGUAGE,
+		options.language ?? process.env.BIRDCLAW_DIGEST_LANGUAGE ?? "ja",
 	);
 }
 
@@ -1341,6 +1342,9 @@ export function streamPeriodDigestEffect(
 			onDelta: (delta) => {
 				handlers.onDelta?.(delta);
 				handlers.onEvent?.({ type: "delta", delta });
+			},
+			onReasoning: (delta) => {
+				handlers.onEvent?.({ type: "reasoning", delta });
 			},
 		});
 		return yield* completeOpenAIStreamEffect(
