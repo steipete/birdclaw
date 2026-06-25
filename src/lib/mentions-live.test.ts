@@ -1549,6 +1549,8 @@ describe("cached live mentions", () => {
 						id: "88",
 						username: "birdsam",
 						name: "Bird Sam",
+						profile_image_url:
+							"https://pbs.twimg.com/profile_images/88/avatar_normal.jpg",
 					},
 				],
 			},
@@ -1577,6 +1579,13 @@ describe("cached live mentions", () => {
 			maxResults: 5,
 		});
 		expect(lookupUsersByHandlesMock).not.toHaveBeenCalled();
+		expect(
+			getNativeDb()
+				.prepare("select avatar_url from profiles where handle = ?")
+				.get("birdsam"),
+		).toEqual({
+			avatar_url: "https://pbs.twimg.com/profile_images/88/avatar.jpg",
+		});
 
 		const mentions = listTimelineItems({
 			resource: "mentions",

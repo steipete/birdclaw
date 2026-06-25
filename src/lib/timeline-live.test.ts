@@ -120,7 +120,7 @@ describe("live home timeline sync", () => {
 
 	it("stores account-scoped home timeline edges without moving canonical tweets", async () => {
 		makeTempHome();
-		const db = getNativeDb();
+		const db = getNativeDb(		);
 		listHomeTimelineViaBirdMock.mockResolvedValueOnce({
 			data: [
 				{
@@ -132,7 +132,15 @@ describe("live home timeline sync", () => {
 				},
 			],
 			includes: {
-				users: [{ id: "42", username: "sam", name: "Sam" }],
+				users: [
+					{
+						id: "42",
+						username: "sam",
+						name: "Sam",
+						profile_image_url:
+							"https://pbs.twimg.com/profile_images/42/avatar_normal.jpg",
+					},
+				],
 			},
 			meta: { result_count: 1 },
 		});
@@ -154,6 +162,11 @@ describe("live home timeline sync", () => {
 				)
 				.get("tweet_001", "acct_primary"),
 		).toEqual({ account_id: "acct_primary", kind: "home" });
+		expect(
+			db.prepare("select avatar_url from profiles where handle = ?").get("sam"),
+		).toEqual({
+			avatar_url: "https://pbs.twimg.com/profile_images/42/avatar.jpg",
+		});
 		expect(
 			db
 				.prepare(

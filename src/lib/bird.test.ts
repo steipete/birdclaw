@@ -89,6 +89,8 @@ describe("bird transport wrapper", () => {
 					author: {
 						username: "sam",
 						name: "Sam",
+						profileImageUrl:
+							"https://pbs.twimg.com/profile_images/42/avatar_normal.jpg",
 					},
 					media: [
 						{
@@ -136,6 +138,8 @@ describe("bird transport wrapper", () => {
 						id: "42",
 						username: "sam",
 						name: "Sam",
+						profile_image_url:
+							"https://pbs.twimg.com/profile_images/42/avatar_normal.jpg",
 					},
 				],
 			},

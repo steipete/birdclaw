@@ -29,6 +29,7 @@ interface BirdTweetMedia {
 interface BirdTweetAuthor {
 	username?: string;
 	name?: string;
+	profileImageUrl?: string;
 }
 
 interface BirdTweetArticle {
@@ -414,11 +415,19 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 		const authorId = String(
 			item.authorId ?? item.author?.username ?? "unknown",
 		);
-		if (!users.has(authorId)) {
+		const profileImageUrl = item.author?.profileImageUrl;
+		const existingUser = users.get(authorId);
+		if (!existingUser) {
 			users.set(authorId, {
 				id: authorId,
 				username: item.author?.username ?? `user_${authorId}`,
 				name: item.author?.name ?? item.author?.username ?? `user_${authorId}`,
+				...(profileImageUrl ? { profile_image_url: profileImageUrl } : {}),
+			});
+		} else if (profileImageUrl && !existingUser.profile_image_url) {
+			users.set(authorId, {
+				...existingUser,
+				profile_image_url: profileImageUrl,
 			});
 		}
 
