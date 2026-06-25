@@ -46,5 +46,9 @@
       );
 
       formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt);
+
+      nixosModules = {
+        birdclaw = import ./nix/birdclaw.nix;
+      };
     };
 }

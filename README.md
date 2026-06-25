@@ -209,6 +209,55 @@ Open:
 http://localhost:3000
 ```
 
+## NixOS Module
+
+Birdclaw now has an in-tree NixOS module so you can set `config.json` and timer jobs from Nix:
+
+```nix
+{
+  imports = [ self.nixosModules.birdclaw ];
+
+  services.birdclaw = {
+    enable = true;
+    dataDir = "/srv/birdclaw";
+    host = "127.0.0.1";
+    port = 3003;
+    allowRemoteWeb = true;
+    environmentFiles = [ "/etc/birdclaw/secrets.env" ];
+
+    # Written to /srv/birdclaw/config.json
+    config = {
+      backup = {
+        repoPath = "/srv/birdclaw-backup";
+        remote = "https://github.com/example/backup-birdclaw.git";
+        autoSync = true;
+        staleAfterSeconds = 900;
+      };
+      mentions = {
+        dataSource = "bird";
+      };
+    };
+
+    jobs = {
+      accountSync = {
+        enable = true;
+        account = "acct_openclaw";
+        intervalSeconds = 1800;
+        steps = [ "timeline" "mentions" "likes" ];
+        maxPages = 3;
+      };
+
+      bookmarkSync = {
+        enable = true;
+        intervalSeconds = 10800;
+        mode = "auto";
+        maxPages = 5;
+      };
+    };
+  };
+}
+```
+
 ## Quick Start
 
 Initialize local state:
