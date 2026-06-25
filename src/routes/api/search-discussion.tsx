@@ -63,7 +63,7 @@ function parseOptions(url: URL): SearchDiscussionOptions {
 		originalsOnly: parseBoolean(url.searchParams.get("originalsOnly")),
 		hideLowQuality: parseBoolean(url.searchParams.get("hideLowQuality")),
 		refresh: parseBoolean(url.searchParams.get("refresh")),
-		model: url.searchParams.get("model") === "gpt-5.5" ? "gpt-5.5" : undefined,
+		model: url.searchParams.get("model")?.trim() || undefined,
 		limit: parseBoundedInteger(url.searchParams.get("limit"), {
 			max: MAX_DISCUSSION_SEARCH_LIMIT,
 		}),

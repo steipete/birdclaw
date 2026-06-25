@@ -93,7 +93,7 @@ See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge 
 | `BIRDCLAW_BACKUP_AUTO_SYNC`    | Set to `0` to disable auto-sync for one process                                                                                                      |
 | `NO_COLOR`                     | Disable ANSI color in human output                                                                                                                   |
 | `OPENAI_API_KEY`               | Enable inbox scoring, low-signal filtering, discussions, profile analysis, and digests                                                               |
-| `OPENAI_BASE_URL`              | Override the OpenAI API base URL for OpenAI-compatible endpoints; defaults to `https://api.openai.com/v1`                                            |
+| `OPENAI_BASE_URL`              | Override the OpenAI API base URL for OpenAI-compatible endpoints; defaults to `https://api.openai.com/v1`. When using LiteLLM, model aliases/groups can be passed through and fallback should be configured in LiteLLM. |
 
 `BIRDCLAW_DISABLE_LIVE_WRITES=1` is set automatically in CI and Playwright runs so test code can never publish a tweet, send a DM, or block an account.
 

@@ -64,7 +64,7 @@ describe("api period digest route", () => {
 	it("streams NDJSON and passes query options to the digest runner", async () => {
 		const response = await GET({
 			request: new Request(
-				"http://localhost/api/period-digest?period=week&since=2026-05-01&until=2026-05-16&account=acct_primary&includeDms=yes&refresh=1&model=gpt-5.5&language=ZH-cn&maxTweets=42&maxLinks=7",
+				"http://localhost/api/period-digest?period=week&since=2026-05-01&until=2026-05-16&account=acct_primary&includeDms=yes&refresh=1&model=litellm-reasoner&language=ZH-cn&maxTweets=42&maxLinks=7",
 			),
 		});
 
@@ -84,7 +84,7 @@ describe("api period digest route", () => {
 				account: "acct_primary",
 				includeDms: true,
 				refresh: true,
-				model: "gpt-5.5",
+				model: "litellm-reasoner",
 				language: "zh-CN",
 				maxTweets: 42,
 				maxLinks: 7,

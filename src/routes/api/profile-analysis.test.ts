@@ -61,7 +61,7 @@ describe("api profile analysis route", () => {
 	it("streams NDJSON and passes profile backfill options", async () => {
 		const response = await GET({
 			request: new Request(
-				"http://localhost/api/profile-analysis?handle=alice&refresh=1&model=gpt-5.5&maxTweets=42&maxPages=7&maxConversations=3&maxConversationPages=2",
+				"http://localhost/api/profile-analysis?handle=alice&refresh=1&model=litellm-vision&maxTweets=42&maxPages=7&maxConversations=3&maxConversationPages=2",
 			),
 		});
 
@@ -74,7 +74,7 @@ describe("api profile analysis route", () => {
 			{
 				handle: "alice",
 				refresh: true,
-				model: "gpt-5.5",
+				model: "litellm-vision",
 				maxTweets: 42,
 				maxPages: 7,
 				maxConversations: 3,

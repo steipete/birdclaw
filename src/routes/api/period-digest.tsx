@@ -38,7 +38,7 @@ function parseOptions(url: URL): PeriodDigestOptions {
 		account: url.searchParams.get("account") ?? undefined,
 		includeDms: parseBoolean(url.searchParams.get("includeDms")),
 		refresh: parseBoolean(url.searchParams.get("refresh")),
-		model: url.searchParams.get("model") === "gpt-5.5" ? "gpt-5.5" : undefined,
+		model: url.searchParams.get("model")?.trim() || undefined,
 		language: normalizeDigestLanguage(
 			url.searchParams.get("language") ?? undefined,
 		),
