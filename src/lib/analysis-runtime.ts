@@ -14,7 +14,7 @@ const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_SERVICE_TIER = "priority";
 const DEFAULT_DELIMITER_PATTERN = /\n---\s*\n/;
 
-export type AnalysisReasoningEffort = "minimal" | "low" | "medium" | "high";
+export type AnalysisReasoningEffort = "minimal" | "low" | "medium" | "high" | "none";
 export type AnalysisServiceTier = "default" | "flex" | "priority";
 
 export interface AnalysisModelOptions {
@@ -73,9 +73,8 @@ export function createAnalysisRequestBody({
 	stream: boolean;
 	maxOutputTokens?: number;
 }) {
-	return {
+	const body: Record<string, unknown> = {
 		model: settings.model,
-		reasoning: { effort: settings.reasoningEffort },
 		service_tier: settings.serviceTier,
 		store: false,
 		...(stream ? { stream: true } : {}),
@@ -85,6 +84,10 @@ export function createAnalysisRequestBody({
 			{ role: "user", content: prompt },
 		],
 	};
+	if (settings.reasoningEffort !== "none") {
+		body.reasoning = { effort: settings.reasoningEffort };
+	}
+	return body;
 }
 
 export function parseHybridAnalysis<T>({
