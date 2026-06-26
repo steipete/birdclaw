@@ -15,9 +15,8 @@ vi.mock("node:child_process", () => ({
 }));
 
 function mockBirdStdoutOnce(stdout: string) {
-	execFileAsyncMock.mockImplementationOnce(async (_command, args: string[]) => {
-		writeFileSync(args[3] ?? "", stdout);
-		return { stdout: "", stderr: "" };
+	execFileAsyncMock.mockImplementationOnce(async () => {
+		return { stdout, stderr: "" };
 	});
 }
 
@@ -30,14 +29,8 @@ function mockBirdRejectOnce(error: Error & { stderr?: string }) {
 function expectBirdCommandCall(callNumber: number, args: string[]) {
 	const call = execFileAsyncMock.mock.calls[callNumber - 1];
 	expect(call).toBeDefined();
-	expect(call[0]).toBe("bash");
-	expect((call[1] as string[])[0]).toBe("-c");
-	const commandArgs = call[1] as string[];
-	const normalizedArgs =
-		commandArgs[5] === "--profile-name"
-			? commandArgs.slice(7)
-			: commandArgs.slice(5);
-	expect(normalizedArgs).toEqual(args);
+	expect(call[0]).toBe("/tmp/bird");
+	expect(call[1]).toEqual(["--profile-name", PROFILE_NAME, ...args]);
 	expect(call[2]).toEqual(
 		expect.objectContaining({ maxBuffer: expect.any(Number) }),
 	);
@@ -333,9 +326,8 @@ describe("bird transport wrapper", () => {
 	it("explains how to configure bird when the binary is missing", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/missing/bird";
 		mockBirdRejectOnce(
-			Object.assign(new Error("command failed"), {
-				stderr:
-					"birdclaw-bird: /missing/bird: No such file or directory\nbirdclaw-bird: line 0: exec: /missing/bird: cannot execute: No such file or directory",
+			Object.assign(new Error("spawn /missing/bird ENOENT"), {
+				code: "ENOENT",
 			}),
 		);
 

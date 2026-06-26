@@ -141,17 +141,23 @@ function readString(value: unknown, key: string) {
 }
 
 function isBirdAccountConfigured(db: Database, account: string | undefined) {
-	if (!account) return true;
+	if (!account) {
+		try {
+			const defaultRow = db
+				.prepare(
+					"select id from accounts order by is_default desc, created_at asc limit 1",
+				)
+				.get() as { id: string } | undefined;
+			if (!defaultRow) return true;
+			account = defaultRow.id;
+		} catch {
+			return true;
+		}
+	}
 	const row = db
-		.prepare(
-			`
-      select id, is_default, bird_profile_name
-      from accounts
-      where id = ?
-      `,
-		)
+		.prepare("select id, bird_profile_name from accounts where id = ?")
 		.get(account) as
-		| { id: string; is_default: number; bird_profile_name: string | null }
+		| { id: string; bird_profile_name: string | null }
 		| undefined;
 	if (!row) return false;
 	return (

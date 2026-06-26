@@ -594,7 +594,7 @@ describe("text backup", () => {
 
 		expect(first.manifest.schemaVersion).toBe(2);
 		expect(first.manifest.backupHash).toBe(
-			"bec137fa89f0f39cef137e8e74dfc59a7a892972189019c7d5e841f9c4c17895",
+			"53cf3ff3c7e3bb7bcba6a23c6d2890ebc92c226b02c49e70084880fb6b386fe3",
 		);
 		expect(second.manifest.files).toEqual(first.manifest.files);
 		expect(second.manifest.counts).toEqual(first.manifest.counts);

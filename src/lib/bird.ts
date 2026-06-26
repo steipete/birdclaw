@@ -1,7 +1,4 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import { Effect } from "effect";
 import { getBirdCommand } from "./config";
@@ -19,7 +16,6 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const BIRD_JSON_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
-const BIRD_STDOUT_REDIRECT_SCRIPT = 'out="$1"; shift; exec "$@" > "$out"';
 
 interface BirdTweetMedia {
 	type?: string;
@@ -263,52 +259,27 @@ function isUnsupportedBirdOptionError(error: unknown, option: string) {
 	return text.includes(option) && /unknown option|error:/i.test(text);
 }
 
-function makeBirdStdoutTempEffect() {
-	return Effect.acquireRelease(
-		Effect.sync(() => {
-			const tempDir = mkdtempSync(join(tmpdir(), "birdclaw-bird-"));
-			return { tempDir, stdoutPath: join(tempDir, "stdout.json") };
-		}),
-		({ tempDir }) =>
-			Effect.sync(() => rmSync(tempDir, { recursive: true, force: true })),
-	);
-}
-
 export function runBirdJsonCommandEffect(
 	args: string[],
 	profileName: string,
 	timeoutMs?: number,
 ) {
-	return Effect.scoped(
-		Effect.gen(function* () {
-			const birdCommand = yield* Effect.try({
-				try: () => getBirdCommand(),
-				catch: (error) =>
-					error instanceof Error ? error : new Error(String(error)),
-			});
-			const { stdoutPath } = yield* makeBirdStdoutTempEffect();
-			yield* Effect.tryPromise({
-				try: () =>
-					execFileAsync(
-						"bash",
-						[
-							"-c",
-							BIRD_STDOUT_REDIRECT_SCRIPT,
-							"birdclaw-bird",
-							stdoutPath,
-							birdCommand,
-							...withBirdProfileName(args, profileName),
-						],
-						{ maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES, timeout: timeoutMs },
-					),
-				catch: (error) => formatBirdCommandError(error, birdCommand),
-			});
-			return yield* Effect.try({
-				try: () => readFileSync(stdoutPath, "utf8"),
-				catch: (error) => error,
-			});
-		}),
-	);
+	return Effect.gen(function* () {
+		const birdCommand = yield* Effect.try({
+			try: () => getBirdCommand(),
+			catch: (error) =>
+				error instanceof Error ? error : new Error(String(error)),
+		});
+		const result = yield* Effect.tryPromise({
+			try: () =>
+				execFileAsync(birdCommand, withBirdProfileName(args, profileName), {
+					maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES,
+					timeout: timeoutMs,
+				}),
+			catch: (error) => formatBirdCommandError(error, birdCommand),
+		});
+		return (result as { stdout: string }).stdout;
+	});
 }
 
 function getBirdTweetItems(payload: unknown, command: string) {

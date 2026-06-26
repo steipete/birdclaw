@@ -41,6 +41,15 @@ function makeTempHome() {
 	const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-mutes-"));
 	tempDirs.push(tempRoot);
 	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	const db = getNativeDb();
+	db.prepare(
+		"update accounts set bird_profile_name = ? where id = ?",
+	).run("profile-primary", "acct_primary");
+	db.prepare(
+		"update accounts set bird_profile_name = ? where id = ?",
+	).run("profile-studio", "acct_studio");
 	return tempRoot;
 }
 
@@ -123,7 +132,7 @@ describe("mutes", () => {
 			action: "mute",
 			accountId: "acct_primary",
 		});
-		expect(mocks.muteUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.muteUserViaBird).toHaveBeenCalledWith("7", "profile-primary");
 	});
 
 	it("mutes, lists, and unmutes profiles", async () => {
@@ -136,7 +145,7 @@ describe("mutes", () => {
 			output: "muted via bird; verified muting=true",
 			transport: "bird",
 		});
-		expect(mocks.muteUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.muteUserViaBird).toHaveBeenCalledWith("7", "profile-primary");
 
 		expect(listMutes({ account: "acct_primary" })).toEqual([
 			expect.objectContaining({
@@ -153,7 +162,7 @@ describe("mutes", () => {
 			output: "unmuted via bird; verified muting=false",
 			transport: "bird",
 		});
-		expect(mocks.unmuteUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.unmuteUserViaBird).toHaveBeenCalledWith("7", "profile-primary");
 		expect(listMutes({ account: "acct_primary" })).toEqual([]);
 	});
 

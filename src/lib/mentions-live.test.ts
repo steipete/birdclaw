@@ -45,6 +45,15 @@ function makeTempHome() {
 	);
 	tempDirs.push(tempDir);
 	process.env.BIRDCLAW_HOME = tempDir;
+	const db = getNativeDb();
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-primary",
+		"acct_primary",
+	);
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-studio",
+		"acct_studio",
+	);
 	return tempDir;
 }
 
@@ -1577,6 +1586,7 @@ describe("cached live mentions", () => {
 		);
 		expect(listMentionsViaBirdMock).toHaveBeenCalledWith({
 			maxResults: 5,
+			profileName: "profile-primary",
 		});
 		expect(lookupUsersByHandlesMock).not.toHaveBeenCalled();
 		expect(

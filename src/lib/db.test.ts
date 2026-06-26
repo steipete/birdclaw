@@ -341,7 +341,7 @@ describe("database init", () => {
 		}) as number;
 		expect(busyTimeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
 		expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
-		expect(db.pragma("user_version", { simple: true })).toBe(2);
+		expect(db.pragma("user_version", { simple: true })).toBe(3);
 	});
 
 	it("does not request a write lock for completed startup backfills", async () => {

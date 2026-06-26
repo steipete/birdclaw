@@ -95,21 +95,25 @@ vi.mock("./bird", async () => {
 		error instanceof Error ? error : new Error(String(error));
 	return {
 		postTweetViaBird: mocks.postTweetViaBird,
-		postTweetViaBirdEffect: (text: string) =>
+		postTweetViaBirdEffect: (text: string, profileName: string) =>
 			Effect.tryPromise({
-				try: () => mocks.postTweetViaBird(text),
+				try: () => mocks.postTweetViaBird(text, profileName),
 				catch: toError,
 			}),
 		replyToTweetViaBird: mocks.replyToTweetViaBird,
-		replyToTweetViaBirdEffect: (tweetId: string, text: string) =>
+		replyToTweetViaBirdEffect: (
+			tweetId: string,
+			text: string,
+			profileName: string,
+		) =>
 			Effect.tryPromise({
-				try: () => mocks.replyToTweetViaBird(tweetId, text),
+				try: () => mocks.replyToTweetViaBird(tweetId, text, profileName),
 				catch: toError,
 			}),
 		getAuthenticatedBirdAccount: mocks.getAuthenticatedBirdAccount,
-		getAuthenticatedBirdAccountEffect: () =>
+		getAuthenticatedBirdAccountEffect: (profileName: string) =>
 			Effect.tryPromise({
-				try: () => mocks.getAuthenticatedBirdAccount(),
+				try: () => mocks.getAuthenticatedBirdAccount(profileName),
 				catch: toError,
 			}),
 	};
@@ -123,6 +127,13 @@ function setupTempHome() {
 	process.env.BIRDCLAW_HOME = tempRoot;
 	resetBirdclawPathsForTests();
 	resetDatabaseForTests();
+	const db = getNativeDb();
+	db.prepare(
+		"update accounts set bird_profile_name = ? where id = ?",
+	).run("profile-primary", "acct_primary");
+	db.prepare(
+		"update accounts set bird_profile_name = ? where id = ?",
+	).run("profile-studio", "acct_studio");
 }
 
 type TestDatabase = ReturnType<typeof getNativeDb>;
@@ -1501,6 +1512,7 @@ describe("birdclaw queries", () => {
 		});
 		expect(mocks.postTweetViaBird).toHaveBeenCalledWith(
 			"Fresh local-first post",
+			"profile-primary",
 		);
 		expect(mocks.postViaXurl).not.toHaveBeenCalled();
 	});
@@ -1539,10 +1551,14 @@ describe("birdclaw queries", () => {
 		await expect(Effect.runPromise(dmEffect)).resolves.toMatchObject({
 			ok: true,
 		});
-		expect(mocks.postTweetViaBird).toHaveBeenCalledWith("Effect post");
+		expect(mocks.postTweetViaBird).toHaveBeenCalledWith(
+			"Effect post",
+			"profile-primary",
+		);
 		expect(mocks.replyToTweetViaBird).toHaveBeenCalledWith(
 			"tweet_004",
 			"Effect reply",
+			"profile-primary",
 		);
 		expect(mocks.dmViaXurl).toHaveBeenCalledWith("amelia", "Effect DM");
 	});
@@ -1675,6 +1691,7 @@ describe("birdclaw queries", () => {
 		expect(mocks.replyToTweetViaBird).toHaveBeenCalledWith(
 			"tweet_004",
 			"Sync deserves an engine when replay matters.",
+			"profile-primary",
 		);
 	});
 

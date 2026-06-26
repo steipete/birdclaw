@@ -53,6 +53,8 @@
               nodejs
               pnpm
               yarn
+              zip
+              unzip
               self.formatter.${system}
             ];
           };

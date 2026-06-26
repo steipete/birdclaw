@@ -32,7 +32,14 @@ function makeTempHome() {
 	);
 	tempDirs.push(tempRoot);
 	process.env.BIRDCLAW_HOME = tempRoot;
-	return getNativeDb();
+	const db = getNativeDb();
+	db.prepare(
+		"update accounts set bird_profile_name = ? where id = ?",
+	).run("profile-primary", "acct_primary");
+	db.prepare(
+		"update accounts set bird_profile_name = ? where id = ?",
+	).run("profile-studio", "acct_studio");
+	return db;
 }
 
 afterEach(() => {

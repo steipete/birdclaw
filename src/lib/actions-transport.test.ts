@@ -38,7 +38,7 @@ vi.mock("./xurl", () => ({
 describe("actions transport", () => {
 	let birdclawHome: string | undefined;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		delete process.env.BIRDCLAW_ACTIONS_TRANSPORT;
 		delete process.env.BIRDCLAW_CONFIG;
 		birdclawHome = mkdtempSync(
@@ -47,6 +47,35 @@ describe("actions transport", () => {
 		process.env.BIRDCLAW_HOME = birdclawHome;
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 		vi.resetModules();
+
+		const { getNativeDb } = await import("./db");
+		const db = getNativeDb({ seedDemoData: false });
+		db.prepare("delete from accounts").run();
+		db.prepare(
+			"insert into accounts (id, name, handle, external_user_id, bird_profile_name, transport, is_default, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+		).run(
+			"acct_primary",
+			"Primary",
+			"@steipete",
+			"25401953",
+			"profile-primary",
+			"xurl",
+			1,
+			new Date().toISOString(),
+		);
+		db.prepare(
+			"insert into accounts (id, name, handle, external_user_id, bird_profile_name, transport, is_default, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+		).run(
+			"acct_studio",
+			"Studio",
+			"@birdclaw_lab",
+			null,
+			"profile-studio",
+			"xurl",
+			0,
+			new Date().toISOString(),
+		);
+
 		mocks.blockUserViaBird.mockReset();
 		mocks.readBirdStatusViaBird.mockReset();
 		mocks.unblockUserViaBird.mockReset();
@@ -114,6 +143,10 @@ describe("actions transport", () => {
 			action: "block",
 			query: "7",
 			targetUserId: "7",
+			expectedAccount: {
+				id: "acct_primary",
+				handle: "steipete",
+			},
 		});
 
 		expect(mocks.blockUserViaBird).not.toHaveBeenCalled();
@@ -122,7 +155,10 @@ describe("actions transport", () => {
 			output: "bird block ok",
 			transport: "bird",
 		});
-		expect(mocks.blockUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.blockUserViaBird).toHaveBeenCalledWith(
+			"7",
+			"profile-primary",
+		);
 	});
 
 	it("uses bird in auto mode first", async () => {
@@ -131,6 +167,10 @@ describe("actions transport", () => {
 			action: "block",
 			query: "7",
 			targetUserId: "7",
+			expectedAccount: {
+				id: "acct_primary",
+				handle: "steipete",
+			},
 		});
 
 		expect(result).toEqual({
@@ -138,7 +178,10 @@ describe("actions transport", () => {
 			output: "bird block ok",
 			transport: "bird",
 		});
-		expect(mocks.blockUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.blockUserViaBird).toHaveBeenCalledWith(
+			"7",
+			"profile-primary",
+		);
 		expect(mocks.blockUserViaXurl).not.toHaveBeenCalled();
 	});
 
@@ -164,7 +207,10 @@ describe("actions transport", () => {
 			output: "bird block ok",
 			transport: "bird",
 		});
-		expect(mocks.blockUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.blockUserViaBird).toHaveBeenCalledWith(
+			"7",
+			"profile-primary",
+		);
 		expect(mocks.lookupAuthenticatedUser).not.toHaveBeenCalled();
 		expect(mocks.blockUserViaXurl).not.toHaveBeenCalled();
 	});
@@ -180,6 +226,11 @@ describe("actions transport", () => {
 			query: "7",
 			targetUserId: "7",
 			transport: "xurl",
+			expectedAccount: {
+				id: "acct_primary",
+				handle: "steipete",
+				externalUserId: "1",
+			},
 		});
 
 		expect(result).toEqual({
@@ -202,6 +253,11 @@ describe("actions transport", () => {
 			action: "block",
 			query: "7",
 			targetUserId: "7",
+			expectedAccount: {
+				id: "acct_primary",
+				handle: "steipete",
+				externalUserId: "1",
+			},
 		});
 
 		expect(result).toEqual({
@@ -228,6 +284,11 @@ describe("actions transport", () => {
 			action: "block",
 			query: "7",
 			targetUserId: "7",
+			expectedAccount: {
+				id: "acct_primary",
+				handle: "steipete",
+				externalUserId: "1",
+			},
 		});
 
 		expect(result).toEqual({
@@ -252,6 +313,11 @@ describe("actions transport", () => {
 			action: "unblock",
 			query: "7",
 			targetUserId: "7",
+			expectedAccount: {
+				id: "acct_primary",
+				handle: "steipete",
+				externalUserId: "1",
+			},
 		});
 
 		expect(result).toEqual({
@@ -278,6 +344,10 @@ describe("actions transport", () => {
 			action: "block",
 			query: "7",
 			targetUserId: "7",
+			expectedAccount: {
+				id: "acct_primary",
+				handle: "steipete",
+			},
 		});
 
 		expect(result).toEqual({
@@ -295,6 +365,11 @@ describe("actions transport", () => {
 				action: "block",
 				query: "missing",
 				transport: "xurl",
+				expectedAccount: {
+					id: "acct_primary",
+					handle: "steipete",
+					externalUserId: "1",
+				},
 			}),
 		).resolves.toEqual({
 			ok: false,
@@ -314,6 +389,10 @@ describe("actions transport", () => {
 				query: "7",
 				targetUserId: "7",
 				transport: "xurl",
+				expectedAccount: {
+					id: "acct_primary",
+					handle: "steipete",
+				},
 			}),
 		).resolves.toEqual({
 			ok: false,
@@ -335,6 +414,11 @@ describe("actions transport", () => {
 				query: "7",
 				targetUserId: "7",
 				transport: "xurl",
+				expectedAccount: {
+					id: "acct_primary",
+					handle: "steipete",
+					externalUserId: "1",
+				},
 			}),
 		).resolves.toEqual({
 			ok: false,
@@ -347,6 +431,11 @@ describe("actions transport", () => {
 				query: "7",
 				targetUserId: "7",
 				transport: "xurl",
+				expectedAccount: {
+					id: "acct_primary",
+					handle: "steipete",
+					externalUserId: "1",
+				},
 			}),
 		).resolves.toEqual({
 			ok: false,
@@ -473,6 +562,10 @@ describe("actions transport", () => {
 				query: "7",
 				targetUserId: "7",
 				transport: "bird",
+				expectedAccount: {
+					id: "acct_primary",
+					handle: "steipete",
+				},
 			}),
 		).resolves.toEqual({
 			ok: true,
@@ -485,13 +578,21 @@ describe("actions transport", () => {
 				query: "7",
 				targetUserId: "7",
 				transport: "xurl",
+				expectedAccount: {
+					id: "acct_primary",
+					handle: "steipete",
+					externalUserId: "1",
+				},
 			}),
 		).resolves.toEqual({
 			ok: true,
 			output: "xurl unblock ok\nverified blocking=false",
 			transport: "xurl",
 		});
-		expect(mocks.unblockUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.unblockUserViaBird).toHaveBeenCalledWith(
+			"7",
+			"profile-primary",
+		);
 		expect(mocks.unblockUserViaXurl).toHaveBeenCalledWith("1", "7");
 	});
 });

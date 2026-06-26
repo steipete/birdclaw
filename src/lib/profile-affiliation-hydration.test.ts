@@ -13,9 +13,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	lookupProfileViaBird: mocks.lookupProfileViaBird,
-	lookupProfileViaBirdEffect: (handle: string) =>
+	lookupProfileViaBirdEffect: (handle: string, profileName: string) =>
 		Effect.tryPromise({
-			try: () => mocks.lookupProfileViaBird(handle),
+			try: () => mocks.lookupProfileViaBird(handle, profileName),
 			catch: (error) => error,
 		}),
 }));
@@ -62,6 +62,10 @@ describe("profile affiliation hydration", () => {
 		process.env.BIRDCLAW_HOME = homeDir;
 		resetBirdclawPathsForTests();
 		resetDatabaseForTests();
+		const db = getNativeDb();
+		db.prepare(
+			"update accounts set bird_profile_name = ? where id = ?",
+		).run("profile-primary", "acct_primary");
 		mocks.lookupProfileViaBird.mockReset();
 	});
 
@@ -195,7 +199,13 @@ describe("profile affiliation hydration", () => {
 			skipped: 2,
 			errors: [{ handle: "errorco", error: "bird down" }],
 		});
-		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("missingco");
-		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("errorco");
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith(
+			"missingco",
+			"profile-primary",
+		);
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith(
+			"errorco",
+			"profile-primary",
+		);
 	});
 });

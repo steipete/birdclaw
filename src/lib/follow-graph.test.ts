@@ -34,6 +34,15 @@ function setupTempHome() {
 	process.env.BIRDCLAW_HOME = tempRoot;
 	resetBirdclawPathsForTests();
 	resetDatabaseForTests();
+	const db = getNativeDb();
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-primary",
+		"acct_primary",
+	);
+	db.prepare("update accounts set bird_profile_name = ? where id = ?").run(
+		"profile-studio",
+		"acct_studio",
+	);
 	mocks.listFollowUsersViaBird.mockRejectedValue(new Error("bird unavailable"));
 }
 
@@ -123,6 +132,7 @@ describe("follow graph sync and cache-only queries", () => {
 			maxResults: 100,
 			all: true,
 			maxPages: undefined,
+			profileName: "profile-primary",
 		});
 		expect(mocks.listFollowUsersViaXurl).not.toHaveBeenCalled();
 	});

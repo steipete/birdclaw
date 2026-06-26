@@ -16,15 +16,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bird", () => ({
 	lookupProfileViaBird: mocks.lookupProfileViaBird,
-	lookupProfileViaBirdEffect: (target: string) =>
+	lookupProfileViaBirdEffect: (target: string, profileName: string) =>
 		Effect.tryPromise({
-			try: () => mocks.lookupProfileViaBird(target),
+			try: () => mocks.lookupProfileViaBird(target, profileName),
 			catch: (error) => error,
 		}),
 	lookupProfilesViaBird: mocks.lookupProfilesViaBird,
-	lookupProfilesViaBirdEffect: (targets: string[]) =>
+	lookupProfilesViaBirdEffect: (targets: string[], profileName: string) =>
 		Effect.tryPromise({
-			try: () => mocks.lookupProfilesViaBird(targets),
+			try: () => mocks.lookupProfilesViaBird(targets, profileName),
 			catch: (error) => error,
 		}),
 }));
@@ -57,6 +57,9 @@ function resetStore() {
 		"insert into accounts (id, name, handle, transport, is_default, created_at) values ('acct_primary', 'Peter', '@steipete', 'archive', 1, '2009-03-19T22:54:05.000Z')",
 	).run();
 	db.prepare(
+		"update accounts set bird_profile_name = ? where id = ?",
+	).run("profile-primary", "acct_primary");
+	db.prepare(
 		"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_user_42', 'id42', 'id42', 'Imported from archive user 42', 0, 210, '2009-03-19T22:54:05.000Z')",
 	).run();
 	db.prepare(
@@ -74,11 +77,11 @@ describe("profile resolver", () => {
 		mocks.lookupProfilesViaBird.mockReset();
 		mocks.lookupUsersByHandles.mockReset();
 		mocks.lookupUsersByIds.mockReset();
-		mocks.lookupProfilesViaBird.mockImplementation(async (targets: string[]) =>
+		mocks.lookupProfilesViaBird.mockImplementation(async (targets: string[], profileName: string) =>
 			Promise.all(
 				targets.map(async (target) => ({
 					target,
-					user: await mocks.lookupProfileViaBird(target),
+					user: await mocks.lookupProfileViaBird(target, profileName),
 				})),
 			),
 		);
@@ -112,7 +115,10 @@ describe("profile resolver", () => {
 				profile: expect.objectContaining({ handle: "sam" }),
 			}),
 		]);
-		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("42");
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith(
+			"42",
+			"profile-primary",
+		);
 	});
 
 	it("builds handle resolver effects lazily", async () => {
@@ -140,7 +146,10 @@ describe("profile resolver", () => {
 				source: "bird",
 			}),
 		]);
-		expect(mocks.lookupProfilesViaBird).toHaveBeenCalledWith(["sam"]);
+		expect(mocks.lookupProfilesViaBird).toHaveBeenCalledWith(
+			["sam"],
+			"profile-primary",
+		);
 	});
 
 	it("resolves placeholder profiles through bird and reuses persistent cache", async () => {
@@ -345,8 +354,14 @@ describe("profile resolver", () => {
 			}),
 		]);
 
-		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("vercel");
-		expect(mocks.lookupProfilesViaBird).toHaveBeenCalledWith(["42", "43"]);
+		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith(
+			"vercel",
+			"profile-primary",
+		);
+		expect(mocks.lookupProfilesViaBird).toHaveBeenCalledWith(
+			["42", "43"],
+			"profile-primary",
+		);
 		expect(
 			mocks.lookupProfileViaBird.mock.calls.filter(
 				([target]) => target === "vercel",
