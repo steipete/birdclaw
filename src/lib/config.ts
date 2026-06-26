@@ -34,6 +34,9 @@ export interface BirdclawConfig {
 		autoSync?: boolean;
 		staleAfterSeconds?: number;
 	};
+	discord?: {
+		webhookUrl?: string;
+	};
 }
 
 let cachedPaths: BirdclawPaths | undefined;
@@ -216,6 +219,16 @@ export function ensureBirdclawDirs(): BirdclawPaths {
 	mkdirSync(paths.mediaThumbsDir, { recursive: true });
 
 	return paths;
+}
+
+export function getDiscordWebhookUrl(): string | undefined {
+	const envUrl = process.env.BIRDCLAW_DISCORD_WEBHOOK_URL?.trim();
+	if (envUrl) return envUrl;
+
+	const configUrl = getBirdclawConfig().discord?.webhookUrl?.trim();
+	if (configUrl) return configUrl;
+
+	return undefined;
 }
 
 export function resetBirdclawPathsForTests() {

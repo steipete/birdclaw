@@ -9,8 +9,10 @@ import {
 } from "#/lib/bookmark-sync-job";
 import type { TimelineCollectionMode } from "#/lib/timeline-collections-live";
 import type { CliCommandContext } from "./command-context";
+import { registerDigestJobCommands } from "./register-digest-job";
 
-export function registerJobCommands({ program, print }: CliCommandContext) {
+export function registerJobCommands(context: CliCommandContext) {
+	const { program, print } = context;
 	const jobsCommand = program
 		.command("jobs")
 		.description("Run and install background Birdclaw jobs");
@@ -166,4 +168,6 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 			});
 			print(result, true);
 		});
+
+	registerDigestJobCommands(context).register(jobsCommand);
 }

@@ -92,6 +92,58 @@ let
       ]
       ++ lib.optionals refresh [ "--refresh" ]
     );
+
+  mkDigestCommand =
+    {
+      account ? null,
+      windowHours,
+      period ? null,
+      includeDms ? false,
+      model ? null,
+      language ? null,
+      maxTweets ? null,
+      maxLinks ? null,
+      logPath ? null,
+      ...
+    }:
+    mkCmd (
+      [
+        "--json"
+        "jobs"
+        "run-digest"
+        "--window-hours"
+        (toString windowHours)
+      ]
+      ++ lib.optionals (account != null) [
+        "--account"
+        account
+      ]
+      ++ lib.optionals (period != null) [
+        "--period"
+        period
+      ]
+      ++ lib.optionals includeDms [ "--include-dms" ]
+      ++ lib.optionals (model != null) [
+        "--model"
+        model
+      ]
+      ++ lib.optionals (language != null) [
+        "--language"
+        language
+      ]
+      ++ lib.optionals (maxTweets != null) [
+        "--max-tweets"
+        (toString maxTweets)
+      ]
+      ++ lib.optionals (maxLinks != null) [
+        "--max-links"
+        (toString maxLinks)
+      ]
+      ++ lib.optionals (logPath != null) [
+        "--log"
+        logPath
+      ]
+    );
 in
 {
   options.services.birdclaw = {
@@ -300,6 +352,87 @@ in
           description = "Optional stderr redirection path for the systemd service.";
         };
       };
+
+      digest = {
+        enable = lib.mkEnableOption "Periodic birdclaw digest generation timer.";
+
+        intervalSeconds = lib.mkOption {
+          type = lib.types.ints.positive;
+          default = 60 * 60;
+          description = "Digest generation interval in seconds.";
+        };
+
+        windowHours = lib.mkOption {
+          type = lib.types.ints.positive;
+          default = 6;
+          description = "Number of hours to look back for the digest window.";
+        };
+
+        period = lib.mkOption {
+          type = lib.types.nullOr (lib.types.enum [
+            "today"
+            "24h"
+            "yesterday"
+            "week"
+          ]);
+          default = null;
+          description = "Period preset (overrides --window-hours).";
+        };
+
+        account = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Account id to use for the digest job.";
+        };
+
+        includeDms = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = "Include private DM context in the digest.";
+        };
+
+        model = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "OpenAI model id for the digest.";
+        };
+
+        language = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Report language as a Unicode locale id.";
+        };
+
+        maxTweets = lib.mkOption {
+          type = lib.types.nullOr lib.types.ints.positive;
+          default = null;
+          description = "Maximum tweet context for the digest.";
+        };
+
+        maxLinks = lib.mkOption {
+          type = lib.types.nullOr lib.types.ints.positive;
+          default = null;
+          description = "Maximum linked articles for the digest.";
+        };
+
+        logPath = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Optional --log path override.";
+        };
+
+        stdoutPath = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Optional stdout redirection path for the systemd service.";
+        };
+
+        stderrPath = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Optional stderr redirection path for the systemd service.";
+        };
+      };
     };
   };
 
@@ -439,6 +572,54 @@ in
         OnBootSec = "1m";
         OnUnitActiveSec = "${toString cfg.jobs.bookmarkSync.intervalSeconds}s";
         Unit = "birdclaw-bookmark-sync.service";
+        Persistent = true;
+      };
+    };
+
+    systemd.user.services.birdclaw-digest = lib.mkIf cfg.jobs.digest.enable {
+      description = "Birdclaw digest generation scheduler job";
+      environment = {
+        BIRDCLAW_HOME = cfg.dataDir;
+        BIRDCLAW_CONFIG = "${cfg.dataDir}/config.json";
+        BIRDCLAW_HOST = cfg.host;
+        BIRDCLAW_PORT = toString cfg.port;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        EnvironmentFile = cfg.environmentFiles;
+        StandardOutput =
+          if cfg.jobs.digest.stdoutPath != null then
+            "append:${cfg.jobs.digest.stdoutPath}"
+          else
+            "journal";
+        StandardError =
+          if cfg.jobs.digest.stderrPath != null then
+            "append:${cfg.jobs.digest.stderrPath}"
+          else
+            "journal";
+        ExecStart = mkDigestCommand cfg.jobs.digest;
+        NoNewPrivileges = true;
+      };
+      after = [
+        "network-online.target"
+        "birdclaw.service"
+      ];
+      wants = [
+        "network-online.target"
+        "birdclaw.service"
+      ];
+      unitConfig = {
+        StartLimitIntervalSec = "1m";
+        StartLimitBurst = 3;
+      };
+    };
+
+    systemd.user.timers.birdclaw-digest = lib.mkIf cfg.jobs.digest.enable {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "1m";
+        OnUnitActiveSec = "${toString cfg.jobs.digest.intervalSeconds}s";
+        Unit = "birdclaw-digest.service";
         Persistent = true;
       };
     };
