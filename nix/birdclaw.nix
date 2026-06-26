@@ -320,7 +320,6 @@ in
       };
       serviceConfig = {
         Type = "simple";
-        WorkingDirectory = cfg.dataDir;
         ExecStartPre = [
           ''${lib.getExe' pkgs.coreutils "mkdir"} -p "${cfg.dataDir}"''
           ''${lib.getExe pkgs.bash} -c "[ -f ${cfg.dataDir}/config.json ] || ${lib.getExe' pkgs.coreutils "cp"} ${generatedConfigPath} ${cfg.dataDir}/config.json"''
