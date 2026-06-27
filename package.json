@@ -76,6 +76,7 @@
 		"@vitejs/plugin-react": "^6.0.2",
 		"@vitest/coverage-v8": "^4.1.9",
 		"esbuild": "^0.28.1",
+		"fflate": "0.8.2",
 		"jsdom": "^29.1.1",
 		"oxfmt": "^0.55.0",
 		"oxlint": "^1.70.0",

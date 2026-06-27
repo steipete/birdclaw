@@ -50,6 +50,10 @@ describe("xurl transport wrapper", () => {
 		delete process.env.BIRDCLAW_XURL_RETRY_BASE_MS;
 		delete process.env.BIRDCLAW_XURL_OAUTH2_APP;
 		delete process.env.BIRDCLAW_XURL_OAUTH2_USERNAME;
+		delete process.env.BIRDCLAW_X_BEARER_TOKEN;
+		delete process.env.BIRDCLAW_X_USER_ID;
+		delete process.env.BIRDCLAW_DISABLE_BEARER_TRANSPORT;
+		vi.unstubAllGlobals();
 	});
 
 	it("falls back to local mode when xurl is missing", async () => {
@@ -164,6 +168,65 @@ describe("xurl transport wrapper", () => {
 
 		expect(result.availableTransport).toBe("local");
 		expect(result.statusText).toContain("unknown error");
+	});
+
+	it("ignores bearer tokens when bearer transport is disabled", async () => {
+		process.env.BIRDCLAW_X_BEARER_TOKEN = "token";
+		process.env.BIRDCLAW_DISABLE_BEARER_TRANSPORT = "1";
+		execFileAsyncMock.mockRejectedValue(new Error("missing"));
+		const { getTransportStatus } = await import("./xurl");
+
+		await expect(getTransportStatus()).resolves.toMatchObject({
+			availableTransport: "local",
+			installed: false,
+		});
+	});
+
+	it("uses a configured bearer token without invoking xurl", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			text: async () =>
+				JSON.stringify({ data: [{ id: "42", username: "sam" }] }),
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		process.env.BIRDCLAW_X_BEARER_TOKEN = "token";
+		const { getTransportStatus, lookupUsersByIds } = await import("./xurl");
+
+		await expect(lookupUsersByIds(["42"])).resolves.toEqual([
+			{ id: "42", username: "sam" },
+		]);
+		await expect(getTransportStatus()).resolves.toMatchObject({
+			availableTransport: "xurl",
+			rawStatus: "bearer-token",
+		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			`https://api.x.com/2/users?ids=42&user.fields=${RICH_USER_FIELDS}`,
+			expect.objectContaining({
+				headers: { Authorization: "Bearer token" },
+			}),
+		);
+		expect(execFileAsyncMock).not.toHaveBeenCalled();
+	});
+
+	it("resolves the default bearer-token user from BIRDCLAW_X_USER_ID", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				ok: true,
+				status: 200,
+				text: async () =>
+					JSON.stringify({ data: { id: "1", username: "steipete" } }),
+			}),
+		);
+		process.env.BIRDCLAW_X_BEARER_TOKEN = "token";
+		process.env.BIRDCLAW_X_USER_ID = "1";
+		const { lookupAuthenticatedUser } = await import("./xurl");
+
+		await expect(lookupAuthenticatedUser()).resolves.toEqual({
+			id: "1",
+			username: "steipete",
+		});
 	});
 
 	it("looks up users and the authenticated account via raw json endpoints", async () => {

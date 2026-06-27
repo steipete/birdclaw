@@ -43,3 +43,5 @@ if (typeof window !== "undefined") {
 }
 
 await import("@testing-library/jest-dom/vitest");
+
+process.env.BIRDCLAW_DISABLE_BEARER_TRANSPORT ??= "1";

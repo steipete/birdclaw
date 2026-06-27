@@ -44,6 +44,10 @@ function formatRelativeDate(date: Date): string {
 	return `${Math.floor(days / 365)} years ago`;
 }
 
+function normalizeArchivePath(filePath: string) {
+	return filePath.replaceAll(path.sep, path.posix.sep);
+}
+
 function getCandidateEffect(filePath: string) {
 	return Effect.gen(function* () {
 		const stats = yield* tryPromise(() => fs.stat(filePath));
@@ -51,9 +55,10 @@ function getCandidateEffect(filePath: string) {
 			return null;
 		}
 
+		const normalizedPath = normalizeArchivePath(filePath);
 		return {
-			path: filePath,
-			name: path.basename(filePath),
+			path: normalizedPath,
+			name: path.posix.basename(normalizedPath),
 			size: stats.size,
 			sizeFormatted: formatFileSize(stats.size),
 			modifiedTime: stats.mtime.toISOString(),

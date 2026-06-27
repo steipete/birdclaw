@@ -1,0 +1,3 @@
+# Birdclaw backup files are content-addressed by raw bytes in manifest.json.
+*.jsonl text eol=lf
+manifest.json text eol=lf

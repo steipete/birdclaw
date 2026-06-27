@@ -30,6 +30,7 @@ const BACKUP_SCHEMA_VERSION = 2;
 const MIN_SUPPORTED_BACKUP_SCHEMA_VERSION = 1;
 const MANIFEST_PATH = "manifest.json";
 const DATA_DIR = "data";
+const GITATTRIBUTES_PATH = ".gitattributes";
 const AUTO_SYNC_CACHE_KEY = "backup:auto-sync";
 const DEFAULT_STALE_AFTER_SECONDS = 15 * 60;
 let autoUpdateInFlight: Promise<BackupAutoUpdateResult> | null = null;
@@ -438,6 +439,28 @@ function readPreviousManifestEffect(
 	);
 }
 
+function ensureBackupGitattributesEffect(repoPath: string) {
+	return Effect.gen(function* () {
+		const attributesPath = yield* trySync(() =>
+			resolveBackupFilePath(repoPath, GITATTRIBUTES_PATH),
+		);
+		yield* assertNoSymlinkAncestorEffect(repoPath, attributesPath);
+		const content = [
+			"# Birdclaw backup files are content-addressed by raw bytes in manifest.json.",
+			"*.jsonl text eol=lf",
+			`${MANIFEST_PATH} text eol=lf`,
+			"",
+		].join("\n");
+		const current = yield* tryPromise(() =>
+			fs.readFile(attributesPath, "utf8"),
+		).pipe(Effect.option);
+		if (current._tag === "Some" && current.value === content) {
+			return;
+		}
+		yield* tryPromise(() => fs.writeFile(attributesPath, content, "utf8"));
+	});
+}
+
 function maybeCommitAndPushEffect({
 	repoPath,
 	message,
@@ -469,6 +492,7 @@ function maybeCommitAndPushEffect({
 			"-C",
 			repoPath,
 			"add",
+			GITATTRIBUTES_PATH,
 			"README.md",
 			MANIFEST_PATH,
 			DATA_DIR,
@@ -541,8 +565,10 @@ function maybeCommitAndPushEffect({
 }
 
 function isGitRepoEffect(repoPath: string) {
-	return gitEffect(["-C", repoPath, "rev-parse", "--is-inside-work-tree"]).pipe(
-		Effect.as(true),
+	return gitEffect(["-C", repoPath, "rev-parse", "--show-toplevel"]).pipe(
+		Effect.map(
+			({ stdout }) => path.resolve(stdout.trim()) === path.resolve(repoPath),
+		),
 		Effect.catchAll(() => Effect.succeed(false)),
 	);
 }
@@ -604,7 +630,7 @@ function ensureBackupGitRepoEffect({
 				repoPath,
 				"fetch",
 				"origin",
-				"main",
+				"main:refs/remotes/origin/main",
 			]).pipe(
 				Effect.flatMap(() =>
 					gitEffect(["-C", repoPath, "checkout", "-B", "main", "origin/main"]),
@@ -667,6 +693,7 @@ export function exportBackupEffect({
 				new Error("Backup repository path must be a real directory"),
 			);
 		}
+		yield* ensureBackupGitattributesEffect(resolvedRepoPath);
 		yield* ensureBackupReadmeEffect(resolvedRepoPath);
 
 		const shards = yield* trySync(() => buildShards(database));
