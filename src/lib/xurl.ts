@@ -99,9 +99,15 @@ function getEndpointArg(args: string[]) {
 	return args.find((arg) => arg.startsWith("/2/"));
 }
 
+function usesOAuth2Auth(args: string[]) {
+	return args.some(
+		(arg, index) => arg === "--auth" && args[index + 1] === "oauth2",
+	);
+}
+
 function isDirectBearerSupported(args: string[]) {
 	const endpoint = getEndpointArg(args);
-	return Boolean(endpoint && getBearerToken());
+	return Boolean(endpoint && getBearerToken() && !usesOAuth2Auth(args));
 }
 
 function getJsonRetryBaseDelayMs() {
@@ -397,7 +403,9 @@ function parseJsonPayloadEffect(
 
 function runBearerJsonCommandEffect(
 	args: string[],
+	options: JsonCommandOptions,
 	attempt: number,
+	deadlineMs?: number,
 ): Effect.Effect<Record<string, unknown>, Error> {
 	return Effect.gen(function* () {
 		const endpoint = getEndpointArg(args);
@@ -408,10 +416,20 @@ function runBearerJsonCommandEffect(
 			);
 		}
 
+		const timeoutSignal =
+			deadlineMs !== undefined
+				? AbortSignal.timeout(getRemainingTimeoutMs(deadlineMs) ?? 0)
+				: undefined;
+		const signal =
+			options.signal && timeoutSignal
+				? AbortSignal.any([options.signal, timeoutSignal])
+				: (options.signal ?? timeoutSignal);
+
 		const response = yield* Effect.tryPromise({
 			try: () =>
 				fetch(`https://api.x.com${endpoint}`, {
 					headers: { Authorization: `Bearer ${token}` },
+					...(signal ? { signal } : {}),
 				}),
 			catch: normalizeError,
 		});
@@ -431,13 +449,31 @@ function runBearerJsonCommandEffect(
 			) as Error & { stdout?: string };
 			error.stdout = JSON.stringify({ ...payload, status: response.status });
 			const retryDelayMs = getRetryDelayMs(error, attempt);
+			emitJsonCommandAttempt(options, {
+				args,
+				attempt,
+				status: retryDelayMs === null ? "error" : "rate_limited",
+				error,
+			});
 			if (retryDelayMs !== null && attempt < JSON_RETRY_LIMIT - 1) {
+				if (options.signal?.aborted) {
+					return yield* Effect.fail(error);
+				}
+				const remainingMs = deadlineMs
+					? Math.max(0, deadlineMs - Date.now())
+					: undefined;
+				if (remainingMs !== undefined && retryDelayMs >= remainingMs) {
+					return yield* Effect.fail(error);
+				}
 				return yield* Effect.sleep(retryDelayMs).pipe(
-					Effect.flatMap(() => runBearerJsonCommandEffect(args, attempt + 1)),
+					Effect.flatMap(() =>
+						runBearerJsonCommandEffect(args, options, attempt + 1, deadlineMs),
+					),
 				);
 			}
 			return yield* Effect.fail(error);
 		}
+		emitJsonCommandAttempt(options, { args, attempt, status: "ok" });
 		return payload;
 	});
 }
@@ -448,10 +484,6 @@ function runJsonCommandEffect(
 	attempt = 0,
 ): Effect.Effect<Record<string, unknown>, Error> {
 	return Effect.gen(function* () {
-		if (isDirectBearerSupported(args)) {
-			return yield* runBearerJsonCommandEffect(args, attempt);
-		}
-
 		const deadlineMs =
 			options.deadlineMs ??
 			(typeof options.timeoutMs === "number" &&
@@ -459,6 +491,16 @@ function runJsonCommandEffect(
 			options.timeoutMs > 0
 				? Date.now() + options.timeoutMs
 				: undefined);
+
+		if (isDirectBearerSupported(args)) {
+			return yield* runBearerJsonCommandEffect(
+				args,
+				options,
+				attempt,
+				deadlineMs,
+			);
+		}
+
 		const timeoutMs = deadlineMs
 			? Math.max(0, deadlineMs - Date.now())
 			: undefined;
