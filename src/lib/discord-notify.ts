@@ -1,4 +1,5 @@
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
+const DISCORD_SUPPRESS_EMBEDS_FLAG = 1 << 2;
 
 export interface DiscordNotifyResult {
 	ok: boolean;
@@ -45,7 +46,10 @@ export async function sendDiscordMessage(
 			const response = await fetch(webhookUrl, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ content: chunk }),
+				body: JSON.stringify({
+					content: chunk,
+					flags: DISCORD_SUPPRESS_EMBEDS_FLAG,
+				}),
 				signal,
 			});
 			if (!response.ok) {
@@ -59,5 +63,9 @@ export async function sendDiscordMessage(
 		}
 	}
 
-	return { ok, messageCount: chunks.length, ...(lastError ? { error: lastError } : {}) };
+	return {
+		ok,
+		messageCount: chunks.length,
+		...(lastError ? { error: lastError } : {}),
+	};
 }
