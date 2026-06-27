@@ -228,9 +228,9 @@ function readTransportStatusEffect(): Effect.Effect<TransportStatus, never> {
 	return Effect.gen(function* () {
 		if (getBearerToken()) {
 			return {
-				installed: true,
-				availableTransport: "xurl" as const,
-				statusText: "X API bearer token available",
+				installed: false,
+				availableTransport: "bearer" as const,
+				statusText: "X API bearer token available; xurl status not probed.",
 				rawStatus: "bearer-token",
 			};
 		}

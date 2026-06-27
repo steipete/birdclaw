@@ -182,7 +182,7 @@ describe("xurl transport wrapper", () => {
 		});
 	});
 
-	it("uses a configured bearer token without invoking xurl", async () => {
+	it("reports bearer transport separately without invoking xurl", async () => {
 		const fetchMock = vi.fn().mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -197,7 +197,9 @@ describe("xurl transport wrapper", () => {
 			{ id: "42", username: "sam" },
 		]);
 		await expect(getTransportStatus()).resolves.toMatchObject({
-			availableTransport: "xurl",
+			availableTransport: "bearer",
+			installed: false,
+			statusText: "X API bearer token available; xurl status not probed.",
 			rawStatus: "bearer-token",
 		});
 		expect(fetchMock).toHaveBeenCalledWith(

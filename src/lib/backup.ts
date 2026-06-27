@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Data, Effect } from "effect";
 import type { Database } from "./sqlite";
@@ -564,13 +565,35 @@ function maybeCommitAndPushEffect({
 	});
 }
 
-function isGitRepoEffect(repoPath: string) {
+function getGitTopLevelEffect(repoPath: string) {
 	return gitEffect(["-C", repoPath, "rev-parse", "--show-toplevel"]).pipe(
-		Effect.map(
-			({ stdout }) => path.resolve(stdout.trim()) === path.resolve(repoPath),
-		),
-		Effect.catchAll(() => Effect.succeed(false)),
+		Effect.map(({ stdout }) => path.resolve(stdout.trim())),
+		Effect.catchAll(() => Effect.succeed(undefined)),
 	);
+}
+
+function isGitRepoEffect(repoPath: string) {
+	return getGitTopLevelEffect(repoPath).pipe(
+		Effect.map((topLevel) => topLevel === path.resolve(repoPath)),
+	);
+}
+
+function failOnNestedGitWorktreeEffect(repoPath: string) {
+	return Effect.gen(function* () {
+		const topLevel = yield* getGitTopLevelEffect(repoPath);
+		const homeTopLevel = path.resolve(os.homedir());
+		if (
+			topLevel &&
+			topLevel !== path.resolve(repoPath) &&
+			topLevel !== homeTopLevel
+		) {
+			return yield* Effect.fail(
+				new Error(
+					`Backup repo path is inside an existing Git worktree (${topLevel}); choose the worktree root, an existing backup repo, or a path outside that worktree before Birdclaw initializes backup Git state.`,
+				),
+			);
+		}
+	});
 }
 
 function hasGitCommitsEffect(repoPath: string) {
@@ -590,9 +613,12 @@ function ensureBackupGitRepoEffect({
 	return Effect.gen(function* () {
 		if (!(yield* isGitRepoEffect(repoPath))) {
 			if (remote && !existsSync(repoPath)) {
+				yield* tryPromise(() => fs.mkdir(repoPath, { recursive: true }));
+				yield* failOnNestedGitWorktreeEffect(repoPath);
 				yield* gitEffect(["clone", remote, repoPath]);
 			} else {
 				yield* tryPromise(() => fs.mkdir(repoPath, { recursive: true }));
+				yield* failOnNestedGitWorktreeEffect(repoPath);
 				yield* gitEffect(["-C", repoPath, "init"]);
 			}
 		}

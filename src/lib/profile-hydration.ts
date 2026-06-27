@@ -45,7 +45,7 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 > {
 	return Effect.gen(function* () {
 		const transport = yield* tryPromise(() => getTransportStatus());
-		if (transport.availableTransport !== "xurl") {
+		if (transport.availableTransport === "local") {
 			return {
 				ok: true,
 				hydratedProfiles: 0,
