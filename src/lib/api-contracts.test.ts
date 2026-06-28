@@ -9,6 +9,7 @@ import {
 	liveDataSourcesResponseSchema,
 	networkMapResponseSchema,
 	profileHydrationResponseSchema,
+	queryEnvelopeSchema,
 	queryResponseSchema,
 	tweetMediaSchema,
 	tweetConversationResponseSchema,
@@ -92,6 +93,21 @@ describe("API contracts", () => {
 	});
 
 	it("validates operational status wire responses", () => {
+		expect(
+			queryEnvelopeSchema.parse({
+				accounts: [],
+				archives: [],
+				transport: {
+					installed: true,
+					availableTransport: "bearer",
+					statusText: "Bearer token configured; xurl status was not probed.",
+					rawStatus: "bearer-token",
+				},
+				stats: { home: 0, mentions: 0, dms: 0, needsReply: 0, inbox: 0 },
+			}),
+		).toMatchObject({
+			transport: { availableTransport: "bearer", rawStatus: "bearer-token" },
+		});
 		expect(
 			liveDataSourcesResponseSchema.parse({
 				generatedAt: "2026-06-18T00:00:00.000Z",
