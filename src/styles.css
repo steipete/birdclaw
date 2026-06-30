@@ -225,6 +225,10 @@ html.theme-transition {
 	view-transition-name: theme;
 }
 
+html.theme-transition [data-theme-transition-target] {
+	view-transition-name: theme-toggle;
+}
+
 /* View transition pseudo-element. */
 html.theme-transition::view-transition-old(theme) {
 	animation: none;
@@ -239,6 +243,20 @@ html.theme-transition::view-transition-new(theme) {
 	z-index: 2;
 }
 
+/* View transition pseudo-element. */
+html.theme-transition::view-transition-old(theme-toggle) {
+	animation: none;
+	mix-blend-mode: normal;
+	opacity: 0;
+}
+
+/* View transition pseudo-element. */
+html.theme-transition::view-transition-new(theme-toggle) {
+	animation: none;
+	mix-blend-mode: normal;
+	z-index: 3;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	/* View transition pseudo-element. */
 	html.theme-transition::view-transition-old(theme) {
@@ -247,6 +265,12 @@ html.theme-transition::view-transition-new(theme) {
 
 	/* View transition pseudo-element. */
 	html.theme-transition::view-transition-new(theme) {
+		animation: none !important;
+	}
+
+	/* View transition pseudo-element. */
+	html.theme-transition::view-transition-old(theme-toggle),
+	html.theme-transition::view-transition-new(theme-toggle) {
 		animation: none !important;
 	}
 
