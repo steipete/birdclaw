@@ -218,6 +218,53 @@ describe("live home timeline sync", () => {
 		]);
 	});
 
+	it("preserves stored metrics when an included quote omits them", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`insert into tweets (
+				id, author_profile_id, text, created_at, is_replied,
+				like_count, media_count, entities_json, media_json
+			) values (?, 'profile_user_42', ?, ?, 0, 42, 0, '{}', '[]')`,
+		).run("tweet_quoted_existing", "stored quote", "2026-04-25T13:43:34.000Z");
+		listHomeTimelineViaBirdMock.mockResolvedValueOnce({
+			data: [
+				{
+					id: "tweet_quote_ref_existing",
+					author_id: "42",
+					text: "read this existing quote",
+					created_at: "2026-04-26T13:43:34.000Z",
+					referenced_tweets: [{ type: "quoted", id: "tweet_quoted_existing" }],
+				},
+			],
+			includes: {
+				users: [{ id: "42", username: "sam", name: "Sam" }],
+				tweets: [
+					{
+						id: "tweet_quoted_existing",
+						author_id: "42",
+						text: "updated quote body",
+						created_at: "2026-04-25T13:43:34.000Z",
+					},
+				],
+			},
+			meta: { result_count: 1 },
+		});
+		const { syncHomeTimeline } = await import("./timeline-live");
+
+		await syncHomeTimeline({
+			account: "acct_primary",
+			limit: 5,
+			refresh: true,
+		});
+
+		expect(
+			db
+				.prepare("select text, like_count from tweets where id = ?")
+				.get("tweet_quoted_existing"),
+		).toEqual({ text: "updated quote body", like_count: 42 });
+	});
+
 	it("preserves existing media_json when home payload omits media details", async () => {
 		makeTempHome();
 		const db = getNativeDb();

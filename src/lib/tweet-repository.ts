@@ -67,7 +67,7 @@ export function ingestTweetPayload(
       created_at = excluded.created_at,
       is_replied = max(tweets.is_replied, excluded.is_replied),
       reply_to_id = coalesce(tweets.reply_to_id, excluded.reply_to_id),
-      like_count = excluded.like_count,
+      like_count = case when ? then tweets.like_count else excluded.like_count end,
       media_count = max(tweets.media_count, excluded.media_count),
       entities_json = excluded.entities_json,
       media_json = case
@@ -93,6 +93,7 @@ export function ingestTweetPayload(
 		const observedAt = new Date().toISOString();
 		const primaryTweetIds = new Set(payload.data.map((tweet) => tweet.id));
 		for (const tweet of toCanonicalTweets(payload)) {
+			const isPrimaryTweet = primaryTweetIds.has(tweet.id);
 			const author = usersById.get(tweet.author_id);
 			const profile = author
 				? upsertProfileFromXUser(db, author)
@@ -111,8 +112,10 @@ export function ingestTweetPayload(
 				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
 				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
 				quotedTweetId,
+				!isPrimaryTweet && tweet.public_metrics?.like_count === undefined
+					? 1
+					: 0,
 			);
-			const isPrimaryTweet = primaryTweetIds.has(tweet.id);
 			if (edgeKind && isPrimaryTweet) {
 				upsertTweetAccountEdge(db, {
 					accountId,
