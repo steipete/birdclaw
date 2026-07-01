@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Persist profile avatars exposed by Bird's full live-sync payloads. (#75 - thanks @RajvardhanPatil07)
+- Persist quoted tweet payloads returned by Bird-backed live syncs so quote cards render without a separate hydrate. (#76 - thanks @lukaskawerau)
 - Show full tweet text in Today citation popovers instead of truncating long posts after six lines.
 - Show inline tweet images in Today citation popovers instead of leaving media-only `t.co` links in the preview text.
 

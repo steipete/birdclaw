@@ -140,6 +140,44 @@ describe("startThemeTransition", () => {
 		expect(root.style.getPropertyValue("--theme-switch-y")).toBe("");
 	});
 
+	it("marks the trigger while an animated transition is active", async () => {
+		const setTheme = vi.fn();
+		let finishTransition!: () => void;
+		window.matchMedia = vi.fn().mockReturnValue({ matches: false });
+		documentWithTransition.startViewTransition = vi.fn(
+			(callback: () => void) => {
+				callback();
+				return {
+					finished: new Promise<void>((resolve) => {
+						finishTransition = resolve;
+					}),
+				};
+			},
+		);
+
+		const element = document.createElement("button");
+		document.body.append(element);
+
+		startThemeTransition({
+			nextTheme: "dark",
+			currentTheme: "light",
+			setTheme,
+			context: { element },
+		});
+
+		expect(setTheme).toHaveBeenCalledWith("dark");
+		expect(root.classList.contains("theme-transition")).toBe(true);
+		expect(element).toHaveAttribute("data-theme-transition-target");
+
+		finishTransition();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(root.classList.contains("theme-transition")).toBe(false);
+		expect(element).not.toHaveAttribute("data-theme-transition-target");
+		element.remove();
+	});
+
 	it("falls back when the transition handle is incomplete or throws", () => {
 		const setTheme = vi.fn();
 		window.matchMedia = vi.fn().mockReturnValue({ matches: false });

@@ -29,6 +29,11 @@ const cleanupThemeTransition = (root: HTMLElement) => {
 	root.classList.remove("theme-transition");
 	root.style.removeProperty("--theme-switch-x");
 	root.style.removeProperty("--theme-switch-y");
+	root
+		.querySelectorAll("[data-theme-transition-target]")
+		.forEach((element) =>
+			element.removeAttribute("data-theme-transition-target"),
+		);
 };
 
 export function startThemeTransition({
@@ -92,6 +97,7 @@ export function startThemeTransition({
 	root.style.setProperty("--theme-switch-x", `${xPercent * 100}%`);
 	root.style.setProperty("--theme-switch-y", `${yPercent * 100}%`);
 	root.classList.add("theme-transition");
+	context?.element?.setAttribute("data-theme-transition-target", "");
 
 	try {
 		const transition = startViewTransition?.(() => {

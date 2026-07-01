@@ -853,6 +853,17 @@ describe("live timeline collection sync", () => {
 					},
 				},
 			],
+			includes: {
+				users: [
+					{
+						id: "99",
+						username: "birdsam",
+						name: "Bird Sam",
+						profile_image_url:
+							"https://pbs.twimg.com/profile_images/99/avatar_normal.jpg",
+					},
+				],
+			},
 			meta: { result_count: 1 },
 		});
 		const { syncTimelineCollection } =
@@ -888,6 +899,13 @@ describe("live timeline collection sync", () => {
 		expect(row).toMatchObject({
 			media_count: 1,
 			author_profile_id: "profile_user_99",
+		});
+		expect(
+			getNativeDb()
+				.prepare("select avatar_url from profiles where handle = ?")
+				.get("birdsam"),
+		).toEqual({
+			avatar_url: "https://pbs.twimg.com/profile_images/99/avatar.jpg",
 		});
 	});
 
