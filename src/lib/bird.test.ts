@@ -92,7 +92,7 @@ describe("bird transport wrapper", () => {
 						username: "sam",
 						name: "Sam",
 					},
-					raw: {
+					_raw: {
 						core: {
 							user_results: {
 								result: {
@@ -225,7 +225,7 @@ describe("bird transport wrapper", () => {
 					text: "second",
 					createdAt: "2026-06-24T00:01:00.000Z",
 					authorId: "42",
-					raw: {
+					_raw: {
 						core: {
 							user_results: {
 								result: {
@@ -1022,6 +1022,47 @@ describe("bird transport wrapper", () => {
 				quotedTweet: { id: "quoted" },
 			}),
 		).toEqual([{ type: "quoted", id: "quoted" }]);
+		expect(
+			__test__.normalizeBirdTweets([
+				{
+					id: "1",
+					text: "quoting",
+					createdAt: "2026-05-02T00:00:00.000Z",
+					authorId: "42",
+					author: { username: "sam", name: "Sam" },
+					quotedTweet: {
+						id: "quoted",
+						text: "quoted body",
+						createdAt: "2026-05-01T00:00:00.000Z",
+						authorId: "43",
+						author: { username: "alex", name: "Alex" },
+					},
+				},
+			]),
+		).toEqual(
+			expect.objectContaining({
+				data: [
+					expect.objectContaining({
+						id: "1",
+						referenced_tweets: [{ type: "quoted", id: "quoted" }],
+					}),
+				],
+				includes: {
+					users: [
+						{ id: "42", username: "sam", name: "Sam" },
+						{ id: "43", username: "alex", name: "Alex" },
+					],
+					tweets: [
+						expect.objectContaining({
+							id: "quoted",
+							author_id: "43",
+							text: "quoted body",
+							public_metrics: {},
+						}),
+					],
+				},
+			}),
+		);
 		expect(
 			__test__.normalizeBirdTweets([
 				{
