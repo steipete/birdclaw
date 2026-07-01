@@ -221,6 +221,10 @@ textarea {
 	animation: birdclaw-load-glow 1.7s ease-in-out infinite;
 }
 
+.today-pdf-meta {
+	display: none;
+}
+
 html.theme-transition {
 	view-transition-name: theme;
 }
@@ -277,5 +281,76 @@ html.theme-transition::view-transition-new(theme-toggle) {
 	.birdclaw-mark-animated,
 	.birdclaw-mark-animated::before {
 		animation: none !important;
+	}
+}
+
+@media print {
+	html.today-pdf-route,
+	html.today-pdf-route body {
+		min-height: auto !important;
+		background: #fff !important;
+		color: #0f1419 !important;
+	}
+
+	html.today-pdf-route body * {
+		box-shadow: none !important;
+		text-shadow: none !important;
+	}
+
+	html.today-pdf-route aside,
+	html.today-pdf-route button,
+	html.today-pdf-route input,
+	html.today-pdf-route .today-screen-only {
+		display: none !important;
+	}
+
+	html.today-pdf-route main {
+		width: 100% !important;
+		max-width: none !important;
+		border: 0 !important;
+		background: #fff !important;
+	}
+
+	.today-pdf-root {
+		min-height: auto !important;
+		color: #0f1419 !important;
+	}
+
+	.today-pdf-header {
+		position: static !important;
+		z-index: auto !important;
+		border-bottom: 1px solid #d8dee5 !important;
+		background: #fff !important;
+		backdrop-filter: none !important;
+	}
+
+	.today-pdf-meta {
+		display: flex !important;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		padding: 0 1rem 0.75rem;
+		font-size: 12px;
+		color: #536471;
+	}
+
+	.today-pdf-root article {
+		padding: 1rem !important;
+		font-size: 12pt !important;
+		line-height: 1.55 !important;
+		color: #0f1419 !important;
+	}
+
+	.today-pdf-root article p,
+	.today-pdf-root article li,
+	.today-pdf-root article h1,
+	.today-pdf-root article h2,
+	.today-pdf-root article h3 {
+		break-inside: avoid;
+		color: #0f1419 !important;
+	}
+
+	.today-pdf-root a {
+		color: #0f1419 !important;
+		text-decoration: underline;
 	}
 }

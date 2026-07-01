@@ -231,6 +231,61 @@ describe("today route", () => {
 		).toBe(true);
 	});
 
+	it("exports a completed digest through the browser PDF flow", async () => {
+		document.title = "birdclaw";
+		const printMock = vi.spyOn(window, "print").mockImplementation(() => {
+			expect(document.title).toBe("BirdClaw Today digest");
+			window.dispatchEvent(new Event("afterprint"));
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = new URL(String(input));
+				if (url.pathname === "/api/profile-hydrate") {
+					return new Response(JSON.stringify({ ok: true, results: [] }), {
+						headers: { "content-type": "application/json" },
+					});
+				}
+				const markdown = "# Today\n\nDone.";
+				return ndjsonResponse([
+					{ type: "delta", delta: markdown },
+					{ type: "done", result: digestResult("Today", markdown) },
+				]);
+			}),
+		);
+
+		render(<TodayRoute />);
+
+		await screen.findByRole("heading", { name: "Today", level: 1 });
+		const exportButton = screen.getByRole("button", { name: "Export PDF" });
+		expect(exportButton).toBeEnabled();
+
+		fireEvent.click(exportButton);
+
+		expect(printMock).toHaveBeenCalledTimes(1);
+		expect(document.title).toBe("birdclaw");
+	});
+
+	it("does not export a partial digest after the stream fails", async () => {
+		const printMock = vi.spyOn(window, "print").mockImplementation(() => {});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				ndjsonResponse([
+					{ type: "delta", delta: "# Partial digest" },
+					{ type: "error", error: "Digest generation failed" },
+				]),
+			),
+		);
+
+		render(<TodayRoute />);
+
+		await screen.findByRole("heading", { name: "Partial digest", level: 1 });
+		await screen.findByRole("alert");
+		expect(screen.queryByRole("button", { name: "Export PDF" })).toBeNull();
+		expect(printMock).not.toHaveBeenCalled();
+	});
+
 	it("shows request errors", async () => {
 		vi.stubGlobal(
 			"fetch",
