@@ -6,6 +6,10 @@
 
 - Add opt-in, per-account Home and Mentions auto-sync with persisted intervals, overlap protection, hidden-page pauses, visible status, and failure backoff. (#73 - thanks @Gatsby1s)
 
+### Changed
+
+- Refresh runtime and development dependencies to current supported releases, including Vite 8.1, Node 26 type definitions, and the July 1 TypeScript native preview.
+
 ### Fixed
 
 - Add completed Today digest PDF export with route-scoped print styling, while excluding partial failed streams. (#77 - thanks @Gatsby1s)
