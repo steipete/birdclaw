@@ -982,6 +982,7 @@ describe("bird transport wrapper", () => {
 							id: "quoted",
 							author_id: "43",
 							text: "quoted body",
+							public_metrics: {},
 						}),
 					],
 				},

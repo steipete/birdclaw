@@ -456,7 +456,10 @@ function isHydratedBirdTweetItem(value: unknown): value is BirdTweetItem {
 function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 	const users = new Map<string, XurlMentionUser>();
 	const includedTweets = new Map<string, XurlMentionData>();
-	const normalizeItem = (item: BirdTweetItem): XurlMentionData => {
+	const normalizeItem = (
+		item: BirdTweetItem,
+		preserveMissingMetrics = false,
+	): XurlMentionData => {
 		const authorId = String(
 			item.authorId ?? item.author?.username ?? "unknown",
 		);
@@ -469,7 +472,7 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 		}
 
 		if (isHydratedBirdTweetItem(item.quotedTweet)) {
-			const quotedTweet = normalizeItem(item.quotedTweet);
+			const quotedTweet = normalizeItem(item.quotedTweet, true);
 			if (quotedTweet.id !== item.id) {
 				includedTweets.set(quotedTweet.id, quotedTweet);
 			}
@@ -483,11 +486,23 @@ function normalizeBirdTweets(items: BirdTweetItem[]): XurlMentionsResponse {
 			conversation_id: item.conversationId ?? item.id,
 			entities: toTweetEntities(item),
 			referenced_tweets: toReferencedTweets(item),
-			public_metrics: {
-				reply_count: Number(item.replyCount ?? 0),
-				retweet_count: Number(item.retweetCount ?? 0),
-				like_count: Number(item.likeCount ?? 0),
-			},
+			public_metrics: preserveMissingMetrics
+				? {
+						...(item.replyCount === undefined
+							? {}
+							: { reply_count: Number(item.replyCount) }),
+						...(item.retweetCount === undefined
+							? {}
+							: { retweet_count: Number(item.retweetCount) }),
+						...(item.likeCount === undefined
+							? {}
+							: { like_count: Number(item.likeCount) }),
+					}
+				: {
+						reply_count: Number(item.replyCount ?? 0),
+						retweet_count: Number(item.retweetCount ?? 0),
+						like_count: Number(item.likeCount ?? 0),
+					},
 			edit_history_tweet_ids: [item.id],
 		};
 	};
