@@ -5,6 +5,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -748,6 +749,83 @@ describe("text backup", () => {
 				{ encoding: "utf8" },
 			).trim(),
 		).toBe("1");
+		expect(
+			execFileSync(
+				"git",
+				[
+					"-C",
+					secondRepoPath,
+					"show-ref",
+					"--verify",
+					"refs/remotes/origin/main",
+				],
+				{ encoding: "utf8" },
+			).trim(),
+		).toContain("refs/remotes/origin/main");
+	}, 20000);
+
+	it("isolates backup commits from an enclosing Git worktree", async () => {
+		const parentPath = makeTempDir("birdclaw-parent-worktree-");
+		execFileSync("git", ["-C", parentPath, "init"]);
+		const repoPath = path.join(parentPath, "backup");
+		mkdirSync(repoPath);
+		writeFileSync(
+			path.join(repoPath, ".gitattributes"),
+			"*.md text eol=lf\ndata/**/*.jsonl text eol=crlf\n",
+		);
+		switchHome("birdclaw-nested-backup-");
+		seedBackupFixture();
+
+		const result = await exportBackup({ repoPath, commit: true });
+
+		expect(result.git?.committed).toBe(true);
+		expect(
+			execFileSync("git", ["-C", repoPath, "rev-parse", "--show-toplevel"], {
+				encoding: "utf8",
+			}).trim(),
+		).toBe(realpathSync(repoPath));
+		expect(
+			execFileSync(
+				"git",
+				["-C", parentPath, "diff", "--cached", "--name-only"],
+				{
+					encoding: "utf8",
+				},
+			),
+		).toBe("");
+		expect(readFileSync(path.join(repoPath, ".gitattributes"), "utf8")).toBe(
+			[
+				"*.md text eol=lf",
+				"data/**/*.jsonl text eol=crlf",
+				"",
+				"# BEGIN birdclaw backup attributes",
+				"# Backup hashes use the raw LF-delimited bytes written by Birdclaw.",
+				"data/**/*.jsonl text eol=lf",
+				"manifest.json text eol=lf",
+				"# END birdclaw backup attributes",
+				"",
+			].join("\n"),
+		);
+		expect(
+			execFileSync("git", ["-C", repoPath, "ls-files", ".gitattributes"], {
+				encoding: "utf8",
+			}).trim(),
+		).toBe(".gitattributes");
+		expect(
+			execFileSync(
+				"git",
+				[
+					"-C",
+					repoPath,
+					"check-attr",
+					"eol",
+					"--",
+					"data/tweets/2026.jsonl",
+					"manifest.json",
+				],
+				{ encoding: "utf8" },
+			),
+		).toBe("data/tweets/2026.jsonl: eol: lf\nmanifest.json: eol: lf\n");
 	}, 20000);
 
 	it("does not inherit commit signing for generated backup commits", async () => {

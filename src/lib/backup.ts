@@ -30,6 +30,7 @@ const BACKUP_SCHEMA_VERSION = 2;
 const MIN_SUPPORTED_BACKUP_SCHEMA_VERSION = 1;
 const MANIFEST_PATH = "manifest.json";
 const DATA_DIR = "data";
+const GITATTRIBUTES_PATH = ".gitattributes";
 const AUTO_SYNC_CACHE_KEY = "backup:auto-sync";
 const DEFAULT_STALE_AFTER_SECONDS = 15 * 60;
 let autoUpdateInFlight: Promise<BackupAutoUpdateResult> | null = null;
@@ -438,6 +439,40 @@ function readPreviousManifestEffect(
 	);
 }
 
+function ensureBackupGitattributesEffect(repoPath: string) {
+	return Effect.gen(function* () {
+		const attributesPath = yield* trySync(() =>
+			resolveBackupFilePath(repoPath, GITATTRIBUTES_PATH),
+		);
+		yield* assertNoSymlinkAncestorEffect(repoPath, attributesPath);
+		const requiredLines = [
+			"data/**/*.jsonl text eol=lf",
+			`${MANIFEST_PATH} text eol=lf`,
+		];
+		const generatedBlock = [
+			"# BEGIN birdclaw backup attributes",
+			"# Backup hashes use the raw LF-delimited bytes written by Birdclaw.",
+			...requiredLines,
+			"# END birdclaw backup attributes",
+			"",
+		].join("\n");
+		const current = yield* tryPromise(() =>
+			fs.readFile(attributesPath, "utf8"),
+		).pipe(Effect.option);
+		if (current._tag === "Some" && current.value.endsWith(generatedBlock)) {
+			return;
+		}
+		const preserved =
+			current._tag === "Some"
+				? current.value.replaceAll(generatedBlock, "").replace(/[\r\n]+$/u, "")
+				: "";
+		const content = preserved
+			? `${preserved}\n\n${generatedBlock}`
+			: generatedBlock;
+		yield* tryPromise(() => fs.writeFile(attributesPath, content, "utf8"));
+	});
+}
+
 function maybeCommitAndPushEffect({
 	repoPath,
 	message,
@@ -454,21 +489,22 @@ function maybeCommitAndPushEffect({
 	}
 
 	return Effect.gen(function* () {
-		yield* gitEffect([
-			"-C",
-			repoPath,
-			"rev-parse",
-			"--is-inside-work-tree",
-		]).pipe(
-			Effect.catchAll(() =>
-				gitEffect(["-C", repoPath, "init"]).pipe(Effect.asVoid),
-			),
-		);
+		if (!(yield* isGitRepoEffect(repoPath))) {
+			yield* gitEffect(["-C", repoPath, "init"]);
+		}
+		if (!(yield* isGitRepoEffect(repoPath))) {
+			return yield* Effect.fail(
+				new Error(
+					"Backup Git operations must run at the configured repository root",
+				),
+			);
+		}
 
 		yield* gitEffect([
 			"-C",
 			repoPath,
 			"add",
+			GITATTRIBUTES_PATH,
 			"README.md",
 			MANIFEST_PATH,
 			DATA_DIR,
@@ -541,6 +577,9 @@ function maybeCommitAndPushEffect({
 }
 
 function isGitRepoEffect(repoPath: string) {
+	if (!existsSync(path.join(repoPath, ".git"))) {
+		return Effect.succeed(false);
+	}
 	return gitEffect(["-C", repoPath, "rev-parse", "--is-inside-work-tree"]).pipe(
 		Effect.as(true),
 		Effect.catchAll(() => Effect.succeed(false)),
@@ -604,7 +643,7 @@ function ensureBackupGitRepoEffect({
 				repoPath,
 				"fetch",
 				"origin",
-				"main",
+				"main:refs/remotes/origin/main",
 			]).pipe(
 				Effect.flatMap(() =>
 					gitEffect(["-C", repoPath, "checkout", "-B", "main", "origin/main"]),
@@ -667,6 +706,7 @@ export function exportBackupEffect({
 				new Error("Backup repository path must be a real directory"),
 			);
 		}
+		yield* ensureBackupGitattributesEffect(resolvedRepoPath);
 		yield* ensureBackupReadmeEffect(resolvedRepoPath);
 
 		const shards = yield* trySync(() => buildShards(database));

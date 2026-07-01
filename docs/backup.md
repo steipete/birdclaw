@@ -10,6 +10,7 @@ birdclaw can write the canonical SQLite store as deterministic JSONL shards that
 ## Layout
 
 ```text
+.gitattributes
 manifest.json
 data/accounts.jsonl
 data/profiles.jsonl
@@ -42,6 +43,7 @@ Design rules:
 - **profile bio entities** preserve extracted `@handle`, domain, and company-phrase identity hints, including inactive historical values
 - **follow graph** shards preserve followers/following snapshots, snapshot members, current edges, and append-only churn events
 - **no SQLite WAL/SHM, FTS shadow tables, or transient live cache rows** ever land in the backup
+- **line endings** for hashed JSONL and manifest files stay LF on every platform via the generated `.gitattributes`
 
 The manifest pins per-shard byte counts, row counts, and SHA hashes. Validation walks every shard and verifies they line up.
 
@@ -81,6 +83,8 @@ What `sync` does:
 3. merge-imports remote backup rows into local SQLite
 4. exports the local union back into deterministic text shards
 5. commits and pushes the backup repo
+
+Git operations are rooted at the configured `repoPath`. If that directory sits inside another worktree, Birdclaw initializes or uses a separate repository there instead of staging backup files into the enclosing project.
 
 This is what makes birdclaw safe across multiple machines: each machine can sync independently, and the merge step preserves rows that only one side has.
 
