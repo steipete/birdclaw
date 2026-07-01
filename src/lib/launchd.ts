@@ -87,12 +87,8 @@ function xmlEscape(value: string) {
 		.replaceAll(">", "&gt;");
 }
 
-function normalizeLaunchdValue(value: string) {
-	return value.replaceAll(path.sep, path.posix.sep);
-}
-
 function stringEntry(value: string) {
-	return `<string>${xmlEscape(normalizeLaunchdValue(value))}</string>`;
+	return `<string>${xmlEscape(value)}</string>`;
 }
 
 export function buildLaunchAgent({

@@ -79,37 +79,6 @@ function e2eFakeLiveWritesEnabled() {
 	);
 }
 
-function getBearerToken() {
-	if (process.env.BIRDCLAW_DISABLE_BEARER_TRANSPORT === "1") {
-		return undefined;
-	}
-	return (
-		process.env.BIRDCLAW_X_BEARER_TOKEN?.trim() ||
-		process.env.X_BEARER_TOKEN?.trim() ||
-		process.env.TWITTER_BEARER_TOKEN?.trim() ||
-		undefined
-	);
-}
-
-function getDefaultUserId() {
-	return process.env.BIRDCLAW_X_USER_ID?.trim() || undefined;
-}
-
-function getEndpointArg(args: string[]) {
-	return args.find((arg) => arg.startsWith("/2/"));
-}
-
-function usesOAuth2Auth(args: string[]) {
-	return args.some(
-		(arg, index) => arg === "--auth" && args[index + 1] === "oauth2",
-	);
-}
-
-function isDirectBearerSupported(args: string[]) {
-	const endpoint = getEndpointArg(args);
-	return Boolean(endpoint && getBearerToken() && !usesOAuth2Auth(args));
-}
-
 function getJsonRetryBaseDelayMs() {
 	const value = Number(process.env.BIRDCLAW_XURL_RETRY_BASE_MS ?? "2000");
 	return Number.isFinite(value) && value >= 0 ? value : 2000;
@@ -226,15 +195,6 @@ function isUnauthenticatedXurlStatus(status: string) {
 
 function readTransportStatusEffect(): Effect.Effect<TransportStatus, never> {
 	return Effect.gen(function* () {
-		if (getBearerToken()) {
-			return {
-				installed: false,
-				availableTransport: "bearer" as const,
-				statusText: "X API bearer token available; xurl status not probed.",
-				rawStatus: "bearer-token",
-			};
-		}
-
 		const installed = yield* hasXurlEffect();
 		if (!installed) {
 			return {
@@ -401,83 +361,6 @@ function parseJsonPayloadEffect(
 	});
 }
 
-function runBearerJsonCommandEffect(
-	args: string[],
-	options: JsonCommandOptions,
-	attempt: number,
-	deadlineMs?: number,
-): Effect.Effect<Record<string, unknown>, Error> {
-	return Effect.gen(function* () {
-		const endpoint = getEndpointArg(args);
-		const token = getBearerToken();
-		if (!endpoint || !token) {
-			return yield* Effect.fail(
-				new Error("X bearer token transport is not configured"),
-			);
-		}
-
-		const timeoutSignal =
-			deadlineMs !== undefined
-				? AbortSignal.timeout(getRemainingTimeoutMs(deadlineMs) ?? 0)
-				: undefined;
-		const signal =
-			options.signal && timeoutSignal
-				? AbortSignal.any([options.signal, timeoutSignal])
-				: (options.signal ?? timeoutSignal);
-
-		const response = yield* Effect.tryPromise({
-			try: () =>
-				fetch(`https://api.x.com${endpoint}`, {
-					headers: { Authorization: `Bearer ${token}` },
-					...(signal ? { signal } : {}),
-				}),
-			catch: normalizeError,
-		});
-		const text = yield* Effect.tryPromise({
-			try: () => response.text(),
-			catch: normalizeError,
-		});
-		let payload: Record<string, unknown>;
-		try {
-			payload = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-		} catch {
-			payload = { error: text };
-		}
-		if (!response.ok) {
-			const error = new Error(
-				`X API request failed with HTTP ${response.status}`,
-			) as Error & { stdout?: string };
-			error.stdout = JSON.stringify({ ...payload, status: response.status });
-			const retryDelayMs = getRetryDelayMs(error, attempt);
-			emitJsonCommandAttempt(options, {
-				args,
-				attempt,
-				status: retryDelayMs === null ? "error" : "rate_limited",
-				error,
-			});
-			if (retryDelayMs !== null && attempt < JSON_RETRY_LIMIT - 1) {
-				if (options.signal?.aborted) {
-					return yield* Effect.fail(error);
-				}
-				const remainingMs = deadlineMs
-					? Math.max(0, deadlineMs - Date.now())
-					: undefined;
-				if (remainingMs !== undefined && retryDelayMs >= remainingMs) {
-					return yield* Effect.fail(error);
-				}
-				return yield* Effect.sleep(retryDelayMs).pipe(
-					Effect.flatMap(() =>
-						runBearerJsonCommandEffect(args, options, attempt + 1, deadlineMs),
-					),
-				);
-			}
-			return yield* Effect.fail(error);
-		}
-		emitJsonCommandAttempt(options, { args, attempt, status: "ok" });
-		return payload;
-	});
-}
-
 function runJsonCommandEffect(
 	args: string[],
 	options: JsonCommandOptions = {},
@@ -491,16 +374,6 @@ function runJsonCommandEffect(
 			options.timeoutMs > 0
 				? Date.now() + options.timeoutMs
 				: undefined);
-
-		if (isDirectBearerSupported(args)) {
-			return yield* runBearerJsonCommandEffect(
-				args,
-				options,
-				attempt,
-				deadlineMs,
-			);
-		}
-
 		const timeoutMs = deadlineMs
 			? Math.max(0, deadlineMs - Date.now())
 			: undefined;
@@ -887,14 +760,9 @@ function authenticatedUserFromPayload(payload: Record<string, unknown>) {
 }
 
 export function lookupAuthenticatedUserFreshEffect() {
-	const defaultUserId = getDefaultUserId();
-	return (
-		defaultUserId
-			? runJsonCommandEffect([
-					`/2/users/${defaultUserId}?user.fields=${RICH_USER_FIELDS}`,
-				])
-			: runJsonCommandEffect(["whoami"])
-	).pipe(Effect.map(authenticatedUserFromPayload));
+	return runJsonCommandEffect(["whoami"]).pipe(
+		Effect.map(authenticatedUserFromPayload),
+	);
 }
 
 export function lookupAuthenticatedOAuth2UserEffect(username?: string) {

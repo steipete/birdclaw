@@ -750,19 +750,6 @@ describe("text backup", () => {
 		).toBe("1");
 	}, 20000);
 
-	it("fails closed instead of initializing a nested repo inside a parent worktree", async () => {
-		const parentPath = makeTempDir("birdclaw-parent-worktree-");
-		execFileSync("git", ["-C", parentPath, "init"]);
-		const repoPath = path.join(parentPath, "backup");
-		switchHome("birdclaw-nested-backup-");
-		seedBackupFixture();
-
-		await expect(syncBackup({ repoPath })).rejects.toThrow(
-			/inside an existing Git worktree/i,
-		);
-		expect(existsSync(path.join(repoPath, ".git"))).toBe(false);
-	}, 20000);
-
 	it("does not inherit commit signing for generated backup commits", async () => {
 		switchHome("birdclaw-sync-signing-src-");
 		seedBackupFixture();

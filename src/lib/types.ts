@@ -375,7 +375,7 @@ export interface DmQuery {
 
 export interface TransportStatus {
 	installed: boolean;
-	availableTransport: "xurl" | "bearer" | "local";
+	availableTransport: "xurl" | "local";
 	statusText: string;
 	rawStatus?: string;
 }

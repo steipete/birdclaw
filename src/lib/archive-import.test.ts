@@ -1,13 +1,12 @@
 // @vitest-environment node
+import { execFileSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { zipSync } from "fflate";
 import path from "node:path";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -30,31 +29,6 @@ import {
 } from "./queries";
 
 const testHome = useTestHome({ prefix: "birdclaw-home-" });
-
-function writeZipFromDirectory(
-	root: string,
-	archivePath: string,
-	entryRoot: string,
-) {
-	const entries: Record<string, Uint8Array> = {};
-
-	function walk(directory: string, relativeDirectory: string) {
-		for (const name of readdirSync(directory)) {
-			const absolutePath = path.join(directory, name);
-			const relativePath = path.posix.join(relativeDirectory, name);
-			const stat = statSync(absolutePath);
-
-			if (stat.isDirectory()) {
-				walk(absolutePath, relativePath);
-			} else if (stat.isFile()) {
-				entries[relativePath] = new Uint8Array(readFileSync(absolutePath));
-			}
-		}
-	}
-
-	walk(path.join(root, entryRoot), entryRoot);
-	writeFileSync(archivePath, zipSync(entries, { level: 0 }));
-}
 
 function makeArchive({
 	following = [],
@@ -198,7 +172,7 @@ function makeArchive({
 	}
 
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "sample");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
 }
 
@@ -211,7 +185,7 @@ function makeArchiveWithoutAccount() {
 		'window.YTD.tweets.part0 = [{ "tweet": { "id_str": "1", "created_at": "Tue Jun 03 19:32:20 +0000 2025", "full_text": "hello" } }]',
 	);
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "sample");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
 }
 
@@ -255,7 +229,7 @@ function makeRootDataArchive() {
 		"root-media",
 	);
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "data");
+	execFileSync("zip", ["-qr", archivePath, "data"], { cwd: root });
 	return archivePath;
 }
 
@@ -346,7 +320,7 @@ function makeWeirdArchive({ followers = [] }: { followers?: string[] } = {}) {
 	}
 
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "sample");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
 }
 
@@ -397,7 +371,7 @@ function makeFollowArchive({
 	}
 
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "sample");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
 }
 
@@ -445,7 +419,7 @@ function makeFollowDmArchive(userId: string) {
 	);
 
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "sample");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
 }
 
@@ -480,7 +454,7 @@ function makeMediaArchive() {
 	);
 
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "sample");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
 }
 
@@ -564,7 +538,7 @@ function makeMediaVariantsArchive() {
 	);
 
 	const archivePath = path.join(root, "archive.zip");
-	writeZipFromDirectory(root, archivePath, "sample");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
 }
 

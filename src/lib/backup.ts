@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { Data, Effect } from "effect";
 import type { Database } from "./sqlite";
@@ -31,7 +30,6 @@ const BACKUP_SCHEMA_VERSION = 2;
 const MIN_SUPPORTED_BACKUP_SCHEMA_VERSION = 1;
 const MANIFEST_PATH = "manifest.json";
 const DATA_DIR = "data";
-const GITATTRIBUTES_PATH = ".gitattributes";
 const AUTO_SYNC_CACHE_KEY = "backup:auto-sync";
 const DEFAULT_STALE_AFTER_SECONDS = 15 * 60;
 let autoUpdateInFlight: Promise<BackupAutoUpdateResult> | null = null;
@@ -440,28 +438,6 @@ function readPreviousManifestEffect(
 	);
 }
 
-function ensureBackupGitattributesEffect(repoPath: string) {
-	return Effect.gen(function* () {
-		const attributesPath = yield* trySync(() =>
-			resolveBackupFilePath(repoPath, GITATTRIBUTES_PATH),
-		);
-		yield* assertNoSymlinkAncestorEffect(repoPath, attributesPath);
-		const content = [
-			"# Birdclaw backup files are content-addressed by raw bytes in manifest.json.",
-			"*.jsonl text eol=lf",
-			`${MANIFEST_PATH} text eol=lf`,
-			"",
-		].join("\n");
-		const current = yield* tryPromise(() =>
-			fs.readFile(attributesPath, "utf8"),
-		).pipe(Effect.option);
-		if (current._tag === "Some" && current.value === content) {
-			return;
-		}
-		yield* tryPromise(() => fs.writeFile(attributesPath, content, "utf8"));
-	});
-}
-
 function maybeCommitAndPushEffect({
 	repoPath,
 	message,
@@ -493,7 +469,6 @@ function maybeCommitAndPushEffect({
 			"-C",
 			repoPath,
 			"add",
-			GITATTRIBUTES_PATH,
 			"README.md",
 			MANIFEST_PATH,
 			DATA_DIR,
@@ -565,35 +540,11 @@ function maybeCommitAndPushEffect({
 	});
 }
 
-function getGitTopLevelEffect(repoPath: string) {
-	return gitEffect(["-C", repoPath, "rev-parse", "--show-toplevel"]).pipe(
-		Effect.map(({ stdout }) => path.resolve(stdout.trim())),
-		Effect.catchAll(() => Effect.succeed(undefined)),
-	);
-}
-
 function isGitRepoEffect(repoPath: string) {
-	return getGitTopLevelEffect(repoPath).pipe(
-		Effect.map((topLevel) => topLevel === path.resolve(repoPath)),
+	return gitEffect(["-C", repoPath, "rev-parse", "--is-inside-work-tree"]).pipe(
+		Effect.as(true),
+		Effect.catchAll(() => Effect.succeed(false)),
 	);
-}
-
-function failOnNestedGitWorktreeEffect(repoPath: string) {
-	return Effect.gen(function* () {
-		const topLevel = yield* getGitTopLevelEffect(repoPath);
-		const homeTopLevel = path.resolve(os.homedir());
-		if (
-			topLevel &&
-			topLevel !== path.resolve(repoPath) &&
-			topLevel !== homeTopLevel
-		) {
-			return yield* Effect.fail(
-				new Error(
-					`Backup repo path is inside an existing Git worktree (${topLevel}); choose the worktree root, an existing backup repo, or a path outside that worktree before Birdclaw initializes backup Git state.`,
-				),
-			);
-		}
-	});
 }
 
 function hasGitCommitsEffect(repoPath: string) {
@@ -613,12 +564,9 @@ function ensureBackupGitRepoEffect({
 	return Effect.gen(function* () {
 		if (!(yield* isGitRepoEffect(repoPath))) {
 			if (remote && !existsSync(repoPath)) {
-				yield* tryPromise(() => fs.mkdir(repoPath, { recursive: true }));
-				yield* failOnNestedGitWorktreeEffect(repoPath);
 				yield* gitEffect(["clone", remote, repoPath]);
 			} else {
 				yield* tryPromise(() => fs.mkdir(repoPath, { recursive: true }));
-				yield* failOnNestedGitWorktreeEffect(repoPath);
 				yield* gitEffect(["-C", repoPath, "init"]);
 			}
 		}
@@ -656,7 +604,7 @@ function ensureBackupGitRepoEffect({
 				repoPath,
 				"fetch",
 				"origin",
-				"main:refs/remotes/origin/main",
+				"main",
 			]).pipe(
 				Effect.flatMap(() =>
 					gitEffect(["-C", repoPath, "checkout", "-B", "main", "origin/main"]),
@@ -719,7 +667,6 @@ export function exportBackupEffect({
 				new Error("Backup repository path must be a real directory"),
 			);
 		}
-		yield* ensureBackupGitattributesEffect(resolvedRepoPath);
 		yield* ensureBackupReadmeEffect(resolvedRepoPath);
 
 		const shards = yield* trySync(() => buildShards(database));
