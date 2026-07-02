@@ -45,6 +45,19 @@ export function resolveOpenAIBaseUrl(
 	return base.replace(/\/+$/, "");
 }
 
+/**
+ * Emit an OpenAI-transport debug line to stderr when `BIRDCLAW_DEBUG` is set.
+ * Gated so normal runs stay quiet; enable with `BIRDCLAW_DEBUG=1`.
+ */
+export function debugLog(
+	getEnv: (name: string) => string | undefined,
+	message: string,
+) {
+	if (!getEnv("BIRDCLAW_DEBUG")) return;
+	if (typeof process === "undefined") return;
+	process.stderr.write(`[birdclaw:openai] ${message}\n`);
+}
+
 export function createOpenAIStreamState(): OpenAIStreamState {
 	return {
 		eventBuffer: "",
@@ -243,8 +256,10 @@ export function requestOpenAIResponseEffect({
 			return yield* Effect.fail(new Error("OPENAI_API_KEY is not set"));
 		}
 		const baseUrl = resolveOpenAIBaseUrl(runtime.env);
+		const url = `${baseUrl}/responses`;
+		debugLog(runtime.env, `POST ${url}`);
 		const response = yield* tryPromise(() =>
-			runtime.fetch(`${baseUrl}/responses`, {
+			runtime.fetch(url, {
 				method: "POST",
 				signal,
 				headers: {
@@ -253,10 +268,21 @@ export function requestOpenAIResponseEffect({
 				},
 				body: JSON.stringify(body),
 			}),
-		).pipe(Effect.mapError(toError));
+		).pipe(
+			Effect.mapError(toError),
+			Effect.tapError((error) =>
+				Effect.sync(() =>
+					debugLog(runtime.env, `network error for ${url}: ${error.message}`),
+				),
+			),
+		);
 		if (!response.ok) {
 			const text = yield* tryPromise(() => response.text()).pipe(
 				Effect.mapError(toError),
+			);
+			debugLog(
+				runtime.env,
+				`${url} -> ${String(response.status)} ${text.slice(0, 400)}`,
 			);
 			return yield* Effect.fail(
 				new Error(
@@ -264,6 +290,7 @@ export function requestOpenAIResponseEffect({
 				),
 			);
 		}
+		debugLog(runtime.env, `${url} -> ${String(response.status)} OK`);
 		return response;
 	});
 }
