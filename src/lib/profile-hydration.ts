@@ -53,19 +53,30 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 		yield* trySync(() => {
 			const db = getNativeDb();
 			db.transaction(() => {
-				// If the authenticated account differs from what's stored, the seeded
-				// avatar belongs to a different person. bird whoami can't supply an
-				// avatar, so clear the stale URL and let the UI fall back to initials
-				// rather than showing the previous user's photo.
 				const current = db
 					.prepare(
-						`select external_user_id from accounts where id = 'acct_primary'`,
+						`select handle, external_user_id from accounts where id = 'acct_primary'`,
 					)
-					.get() as { external_user_id: string | null } | undefined;
-				const identityChanged =
-					externalUserId !== null &&
-					current?.external_user_id !== externalUserId;
+					.get() as
+					| { handle: string | null; external_user_id: string | null }
+					| undefined;
 
+				// Detect whether the authenticated account is a different person than
+				// what's stored. bird whoami may omit a numeric id, so fall back to
+				// comparing the handle: a changed handle is an identity change even
+				// without an id.
+				const storedHandle = current?.handle?.replace(/^@/, "") ?? null;
+				const identityChanged =
+					(externalUserId !== null &&
+						current?.external_user_id !== externalUserId) ||
+					(storedHandle !== null &&
+						storedHandle.toLowerCase() !== handle.toLowerCase());
+
+				// On an identity change the seeded avatar belongs to a different
+				// person, and bird whoami can't supply a replacement, so clear it and
+				// let the UI fall back to initials rather than showing the previous
+				// user's photo. Likewise clear a stale external_user_id when the new
+				// identity has no id of its own.
 				if (identityChanged) {
 					db.prepare(
 						`update profiles
@@ -74,6 +85,14 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 						     avatar_url = null
 						 where id = 'profile_me'`,
 					).run(handle, name);
+					db.prepare(
+						`update accounts
+						 set handle = ?,
+						     name = coalesce(?, name),
+						     transport = 'bird',
+						     external_user_id = ?
+						 where id = 'acct_primary'`,
+					).run(`@${handle}`, name, externalUserId);
 				} else {
 					db.prepare(
 						`update profiles
@@ -81,15 +100,15 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 						     display_name = coalesce(?, display_name)
 						 where id = 'profile_me'`,
 					).run(handle, name);
+					db.prepare(
+						`update accounts
+						 set handle = ?,
+						     name = coalesce(?, name),
+						     transport = 'bird',
+						     external_user_id = coalesce(?, external_user_id)
+						 where id = 'acct_primary'`,
+					).run(`@${handle}`, name, externalUserId);
 				}
-				db.prepare(
-					`update accounts
-					 set handle = ?,
-					     name = coalesce(?, name),
-					     transport = 'bird',
-					     external_user_id = coalesce(?, external_user_id)
-					 where id = 'acct_primary'`,
-				).run(`@${handle}`, name, externalUserId);
 			})();
 		});
 		return true;
