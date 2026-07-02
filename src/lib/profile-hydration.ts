@@ -40,6 +40,9 @@ function trySync<T>(try_: () => T) {
 	});
 }
 
+const SEEDED_ACCOUNT_HANDLE = "steipete";
+const SEEDED_ACCOUNT_EXTERNAL_USER_ID = "25401953";
+
 function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 	return Effect.gen(function* () {
 		const account = yield* tryPromise(() => getAuthenticatedBirdAccount()).pipe(
@@ -50,27 +53,39 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 		const handle = account.username.replace(/^@/, "");
 		const name = account.name?.trim() || null;
 		const externalUserId = account.id ?? null;
-		yield* trySync(() => {
+		const hydrated = yield* trySync(() => {
 			const db = getNativeDb();
-			db.transaction(() => {
+			return db.transaction(() => {
 				const current = db
 					.prepare(
-						`select handle, external_user_id from accounts where id = 'acct_primary'`,
+						`select handle, external_user_id, transport from accounts where id = 'acct_primary'`,
 					)
 					.get() as
-					| { handle: string | null; external_user_id: string | null }
+					| {
+							handle: string | null;
+							external_user_id: string | null;
+							transport: string;
+					  }
 					| undefined;
+				if (!current) return false;
 
-				// Detect whether the authenticated account is a different person than
-				// what's stored. bird whoami may omit a numeric id, so fall back to
-				// comparing the handle: a changed handle is an identity change even
-				// without an id.
 				const storedHandle = current?.handle?.replace(/^@/, "") ?? null;
-				const identityChanged =
-					(externalUserId !== null &&
-						current?.external_user_id !== externalUserId) ||
-					(storedHandle !== null &&
-						storedHandle.toLowerCase() !== handle.toLowerCase());
+				const handleMatches =
+					storedHandle?.toLowerCase() === handle.toLowerCase();
+				const identityMatches =
+					externalUserId !== null && current.external_user_id !== null
+						? externalUserId === current.external_user_id
+						: handleMatches;
+				const isSeededPlaceholder =
+					storedHandle?.toLowerCase() === SEEDED_ACCOUNT_HANDLE &&
+					current.external_user_id === SEEDED_ACCOUNT_EXTERNAL_USER_ID &&
+					current.transport === "xurl";
+
+				// An archive establishes account ownership for tweets, DMs, and edges.
+				// Never relabel that data from whichever account Bird currently uses;
+				// only the untouched demo seed may adopt a different Bird identity.
+				if (!identityMatches && !isSeededPlaceholder) return false;
+				const identityChanged = !identityMatches;
 
 				// On an identity change the seeded avatar belongs to a different
 				// person, and bird whoami can't supply a replacement, so clear it and
@@ -109,9 +124,10 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 						 where id = 'acct_primary'`,
 					).run(`@${handle}`, name, externalUserId);
 				}
+				return true;
 			})();
 		});
-		return true;
+		return hydrated;
 	});
 }
 
