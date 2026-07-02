@@ -95,6 +95,7 @@ export interface BirdDmsResponse {
 export interface BirdAuthenticatedAccount {
 	id?: string;
 	username: string;
+	name?: string;
 }
 
 export type BirdDmRequestAction = "accept" | "reject" | "block";
@@ -934,9 +935,13 @@ function parseBirdWhoami(stdout: string): BirdAuthenticatedAccount {
 			return line.match(/^\D*(\d{2,})\D*$/)?.[1];
 		})
 		.find((value): value is string => Boolean(value));
+	// bird prints the display name in parentheses after the handle, e.g.
+	// "🙋 @handle (Display Name)".
+	const name = stdout.match(/@[A-Za-z0-9_]{1,15}\s*\(([^)]+)\)/)?.[1]?.trim();
 	return {
 		username: usernameMatch[1],
 		...(id ? { id } : {}),
+		...(name ? { name } : {}),
 	};
 }
 

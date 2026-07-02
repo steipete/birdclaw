@@ -464,6 +464,7 @@ describe("bird transport wrapper", () => {
 		await expect(getAuthenticatedBirdAccount()).resolves.toEqual({
 			id: "25401953",
 			username: "steipete",
+			name: "Peter Steinberger 2026",
 		});
 		expectBirdCommandCall(1, ["whoami"]);
 	});

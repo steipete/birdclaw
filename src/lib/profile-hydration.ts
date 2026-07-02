@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 
 import { normalizeAvatarUrl } from "./avatar-cache";
+import { getAuthenticatedBirdAccount } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import {
@@ -39,6 +40,62 @@ function trySync<T>(try_: () => T) {
 	});
 }
 
+function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
+	return Effect.gen(function* () {
+		const account = yield* tryPromise(() => getAuthenticatedBirdAccount()).pipe(
+			Effect.catchAll(() => Effect.succeed(null)),
+		);
+		if (!account?.username) return false;
+
+		const handle = account.username.replace(/^@/, "");
+		const name = account.name?.trim() || null;
+		const externalUserId = account.id ?? null;
+		yield* trySync(() => {
+			const db = getNativeDb();
+			db.transaction(() => {
+				// If the authenticated account differs from what's stored, the seeded
+				// avatar belongs to a different person. bird whoami can't supply an
+				// avatar, so clear the stale URL and let the UI fall back to initials
+				// rather than showing the previous user's photo.
+				const current = db
+					.prepare(
+						`select external_user_id from accounts where id = 'acct_primary'`,
+					)
+					.get() as { external_user_id: string | null } | undefined;
+				const identityChanged =
+					externalUserId !== null &&
+					current?.external_user_id !== externalUserId;
+
+				if (identityChanged) {
+					db.prepare(
+						`update profiles
+						 set handle = ?,
+						     display_name = coalesce(?, display_name),
+						     avatar_url = null
+						 where id = 'profile_me'`,
+					).run(handle, name);
+				} else {
+					db.prepare(
+						`update profiles
+						 set handle = ?,
+						     display_name = coalesce(?, display_name)
+						 where id = 'profile_me'`,
+					).run(handle, name);
+				}
+				db.prepare(
+					`update accounts
+					 set handle = ?,
+					     name = coalesce(?, name),
+					     transport = 'bird',
+					     external_user_id = coalesce(?, external_user_id)
+					 where id = 'acct_primary'`,
+				).run(`@${handle}`, name, externalUserId);
+			})();
+		});
+		return true;
+	});
+}
+
 export function hydrateProfilesFromXEffect(): Effect.Effect<
 	HydrateProfilesResult,
 	unknown
@@ -46,10 +103,14 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 	return Effect.gen(function* () {
 		const transport = yield* tryPromise(() => getTransportStatus());
 		if (transport.availableTransport !== "xurl") {
+			// xurl is unavailable, so the live profile backfill can't run. When the
+			// bird transport is authenticated we can still correct the seeded
+			// account handle (e.g. the placeholder @steipete) from `bird whoami`.
+			const hydratedAccount = yield* hydrateAccountFromBirdEffect();
 			return {
 				ok: true,
 				hydratedProfiles: 0,
-				hydratedAccount: false,
+				hydratedAccount,
 				reason: transport.statusText,
 			};
 		}

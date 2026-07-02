@@ -11,12 +11,17 @@ const mocks = vi.hoisted(() => ({
 	getTransportStatus: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
 	lookupUsersByIds: vi.fn(),
+	getAuthenticatedBirdAccount: vi.fn(),
 }));
 
 vi.mock("./xurl", () => ({
 	getTransportStatus: mocks.getTransportStatus,
 	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
 	lookupUsersByIds: mocks.lookupUsersByIds,
+}));
+
+vi.mock("./bird", () => ({
+	getAuthenticatedBirdAccount: mocks.getAuthenticatedBirdAccount,
 }));
 
 describe("profile hydration", () => {
@@ -30,6 +35,10 @@ describe("profile hydration", () => {
 		mocks.getTransportStatus.mockReset();
 		mocks.lookupAuthenticatedUser.mockReset();
 		mocks.lookupUsersByIds.mockReset();
+		mocks.getAuthenticatedBirdAccount.mockReset();
+		mocks.getAuthenticatedBirdAccount.mockRejectedValue(
+			new Error("bird unavailable"),
+		);
 	});
 
 	afterEach(() => {
@@ -224,6 +233,66 @@ describe("profile hydration", () => {
 			hydratedAccount: false,
 			reason: "xurl missing",
 		});
+		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
+	});
+
+	it("hydrates the account handle from bird when xurl is unavailable", async () => {
+		const db = getNativeDb();
+		db.exec(`
+      delete from profiles;
+      delete from accounts;
+    `);
+		db.prepare(
+			"insert into accounts (id, name, handle, transport, is_default, created_at) values ('acct_primary', 'Peter', '@steipete', 'archive', 1, '2009-03-19T22:54:05.000Z')",
+		).run();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, avatar_url, created_at) values ('profile_me', 'steipete', 'Peter', '', 0, 18, 'https://example.com/steipete.png', '2009-03-19T22:54:05.000Z')",
+		).run();
+
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "local",
+			installed: true,
+			statusText:
+				"xurl installed but not authenticated. local (bird) mode active.",
+		});
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			username: "realuser",
+			id: "987654321",
+			name: "Real User",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(hydrateProfilesFromX()).resolves.toMatchObject({
+			hydratedProfiles: 0,
+			hydratedAccount: true,
+		});
+
+		const account = db
+			.prepare(
+				"select handle, name, transport, external_user_id from accounts where id = 'acct_primary'",
+			)
+			.get() as {
+			handle: string;
+			name: string;
+			transport: string;
+			external_user_id: string | null;
+		};
+		expect(account.handle).toBe("@realuser");
+		expect(account.name).toBe("Real User");
+		expect(account.transport).toBe("bird");
+		expect(account.external_user_id).toBe("987654321");
+		const profile = db
+			.prepare(
+				"select handle, display_name, avatar_url from profiles where id = 'profile_me'",
+			)
+			.get() as {
+			handle: string;
+			display_name: string;
+			avatar_url: string | null;
+		};
+		expect(profile.handle).toBe("realuser");
+		expect(profile.display_name).toBe("Real User");
+		expect(profile.avatar_url).toBeNull();
 		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
 	});
 
