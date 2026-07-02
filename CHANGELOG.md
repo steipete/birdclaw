@@ -2,6 +2,10 @@
 
 ## 0.9.1 - Unreleased
 
+### Added
+
+- Route inbox scoring and Responses API requests through `BIRDCLAW_OPENAI_BASE_URL`, retain `OPENAI_BASE_URL` as a compatibility fallback, and add opt-in OpenAI transport diagnostics. (#89 - thanks @martintrojer)
+
 ### Fixed
 
 - Correct the seeded local account handle, display name, user ID, and stale avatar from the authenticated Bird identity during explicit profile hydration. (#88 - thanks @martintrojer)

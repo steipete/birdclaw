@@ -13,6 +13,9 @@ beforeEach(() => {
 afterEach(() => {
 	process.env.OPENAI_API_KEY = "";
 	delete process.env.BIRDCLAW_OPENAI_MODEL;
+	delete process.env.BIRDCLAW_OPENAI_BASE_URL;
+	delete process.env.OPENAI_BASE_URL;
+	delete process.env.BIRDCLAW_DEBUG;
 	vi.unstubAllGlobals();
 });
 
@@ -77,6 +80,47 @@ describe("openai inbox scoring", () => {
 			summary: "Strong ask",
 			reasoning: "Concrete and relevant",
 		});
+	});
+
+	it("targets the configured OpenAI-compatible base URL", async () => {
+		process.env.OPENAI_API_KEY = "test-key";
+		process.env.BIRDCLAW_OPENAI_BASE_URL = "http://localhost:11434/v1/";
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					choices: [
+						{
+							message: {
+								content: JSON.stringify({
+									score: 80,
+									summary: "Useful",
+									reasoning: "Specific request",
+								}),
+							},
+						},
+					],
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await scoreInboxItemWithOpenAI({
+			entityKind: "dm",
+			title: "DM",
+			text: "question?",
+			influenceScore: 80,
+			participant: {
+				handle: "amelia",
+				displayName: "Amelia",
+				bio: "bio",
+				followersCount: 4200,
+			},
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://localhost:11434/v1/chat/completions",
+			expect.objectContaining({ method: "POST" }),
+		);
 	});
 
 	it("exposes inbox scoring as an Effect program", async () => {

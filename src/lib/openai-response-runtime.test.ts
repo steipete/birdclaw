@@ -6,11 +6,38 @@ import {
 	processOpenAIResponseSseChunk,
 	readOpenAIResponseStreamEffect,
 	requestOpenAIResponseEffect,
+	resolveOpenAIBaseUrl,
 } from "./openai-response-runtime";
 
 afterEach(() => {
 	delete process.env.OPENAI_API_KEY;
 	vi.unstubAllGlobals();
+});
+
+describe("resolveOpenAIBaseUrl", () => {
+	it("defaults to the OpenAI endpoint", () => {
+		expect(resolveOpenAIBaseUrl(() => undefined)).toBe(
+			"https://api.openai.com/v1",
+		);
+	});
+
+	it("uses the birdclaw override and trims trailing slashes", () => {
+		const env: Record<string, string> = {
+			BIRDCLAW_OPENAI_BASE_URL: "http://localhost:11434/v1/",
+		};
+		expect(resolveOpenAIBaseUrl((name) => env[name])).toBe(
+			"http://localhost:11434/v1",
+		);
+	});
+
+	it("retains OPENAI_BASE_URL as a compatibility fallback", () => {
+		const env: Record<string, string> = {
+			OPENAI_BASE_URL: "http://localhost:1234/v1",
+		};
+		expect(resolveOpenAIBaseUrl((name) => env[name])).toBe(
+			"http://localhost:1234/v1",
+		);
+	});
 });
 
 describe("OpenAI response runtime", () => {
@@ -75,5 +102,28 @@ describe("OpenAI response runtime", () => {
 		await expect(
 			Effect.runPromise(requestOpenAIResponseEffect({ body: {} })),
 		).rejects.toThrow("400 bad request");
+	});
+
+	it("targets the configured base URL", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(new Response("{}", { status: 200 }));
+		const runtime = {
+			fetch: fetchMock,
+			now: () => new Date(),
+			random: () => 0,
+			env: (name: string) =>
+				({
+					OPENAI_API_KEY: "test",
+					BIRDCLAW_OPENAI_BASE_URL: "http://localhost:11434/v1",
+				})[name],
+		};
+		await Effect.runPromise(
+			requestOpenAIResponseEffect({ body: { ok: true }, runtime }),
+		);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://localhost:11434/v1/responses",
+			expect.objectContaining({ method: "POST" }),
+		);
 	});
 });

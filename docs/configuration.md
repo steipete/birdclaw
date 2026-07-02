@@ -93,6 +93,9 @@ See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge 
 | `BIRDCLAW_BACKUP_AUTO_SYNC`    | Set to `0` to disable auto-sync for one process                                                                                                      |
 | `NO_COLOR`                     | Disable ANSI color in human output                                                                                                                   |
 | `OPENAI_API_KEY`               | Enable inbox scoring and low-signal filtering                                                                                                        |
+| `BIRDCLAW_OPENAI_MODEL`        | Override the model used for inbox scoring (default `gpt-5.2`)                                                                                        |
+| `BIRDCLAW_OPENAI_BASE_URL`     | Point at an OpenAI-compatible server (e.g. Ollama `http://localhost:11434/v1`); takes precedence over the compatible `OPENAI_BASE_URL` fallback; default `https://api.openai.com/v1` |
+| `BIRDCLAW_DEBUG`               | Set to any value to log OpenAI request URLs, statuses, and error bodies to stderr                                                                   |
 
 `BIRDCLAW_DISABLE_LIVE_WRITES=1` is set automatically in CI and Playwright runs so test code can never publish a tweet, send a DM, or block an account.
 
