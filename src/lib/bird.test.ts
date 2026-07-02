@@ -595,6 +595,21 @@ describe("bird transport wrapper", () => {
 		]);
 	});
 
+	it("omits max-pages for single-page bird saved collections", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdStdoutOnce("[]");
+		mockBirdStdoutOnce("[]");
+		const { listBookmarkedTweetsViaBird, listLikedTweetsViaBird } =
+			await import("./bird");
+
+		await listLikedTweetsViaBird({ maxResults: 5, maxPages: 2 });
+		await listBookmarkedTweetsViaBird({ maxResults: 7, maxPages: 3 });
+
+		expect(execFileAsyncMock).toHaveBeenCalledTimes(2);
+		expectBirdCommandCall(1, ["likes", "-n", "5", "--json-full"]);
+		expectBirdCommandCall(2, ["bookmarks", "-n", "7", "--json-full"]);
+	});
+
 	it("maps bird home timeline json into xurl-compatible payloads", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
 		mockBirdStdoutOnce(
