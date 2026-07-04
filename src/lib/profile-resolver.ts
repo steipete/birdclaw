@@ -5,7 +5,7 @@ import {
 	lookupProfileViaBirdEffect,
 	lookupProfilesViaBirdEffect,
 } from "./bird";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise } from "./effect-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import {
 	hydrateProfileAffiliationOrganizationsEffect,
@@ -14,7 +14,7 @@ import {
 import { profileFromDbRow, profileHandleKey } from "./profile-row";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
-import { lookupUsersByHandles, lookupUsersByIds } from "./xurl";
+import { lookupUsersByHandlesEffect, lookupUsersByIdsEffect } from "./xurl";
 
 const PROFILE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PROFILE_NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -122,10 +122,9 @@ function updateConversationTitles(profile: ProfileRecord, db = getNativeDb()) {
 }
 
 function lookupViaXurlEffect(externalUserId: string) {
-	return Effect.gen(function* () {
-		const [user] = yield* tryPromise(() => lookupUsersByIds([externalUserId]));
-		return user ?? null;
-	});
+	return lookupUsersByIdsEffect([externalUserId]).pipe(
+		Effect.map(([user]) => user ?? null),
+	);
 }
 
 function fetchProfileUserEffect(
@@ -234,9 +233,7 @@ function fetchProfileUsersEffect(
 			return results;
 		}
 
-		const xurlResult = yield* tryPromise(() =>
-			lookupUsersByIds(unresolved),
-		).pipe(
+		const xurlResult = yield* lookupUsersByIdsEffect(unresolved).pipe(
 			Effect.map((users) => ({ ok: true as const, users })),
 			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
 		);
@@ -487,9 +484,7 @@ export function resolveProfilesForHandlesEffect(
 		}
 
 		if (unresolved.length > 0 && xurlFallback) {
-			const xurlResult = yield* tryPromise(() =>
-				lookupUsersByHandles(unresolved),
-			).pipe(
+			const xurlResult = yield* lookupUsersByHandlesEffect(unresolved).pipe(
 				Effect.map((users) => ({ ok: true as const, users })),
 				Effect.catchAll((error) =>
 					Effect.succeed({ ok: false as const, error }),

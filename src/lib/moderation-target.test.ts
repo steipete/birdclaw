@@ -14,15 +14,33 @@ const mocks = vi.hoisted(() => ({
 	lookupUsersByIds: vi.fn(),
 }));
 
-vi.mock("./bird-actions", () => ({
-	lookupProfileViaBird: mocks.lookupProfileViaBird,
-}));
+vi.mock("./bird-actions", () => {
+	const fromMock =
+		(mock: (...args: unknown[]) => PromiseLike<unknown>) =>
+		(...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => mock(...args),
+				catch: (error) => error,
+			});
+	return {
+		lookupProfileViaBirdEffect: fromMock(mocks.lookupProfileViaBird),
+	};
+});
 
-vi.mock("./xurl", () => ({
-	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
-	lookupUsersByHandles: mocks.lookupUsersByHandles,
-	lookupUsersByIds: mocks.lookupUsersByIds,
-}));
+vi.mock("./xurl", () => {
+	const fromMock =
+		(mock: (...args: unknown[]) => PromiseLike<unknown>) =>
+		(...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => mock(...args),
+				catch: (error) => error,
+			});
+	return {
+		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupUsersByHandlesEffect: fromMock(mocks.lookupUsersByHandles),
+		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
+	};
+});
 
 const tempDirs: string[] = [];
 

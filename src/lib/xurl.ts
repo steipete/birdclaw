@@ -1242,7 +1242,10 @@ export function listFollowUsersViaXurl(options: {
 export const listBlockedUsersEffect = Effect.fn("xurl.listBlockedUsers")((
 	userId: string,
 	paginationToken?: string,
-) => {
+): Effect.Effect<
+	{ items: XurlMentionUser[]; nextToken: string | null },
+	XurlCommandError
+> => {
 	const query = new URLSearchParams({
 		max_results: "100",
 		"user.fields":

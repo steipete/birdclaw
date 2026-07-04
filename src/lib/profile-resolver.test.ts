@@ -30,8 +30,16 @@ vi.mock("./bird", () => ({
 }));
 
 vi.mock("./xurl", () => ({
-	lookupUsersByHandles: mocks.lookupUsersByHandles,
-	lookupUsersByIds: mocks.lookupUsersByIds,
+	lookupUsersByHandlesEffect: (handles: string[]) =>
+		Effect.tryPromise({
+			try: () => mocks.lookupUsersByHandles(handles),
+			catch: (error) => error,
+		}),
+	lookupUsersByIdsEffect: (ids: string[]) =>
+		Effect.tryPromise({
+			try: () => mocks.lookupUsersByIds(ids),
+			catch: (error) => error,
+		}),
 }));
 
 let homeDir = "";

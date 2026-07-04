@@ -19,21 +19,39 @@ const mocks = vi.hoisted(() => ({
 	unmuteUserViaXurl: vi.fn(),
 }));
 
-vi.mock("./bird-actions", () => ({
-	lookupProfileViaBird: mocks.lookupProfileViaBird,
-	muteUserViaBird: mocks.muteUserViaBird,
-	readBirdStatusViaBird: mocks.readBirdStatusViaBird,
-	unmuteUserViaBird: mocks.unmuteUserViaBird,
-}));
+vi.mock("./bird-actions", () => {
+	const fromMock =
+		(mock: (...args: unknown[]) => PromiseLike<unknown>) =>
+		(...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => mock(...args),
+				catch: (error) => error,
+			});
+	return {
+		lookupProfileViaBirdEffect: fromMock(mocks.lookupProfileViaBird),
+		muteUserViaBirdEffect: fromMock(mocks.muteUserViaBird),
+		readBirdStatusViaBirdEffect: fromMock(mocks.readBirdStatusViaBird),
+		unmuteUserViaBirdEffect: fromMock(mocks.unmuteUserViaBird),
+	};
+});
 
-vi.mock("./xurl", () => ({
-	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
-	lookupAuthenticatedUserFresh: mocks.lookupAuthenticatedUser,
-	lookupUsersByHandles: mocks.lookupUsersByHandles,
-	lookupUsersByIds: mocks.lookupUsersByIds,
-	muteUserViaXurl: mocks.muteUserViaXurl,
-	unmuteUserViaXurl: mocks.unmuteUserViaXurl,
-}));
+vi.mock("./xurl", () => {
+	const fromMock =
+		(mock: (...args: unknown[]) => PromiseLike<unknown>) =>
+		(...args: unknown[]) =>
+			Effect.tryPromise({
+				try: () => mock(...args),
+				catch: (error) => error,
+			});
+	return {
+		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupAuthenticatedUserFreshEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupUsersByHandlesEffect: fromMock(mocks.lookupUsersByHandles),
+		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
+		muteUserViaXurlEffect: fromMock(mocks.muteUserViaXurl),
+		unmuteUserViaXurlEffect: fromMock(mocks.unmuteUserViaXurl),
+	};
+});
 
 const tempDirs: string[] = [];
 

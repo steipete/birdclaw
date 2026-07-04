@@ -17,10 +17,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./xurl", () => {
 	const fromMock =
-		(mock: (...args: unknown[]) => unknown) =>
+		(mock: (...args: unknown[]) => PromiseLike<unknown>) =>
 		(...args: unknown[]) =>
 			Effect.tryPromise({
-				try: () => Promise.resolve(mock(...args)),
+				try: () => mock(...args),
 				catch: (error) => error,
 			});
 	return {
