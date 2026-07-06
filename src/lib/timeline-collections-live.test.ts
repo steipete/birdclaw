@@ -39,9 +39,21 @@ vi.mock("./bird", () => ({
 }));
 
 vi.mock("./xurl", () => ({
-	listBookmarkedTweetsViaXurl: mocks.listBookmarkedTweetsViaXurl,
-	listLikedTweetsViaXurl: mocks.listLikedTweetsViaXurl,
-	lookupUsersByHandles: mocks.lookupUsersByHandles,
+	listBookmarkedTweetsViaXurlEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listBookmarkedTweetsViaXurl(options),
+			catch: (error) => error,
+		}),
+	listLikedTweetsViaXurlEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listLikedTweetsViaXurl(options),
+			catch: (error) => error,
+		}),
+	lookupUsersByHandlesEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => mocks.lookupUsersByHandles(...args),
+			catch: (error) => error,
+		}),
 }));
 
 const tempRoots: string[] = [];

@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import {
 	getAuthenticatedBirdAccountEffect,
 	listBookmarkedTweetsViaBirdEffect,
@@ -11,18 +10,18 @@ import {
 	searchTweetsViaBirdEffect,
 } from "./bird";
 import {
-	getTransportStatus,
+	getTransportStatusEffect,
 	getTweetByIdEffect,
-	listBookmarkedTweetsViaXurl,
+	listBookmarkedTweetsViaXurlEffect,
 	listDirectMessageEventsViaXurlEffect,
-	listFollowUsersViaXurl,
+	listFollowUsersViaXurlEffect,
 	listHomeTimelineViaXurlEffect,
-	listLikedTweetsViaXurl,
-	listMentionsViaXurl,
-	listUserTweets,
+	listLikedTweetsViaXurlEffect,
+	listMentionsViaXurlEffect,
+	listUserTweetsEffect,
 	lookupAuthenticatedOAuth2UserEffect,
-	lookupAuthenticatedUser,
-	lookupUsersByHandles,
+	lookupAuthenticatedUserEffect,
+	lookupUsersByHandlesEffect,
 	searchRecentByConversationIdEffect,
 	searchRecentTweetsEffect,
 } from "./xurl";
@@ -40,37 +39,18 @@ export interface BirdReadTransport {
 }
 
 export interface XurlReadTransport {
-	getTransportStatus(
-		...args: Parameters<typeof getTransportStatus>
-	): Effect.Effect<Awaited<ReturnType<typeof getTransportStatus>>, Error>;
+	getTransportStatus: typeof getTransportStatusEffect;
 	getTweetById: typeof getTweetByIdEffect;
-	listBookmarks(
-		...args: Parameters<typeof listBookmarkedTweetsViaXurl>
-	): Effect.Effect<
-		Awaited<ReturnType<typeof listBookmarkedTweetsViaXurl>>,
-		Error
-	>;
+	listBookmarks: typeof listBookmarkedTweetsViaXurlEffect;
 	listDirectMessages: typeof listDirectMessageEventsViaXurlEffect;
-	listFollowUsers(
-		...args: Parameters<typeof listFollowUsersViaXurl>
-	): Effect.Effect<Awaited<ReturnType<typeof listFollowUsersViaXurl>>, Error>;
+	listFollowUsers: typeof listFollowUsersViaXurlEffect;
 	listHomeTimeline: typeof listHomeTimelineViaXurlEffect;
-	listLikes(
-		...args: Parameters<typeof listLikedTweetsViaXurl>
-	): Effect.Effect<Awaited<ReturnType<typeof listLikedTweetsViaXurl>>, Error>;
-	listMentions(
-		...args: Parameters<typeof listMentionsViaXurl>
-	): Effect.Effect<Awaited<ReturnType<typeof listMentionsViaXurl>>, Error>;
-	listUserTweets(
-		...args: Parameters<typeof listUserTweets>
-	): Effect.Effect<Awaited<ReturnType<typeof listUserTweets>>, Error>;
+	listLikes: typeof listLikedTweetsViaXurlEffect;
+	listMentions: typeof listMentionsViaXurlEffect;
+	listUserTweets: typeof listUserTweetsEffect;
 	lookupAuthenticatedOAuth2User: typeof lookupAuthenticatedOAuth2UserEffect;
-	lookupAuthenticatedUser(
-		...args: Parameters<typeof lookupAuthenticatedUser>
-	): Effect.Effect<Awaited<ReturnType<typeof lookupAuthenticatedUser>>, Error>;
-	lookupUsersByHandles(
-		...args: Parameters<typeof lookupUsersByHandles>
-	): Effect.Effect<Awaited<ReturnType<typeof lookupUsersByHandles>>, Error>;
+	lookupAuthenticatedUser: typeof lookupAuthenticatedUserEffect;
+	lookupUsersByHandles: typeof lookupUsersByHandlesEffect;
 	searchConversation: typeof searchRecentByConversationIdEffect;
 	searchRecentTweets: typeof searchRecentTweetsEffect;
 }
@@ -80,49 +60,40 @@ export interface LiveTransportGateway {
 	xurl: XurlReadTransport;
 }
 
-function fromPromise<T>(run: () => PromiseLike<T>): Effect.Effect<T, Error> {
-	return Effect.tryPromise({
-		try: run,
-		catch: (error) =>
-			error instanceof Error ? error : new Error(String(error)),
-	});
-}
-
+// Every entry delegates to the Effect-native transport function directly;
+// nothing round-trips through a Promise boundary. Spread forwarding keeps
+// call arity identical to a direct call, which mocked transports assert on.
 export const liveTransportGateway: LiveTransportGateway = {
 	bird: {
-		getAuthenticatedAccount: () => getAuthenticatedBirdAccountEffect(),
-		listBookmarks: (options) => listBookmarkedTweetsViaBirdEffect(options),
-		listDirectMessages: (options) => listDirectMessagesViaBirdEffect(options),
-		listFollowUsers: (options) => listFollowUsersViaBirdEffect(options),
-		listHomeTimeline: (options) => listHomeTimelineViaBirdEffect(options),
-		listLikes: (options) => listLikedTweetsViaBirdEffect(options),
-		listMentions: (options) => listMentionsViaBirdEffect(options),
-		listThread: (options) => listThreadViaBirdEffect(options),
-		searchTweets: (query, options) => searchTweetsViaBirdEffect(query, options),
+		getAuthenticatedAccount: (...args) =>
+			getAuthenticatedBirdAccountEffect(...args),
+		listBookmarks: (...args) => listBookmarkedTweetsViaBirdEffect(...args),
+		listDirectMessages: (...args) => listDirectMessagesViaBirdEffect(...args),
+		listFollowUsers: (...args) => listFollowUsersViaBirdEffect(...args),
+		listHomeTimeline: (...args) => listHomeTimelineViaBirdEffect(...args),
+		listLikes: (...args) => listLikedTweetsViaBirdEffect(...args),
+		listMentions: (...args) => listMentionsViaBirdEffect(...args),
+		listThread: (...args) => listThreadViaBirdEffect(...args),
+		searchTweets: (...args) => searchTweetsViaBirdEffect(...args),
 	},
 	xurl: {
-		getTransportStatus: (...args) =>
-			fromPromise(() => getTransportStatus(...args)),
-		getTweetById: (id, options) => getTweetByIdEffect(id, options),
-		listBookmarks: (...args) =>
-			fromPromise(() => listBookmarkedTweetsViaXurl(...args)),
-		listDirectMessages: (options) =>
-			listDirectMessageEventsViaXurlEffect(options),
-		listFollowUsers: (...args) =>
-			fromPromise(() => listFollowUsersViaXurl(...args)),
-		listHomeTimeline: (options) => listHomeTimelineViaXurlEffect(options),
-		listLikes: (...args) => fromPromise(() => listLikedTweetsViaXurl(...args)),
-		listMentions: (...args) => fromPromise(() => listMentionsViaXurl(...args)),
-		listUserTweets: (...args) => fromPromise(() => listUserTweets(...args)),
-		lookupAuthenticatedOAuth2User: (username) =>
-			lookupAuthenticatedOAuth2UserEffect(username),
+		getTransportStatus: (...args) => getTransportStatusEffect(...args),
+		getTweetById: (...args) => getTweetByIdEffect(...args),
+		listBookmarks: (...args) => listBookmarkedTweetsViaXurlEffect(...args),
+		listDirectMessages: (...args) =>
+			listDirectMessageEventsViaXurlEffect(...args),
+		listFollowUsers: (...args) => listFollowUsersViaXurlEffect(...args),
+		listHomeTimeline: (...args) => listHomeTimelineViaXurlEffect(...args),
+		listLikes: (...args) => listLikedTweetsViaXurlEffect(...args),
+		listMentions: (...args) => listMentionsViaXurlEffect(...args),
+		listUserTweets: (...args) => listUserTweetsEffect(...args),
+		lookupAuthenticatedOAuth2User: (...args) =>
+			lookupAuthenticatedOAuth2UserEffect(...args),
 		lookupAuthenticatedUser: (...args) =>
-			fromPromise(() => lookupAuthenticatedUser(...args)),
-		lookupUsersByHandles: (...args) =>
-			fromPromise(() => lookupUsersByHandles(...args)),
-		searchConversation: (conversationId, options) =>
-			searchRecentByConversationIdEffect(conversationId, options),
-		searchRecentTweets: (query, options) =>
-			searchRecentTweetsEffect(query, options),
+			lookupAuthenticatedUserEffect(...args),
+		lookupUsersByHandles: (...args) => lookupUsersByHandlesEffect(...args),
+		searchConversation: (...args) =>
+			searchRecentByConversationIdEffect(...args),
+		searchRecentTweets: (...args) => searchRecentTweetsEffect(...args),
 	},
 };

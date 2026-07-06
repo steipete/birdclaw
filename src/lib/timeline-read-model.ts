@@ -487,26 +487,44 @@ function getTimelineQualityReason(
 
 const RECENT_TIMELINE_EDGE_CANDIDATES = 5000;
 
-export function listTimelineItems({
-	resource,
-	account,
-	listAccountId,
-	listId,
-	search,
-	replyFilter = "all",
-	since,
-	until,
-	untilId,
-	includeReplies = true,
-	qualityFilter = "all",
-	lowQualityThreshold,
-	includeQualityReason = false,
-	likedOnly = false,
-	bookmarkedOnly = false,
-	limit = 18,
-}: TimelineQuery): TimelineItem[] {
-	const db = getReadDb();
+export interface TimelineItemsQueryPlan {
+	sql: string;
+	params: Array<string | number>;
+	fallbackSql: string;
+	fallbackParams: Array<string | number>;
+	usedRecentEdgeWindow: boolean;
+	ftsSearch: string;
+}
+
+// Above this many FTS matches, iterating the match set (with the per-row
+// dedupe subquery) costs more than walking the created_at index newest-first
+// and probing the match set until the limit fills.
+const FTS_DRIVE_FROM_MATCHES_MAX = 10_000;
+
+// Exported so tests can EXPLAIN the generated SQL with bound parameters and
+// guard the query plan (see the fts_matches comment below).
+export function buildTimelineItemsQuery(
+	{
+		resource,
+		account,
+		listAccountId,
+		listId,
+		search,
+		replyFilter = "all",
+		since,
+		until,
+		untilId,
+		includeReplies = true,
+		qualityFilter = "all",
+		lowQualityThreshold,
+		likedOnly = false,
+		bookmarkedOnly = false,
+		limit = 18,
+	}: TimelineQuery,
+	ftsMatchCountHint = 0,
+): TimelineItemsQueryPlan {
 	const kind = resource === "mentions" ? "mention" : resource;
+	const cteParams: Array<string | number> = [];
 	const params: Array<string | number> = [];
 	const normalizedLowQualityThreshold =
 		normalizeLowQualityThreshold(lowQualityThreshold);
@@ -520,9 +538,8 @@ export function listTimelineItems({
 	    `;
 	const unwindowedTimelineEdgesCte = timelineEdgesCte;
 	let usedRecentEdgeWindow = false;
-	let join = "";
 	let where = "where e.kind = ?";
-	let searchSnippetSelect = "";
+	const ftsSearch = search?.trim() ? toFtsSearchQuery(search) : "";
 
 	const canUseRecentEdgeWindow =
 		!likedOnly &&
@@ -560,7 +577,7 @@ export function listTimelineItems({
 	          where kind = ?
 	        )
 				`;
-			params.push(collectionKind);
+			cteParams.push(collectionKind);
 		}
 		where = "where 1 = 1";
 	} else if (canUseRecentEdgeWindow) {
@@ -582,11 +599,11 @@ export function listTimelineItems({
 			RECENT_TIMELINE_EDGE_CANDIDATES,
 			limit * 50,
 		);
-		params.push(kind, candidateLimit);
+		cteParams.push(kind, candidateLimit);
 		where = "where e.kind = ?";
 		params.push(kind);
 	} else {
-		params.push(kind);
+		cteParams.push(kind);
 		where = "where e.kind = ?";
 		params.push(kind);
 	}
@@ -661,19 +678,53 @@ export function listTimelineItems({
 		params.push(listAccountId, listId);
 	}
 
-	const ftsSearch = search?.trim() ? toFtsSearchQuery(search) : "";
+	// Materialize the FTS match set once. Joining tweets_fts directly looks
+	// equivalent, but with bound parameters SQLite picks a plan that re-runs
+	// the whole MATCH scan for every timeline edge row (minutes on large
+	// archives). The cross joins pin the join order: selective terms iterate
+	// the match set, ultra-common terms walk the created_at index newest-first
+	// and probe the match set so the limit fills after a few rows. Snippets
+	// are computed in a separate pass for only the returned rows.
+	const ftsMatchesCte = ftsSearch
+		? `, fts_matches as materialized (
+        select tweet_id
+        from tweets_fts
+        where tweets_fts.text match ?
+      )`
+		: "";
 	if (ftsSearch) {
-		join += " join tweets_fts on tweets_fts.tweet_id = t.id ";
-		where += " and tweets_fts.text match ?";
-		searchSnippetSelect =
-			", snippet(tweets_fts, 1, '<mark>', '</mark>', '...', 16) as search_snippet";
-		params.push(ftsSearch);
+		cteParams.push(ftsSearch);
 	}
+	const searchDrivenFrom =
+		ftsMatchCountHint > FTS_DRIVE_FROM_MATCHES_MAX
+			? `tweets t
+        cross join fts_matches on fts_matches.tweet_id = t.id
+        cross join timeline_edges e on e.tweet_id = t.id`
+			: `fts_matches
+        cross join tweets t on t.id = fts_matches.tweet_id
+        cross join timeline_edges e on e.tweet_id = t.id`;
 
 	params.push(limit);
+	if (ftsSearch) {
+		// Outer limit; the inner search CTE consumes the first one.
+		params.push(limit);
+	}
+
+	// For searches, resolve the limited id set first so the wide column list
+	// (embedded tweets, bookmark/like probes) is only evaluated for returned
+	// rows instead of every match.
+	const searchSelectionCte = ftsSearch
+		? `, search_selection as materialized (
+        select t.id as tweet_id, e.account_id, e.kind, e.raw_json
+        from ${searchDrivenFrom}
+        ${where}
+        order by t.created_at desc, t.id desc
+        limit ?
+      )`
+		: "";
 
 	const buildTimelineSelectSql = (timelineEdgesSql: string) => `
-      ${timelineEdgesSql}
+      ${timelineEdgesSql}${ftsMatchesCte}${searchSelectionCte}
       select
         t.id,
         e.account_id,
@@ -750,8 +801,7 @@ export function listTimelineItems({
         qp.avatar_hue as quoted_avatar_hue,
         qp.avatar_url as quoted_avatar_url,
         qp.created_at as quoted_profile_created_at
-        ${searchSnippetSelect}
-      from timeline_edges e
+      from ${ftsSearch ? "search_selection e" : "timeline_edges e"}
       join tweets t on t.id = e.tweet_id
       join accounts a on a.id = e.account_id
       join profiles p on p.id = t.author_profile_id
@@ -759,20 +809,74 @@ export function listTimelineItems({
       left join profiles rp on rp.id = rt.author_profile_id
       left join tweets qt on qt.id = t.quoted_tweet_id
       left join profiles qp on qp.id = qt.author_profile_id
-      ${join}
-      ${where}
+      ${ftsSearch ? "" : where}
       order by t.created_at desc, t.id desc
       limit ?
       `;
 
-	let rows = db
-		.prepare(buildTimelineSelectSql(timelineEdgesCte))
-		.all(...params) as Array<Record<string, unknown>>;
+	return {
+		sql: buildTimelineSelectSql(timelineEdgesCte),
+		params: [...cteParams, ...params],
+		fallbackSql: buildTimelineSelectSql(unwindowedTimelineEdgesCte),
+		fallbackParams: [kind, kind, limit],
+		usedRecentEdgeWindow,
+		ftsSearch,
+	};
+}
 
-	if (usedRecentEdgeWindow && rows.length < limit) {
-		rows = db
-			.prepare(buildTimelineSelectSql(unwindowedTimelineEdgesCte))
-			.all(kind, kind, limit) as Array<Record<string, unknown>>;
+const SEARCH_SNIPPET_SQL =
+	"snippet(tweets_fts, 1, '<mark>', '</mark>', '...', 16)";
+
+export function listTimelineItems(query: TimelineQuery): TimelineItem[] {
+	const db = getReadDb();
+	const {
+		includeQualityReason = false,
+		lowQualityThreshold,
+		limit = 18,
+	} = query;
+	const normalizedLowQualityThreshold =
+		normalizeLowQualityThreshold(lowQualityThreshold);
+	const ftsSearch = query.search?.trim() ? toFtsSearchQuery(query.search) : "";
+	const ftsMatchCount = ftsSearch
+		? Number(
+				(
+					db
+						.prepare(
+							"select count(*) as match_count from tweets_fts where tweets_fts.text match ?",
+						)
+						.get(ftsSearch) as { match_count: number }
+				).match_count,
+			)
+		: 0;
+	const plan = buildTimelineItemsQuery(query, ftsMatchCount);
+
+	let rows = db.prepare(plan.sql).all(...plan.params) as Array<
+		Record<string, unknown>
+	>;
+
+	if (plan.usedRecentEdgeWindow && rows.length < limit) {
+		rows = db.prepare(plan.fallbackSql).all(...plan.fallbackParams) as Array<
+			Record<string, unknown>
+		>;
+	}
+
+	if (plan.ftsSearch && rows.length > 0) {
+		const snippetRows = db
+			.prepare(
+				`select tweet_id, ${SEARCH_SNIPPET_SQL} as search_snippet
+         from tweets_fts
+         where tweets_fts.text match ?
+           and tweet_id in (${rows.map(() => "?").join(",")})`,
+			)
+			.all(plan.ftsSearch, ...rows.map((row) => String(row.id))) as Array<
+			Record<string, unknown>
+		>;
+		const snippetByTweetId = new Map(
+			snippetRows.map((row) => [String(row.tweet_id), row.search_snippet]),
+		);
+		for (const row of rows) {
+			row.search_snippet = snippetByTweetId.get(String(row.id));
+		}
 	}
 
 	const urlExpansionCache: UrlExpansionCache = new Map();

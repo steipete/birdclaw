@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise } from "./effect-runtime";
 import { getAccountHandle, getDefaultAccountId } from "./moderation-target";
 import {
 	createModerationActions,
@@ -11,9 +11,12 @@ import {
 	searchModerationCandidates,
 } from "./moderation-state";
 import type { BlockListResponse } from "./api-contracts";
-import type { BlockItem, BlockSearchItem } from "./types";
+import type { BlockItem, BlockSearchItem, XurlMentionUser } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
-import { listBlockedUsers, lookupAuthenticatedUserFresh } from "./xurl";
+import {
+	listBlockedUsersEffect,
+	lookupAuthenticatedUserFreshEffect,
+} from "./xurl";
 
 const blockActions = createModerationActions("block");
 
@@ -138,9 +141,7 @@ export function syncBlocksEffect(accountId: string) {
 		}
 
 		return yield* Effect.gen(function* () {
-			const me = yield* tryPromise(() => lookupAuthenticatedUserFresh()).pipe(
-				Effect.mapError(toError),
-			);
+			const me = yield* lookupAuthenticatedUserFreshEffect();
 			const sourceUserId =
 				typeof me?.id === "string" && me.id.length > 0 ? me.id : null;
 			const sourceUsername =
@@ -196,9 +197,10 @@ export function syncBlocksEffect(accountId: string) {
 			let completed = false;
 
 			do {
-				const page = yield* tryPromise(() =>
-					listBlockedUsers(sourceUserId, nextToken ?? undefined),
-				).pipe(Effect.mapError(toError));
+				const page: {
+					items: XurlMentionUser[];
+					nextToken: string | null;
+				} = yield* listBlockedUsersEffect(sourceUserId, nextToken ?? undefined);
 				const pageProfileIds = yield* databaseWriteEffect((writeDb) => {
 					return page.items.map((user) => {
 						const resolved = upsertProfileFromXUser(writeDb, user);

@@ -32,9 +32,16 @@ vi.mock("./bird", async () => {
 });
 
 vi.mock("./xurl", () => ({
-	listMentionsViaXurl: (...args: unknown[]) => listMentionsViaXurlMock(...args),
-	lookupUsersByHandles: (...args: unknown[]) =>
-		lookupUsersByHandlesMock(...args),
+	listMentionsViaXurlEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => listMentionsViaXurlMock(...args),
+			catch: (error) => error,
+		}),
+	lookupUsersByHandlesEffect: (...args: unknown[]) =>
+		Effect.tryPromise({
+			try: () => lookupUsersByHandlesMock(...args),
+			catch: (error) => error,
+		}),
 }));
 
 const tempDirs: string[] = [];

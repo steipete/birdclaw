@@ -9,6 +9,7 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listInboxItems } from "./inbox";
 import {
 	applyDmRequestMutationToLocalStore,
+	buildTimelineItemsQuery,
 	createDmReply,
 	createDmReplyEffect,
 	createPost,
@@ -564,6 +565,76 @@ describe("birdclaw queries", () => {
 		expect(items.map((item) => item.id)).toEqual(["tweet_006"]);
 		expect(items[0]?.accountId).toBe("acct_studio");
 		expect(items[0]?.searchSnippet).toContain("<mark>Agents</mark>");
+	});
+
+	// Perf regression guard: with bound parameters SQLite used to pick a plan
+	// that re-ran the whole tweets_fts MATCH scan for every timeline edge row,
+	// turning limited searches into minutes on large archives. Every tweets_fts
+	// access must stay inside the materialized fts_matches CTE so the match
+	// scan runs exactly once.
+	it("keeps timeline search FTS scans inside the materialized match CTE", () => {
+		setupTempHome();
+		const db = getNativeDb();
+
+		// Both drive strategies: selective terms iterate the match set, dense
+		// terms walk the created_at index (hint above the crossover threshold).
+		for (const ftsMatchCountHint of [0, 1_000_000]) {
+			const plan = buildTimelineItemsQuery(
+				{ resource: "home", search: "Agents", limit: 5 },
+				ftsMatchCountHint,
+			);
+			const planRows = db
+				.prepare(`explain query plan ${plan.sql}`)
+				.all(...plan.params) as Array<{
+				id: number;
+				parent: number;
+				detail: string;
+			}>;
+			const parentById = new Map(planRows.map((row) => [row.id, row.parent]));
+			const materializeIds = new Set(
+				planRows
+					.filter((row) => row.detail.startsWith("MATERIALIZE fts_matches"))
+					.map((row) => row.id),
+			);
+			expect(materializeIds.size).toBe(1);
+
+			const ftsAccesses = planRows.filter(
+				(row) =>
+					row.detail.includes("tweets_fts") &&
+					!row.detail.startsWith("MATERIALIZE"),
+			);
+			expect(ftsAccesses.length).toBeGreaterThan(0);
+			for (const access of ftsAccesses) {
+				let ancestor: number | undefined = access.parent;
+				let insideMaterialize = false;
+				while (ancestor !== undefined && ancestor !== 0) {
+					if (materializeIds.has(ancestor)) {
+						insideMaterialize = true;
+						break;
+					}
+					ancestor = parentById.get(ancestor);
+				}
+				expect(insideMaterialize).toBe(true);
+			}
+		}
+	});
+
+	it("returns identical timeline search results for both FTS drive strategies", () => {
+		setupTempHome();
+		const db = getNativeDb();
+
+		const results = [0, 1_000_000].map((ftsMatchCountHint) => {
+			const plan = buildTimelineItemsQuery(
+				{ resource: "home", search: "Agents", limit: 5 },
+				ftsMatchCountHint,
+			);
+			return (
+				db.prepare(plan.sql).all(...plan.params) as Array<{ id: string }>
+			).map((row) => row.id);
+		});
+
+		expect(results[0]?.length).toBeGreaterThan(0);
+		expect(results[0]).toEqual(results[1]);
 	});
 
 	it("keeps timeline membership account-scoped for the same canonical tweet", () => {

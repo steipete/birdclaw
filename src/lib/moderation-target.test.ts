@@ -14,15 +14,21 @@ const mocks = vi.hoisted(() => ({
 	lookupUsersByIds: vi.fn(),
 }));
 
-vi.mock("./bird-actions", () => ({
-	lookupProfileViaBird: mocks.lookupProfileViaBird,
-}));
+vi.mock("./bird-actions", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		lookupProfileViaBirdEffect: fromMock(mocks.lookupProfileViaBird),
+	};
+});
 
-vi.mock("./xurl", () => ({
-	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
-	lookupUsersByHandles: mocks.lookupUsersByHandles,
-	lookupUsersByIds: mocks.lookupUsersByIds,
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupUsersByHandlesEffect: fromMock(mocks.lookupUsersByHandles),
+		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
+	};
+});
 
 const tempDirs: string[] = [];
 

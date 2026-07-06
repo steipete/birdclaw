@@ -162,6 +162,13 @@ function toError(error: unknown) {
 }
 
 function isXurlRateLimitError(error: Error) {
+	// Structured classification from the transport (tag check, so it also works
+	// across module instances); message heuristics stay as a fallback for 429s
+	// that surface without a parseable payload.
+	const tagged = error as { _tag?: unknown; rateLimited?: unknown };
+	if (tagged._tag === "XurlCommandError" && tagged.rateLimited === true) {
+		return true;
+	}
 	return (
 		error.message.includes("Too Many Requests") ||
 		error.message.includes('"status":429') ||

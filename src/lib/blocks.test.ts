@@ -20,22 +20,28 @@ const mocks = vi.hoisted(() => ({
 	unblockUserViaXurl: vi.fn(),
 }));
 
-vi.mock("./bird-actions", () => ({
-	blockUserViaBird: mocks.blockUserViaBird,
-	lookupProfileViaBird: mocks.lookupProfileViaBird,
-	readBirdStatusViaBird: mocks.readBirdStatusViaBird,
-	unblockUserViaBird: mocks.unblockUserViaBird,
-}));
+vi.mock("./bird-actions", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		blockUserViaBirdEffect: fromMock(mocks.blockUserViaBird),
+		lookupProfileViaBirdEffect: fromMock(mocks.lookupProfileViaBird),
+		readBirdStatusViaBirdEffect: fromMock(mocks.readBirdStatusViaBird),
+		unblockUserViaBirdEffect: fromMock(mocks.unblockUserViaBird),
+	};
+});
 
-vi.mock("./xurl", () => ({
-	blockUserViaXurl: mocks.blockUserViaXurl,
-	listBlockedUsers: mocks.listBlockedUsers,
-	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
-	lookupAuthenticatedUserFresh: mocks.lookupAuthenticatedUser,
-	lookupUsersByHandles: mocks.lookupUsersByHandles,
-	lookupUsersByIds: mocks.lookupUsersByIds,
-	unblockUserViaXurl: mocks.unblockUserViaXurl,
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		blockUserViaXurlEffect: fromMock(mocks.blockUserViaXurl),
+		listBlockedUsersEffect: fromMock(mocks.listBlockedUsers),
+		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupAuthenticatedUserFreshEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupUsersByHandlesEffect: fromMock(mocks.lookupUsersByHandles),
+		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
+		unblockUserViaXurlEffect: fromMock(mocks.unblockUserViaXurl),
+	};
+});
 
 const tempRoots: string[] = [];
 

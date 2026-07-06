@@ -14,15 +14,23 @@ const mocks = vi.hoisted(() => ({
 	getAuthenticatedBirdAccount: vi.fn(),
 }));
 
-vi.mock("./xurl", () => ({
-	getTransportStatus: mocks.getTransportStatus,
-	lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
-	lookupUsersByIds: mocks.lookupUsersByIds,
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		getTransportStatusEffect: fromMock(mocks.getTransportStatus),
+		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
+	};
+});
 
-vi.mock("./bird", () => ({
-	getAuthenticatedBirdAccount: mocks.getAuthenticatedBirdAccount,
-}));
+vi.mock("./bird", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		getAuthenticatedBirdAccountEffect: fromMock(
+			mocks.getAuthenticatedBirdAccount,
+		),
+	};
+});
 
 describe("profile hydration", () => {
 	let homeDir = "";

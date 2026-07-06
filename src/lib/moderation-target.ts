@@ -1,16 +1,16 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
-import { lookupProfileViaBird } from "./bird-actions";
+import { lookupProfileViaBirdEffect } from "./bird-actions";
 import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise } from "./effect-runtime";
 import { normalizeProfileHandle, profileFromDbRow } from "./profile-row";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
 import {
-	lookupAuthenticatedUser,
-	lookupUsersByHandles,
-	lookupUsersByIds,
+	lookupAuthenticatedUserEffect,
+	lookupUsersByHandlesEffect,
+	lookupUsersByIdsEffect,
 } from "./xurl";
 
 export interface ResolvedModerationProfile {
@@ -122,8 +122,8 @@ export function resolveProfileEffect(
 		let user: XurlMentionUser | undefined;
 		let lastError: unknown;
 
-		const birdResult = yield* tryPromise(() =>
-			lookupProfileViaBird(local?.profile.handle ?? normalizedQuery),
+		const birdResult = yield* lookupProfileViaBirdEffect(
+			local?.profile.handle ?? normalizedQuery,
 		).pipe(
 			Effect.map((value) => ({ ok: true as const, value })),
 			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
@@ -135,10 +135,12 @@ export function resolveProfileEffect(
 		}
 
 		if (!user) {
-			const xurlResult = yield* tryPromise(() =>
+			const xurlResult = yield* (
 				/^\d+$/.test(normalizedQuery)
-					? lookupUsersByIds([normalizedQuery])
-					: lookupUsersByHandles([local?.profile.handle ?? normalizedQuery]),
+					? lookupUsersByIdsEffect([normalizedQuery])
+					: lookupUsersByHandlesEffect([
+							local?.profile.handle ?? normalizedQuery,
+						])
 			).pipe(
 				Effect.map((value) => ({ ok: true as const, value })),
 				Effect.catchAll((error) =>
@@ -201,7 +203,7 @@ export function resolveProfile(
 
 export function getAuthenticatedUserIdEffect() {
 	return Effect.gen(function* () {
-		const me = yield* tryPromise(() => lookupAuthenticatedUser());
+		const me = yield* lookupAuthenticatedUserEffect();
 		const id = me?.id;
 		return typeof id === "string" && id.length > 0 ? id : null;
 	}).pipe(Effect.catchAll(() => Effect.succeed(null)));

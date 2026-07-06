@@ -1,6 +1,18 @@
 # CHANGELOG
 
-## 0.9.3 - Unreleased
+## 0.9.5 - Unreleased
+
+## 0.9.4 - 2026-07-05
+
+### Fixed
+
+- `search tweets` now returns in well under a second on large archives (previously ~60s, minutes for common terms): the FTS5 match set is materialized once instead of SQLite re-running the MATCH scan per timeline edge row, the join order adapts to term frequency, the LIMIT is resolved on an id-only inner query, and snippets are computed only for returned rows.
+
+## 0.9.3 - 2026-07-04
+
+### Changed
+
+- Modernize Effect usage across the transports: hidden 429 retries now run through a composed `Schedule` (capped exponential backoff, deadline- and abort-aware), transport/auth lookups are memoized with `Effect.cachedWithTTL`, xurl failures carry a typed `XurlCommandError` with structured rate-limit classification, link-preview DNS resolution uses `Effect.timeoutFail`, xurl/bird operations are traced `Effect.fn` spans, and live read paths call Effect transports directly instead of round-tripping through Promise wrappers.
 
 ## 0.9.2 - 2026-07-04
 

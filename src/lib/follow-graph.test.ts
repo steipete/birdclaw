@@ -23,7 +23,11 @@ vi.mock("./bird", () => ({
 }));
 
 vi.mock("./xurl", () => ({
-	listFollowUsersViaXurl: mocks.listFollowUsersViaXurl,
+	listFollowUsersViaXurlEffect: (options: unknown) =>
+		Effect.tryPromise({
+			try: () => mocks.listFollowUsersViaXurl(options),
+			catch: (error) => error,
+		}),
 }));
 
 const tempRoots: string[] = [];
