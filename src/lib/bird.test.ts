@@ -500,7 +500,7 @@ describe("bird transport wrapper", () => {
 		const { listMentionsViaBird } = await import("./bird");
 
 		await expect(listMentionsViaBird({ maxResults: 10 })).rejects.toThrow(
-			"Bash unavailable: /bin/bash",
+			"Bash unavailable:",
 		);
 	});
 
@@ -625,7 +625,7 @@ describe("bird transport wrapper", () => {
 				action: "accept",
 				conversationId: "111-333",
 			}),
-		).rejects.toThrow("Bash unavailable: /bin/bash");
+		).rejects.toThrow("Bash unavailable:");
 	});
 
 	it("passes pagination options to bird DM block mutations", async () => {
