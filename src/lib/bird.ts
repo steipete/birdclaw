@@ -246,6 +246,7 @@ function formatBirdCommandError(
 	error: unknown,
 	birdCommand: string,
 	shellCommand: string,
+	platform: NodeJS.Platform = process.platform,
 ) {
 	const text = [
 		error instanceof Error ? error.message : "",
@@ -267,9 +268,13 @@ function formatBirdCommandError(
 		"code" in error &&
 		(error as { code?: unknown }).code === "ENOENT"
 	) {
-		return new Error(
-			`Git Bash unavailable: ${shellCommand}\nInstall Git for Windows, add bash.exe to PATH, or set BIRDCLAW_BASH_COMMAND to its full path.`,
-		);
+		return platform === "win32"
+			? new Error(
+					`Git Bash unavailable: ${shellCommand}\nInstall Git for Windows, add bash.exe to PATH, or set BIRDCLAW_BASH_COMMAND to its full path.`,
+				)
+			: new Error(
+					`Bash unavailable: ${shellCommand}\nInstall Bash or set BIRDCLAW_BASH_COMMAND to its full path.`,
+				);
 	}
 	if (
 		/No such file or directory|command not found|cannot execute/i.test(text) &&
@@ -403,7 +408,9 @@ const runBirdJsonCommandAllowFailureEffect = Effect.fn(
 							timeout: timeoutMs,
 						},
 					).catch((error: unknown) => {
-						const stdout = readFileSync(stdoutPath, "utf8");
+						const stdout = existsSync(stdoutPath)
+							? readFileSync(stdoutPath, "utf8")
+							: "";
 						if (stdout.trim().length > 0) {
 							return { stdout: "", stderr: "" };
 						}

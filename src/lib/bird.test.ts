@@ -457,7 +457,7 @@ describe("bird transport wrapper", () => {
 		);
 	});
 
-	it("explains how to configure Git Bash when the wrapper shell is missing", async () => {
+	it("explains how to configure Bash when the wrapper shell is missing", async () => {
 		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
 		mockBirdRejectOnce(
 			Object.assign(new Error("spawn bash.exe ENOENT"), { code: "ENOENT" }),
@@ -466,7 +466,7 @@ describe("bird transport wrapper", () => {
 		const { listMentionsViaBird } = await import("./bird");
 
 		await expect(listMentionsViaBird({ maxResults: 10 })).rejects.toThrow(
-			"Git Bash unavailable: /bin/bash",
+			"Bash unavailable: /bin/bash",
 		);
 	});
 
@@ -576,6 +576,22 @@ describe("bird transport wrapper", () => {
 			}),
 		).resolves.toEqual(payload);
 		expectBirdCommandCall(1, ["dm-reject", "111-333", "--json"]);
+	});
+
+	it("preserves missing-shell errors from failed bird DM mutations", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdRejectOnce(
+			Object.assign(new Error("spawn bash ENOENT"), { code: "ENOENT" }),
+		);
+
+		const { runDirectMessageRequestMutationViaBird } = await import("./bird");
+
+		await expect(
+			runDirectMessageRequestMutationViaBird({
+				action: "accept",
+				conversationId: "111-333",
+			}),
+		).rejects.toThrow("Bash unavailable: /bin/bash");
 	});
 
 	it("passes pagination options to bird DM block mutations", async () => {
@@ -1136,6 +1152,18 @@ describe("bird transport wrapper", () => {
 		});
 		expect(
 			__test__.formatBirdCommandError(enoent, "/missing/bird", "bash.exe"),
+		).toEqual(
+			expect.objectContaining({
+				message: expect.stringContaining("Bash unavailable: bash.exe"),
+			}),
+		);
+		expect(
+			__test__.formatBirdCommandError(
+				enoent,
+				"C:\\bird.cmd",
+				"bash.exe",
+				"win32",
+			),
 		).toEqual(
 			expect.objectContaining({
 				message: expect.stringContaining("Git Bash unavailable: bash.exe"),
