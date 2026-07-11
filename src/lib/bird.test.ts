@@ -107,7 +107,9 @@ describe("bird transport wrapper", () => {
 			__test__.getBirdStdoutShellCommand(
 				"win32",
 				{ Path: "D:\\PortableGit\\bin;." },
-				(candidate) => candidate === "D:\\PortableGit\\bin\\bash.exe",
+				(candidate) =>
+					candidate === "D:\\PortableGit\\bin\\bash.exe" ||
+					candidate === "D:\\PortableGit\\cmd\\git.exe",
 			),
 		).toBe("D:\\PortableGit\\bin\\bash.exe");
 		expect(
@@ -123,9 +125,18 @@ describe("bird transport wrapper", () => {
 			__test__.getBirdStdoutShellCommand(
 				"win32",
 				{ Path: "D:\\PortableGit\\cmd" },
-				(candidate) => candidate === "D:\\PortableGit\\bin\\bash.exe",
+				(candidate) =>
+					candidate === "D:\\PortableGit\\bin\\bash.exe" ||
+					candidate === "D:\\PortableGit\\cmd\\git.exe",
 			),
 		).toBe("D:\\PortableGit\\bin\\bash.exe");
+		expect(() =>
+			__test__.getBirdStdoutShellCommand(
+				"win32",
+				{ Path: "C:\\Windows\\System32;D:\\PortableGit\\cmd" },
+				(candidate) => candidate === "C:\\Windows\\System32\\bash.exe",
+			),
+		).toThrow("Git Bash unavailable: no trusted bash.exe found");
 		expect(() =>
 			__test__.getBirdStdoutShellCommand(
 				"win32",

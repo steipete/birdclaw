@@ -337,15 +337,13 @@ function getBirdStdoutShellCommand(
 	for (const rawDirectory of pathValue?.split(";") ?? []) {
 		const directory = rawDirectory.trim().replace(/^"(.*)"$/, "$1");
 		if (!win32Path.isAbsolute(directory)) continue;
-		const pathCandidate = win32Path.join(directory, "bash.exe");
-		if (pathExists(pathCandidate)) return pathCandidate;
-		if (win32Path.basename(directory).toLowerCase() === "cmd") {
-			const siblingCandidate = win32Path.join(
-				win32Path.dirname(directory),
-				"bin",
-				"bash.exe",
-			);
-			if (pathExists(siblingCandidate)) return siblingCandidate;
+		const directoryName = win32Path.basename(directory).toLowerCase();
+		if (directoryName !== "bin" && directoryName !== "cmd") continue;
+		const gitRoot = win32Path.dirname(directory);
+		const bashCandidate = win32Path.join(gitRoot, "bin", "bash.exe");
+		const gitCandidate = win32Path.join(gitRoot, "cmd", "git.exe");
+		if (pathExists(bashCandidate) && pathExists(gitCandidate)) {
+			return bashCandidate;
 		}
 	}
 	throw new Error(
