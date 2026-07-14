@@ -6,6 +6,7 @@ import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import {
 	getTransportStatusEffect,
+	lookupAuthenticatedOAuth2UserEffect,
 	lookupAuthenticatedUserEffect,
 	lookupUsersByIdsEffect,
 } from "./xurl";
@@ -15,7 +16,17 @@ export type HydrateProfilesResult = {
 	ok: true;
 	hydratedProfiles: number;
 	hydratedAccount: boolean;
+	account?: {
+		handle: string;
+		externalUserId: string | null;
+	};
 	reason?: string;
+};
+
+export type HydrateProfilesOptions = {
+	account?: string;
+	accountOnly?: boolean;
+	seededAccountOnly?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -131,10 +142,9 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 	});
 }
 
-export function hydrateProfilesFromXEffect(): Effect.Effect<
-	HydrateProfilesResult,
-	unknown
-> {
+export function hydrateProfilesFromXEffect(
+	options: HydrateProfilesOptions = {},
+): Effect.Effect<HydrateProfilesResult, unknown> {
 	return Effect.gen(function* () {
 		const transport = yield* getTransportStatusEffect();
 		if (transport.availableTransport !== "xurl") {
@@ -158,17 +168,19 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 			updateLocalProfile,
 		} = yield* trySync(() => {
 			const db = getNativeDb();
-			const candidateRows = db
-				.prepare(
-					`
+			const candidateRows = options.accountOnly
+				? []
+				: (db
+						.prepare(
+							`
       select id
       from profiles
       where id like 'profile_user_%'
         and (followers_count = 0 or bio like 'Imported from archive user %' or handle like 'id%')
       order by id asc
       `,
-				)
-				.all() as Array<{ id: string }>;
+						)
+						.all() as Array<{ id: string }>);
 
 			const candidateIds = candidateRows
 				.map((row) => row.id.replace(/^profile_user_/, ""))
@@ -194,6 +206,7 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
     update accounts
     set name = ?,
         handle = ?,
+		external_user_id = ?,
         transport = 'xurl'
     where id = 'acct_primary'
   `);
@@ -231,15 +244,47 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 		}
 
 		let hydratedAccount = false;
-		const me = yield* lookupAuthenticatedUserEffect().pipe(
-			Effect.catchAll(() => Effect.succeed(null)),
-		);
+		let account: HydrateProfilesResult["account"];
+		const me = yield* (
+			options.account
+				? lookupAuthenticatedOAuth2UserEffect(options.account)
+				: lookupAuthenticatedUserEffect()
+		).pipe(Effect.catchAll(() => Effect.succeed(null)));
 		if (me) {
+			const username = String(me.username ?? "").replace(/^@/, "");
+			const externalUserId =
+				typeof me.id === "string" && me.id.length > 0 ? me.id : null;
+			const currentAccount = (yield* trySync(() =>
+				db
+					.prepare(
+						"select handle, external_user_id, transport from accounts where id = 'acct_primary'",
+					)
+					.get(),
+			)) as
+				| {
+						handle: string;
+						external_user_id: string | null;
+						transport: string;
+				  }
+				| undefined;
+			const isSeededPlaceholder =
+				currentAccount?.handle.replace(/^@/, "").toLowerCase() ===
+					SEEDED_ACCOUNT_HANDLE &&
+				currentAccount.external_user_id === SEEDED_ACCOUNT_EXTERNAL_USER_ID &&
+				currentAccount.transport === "xurl";
+			if (options.seededAccountOnly && !isSeededPlaceholder) {
+				return {
+					ok: true,
+					hydratedProfiles,
+					hydratedAccount: false,
+					reason: "Primary account is not the untouched demo seed",
+				};
+			}
 			const metrics = asRecord(me.public_metrics);
 			yield* trySync(() => {
 				db.transaction(() => {
 					updateLocalProfile.run(
-						String(me.username ?? "steipete").replace(/^@/, ""),
+						username || SEEDED_ACCOUNT_HANDLE,
 						String(me.name ?? "Peter Steinberger"),
 						String(me.description ?? ""),
 						toInt(metrics?.followers_count),
@@ -251,23 +296,31 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 					);
 					updateAccount.run(
 						String(me.name ?? "Peter Steinberger"),
-						`@${String(me.username ?? "steipete").replace(/^@/, "")}`,
+						`@${username || SEEDED_ACCOUNT_HANDLE}`,
+						externalUserId,
 					);
 				})();
 			});
 			hydratedAccount = true;
+			account = {
+				handle: `@${username || SEEDED_ACCOUNT_HANDLE}`,
+				externalUserId,
+			};
 		}
 
 		return {
 			ok: true,
 			hydratedProfiles,
 			hydratedAccount,
+			account,
 		};
 	});
 }
 
-export function hydrateProfilesFromX(): Promise<HydrateProfilesResult> {
-	return runEffectPromise(hydrateProfilesFromXEffect());
+export function hydrateProfilesFromX(
+	options?: HydrateProfilesOptions,
+): Promise<HydrateProfilesResult> {
+	return runEffectPromise(hydrateProfilesFromXEffect(options));
 }
 
 export const __test__ = {

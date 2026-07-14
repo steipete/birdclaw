@@ -555,7 +555,14 @@ describe("cli", () => {
 	it("prints init, auth status, archive results, and db stats as json", async () => {
 		const { runCli } = await loadCli();
 
-		await runCli(["node", "birdclaw", "--json", "init"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"init",
+			"--account",
+			"ikuznetsov_com",
+		]);
 		await runCli(["node", "birdclaw", "--json", "auth", "status"]);
 		await runCli(["node", "birdclaw", "--json", "archive", "find"]);
 		await runCli(["node", "birdclaw", "--json", "db", "stats"]);
@@ -564,6 +571,11 @@ describe("cli", () => {
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"rootDir": "/tmp/.birdclaw"'),
 		);
+		expect(hydrateProfilesFromXMock).toHaveBeenCalledWith({
+			account: "ikuznetsov_com",
+			accountOnly: true,
+			seededAccountOnly: true,
+		});
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"statusText": "local"'),
 		);

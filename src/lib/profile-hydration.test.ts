@@ -10,6 +10,7 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 const mocks = vi.hoisted(() => ({
 	getTransportStatus: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
+	lookupAuthenticatedOAuth2User: vi.fn(),
 	lookupUsersByIds: vi.fn(),
 	getAuthenticatedBirdAccount: vi.fn(),
 }));
@@ -19,6 +20,9 @@ vi.mock("./xurl", async () => {
 	return {
 		getTransportStatusEffect: fromMock(mocks.getTransportStatus),
 		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupAuthenticatedOAuth2UserEffect: fromMock(
+			mocks.lookupAuthenticatedOAuth2User,
+		),
 		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
 	};
 });
@@ -42,6 +46,7 @@ describe("profile hydration", () => {
 		resetDatabaseForTests();
 		mocks.getTransportStatus.mockReset();
 		mocks.lookupAuthenticatedUser.mockReset();
+		mocks.lookupAuthenticatedOAuth2User.mockReset();
 		mocks.lookupUsersByIds.mockReset();
 		mocks.getAuthenticatedBirdAccount.mockReset();
 		mocks.getAuthenticatedBirdAccount.mockRejectedValue(
@@ -119,6 +124,7 @@ describe("profile hydration", () => {
 			},
 		]);
 		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "25401953",
 			username: "steipete",
 			name: "Peter Steinberger",
 			description: "Bio",
@@ -161,6 +167,98 @@ describe("profile hydration", () => {
 			avatar_url: "https://pbs.twimg.com/profile_images/42/avatar.jpg",
 		});
 		expect(title.title).toBe("Sam Altman");
+		expect(
+			db
+				.prepare(
+					"select handle, external_user_id from accounts where id = 'acct_primary'",
+				)
+				.get(),
+		).toEqual({ handle: "@steipete", external_user_id: "25401953" });
+	});
+
+	it("selects an explicit authenticated xurl account", async () => {
+		const db = getNativeDb();
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupUsersByIds.mockResolvedValue([]);
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "1493511301808721921",
+			username: "ikuznetsov_com",
+			name: "Ivan Kuznetsov",
+			description: "Builder",
+			public_metrics: { followers_count: 218, following_count: 299 },
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({ account: "ikuznetsov_com" }),
+		).resolves.toMatchObject({
+			hydratedAccount: true,
+			account: {
+				handle: "@ikuznetsov_com",
+				externalUserId: "1493511301808721921",
+			},
+		});
+
+		expect(mocks.lookupAuthenticatedOAuth2User).toHaveBeenCalledWith(
+			"ikuznetsov_com",
+		);
+		expect(
+			db
+				.prepare(
+					"select name, handle, external_user_id, transport from accounts where id = 'acct_primary'",
+				)
+				.get(),
+		).toEqual({
+			name: "Ivan Kuznetsov",
+			handle: "@ikuznetsov_com",
+			external_user_id: "1493511301808721921",
+			transport: "xurl",
+		});
+	});
+
+	it("does not replace an imported primary account during init", async () => {
+		const db = getNativeDb();
+		db.prepare(
+			"update accounts set name = ?, handle = ?, external_user_id = ? where id = 'acct_primary'",
+		).run("Archive Owner", "@archive_owner", "42");
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupUsersByIds.mockResolvedValue([]);
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "1493511301808721921",
+			username: "ikuznetsov_com",
+			name: "Ivan Kuznetsov",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "ikuznetsov_com",
+				seededAccountOnly: true,
+			}),
+		).resolves.toMatchObject({
+			hydratedAccount: false,
+			reason: "Primary account is not the untouched demo seed",
+		});
+
+		expect(
+			db
+				.prepare(
+					"select name, handle, external_user_id from accounts where id = 'acct_primary'",
+				)
+				.get(),
+		).toEqual({
+			name: "Archive Owner",
+			handle: "@archive_owner",
+			external_user_id: "42",
+		});
 	});
 
 	it("skips non-numeric archive placeholder ids before calling X", async () => {

@@ -139,12 +139,22 @@ export function registerCoreCommands({
 	program
 		.command("init")
 		.description("Create local birdclaw root and seed the database")
-		.action(async () => {
+		.option(
+			"--account <username>",
+			"Select an authenticated xurl account instead of its default",
+		)
+		.action(async (options: { account?: string }) => {
 			const paths = ensureBirdclawDirs();
 			await getQueryEnvelope();
+			const account = await hydrateProfilesFromX({
+				account: options.account,
+				accountOnly: true,
+				seededAccountOnly: true,
+			});
 			print(
 				{
 					ok: true,
+					account: account.account,
 					rootDir: paths.rootDir,
 					configPath: paths.configPath,
 					dbPath: paths.dbPath,
