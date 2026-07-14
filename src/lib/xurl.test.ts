@@ -790,6 +790,40 @@ describe("xurl transport wrapper", () => {
 		]);
 	});
 
+	it("ignores configured OAuth2 overrides for explicit account selection", async () => {
+		process.env.BIRDCLAW_XURL_OAUTH2_APP = "configured-app";
+		process.env.BIRDCLAW_XURL_OAUTH2_USERNAME = "configured-account";
+		execFileAsyncMock
+			.mockResolvedValueOnce({
+				stdout: AUTH_STATUS_STEIPETE,
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({
+					data: { id: "1", username: "steipete" },
+				}),
+				stderr: "",
+			});
+		const { lookupSelectedAuthenticatedOAuth2UserEffect } =
+			await import("./xurl");
+
+		await expect(
+			Effect.runPromise(
+				lookupSelectedAuthenticatedOAuth2UserEffect("@steipete"),
+			),
+		).resolves.toEqual({
+			id: "1",
+			username: "steipete",
+		});
+		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
+			"--auth",
+			"oauth2",
+			"--username",
+			"steipete",
+			"whoami",
+		]);
+	});
+
 	it("caches authenticated user lookups for repeated callers", async () => {
 		execFileAsyncMock.mockResolvedValueOnce({
 			stdout: JSON.stringify({ data: { id: "1", username: "steipete" } }),

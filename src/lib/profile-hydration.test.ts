@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
+import { DEMO_PRIMARY_ACCOUNT_MARKER_KEY } from "./demo-account";
 
 const mocks = vi.hoisted(() => ({
 	getTransportStatus: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock("./xurl", async () => {
 	return {
 		getTransportStatusEffect: fromMock(mocks.getTransportStatus),
 		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
-		lookupAuthenticatedOAuth2UserEffect: fromMock(
+		lookupSelectedAuthenticatedOAuth2UserEffect: fromMock(
 			mocks.lookupAuthenticatedOAuth2User,
 		),
 		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
@@ -78,6 +79,86 @@ describe("profile hydration", () => {
 			reason: "xurl missing",
 		});
 		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
+	});
+
+	it("does not fall back to Bird for explicit xurl account selection", async () => {
+		const db = getNativeDb();
+		const accountQuery = db.prepare(
+			"select * from accounts where id = 'acct_primary'",
+		);
+		const profileQuery = db.prepare(
+			"select * from profiles where id = 'profile_me'",
+		);
+		const before = {
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+		};
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "local",
+			installed: false,
+			statusText: "xurl missing",
+		});
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "999",
+			username: "wrong_bird_account",
+			name: "Wrong Bird Account",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "selected_xurl_account",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).resolves.toEqual({
+			ok: true,
+			hydratedProfiles: 0,
+			hydratedAccount: false,
+			reason: "Cannot select xurl account @selected_xurl_account: xurl missing",
+		});
+
+		expect(mocks.getAuthenticatedBirdAccount).not.toHaveBeenCalled();
+		expect(mocks.lookupAuthenticatedOAuth2User).not.toHaveBeenCalled();
+		expect({
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+		}).toEqual(before);
+	});
+
+	it("propagates explicit OAuth2 account lookup failures", async () => {
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedOAuth2User.mockRejectedValue(
+			new Error("selected account is not authenticated"),
+		);
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "missing",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).rejects.toThrow("selected account is not authenticated");
+		expect(mocks.getAuthenticatedBirdAccount).not.toHaveBeenCalled();
+	});
+
+	it("rejects an empty explicit account before provider lookup", async () => {
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+
+		await expect(
+			hydrateProfilesFromX({
+				account: "  @  ",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).rejects.toThrow("requires a non-empty username");
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.lookupAuthenticatedOAuth2User).not.toHaveBeenCalled();
 	});
 
 	it("hydrates imported placeholder profiles from xurl", async () => {
@@ -194,7 +275,11 @@ describe("profile hydration", () => {
 
 		const { hydrateProfilesFromX } = await import("./profile-hydration");
 		await expect(
-			hydrateProfilesFromX({ account: "steipete" }),
+			hydrateProfilesFromX({
+				account: "steipete",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
 		).resolves.toMatchObject({
 			hydratedAccount: true,
 			account: {
@@ -218,19 +303,150 @@ describe("profile hydration", () => {
 			external_user_id: "25401953",
 			transport: "xurl",
 		});
+		expect(
+			db
+				.prepare("select 1 from sync_cache where cache_key = ?")
+				.get(DEMO_PRIMARY_ACCOUNT_MARKER_KEY),
+		).toBeUndefined();
+
+		await expect(
+			hydrateProfilesFromX({
+				account: "steipete",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).resolves.toMatchObject({
+			hydratedAccount: true,
+			account: {
+				handle: "@steipete",
+				externalUserId: "25401953",
+			},
+		});
+
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "999",
+			username: "other_account",
+			name: "Other Account",
+		});
+		await expect(
+			hydrateProfilesFromX({
+				account: "other_account",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).resolves.toMatchObject({
+			hydratedAccount: false,
+			reason: "Primary account is not the untouched demo seed",
+		});
 	});
+
+	it.each([
+		{
+			username: "sam",
+			conflictQuery: "select handle from profiles where id = 'profile_sam'",
+			renamedHandle: "seeded_profile_sam",
+		},
+		{
+			username: "birdclaw_lab",
+			conflictQuery: "select handle from accounts where id = 'acct_studio'",
+			renamedHandle: "@seeded_acct_studio",
+		},
+	])(
+		"selects a different account when @$username collides with demo data",
+		async ({ username, conflictQuery, renamedHandle }) => {
+			const db = getNativeDb();
+			mocks.getTransportStatus.mockResolvedValue({
+				availableTransport: "xurl",
+				installed: true,
+				statusText: "xurl available",
+			});
+			mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+				id: "999",
+				username,
+				name: "Selected Account",
+			});
+
+			const { hydrateProfilesFromX } = await import("./profile-hydration");
+			await expect(
+				hydrateProfilesFromX({
+					account: username,
+					accountOnly: true,
+					seededAccountOnly: true,
+				}),
+			).resolves.toMatchObject({
+				hydratedAccount: true,
+				account: { handle: `@${username}`, externalUserId: "999" },
+			});
+
+			expect(
+				db
+					.prepare(
+						"select handle, external_user_id from accounts where id = 'acct_primary'",
+					)
+					.get(),
+			).toEqual({ handle: `@${username}`, external_user_id: "999" });
+			expect(db.prepare(conflictQuery).get()).toEqual({
+				handle: renamedHandle,
+			});
+		},
+	);
 
 	it("does not replace an imported primary account during init", async () => {
 		const db = getNativeDb();
 		db.prepare(
-			"update accounts set name = ?, handle = ?, external_user_id = ? where id = 'acct_primary'",
-		).run("Archive Owner", "@archive_owner", "42");
+			"update accounts set name = ?, handle = ?, external_user_id = ?, transport = ? where id = 'acct_primary'",
+		).run("Archive Owner", "@archive_owner", "42", "archive");
+		db.prepare(
+			"update profiles set handle = ?, display_name = ?, bio = ?, avatar_url = ? where id = 'profile_me'",
+		).run(
+			"archive_owner",
+			"Archive Owner",
+			"Imported archive owner",
+			"https://example.com/archive-owner.png",
+		);
+		db.prepare(
+			"update tweet_account_edges set source = 'archive' where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
+		).run();
+
+		const accountQuery = db.prepare(
+			"select * from accounts where id = 'acct_primary'",
+		);
+		const profileQuery = db.prepare(
+			"select * from profiles where id = 'profile_me'",
+		);
+		const ownershipQuery = db.prepare(
+			"select * from tweet_account_edges where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
+		);
+		const before = {
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			ownership: ownershipQuery.get(),
+		};
+		expect(before).toMatchObject({
+			account: {
+				name: "Archive Owner",
+				handle: "@archive_owner",
+				external_user_id: "42",
+				transport: "archive",
+			},
+			profile: {
+				handle: "archive_owner",
+				display_name: "Archive Owner",
+				bio: "Imported archive owner",
+				avatar_url: "https://example.com/archive-owner.png",
+			},
+			ownership: {
+				account_id: "acct_primary",
+				tweet_id: "tweet_001",
+				kind: "home",
+				source: "archive",
+			},
+		});
 		mocks.getTransportStatus.mockResolvedValue({
 			availableTransport: "xurl",
 			installed: true,
 			statusText: "xurl available",
 		});
-		mocks.lookupUsersByIds.mockResolvedValue([]);
 		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
 			id: "25401953",
 			username: "steipete",
@@ -241,6 +457,280 @@ describe("profile hydration", () => {
 		await expect(
 			hydrateProfilesFromX({
 				account: "steipete",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).resolves.toMatchObject({
+			hydratedProfiles: 0,
+			hydratedAccount: false,
+			reason: "Primary account is not the untouched demo seed",
+		});
+
+		expect({
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			ownership: ownershipQuery.get(),
+		}).toEqual(before);
+		expect(mocks.lookupAuthenticatedOAuth2User).toHaveBeenCalledWith(
+			"steipete",
+		);
+		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
+	});
+
+	it("preserves legacy selective-import ownership without a seed marker", async () => {
+		const db = getNativeDb();
+		db.prepare("delete from sync_cache where cache_key = ?").run(
+			DEMO_PRIMARY_ACCOUNT_MARKER_KEY,
+		);
+		db.prepare(
+			"update tweet_account_edges set source = 'archive' where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
+		).run();
+		const accountQuery = db.prepare(
+			"select * from accounts where id = 'acct_primary'",
+		);
+		const profileQuery = db.prepare(
+			"select * from profiles where id = 'profile_me'",
+		);
+		const ownershipQuery = db.prepare(
+			"select * from tweet_account_edges where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
+		);
+		const before = {
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			ownership: ownershipQuery.get(),
+		};
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "999",
+			username: "other_account",
+			name: "Other Account",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "other_account",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).resolves.toMatchObject({
+			hydratedProfiles: 0,
+			hydratedAccount: false,
+			reason: "Primary account is not the untouched demo seed",
+		});
+
+		expect({
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			ownership: ownershipQuery.get(),
+		}).toEqual(before);
+	});
+
+	it("preserves seed-shaped ownership after account data changes", async () => {
+		const db = getNativeDb();
+		expect(
+			db
+				.prepare("select 1 from sync_cache where cache_key = ?")
+				.get(DEMO_PRIMARY_ACCOUNT_MARKER_KEY),
+		).toEqual({ 1: 1 });
+		db.prepare(
+			"update tweet_account_edges set source = 'xurl' where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
+		).run();
+		const accountQuery = db.prepare(
+			"select * from accounts where id = 'acct_primary'",
+		);
+		const profileQuery = db.prepare(
+			"select * from profiles where id = 'profile_me'",
+		);
+		const ownershipQuery = db.prepare(
+			"select * from tweet_account_edges where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
+		);
+		const before = {
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			ownership: ownershipQuery.get(),
+		};
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "999",
+			username: "other_account",
+			name: "Other Account",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "other_account",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).resolves.toMatchObject({
+			hydratedProfiles: 0,
+			hydratedAccount: false,
+			reason: "Primary account is not the untouched demo seed",
+		});
+		expect({
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			ownership: ownershipQuery.get(),
+		}).toEqual(before);
+	});
+
+	it("rejects a null explicit OAuth2 account result", async () => {
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue(null);
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "missing",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).rejects.toThrow("Could not resolve authenticated xurl account @missing");
+	});
+
+	it("rejects a provider identity that does not match the selected account", async () => {
+		const db = getNativeDb();
+		const accountQuery = db.prepare(
+			"select * from accounts where id = 'acct_primary'",
+		);
+		const profileQuery = db.prepare(
+			"select * from profiles where id = 'profile_me'",
+		);
+		const markerQuery = db.prepare(
+			"select * from sync_cache where cache_key = ?",
+		);
+		const before = {
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			marker: markerQuery.get(DEMO_PRIMARY_ACCOUNT_MARKER_KEY),
+		};
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "999",
+			username: "unexpected_account",
+			name: "Unexpected Account",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "selected_account",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).rejects.toThrow(
+			"Authenticated xurl identity does not match requested account @selected_account",
+		);
+
+		expect({
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			marker: markerQuery.get(DEMO_PRIMARY_ACCOUNT_MARKER_KEY),
+		}).toEqual(before);
+	});
+
+	it("rejects an explicit provider response without a user ID", async () => {
+		const db = getNativeDb();
+		const accountQuery = db.prepare(
+			"select * from accounts where id = 'acct_primary'",
+		);
+		const profileQuery = db.prepare(
+			"select * from profiles where id = 'profile_me'",
+		);
+		const markerQuery = db.prepare(
+			"select * from sync_cache where cache_key = ?",
+		);
+		const before = {
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			marker: markerQuery.get(DEMO_PRIMARY_ACCOUNT_MARKER_KEY),
+		};
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			username: "selected_account",
+			name: "Selected Account",
+		});
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "selected_account",
+				accountOnly: true,
+				seededAccountOnly: true,
+			}),
+		).rejects.toThrow("did not include a user ID");
+
+		expect({
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+			marker: markerQuery.get(DEMO_PRIMARY_ACCOUNT_MARKER_KEY),
+		}).toEqual(before);
+	});
+
+	it("rechecks demo ownership inside the account update transaction", async () => {
+		const db = getNativeDb();
+		const accountQuery = db.prepare(
+			"select * from accounts where id = 'acct_primary'",
+		);
+		const profileQuery = db.prepare(
+			"select * from profiles where id = 'profile_me'",
+		);
+		const before = {
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+		};
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "999",
+			username: "other_account",
+			name: "Other Account",
+		});
+
+		const originalTransaction = db.transaction.bind(db);
+		let injectedOwnership = false;
+		vi.spyOn(db, "transaction").mockImplementation((callback) =>
+			originalTransaction((...args: unknown[]) => {
+				if (!injectedOwnership) {
+					injectedOwnership = true;
+					db.prepare(
+						"update tweet_account_edges set source = 'archive' where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
+					).run();
+				}
+				return callback(...args);
+			}),
+		);
+
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({
+				account: "other_account",
+				accountOnly: true,
 				seededAccountOnly: true,
 			}),
 		).resolves.toMatchObject({
@@ -248,17 +738,23 @@ describe("profile hydration", () => {
 			reason: "Primary account is not the untouched demo seed",
 		});
 
+		expect(injectedOwnership).toBe(true);
+		expect({
+			account: accountQuery.get(),
+			profile: profileQuery.get(),
+		}).toEqual(before);
 		expect(
 			db
 				.prepare(
-					"select name, handle, external_user_id from accounts where id = 'acct_primary'",
+					"select source from tweet_account_edges where account_id = 'acct_primary' and tweet_id = 'tweet_001' and kind = 'home'",
 				)
 				.get(),
-		).toEqual({
-			name: "Archive Owner",
-			handle: "@archive_owner",
-			external_user_id: "42",
-		});
+		).toEqual({ source: "archive" });
+		expect(
+			db
+				.prepare("select 1 from sync_cache where cache_key = ?")
+				.get(DEMO_PRIMARY_ACCOUNT_MARKER_KEY),
+		).toEqual({ 1: 1 });
 	});
 
 	it("skips non-numeric archive placeholder ids before calling X", async () => {
@@ -614,7 +1110,7 @@ describe("profile hydration", () => {
 			.get() as Record<string, unknown>;
 		const account = db
 			.prepare(
-				"select name, handle, transport from accounts where id = 'acct_primary'",
+				"select name, handle, external_user_id, transport from accounts where id = 'acct_primary'",
 			)
 			.get() as Record<string, unknown>;
 
@@ -631,6 +1127,7 @@ describe("profile hydration", () => {
 		expect(account).toEqual({
 			name: "Peter Steinberger",
 			handle: "@steipete",
+			external_user_id: "25401953",
 			transport: "xurl",
 		});
 	});

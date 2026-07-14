@@ -144,17 +144,30 @@ export function registerCoreCommands({
 			"Select an authenticated xurl account instead of its default",
 		)
 		.action(async (options: { account?: string }) => {
+			const selectedAccount = options.account?.trim().replace(/^@/, "");
+			if (options.account !== undefined && !selectedAccount) {
+				throw new Error("--account requires a non-empty username");
+			}
 			const paths = ensureBirdclawDirs();
 			await getQueryEnvelope();
-			const account = await hydrateProfilesFromX({
-				account: options.account,
-				accountOnly: true,
-				seededAccountOnly: true,
-			});
+			const account =
+				selectedAccount === undefined
+					? undefined
+					: await hydrateProfilesFromX({
+							account: selectedAccount,
+							accountOnly: true,
+							seededAccountOnly: true,
+						});
+			if (selectedAccount !== undefined && !account?.account) {
+				throw new Error(
+					account?.reason ??
+						`Could not select authenticated xurl account @${selectedAccount}`,
+				);
+			}
 			print(
 				{
 					ok: true,
-					account: account.account,
+					...(account?.account ? { account: account.account } : {}),
 					rootDir: paths.rootDir,
 					configPath: paths.configPath,
 					dbPath: paths.dbPath,

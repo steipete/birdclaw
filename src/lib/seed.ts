@@ -1,6 +1,11 @@
 import type { Database } from "./sqlite";
+import {
+	createDemoPrimaryAccountMarkerValue,
+	DEMO_PRIMARY_ACCOUNT,
+	DEMO_PRIMARY_ACCOUNT_MARKER_KEY,
+} from "./demo-account";
 
-const now = new Date("2026-03-08T12:00:00.000Z");
+const now = new Date(DEMO_PRIMARY_ACCOUNT.createdAt);
 
 function isoMinutesAgo(minutes: number) {
 	return new Date(now.getTime() - minutes * 60_000).toISOString();
@@ -61,6 +66,10 @@ export function seedDemoData(db: Database) {
 	    source, raw_json, updated_at
 	  ) values (?, ?, ?, ?, ?, 1, 'demo', '{}', ?)
 	`);
+	const insertDemoAccountMarker = db.prepare(`
+		insert or replace into sync_cache (cache_key, value_json, updated_at)
+		values (?, ?, ?)
+	`);
 	const insertTweetCollection = db.prepare(`
 	  insert into tweet_collections (
 	    account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
@@ -110,13 +119,7 @@ export function seedDemoData(db: Database) {
 
 	const accounts = [
 		{
-			id: "acct_primary",
-			name: "Peter",
-			handle: "@steipete",
-			externalUserId: "25401953",
-			transport: "xurl",
-			isDefault: 1,
-			createdAt: now.toISOString(),
+			...DEMO_PRIMARY_ACCOUNT,
 		},
 		{
 			id: "acct_studio",
@@ -656,6 +659,12 @@ export function seedDemoData(db: Database) {
 		for (const occurrence of linkOccurrences) {
 			insertLinkOccurrence.run(occurrence);
 		}
+
+		insertDemoAccountMarker.run(
+			DEMO_PRIMARY_ACCOUNT_MARKER_KEY,
+			createDemoPrimaryAccountMarkerValue(db),
+			DEMO_PRIMARY_ACCOUNT.createdAt,
+		);
 	});
 
 	transaction();

@@ -552,17 +552,14 @@ describe("cli", () => {
 		vi.clearAllMocks();
 	});
 
-	it("prints init, auth status, archive results, and db stats as json", async () => {
+	it("keeps plain init local-only and prints core results as json", async () => {
 		const { runCli } = await loadCli();
 
-		await runCli([
-			"node",
-			"birdclaw",
-			"--json",
-			"init",
-			"--account",
-			"steipete",
-		]);
+		await runCli(["node", "birdclaw", "--json", "init"]);
+		const initResult = JSON.parse(
+			String(consoleLogMock.mock.calls[0]?.[0]),
+		) as Record<string, unknown>;
+		expect(initResult).not.toHaveProperty("account");
 		await runCli(["node", "birdclaw", "--json", "auth", "status"]);
 		await runCli(["node", "birdclaw", "--json", "archive", "find"]);
 		await runCli(["node", "birdclaw", "--json", "db", "stats"]);
@@ -571,11 +568,7 @@ describe("cli", () => {
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"rootDir": "/tmp/.birdclaw"'),
 		);
-		expect(hydrateProfilesFromXMock).toHaveBeenCalledWith({
-			account: "steipete",
-			accountOnly: true,
-			seededAccountOnly: true,
-		});
+		expect(hydrateProfilesFromXMock).not.toHaveBeenCalled();
 		expect(consoleLogMock).toHaveBeenCalledWith(
 			expect.stringContaining('"statusText": "local"'),
 		);
@@ -591,6 +584,79 @@ describe("cli", () => {
 			port: 3000,
 			serverVersion: packageVersion,
 		});
+	});
+
+	it("selects an authenticated account during init when explicitly requested", async () => {
+		hydrateProfilesFromXMock.mockResolvedValue({
+			ok: true,
+			hydratedProfiles: 0,
+			hydratedAccount: true,
+			account: {
+				handle: "@steipete",
+				externalUserId: "25401953",
+			},
+		});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"init",
+			"--account",
+			"steipete",
+		]);
+
+		expect(hydrateProfilesFromXMock).toHaveBeenCalledWith({
+			account: "steipete",
+			accountOnly: true,
+			seededAccountOnly: true,
+		});
+		expect(consoleLogMock).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(String(consoleLogMock.mock.calls[0]?.[0]))).toEqual({
+			ok: true,
+			account: {
+				handle: "@steipete",
+				externalUserId: "25401953",
+			},
+			rootDir: "/tmp/.birdclaw",
+			configPath: "/tmp/.birdclaw/config.json",
+			dbPath: "/tmp/.birdclaw/birdclaw.sqlite",
+			mediaOriginalsDir: "/tmp/.birdclaw/media/originals",
+			mediaThumbsDir: "/tmp/.birdclaw/media/thumbs",
+		});
+	});
+
+	it("fails init when the explicit account cannot be selected", async () => {
+		hydrateProfilesFromXMock.mockResolvedValue({
+			ok: true,
+			hydratedProfiles: 0,
+			hydratedAccount: false,
+			reason: "Selected xurl account is unavailable",
+		});
+		const { runCli } = await loadCli();
+
+		await expect(
+			runCli(["node", "birdclaw", "--json", "init", "--account", "missing"]),
+		).rejects.toThrow("Selected xurl account is unavailable");
+
+		expect(hydrateProfilesFromXMock).toHaveBeenCalledWith({
+			account: "missing",
+			accountOnly: true,
+			seededAccountOnly: true,
+		});
+		expect(consoleLogMock).not.toHaveBeenCalled();
+	});
+
+	it("rejects an empty init account before provider lookup", async () => {
+		const { runCli } = await loadCli();
+
+		await expect(
+			runCli(["node", "birdclaw", "--json", "init", "--account", "  @  "]),
+		).rejects.toThrow("--account requires a non-empty username");
+
+		expect(hydrateProfilesFromXMock).not.toHaveBeenCalled();
+		expect(consoleLogMock).not.toHaveBeenCalled();
 	});
 
 	it("sets the preferred auth transport", async () => {

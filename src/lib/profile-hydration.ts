@@ -3,10 +3,15 @@ import { Effect } from "effect";
 import { normalizeAvatarUrl } from "./avatar-cache";
 import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { getNativeDb } from "./db";
+import {
+	DEMO_PRIMARY_ACCOUNT_MARKER_KEY,
+	hasUntouchedDemoPrimaryAccountState,
+	type StoredPrimaryAccount,
+} from "./demo-account";
 import { runEffectPromise } from "./effect-runtime";
 import {
 	getTransportStatusEffect,
-	lookupAuthenticatedOAuth2UserEffect,
+	lookupSelectedAuthenticatedOAuth2UserEffect,
 	lookupAuthenticatedUserEffect,
 	lookupUsersByIdsEffect,
 } from "./xurl";
@@ -49,6 +54,11 @@ function trySync<T>(try_: () => T) {
 		try: try_,
 		catch: toError,
 	});
+}
+
+function normalizeSelectedAccount(value: string) {
+	const username = value.trim().replace(/^@/, "");
+	return username.length > 0 ? username : null;
 }
 
 const SEEDED_ACCOUNT_HANDLE = "steipete";
@@ -146,8 +156,25 @@ export function hydrateProfilesFromXEffect(
 	options: HydrateProfilesOptions = {},
 ): Effect.Effect<HydrateProfilesResult, unknown> {
 	return Effect.gen(function* () {
+		const selectedAccount =
+			options.account === undefined
+				? undefined
+				: normalizeSelectedAccount(options.account);
+		if (selectedAccount === null) {
+			return yield* Effect.fail(
+				new Error("Explicit account selection requires a non-empty username"),
+			);
+		}
 		const transport = yield* getTransportStatusEffect();
 		if (transport.availableTransport !== "xurl") {
+			if (selectedAccount !== undefined) {
+				return {
+					ok: true,
+					hydratedProfiles: 0,
+					hydratedAccount: false,
+					reason: `Cannot select xurl account @${selectedAccount}: ${transport.statusText}`,
+				};
+			}
 			// xurl is unavailable, so the live profile backfill can't run. When the
 			// bird transport is authenticated we can still correct the seeded
 			// account handle (e.g. the placeholder @steipete) from `bird whoami`.
@@ -163,6 +190,9 @@ export function hydrateProfilesFromXEffect(
 		const {
 			candidateIds,
 			db,
+			deleteDemoPrimaryAccountMarker,
+			renameSeedAccountHandle,
+			renameSeedProfileHandle,
 			updateAccount,
 			updateConversationTitle,
 			updateLocalProfile,
@@ -206,14 +236,33 @@ export function hydrateProfilesFromXEffect(
     update accounts
     set name = ?,
         handle = ?,
-		external_user_id = ?,
+		external_user_id = coalesce(?, external_user_id),
         transport = 'xurl'
     where id = 'acct_primary'
+  `);
+			const renameSeedProfileHandle = db.prepare(`
+    update profiles
+    set handle = 'seeded_' || id
+    where id <> 'profile_me'
+      and lower(handle) = lower(?)
+  `);
+			const renameSeedAccountHandle = db.prepare(`
+    update accounts
+    set handle = '@seeded_' || id
+    where id <> 'acct_primary'
+      and lower(ltrim(handle, '@')) = lower(?)
+  `);
+			const deleteDemoPrimaryAccountMarker = db.prepare(`
+    delete from sync_cache
+    where cache_key = ?
   `);
 
 			return {
 				candidateIds,
 				db,
+				deleteDemoPrimaryAccountMarker,
+				renameSeedAccountHandle,
+				renameSeedProfileHandle,
 				updateAccount,
 				updateConversationTitle,
 				updateLocalProfile,
@@ -245,44 +294,77 @@ export function hydrateProfilesFromXEffect(
 
 		let hydratedAccount = false;
 		let account: HydrateProfilesResult["account"];
-		const me = yield* (
-			options.account
-				? lookupAuthenticatedOAuth2UserEffect(options.account)
-				: lookupAuthenticatedUserEffect()
-		).pipe(Effect.catchAll(() => Effect.succeed(null)));
+		const me =
+			selectedAccount !== undefined
+				? yield* lookupSelectedAuthenticatedOAuth2UserEffect(selectedAccount)
+				: yield* lookupAuthenticatedUserEffect().pipe(
+						Effect.catchAll(() => Effect.succeed(null)),
+					);
+		if (selectedAccount !== undefined && !me) {
+			return yield* Effect.fail(
+				new Error(
+					`Could not resolve authenticated xurl account @${selectedAccount}`,
+				),
+			);
+		}
 		if (me) {
-			const username = String(me.username ?? "").replace(/^@/, "");
+			const username = String(me.username ?? "")
+				.trim()
+				.replace(/^@/, "");
+			if (
+				selectedAccount !== undefined &&
+				(username.length === 0 ||
+					username.toLowerCase() !== selectedAccount.toLowerCase())
+			) {
+				return yield* Effect.fail(
+					new Error(
+						`Authenticated xurl identity does not match requested account @${selectedAccount}`,
+					),
+				);
+			}
 			const externalUserId =
-				typeof me.id === "string" && me.id.length > 0 ? me.id : null;
-			const currentAccount = (yield* trySync(() =>
-				db
-					.prepare(
-						"select handle, external_user_id, transport from accounts where id = 'acct_primary'",
-					)
-					.get(),
-			)) as
-				| {
-						handle: string;
-						external_user_id: string | null;
-						transport: string;
-				  }
-				| undefined;
-			const isSeededPlaceholder =
-				currentAccount?.handle.replace(/^@/, "").toLowerCase() ===
-					SEEDED_ACCOUNT_HANDLE &&
-				currentAccount.external_user_id === SEEDED_ACCOUNT_EXTERNAL_USER_ID &&
-				currentAccount.transport === "xurl";
-			if (options.seededAccountOnly && !isSeededPlaceholder) {
-				return {
-					ok: true,
-					hydratedProfiles,
-					hydratedAccount: false,
-					reason: "Primary account is not the untouched demo seed",
-				};
+				typeof me.id === "string" && me.id.trim().length > 0
+					? me.id.trim()
+					: null;
+			if (selectedAccount !== undefined && externalUserId === null) {
+				return yield* Effect.fail(
+					new Error(
+						`Authenticated xurl response for @${selectedAccount} did not include a user ID`,
+					),
+				);
 			}
 			const metrics = asRecord(me.public_metrics);
-			yield* trySync(() => {
+			const selected = yield* trySync(() =>
 				db.transaction(() => {
+					const currentAccount = db
+						.prepare(
+							"select name, handle, external_user_id, transport, is_default, created_at from accounts where id = 'acct_primary'",
+						)
+						.get() as StoredPrimaryAccount | undefined;
+					const currentHandle = currentAccount?.handle
+						.replace(/^@/, "")
+						.toLowerCase();
+					const identityMatches =
+						currentAccount !== undefined &&
+						externalUserId !== null &&
+						currentAccount.external_user_id !== null
+							? externalUserId === currentAccount.external_user_id
+							: username.length > 0 && currentHandle === username.toLowerCase();
+					const isSeededPlaceholder =
+						options.seededAccountOnly && !identityMatches
+							? hasUntouchedDemoPrimaryAccountState(db, currentAccount)
+							: false;
+					if (
+						options.seededAccountOnly &&
+						!identityMatches &&
+						!isSeededPlaceholder
+					) {
+						return false;
+					}
+					if (isSeededPlaceholder) {
+						renameSeedProfileHandle.run(username);
+						renameSeedAccountHandle.run(username);
+					}
 					updateLocalProfile.run(
 						username || SEEDED_ACCOUNT_HANDLE,
 						String(me.name ?? "Peter Steinberger"),
@@ -299,8 +381,18 @@ export function hydrateProfilesFromXEffect(
 						`@${username || SEEDED_ACCOUNT_HANDLE}`,
 						externalUserId,
 					);
-				})();
-			});
+					deleteDemoPrimaryAccountMarker.run(DEMO_PRIMARY_ACCOUNT_MARKER_KEY);
+					return true;
+				})(),
+			);
+			if (!selected) {
+				return {
+					ok: true,
+					hydratedProfiles,
+					hydratedAccount: false,
+					reason: "Primary account is not the untouched demo seed",
+				};
+			}
 			hydratedAccount = true;
 			account = {
 				handle: `@${username || SEEDED_ACCOUNT_HANDLE}`,

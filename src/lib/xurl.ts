@@ -893,6 +893,16 @@ export const lookupAuthenticatedOAuth2UserEffect = Effect.fn(
 	}).pipe(Effect.map(authenticatedUserFromPayload)),
 );
 
+export const lookupSelectedAuthenticatedOAuth2UserEffect = Effect.fn(
+	"xurl.lookupSelectedAuthenticatedOAuth2User",
+)((username: string) =>
+	runOAuth2JsonCommandEffect({
+		args: ["whoami"],
+		username,
+		useConfiguredCandidate: false,
+	}).pipe(Effect.map(authenticatedUserFromPayload)),
+);
+
 export function lookupAuthenticatedUserEffect() {
 	// Failures are not cached: invalidate so the next caller retries fresh.
 	return cachedAuthenticatedUser.pipe(
