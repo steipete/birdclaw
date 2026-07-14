@@ -185,26 +185,26 @@ describe("profile hydration", () => {
 		});
 		mocks.lookupUsersByIds.mockResolvedValue([]);
 		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
-			id: "1493511301808721921",
-			username: "ikuznetsov_com",
-			name: "Ivan Kuznetsov",
+			id: "25401953",
+			username: "steipete",
+			name: "Peter Steinberger",
 			description: "Builder",
 			public_metrics: { followers_count: 218, following_count: 299 },
 		});
 
 		const { hydrateProfilesFromX } = await import("./profile-hydration");
 		await expect(
-			hydrateProfilesFromX({ account: "ikuznetsov_com" }),
+			hydrateProfilesFromX({ account: "steipete" }),
 		).resolves.toMatchObject({
 			hydratedAccount: true,
 			account: {
-				handle: "@ikuznetsov_com",
-				externalUserId: "1493511301808721921",
+				handle: "@steipete",
+				externalUserId: "25401953",
 			},
 		});
 
 		expect(mocks.lookupAuthenticatedOAuth2User).toHaveBeenCalledWith(
-			"ikuznetsov_com",
+			"steipete",
 		);
 		expect(
 			db
@@ -213,9 +213,9 @@ describe("profile hydration", () => {
 				)
 				.get(),
 		).toEqual({
-			name: "Ivan Kuznetsov",
-			handle: "@ikuznetsov_com",
-			external_user_id: "1493511301808721921",
+			name: "Peter Steinberger",
+			handle: "@steipete",
+			external_user_id: "25401953",
 			transport: "xurl",
 		});
 	});
@@ -232,15 +232,15 @@ describe("profile hydration", () => {
 		});
 		mocks.lookupUsersByIds.mockResolvedValue([]);
 		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
-			id: "1493511301808721921",
-			username: "ikuznetsov_com",
-			name: "Ivan Kuznetsov",
+			id: "25401953",
+			username: "steipete",
+			name: "Peter Steinberger",
 		});
 
 		const { hydrateProfilesFromX } = await import("./profile-hydration");
 		await expect(
 			hydrateProfilesFromX({
-				account: "ikuznetsov_com",
+				account: "steipete",
 				seededAccountOnly: true,
 			}),
 		).resolves.toMatchObject({

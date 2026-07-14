@@ -561,7 +561,7 @@ describe("cli", () => {
 			"--json",
 			"init",
 			"--account",
-			"ikuznetsov_com",
+			"steipete",
 		]);
 		await runCli(["node", "birdclaw", "--json", "auth", "status"]);
 		await runCli(["node", "birdclaw", "--json", "archive", "find"]);
@@ -572,7 +572,7 @@ describe("cli", () => {
 			expect.stringContaining('"rootDir": "/tmp/.birdclaw"'),
 		);
 		expect(hydrateProfilesFromXMock).toHaveBeenCalledWith({
-			account: "ikuznetsov_com",
+			account: "steipete",
 			accountOnly: true,
 			seededAccountOnly: true,
 		});
