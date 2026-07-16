@@ -128,7 +128,9 @@ describe("mentions route", () => {
 			expect(queryUrl?.searchParams.get("replyFilter")).toBe("all");
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "@steipete signal" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "@steipete signal" }),
+		);
 		expect(fetchMock).not.toHaveBeenCalledWith(
 			"/api/action",
 			expect.anything(),
