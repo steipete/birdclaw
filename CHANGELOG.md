@@ -6,6 +6,10 @@
 
 - Add a disabled-by-default, bearer-authenticated read-only MCP endpoint for account-scoped cached tweet search and thread research, with startup configuration/schema validation, strict loopback/Host/Origin/path isolation, bounded stateless requests, and no DM, live X, OpenAI, filesystem, or write tools.
 
+### Changed
+
+- Move the supported runtime from EOL Node 25.8.1 to Node 26.5.0 and refresh compatible direct runtime and development dependencies.
+
 ### Fixed
 
 - Recommend xurl for new live-transport setups, remove deprecated public bird package and repository instructions while preserving compatibility with existing private bird installs, and report unavailable xurl states as local/archive mode. (#93 - thanks @TheAngryPit)

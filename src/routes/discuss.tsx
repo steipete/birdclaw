@@ -260,8 +260,10 @@ export function DiscussRouteView({
 		validateDiscussSearch({}),
 	);
 	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<DiscussRouteSearch> = (next, options) =>
-		onSearchChange ? onSearchChange(next, options) : setLocalSearch(next);
+	const updateSearch: RouteSearchChange<DiscussRouteSearch> = (
+		next,
+		options,
+	) => (onSearchChange ? onSearchChange(next, options) : setLocalSearch(next));
 	const { q: query, question, source, mode, includeDms } = searchState;
 	const [submittedQuery, setSubmittedQuery] = useState("");
 	const pendingSubmitRef = useRef(false);
