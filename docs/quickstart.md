@@ -26,7 +26,7 @@ birdclaw db stats --json
 
 `init` creates `~/.birdclaw/`, opens the shared SQLite database, writes a default config when none exists, and probes for `xurl` and `bird` on `PATH`.
 
-`auth status` runs Birdclaw's coarse xurl status probe. Verify xurl with `xurl whoami` and bird with `bird whoami`. If you want live sync, follow [Sign in](auth.md); skip it if you only need archive import.
+`auth status` runs Birdclaw's coarse xurl status probe. Verify xurl with `xurl whoami`. Existing private bird users can verify bird with `bird whoami`. If you want live sync, follow [Sign in](auth.md); skip it if you only need archive import.
 
 ## 3. Find and import an archive
 
@@ -39,7 +39,7 @@ birdclaw import archive --json
 birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 ```
 
-Optional profile hydration through xurl fills bios, follower counts, and avatars from live Twitter metadata. It can perform hundreds or thousands of live profile reads on large archives, so run it only when you are ready to spend those X API reads. In Bird-only mode, the command corrects the seeded local account identity from `bird whoami` without bulk-hydrating imported profiles:
+Optional profile hydration through xurl fills bios, follower counts, and avatars from live Twitter metadata. It can perform hundreds or thousands of live profile reads on large archives, so run it only when you are ready to spend those X API reads. With an existing private bird installation, the command can instead correct the seeded local account identity from `bird whoami` without bulk-hydrating imported profiles:
 
 ```bash
 birdclaw import hydrate-profiles --json

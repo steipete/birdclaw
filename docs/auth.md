@@ -7,10 +7,10 @@ description: "Connect birdclaw to X through xurl or bird, verify each tool, and 
 
 birdclaw keeps its database local. Archive import needs no X credentials. Live reads and writes are delegated to external CLIs:
 
-- [`xurl`](https://github.com/xdevplatform/xurl) uses the official X API and your own developer app.
-- [`bird`](https://github.com/steipete/bird) uses the active browser session through X's web API.
+- [`xurl`](https://github.com/xdevplatform/xurl) is the recommended setup for new users and uses the official X API with your own developer app.
+- Existing private `bird` installations remain supported for cookie-backed workflows and compatibility fallback.
 
-Install either tool or both. Transport selection is workflow-specific: sync commands expose `--mode`, while `auth use` only controls moderation writes such as block, unblock, mute, and unmute.
+Install xurl for a new live-transport setup. Transport selection is workflow-specific: sync commands expose `--mode`, while `auth use` only controls moderation writes such as block, unblock, mute, and unmute.
 
 On a fresh Birdclaw database, import your X archive before the first live sync. Archive import replaces the bundled demo identity with your account identity. The current auth commands verify transports but do not bind a new database to the authenticated X account.
 
@@ -31,16 +31,15 @@ xurl whoami
 
 Alternatively, use xurl's [no-sudo install script](https://github.com/xdevplatform/xurl#installation). Register `my-app` first by following the [xurl authentication guide](https://github.com/xdevplatform/xurl#authentication). The redirect URI configured in the X developer portal must match xurl's configured URI. Treat the client secret as a secret; avoid entering it in shared shell history or exposing it in process listings.
 
-## Set up bird
+## Existing bird installations
 
-Install bird, sign in to x.com in Safari, Chrome, or Firefox, then verify the detected account:
+Birdclaw preserves compatibility with existing private bird installations, but bird is not a public setup path for new users. If bird is already installed and authenticated, verify the detected account:
 
 ```text
-npm install -g @steipete/bird
 bird whoami
 ```
 
-bird reads `auth_token` and `ct0` cookies from the selected browser profile. If autodetection misses the right profile, see [bird authentication](https://github.com/steipete/bird#authentication-graphql) for cookie-source and profile flags.
+Existing bird configurations continue to provide cookie-backed fallback for supported reads and writes.
 
 ## Verify xurl in birdclaw
 
@@ -55,7 +54,7 @@ birdclaw auth status --json
 - `statusText` explains the detected state.
 - `rawStatus` contains xurl's status output when available.
 
-Use `xurl whoami` as the end-to-end authentication check. Run `xurl auth status` for detailed app/token state and `bird whoami` to verify bird independently.
+Use `xurl whoami` as the end-to-end authentication check. Run `xurl auth status` for detailed app/token state. Existing private bird users can run `bird whoami` to verify bird independently.
 
 ## Choose moderation transport
 

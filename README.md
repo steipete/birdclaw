@@ -181,8 +181,8 @@ Notes:
 - Node `25.8.1` or Node 26.x
 - `pnpm`
 - macOS recommended for Spotlight archive discovery
-- `xurl` optional for live reads / writes
-- `bird` optional for cookie-backed likes, bookmarks, mentions, DMs, and write fallback
+- `xurl` recommended for live reads / writes
+- an existing private `bird` installation is optional for cookie-backed likes, bookmarks, mentions, DMs, and write fallback
 - OpenAI API key optional for inbox scoring
 
 ## Install
@@ -222,7 +222,7 @@ birdclaw auth status --json
 birdclaw db stats --json
 ```
 
-`auth status` reports Birdclaw's coarse xurl status. Verify xurl with `xurl whoami` and bird with `bird whoami`. For setup and transport selection, see [Sign in](docs/auth.md).
+`auth status` reports Birdclaw's coarse xurl status. Verify xurl with `xurl whoami`. If you already have a private bird installation, verify it with `bird whoami`. For setup and transport selection, see [Sign in](docs/auth.md).
 
 Find and import an archive:
 
@@ -234,7 +234,7 @@ birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 
 Don't have an archive yet? Request it from <https://x.com/settings/download_your_data>; X emails a download link when it is ready, which may take a few days. A fresh Birdclaw database needs the archive import to establish account identity before live sync. See [Archive Import → Get an archive](docs/archive.md#get-an-archive).
 
-Optional profile hydration through xurl can improve bios, follower counts, and avatars, but it performs live X profile reads and can spend API credits on large archives. In Bird-only mode, the command corrects the seeded local account identity from `bird whoami` without bulk-hydrating imported profiles:
+Optional profile hydration through xurl can improve bios, follower counts, and avatars, but it performs live X profile reads and can spend API credits on large archives. With an existing private bird installation, the command can instead correct the seeded local account identity from `bird whoami` without bulk-hydrating imported profiles:
 
 ```bash
 birdclaw import hydrate-profiles --json
@@ -700,7 +700,7 @@ tail -n 1 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
 Current preference:
 
 - `xurl` first
-- `bird` fallback for surfaces where cookie-backed reads work better
+- existing private `bird` installations as a compatibility fallback for surfaces where cookie-backed reads work better
 
 Without `xurl` or `bird`, `birdclaw` still works in local/archive mode.
 

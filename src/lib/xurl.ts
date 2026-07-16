@@ -213,7 +213,7 @@ const readTransportStatusEffect = Effect.fn("xurl.readTransportStatus")(
 			return {
 				installed: false,
 				availableTransport: "local" as const,
-				statusText: "xurl not installed. local mode active.",
+				statusText: "xurl not installed. local/archive mode active.",
 			};
 		}
 
@@ -229,7 +229,7 @@ const readTransportStatusEffect = Effect.fn("xurl.readTransportStatus")(
 						installed: true,
 						availableTransport: "local" as const,
 						statusText:
-							"xurl installed but not authenticated. local (bird) mode active.",
+							"xurl installed but not authenticated. local/archive mode active.",
 						rawStatus,
 					};
 				}
@@ -250,7 +250,7 @@ const readTransportStatusEffect = Effect.fn("xurl.readTransportStatus")(
 						!(error instanceof SubprocessError && !error.causeWasError)
 							? error.message
 							: "unknown error"
-					}`,
+					}. local/archive mode active.`,
 				}),
 			),
 		);

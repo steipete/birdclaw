@@ -39,7 +39,9 @@ describe("docs site", () => {
 		expect(auth).not.toContain("BIRDCLAW_PROFILE");
 		expect(auth).toContain("import your X archive before the first live sync");
 		expect(auth).toContain("npm install -g @xdevplatform/xurl");
-		expect(auth).toContain("npm install -g @steipete/bird");
+		expect(auth).toContain("Existing bird installations");
+		expect(auth).not.toContain("npm install -g @steipete/bird");
+		expect(auth).not.toContain('href="https://github.com/steipete/bird"');
 		expect(auth).not.toContain("brew install steipete/tap/bird");
 
 		const quickstart = fs.readFileSync(

@@ -261,7 +261,7 @@ describe("profile hydration", () => {
 			availableTransport: "local",
 			installed: true,
 			statusText:
-				"xurl installed but not authenticated. local (bird) mode active.",
+				"xurl installed but not authenticated. local/archive mode active.",
 		});
 		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
 			username: "realuser",
@@ -321,7 +321,7 @@ describe("profile hydration", () => {
 			availableTransport: "local",
 			installed: true,
 			statusText:
-				"xurl installed but not authenticated. local (bird) mode active.",
+				"xurl installed but not authenticated. local/archive mode active.",
 		});
 		// bird whoami reports a different handle but no numeric id.
 		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
@@ -374,7 +374,7 @@ describe("profile hydration", () => {
 			availableTransport: "local",
 			installed: true,
 			statusText:
-				"xurl installed but not authenticated. local (bird) mode active.",
+				"xurl installed but not authenticated. local/archive mode active.",
 		});
 		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
 			username: "differentuser",
@@ -428,7 +428,7 @@ describe("profile hydration", () => {
 			availableTransport: "local",
 			installed: true,
 			statusText:
-				"xurl installed but not authenticated. local (bird) mode active.",
+				"xurl installed but not authenticated. local/archive mode active.",
 		});
 		// Same handle, no id this run: existing id and avatar should survive.
 		mocks.getAuthenticatedBirdAccount.mockResolvedValue({

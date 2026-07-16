@@ -62,6 +62,9 @@ describe("xurl transport wrapper", () => {
 
 		expect(result.availableTransport).toBe("local");
 		expect(result.installed).toBe(false);
+		expect(result.statusText).toBe(
+			"xurl not installed. local/archive mode active.",
+		);
 	});
 
 	it("reports xurl auth state when available", async () => {
@@ -109,7 +112,9 @@ describe("xurl transport wrapper", () => {
 
 		expect(result.installed).toBe(true);
 		expect(result.availableTransport).toBe("local");
-		expect(result.statusText).toContain("not authenticated");
+		expect(result.statusText).toBe(
+			"xurl installed but not authenticated. local/archive mode active.",
+		);
 		expect(result.rawStatus).toContain("No apps registered");
 	});
 
@@ -126,7 +131,9 @@ describe("xurl transport wrapper", () => {
 
 		expect(result.installed).toBe(true);
 		expect(result.availableTransport).toBe("local");
-		expect(result.statusText).toContain("not authenticated");
+		expect(result.statusText).toBe(
+			"xurl installed but not authenticated. local/archive mode active.",
+		);
 		expect(result.rawStatus).toContain("No authenticated user");
 	});
 
@@ -154,6 +161,7 @@ describe("xurl transport wrapper", () => {
 		expect(result.installed).toBe(true);
 		expect(result.availableTransport).toBe("local");
 		expect(result.statusText).toContain("auth unavailable");
+		expect(result.statusText).toContain("local/archive mode active");
 	});
 
 	it("uses an unknown-error fallback for non-Error auth failures", async () => {
@@ -166,6 +174,7 @@ describe("xurl transport wrapper", () => {
 
 		expect(result.availableTransport).toBe("local");
 		expect(result.statusText).toContain("unknown error");
+		expect(result.statusText).toContain("local/archive mode active");
 	});
 
 	it("looks up users and the authenticated account via raw json endpoints", async () => {

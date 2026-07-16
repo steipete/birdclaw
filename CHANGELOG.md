@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Recommend xurl for new live-transport setups, remove deprecated public bird package and repository instructions while preserving compatibility with existing private bird installs, and report unavailable xurl states as local/archive mode. (#93 - thanks @TheAngryPit)
 - Run Bird subprocesses through Git Bash on Windows instead of assuming `/bin/bash`, with a documented override for portable Git installations. (#94 - thanks @kristofer-atlas)
 
 ## 0.9.5 - 2026-07-06
