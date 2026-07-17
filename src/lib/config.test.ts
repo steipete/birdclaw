@@ -8,6 +8,7 @@ import {
 	getBirdCommand,
 	getBirdclawConfig,
 	getBirdclawPaths,
+	getDefaultAccountSelector,
 	resetBirdclawPathsForTests,
 	resolveActionsTransport,
 	resolveMentionsDataSource,
@@ -62,6 +63,9 @@ describe("config", () => {
 		writeFileSync(
 			path.join(tempRoot, "config.json"),
 			JSON.stringify({
+				accounts: {
+					default: "  @steipete  ",
+				},
 				actions: {
 					transport: "xurl",
 				},
@@ -73,6 +77,9 @@ describe("config", () => {
 		);
 
 		expect(getBirdclawConfig()).toEqual({
+			accounts: {
+				default: "  @steipete  ",
+			},
 			actions: {
 				transport: "xurl",
 			},
@@ -81,6 +88,7 @@ describe("config", () => {
 				birdCommand: "/tmp/custom-bird",
 			},
 		});
+		expect(getDefaultAccountSelector()).toBe("@steipete");
 		expect(resolveMentionsDataSource()).toBe("bird");
 		expect(resolveActionsTransport()).toBe("xurl");
 		expect(getBirdCommand()).toBe("/tmp/custom-bird");

@@ -5,8 +5,13 @@ import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import {
+	assertLiveAccountMatches,
+	resolveLiveSyncAccount,
+} from "./live-sync-engine";
+import {
 	getTransportStatusEffect,
-	lookupAuthenticatedUserEffect,
+	lookupAuthenticatedOAuth2UserEffect,
+	lookupAuthenticatedUserUnscopedEffect,
 	lookupUsersByIdsEffect,
 } from "./xurl";
 import { upsertProfileFromXUser } from "./x-profile";
@@ -43,7 +48,9 @@ function trySync<T>(try_: () => T) {
 const SEEDED_ACCOUNT_HANDLE = "steipete";
 const SEEDED_ACCOUNT_EXTERNAL_USER_ID = "25401953";
 
-function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
+function hydrateAccountFromBirdEffect(
+	selector?: string,
+): Effect.Effect<boolean, unknown> {
 	return Effect.gen(function* () {
 		const account = yield* getAuthenticatedBirdAccountEffect().pipe(
 			Effect.catchAll(() => Effect.succeed(null)),
@@ -53,6 +60,33 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 		const handle = account.username.replace(/^@/, "");
 		const name = account.name?.trim() || null;
 		const externalUserId = account.id ?? null;
+		if (selector) {
+			return yield* trySync(() => {
+				const db = getNativeDb();
+				const selected = resolveLiveSyncAccount(db, selector);
+				assertLiveAccountMatches({
+					source: "bird",
+					account: selected,
+					liveUsername: handle,
+					liveExternalUserId: externalUserId ?? undefined,
+				});
+				return db.transaction(() => {
+					db.prepare(
+						`update accounts
+						 set name = coalesce(?, name),
+						     transport = 'bird',
+						     external_user_id = coalesce(?, external_user_id)
+						 where id = ?`,
+					).run(name, externalUserId, selected.accountId);
+					db.prepare(
+						`update profiles
+						 set display_name = coalesce(?, display_name)
+						 where lower(handle) = lower(?)`,
+					).run(name, selected.username);
+					return true;
+				})();
+			});
+		}
 		const hydrated = yield* trySync(() => {
 			const db = getNativeDb();
 			return db.transaction(() => {
@@ -131,17 +165,16 @@ function hydrateAccountFromBirdEffect(): Effect.Effect<boolean, unknown> {
 	});
 }
 
-export function hydrateProfilesFromXEffect(): Effect.Effect<
-	HydrateProfilesResult,
-	unknown
-> {
+export function hydrateProfilesFromXEffect({
+	account,
+}: { account?: string } = {}): Effect.Effect<HydrateProfilesResult, unknown> {
 	return Effect.gen(function* () {
 		const transport = yield* getTransportStatusEffect();
 		if (transport.availableTransport !== "xurl") {
 			// xurl is unavailable, so the live profile backfill can't run. When the
 			// bird transport is authenticated we can still correct the seeded
 			// account handle (e.g. the placeholder @steipete) from `bird whoami`.
-			const hydratedAccount = yield* hydrateAccountFromBirdEffect();
+			const hydratedAccount = yield* hydrateAccountFromBirdEffect(account);
 			return {
 				ok: true,
 				hydratedProfiles: 0,
@@ -153,11 +186,15 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 		const {
 			candidateIds,
 			db,
+			selectedAccount,
 			updateAccount,
 			updateConversationTitle,
 			updateLocalProfile,
 		} = yield* trySync(() => {
 			const db = getNativeDb();
+			const selectedAccount = account
+				? resolveLiveSyncAccount(db, account)
+				: undefined;
 			const candidateRows = db
 				.prepare(
 					`
@@ -188,30 +225,52 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
         following_count = coalesce(?, following_count),
         avatar_url = coalesce(?, avatar_url),
         created_at = coalesce(?, created_at)
-    where id = 'profile_me'
+    where id = ?
   `);
 			const updateAccount = db.prepare(`
     update accounts
     set name = ?,
         handle = ?,
-        transport = 'xurl'
-    where id = 'acct_primary'
+		transport = 'xurl',
+		external_user_id = coalesce(?, external_user_id)
+	where id = ?
   `);
 
 			return {
 				candidateIds,
 				db,
+				selectedAccount,
 				updateAccount,
 				updateConversationTitle,
 				updateLocalProfile,
 			};
 		});
+		const selectedAuthenticatedUser = selectedAccount
+			? yield* lookupAuthenticatedOAuth2UserEffect(selectedAccount.username)
+			: undefined;
+		if (selectedAccount) {
+			yield* trySync(() =>
+				assertLiveAccountMatches({
+					source: "xurl",
+					account: selectedAccount,
+					liveUsername: String(selectedAuthenticatedUser?.username ?? ""),
+					liveExternalUserId:
+						typeof selectedAuthenticatedUser?.id === "string"
+							? selectedAuthenticatedUser.id
+							: undefined,
+				}),
+			);
+		}
 
 		let hydratedProfiles = 0;
 
 		for (let index = 0; index < candidateIds.length; index += 100) {
 			const batch = candidateIds.slice(index, index + 100);
-			const users = yield* lookupUsersByIdsEffect(batch);
+			const users = yield* selectedAccount
+				? lookupUsersByIdsEffect(batch, {
+						username: selectedAccount.username,
+					})
+				: lookupUsersByIdsEffect(batch);
 
 			yield* trySync(() => {
 				db.transaction(() => {
@@ -231,27 +290,45 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 		}
 
 		let hydratedAccount = false;
-		const me = yield* lookupAuthenticatedUserEffect().pipe(
-			Effect.catchAll(() => Effect.succeed(null)),
-		);
+		const me = selectedAccount
+			? selectedAuthenticatedUser
+			: yield* lookupAuthenticatedUserUnscopedEffect().pipe(
+					Effect.catchAll(() => Effect.succeed(null)),
+				);
 		if (me) {
 			const metrics = asRecord(me.public_metrics);
 			yield* trySync(() => {
 				db.transaction(() => {
-					updateLocalProfile.run(
-						String(me.username ?? "steipete").replace(/^@/, ""),
-						String(me.name ?? "Peter Steinberger"),
-						String(me.description ?? ""),
-						toInt(metrics?.followers_count),
-						metrics && "following_count" in metrics
-							? toInt(metrics.following_count)
-							: null,
-						normalizeAvatarUrl(me.profile_image_url),
-						typeof me.created_at === "string" ? me.created_at : null,
-					);
+					const accountId = selectedAccount?.accountId ?? "acct_primary";
+					const localProfile = db
+						.prepare(
+							"select id from profiles where lower(handle) = lower(?) limit 1",
+						)
+						.get(selectedAccount?.username ?? "steipete") as
+						| { id: string }
+						| undefined;
+					const localProfileId = selectedAccount
+						? localProfile?.id
+						: "profile_me";
+					if (localProfileId) {
+						updateLocalProfile.run(
+							String(me.username ?? "steipete").replace(/^@/, ""),
+							String(me.name ?? "Peter Steinberger"),
+							String(me.description ?? ""),
+							toInt(metrics?.followers_count),
+							metrics && "following_count" in metrics
+								? toInt(metrics.following_count)
+								: null,
+							normalizeAvatarUrl(me.profile_image_url),
+							typeof me.created_at === "string" ? me.created_at : null,
+							localProfileId,
+						);
+					}
 					updateAccount.run(
 						String(me.name ?? "Peter Steinberger"),
 						`@${String(me.username ?? "steipete").replace(/^@/, "")}`,
+						typeof me.id === "string" ? me.id : null,
+						accountId,
 					);
 				})();
 			});
@@ -266,8 +343,10 @@ export function hydrateProfilesFromXEffect(): Effect.Effect<
 	});
 }
 
-export function hydrateProfilesFromX(): Promise<HydrateProfilesResult> {
-	return runEffectPromise(hydrateProfilesFromXEffect());
+export function hydrateProfilesFromX(
+	options: { account?: string } = {},
+): Promise<HydrateProfilesResult> {
+	return runEffectPromise(hydrateProfilesFromXEffect(options));
 }
 
 export const __test__ = {

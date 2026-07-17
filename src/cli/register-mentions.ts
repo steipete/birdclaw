@@ -23,7 +23,7 @@ export function registerMentionCommands({
 		.description(
 			"Return mention tweets with plain-text and markdown renderings",
 		)
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "birdclaw, auto, xurl, or bird")
 		.option("--replied", "Only replied items")
 		.option("--unreplied", "Only unreplied items")
@@ -80,9 +80,11 @@ export function registerMentionCommands({
 	profilesCommand
 		.command("replies <query>")
 		.description("Inspect recent authored replies for one profile")
+		.option("--account <username>", "Account username or id")
 		.option("--limit <n>", "Limit replies", "12")
 		.action(async (query, options) => {
 			const result = await inspectProfileReplies(query, {
+				account: options.account,
 				limit: Number(options.limit),
 			});
 			print(result, asJson());

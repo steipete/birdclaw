@@ -2349,4 +2349,13 @@ describe("birdclaw queries", () => {
 			"Conversation not found",
 		);
 	});
+
+	it("rejects dm replies selected for a different account", async () => {
+		setupTempHome();
+
+		await expect(
+			createDmReply("dm_003", "wrong account", "acct_other"),
+		).rejects.toThrow("Conversation belongs to acct_primary, not acct_other");
+		expect(mocks.dmViaXurl).not.toHaveBeenCalled();
+	});
 });

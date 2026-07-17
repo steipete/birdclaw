@@ -22,7 +22,7 @@ export function registerGraphCommands({
 		.description(
 			"Summarize cached followers, following, mutuals, and snapshots",
 		)
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.action(async (options) => {
 			await autoUpdateBeforeRead();
 			print(getFollowGraphSummary({ account: options.account }), true);
@@ -31,7 +31,7 @@ export function registerGraphCommands({
 	graphCommand
 		.command("top-followers")
 		.description("List current followers sorted by their follower count")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (options) => {
 			await autoUpdateBeforeRead();
@@ -48,7 +48,7 @@ export function registerGraphCommands({
 		.command("unfollowed")
 		.description("List cached ended follow edges since a date")
 		.requiredOption("--date <date>", "YYYY-MM-DD or ISO timestamp")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--direction <direction>", "followers or following", "followers")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (options) => {
@@ -68,7 +68,7 @@ export function registerGraphCommands({
 	graphCommand
 		.command("events")
 		.description("List cached append-only follow graph events")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--direction <direction>", "followers or following")
 		.option("--kind <kind>", "started or ended")
 		.option("--since <date>", "YYYY-MM-DD or ISO timestamp")
@@ -99,7 +99,7 @@ export function registerGraphCommands({
 	graphCommand
 		.command("non-mutual-following")
 		.description("List current following who are not current followers")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--sort <mode>", "followers or handle", "followers")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (options) => {
@@ -117,7 +117,7 @@ export function registerGraphCommands({
 	graphCommand
 		.command("mutuals")
 		.description("List profiles that are both followers and following")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (options) => {
 			await autoUpdateBeforeRead();

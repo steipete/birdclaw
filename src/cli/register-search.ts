@@ -40,7 +40,7 @@ export function registerSearchCommands({
 	searchCommand
 		.command("tweets [query]")
 		.option("--resource <resource>", "home, mentions, or authored", "home")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--list <name>", "Only authors in a cached X List")
 		.option("--list-id <id>", "Only authors in a cached X List id")
 		.option("--replied", "Only replied items")
@@ -185,7 +185,7 @@ export function registerSearchCommands({
 	searchCommand
 		.command("links <query>")
 		.description("Search indexed short links, expansions, and linked tweets")
-		.option("--account <accountIdOrHandle>", "Account id or handle")
+		.option("--account <username>", "Account username or id")
 		.option("--since <date>", "Include links created at or after this date")
 		.option("--until <date>", "Include links created before this date")
 		.option("--source <kind>", "dm or tweet")
@@ -274,7 +274,7 @@ export function registerSearchCommands({
 		.description(
 			"Fetch missing pbs.twimg.com image media already stored in tweets",
 		)
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--limit <n>", "Stop after N tweets processed")
 		.option(
 			"--kind <kind>",
@@ -330,7 +330,7 @@ export function registerSearchCommands({
 	program
 		.command("whois <query>")
 		.description("Identify likely people or orgs from local DMs and tweets")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--no-dms", "Do not search DMs")
 		.option("--tweets", "Include local tweet search evidence")
 		.option("--no-resolve-profiles", "Do not resolve placeholder profiles")

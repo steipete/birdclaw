@@ -52,6 +52,12 @@ describe("live sync engine", () => {
 			externalUserId: "222",
 			isDefault: false,
 		});
+		expect(resolveLiveSyncAccount(db, "@SECONDARY")).toEqual({
+			accountId: "secondary",
+			username: "secondary",
+			externalUserId: "222",
+			isDefault: false,
+		});
 	});
 
 	it("normalizes adapter errors and rejects account mismatches", async () => {

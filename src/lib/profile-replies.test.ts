@@ -3,7 +3,13 @@ import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveProfileMock = vi.fn();
+const resolveOperationAccountMock = vi.fn();
 const listUserTweetsMock = vi.fn();
+
+vi.mock("./account-selection", () => ({
+	resolveOperationAccount: (...args: unknown[]) =>
+		resolveOperationAccountMock(...args),
+}));
 
 vi.mock("./moderation-target", () => ({
 	resolveProfile: (...args: unknown[]) => resolveProfileMock(...args),
@@ -17,7 +23,12 @@ describe("profile reply inspection", () => {
 	beforeEach(() => {
 		vi.resetModules();
 		resolveProfileMock.mockReset();
+		resolveOperationAccountMock.mockReset();
 		listUserTweetsMock.mockReset();
+		resolveOperationAccountMock.mockReturnValue({
+			id: "acct_primary",
+			username: "selected_user",
+		});
 	});
 
 	it("builds profile reply inspection effects lazily", async () => {
@@ -171,6 +182,35 @@ describe("profile reply inspection", () => {
 		expect(listUserTweetsMock).toHaveBeenCalledWith("42", {
 			maxResults: 20,
 			excludeRetweets: true,
+		});
+	});
+
+	it("routes live reply inspection through the selected username", async () => {
+		resolveProfileMock.mockResolvedValue({
+			profile: {
+				id: "profile_user_42",
+				handle: "jpctan",
+				displayName: "Jason Tan",
+				bio: "",
+				followersCount: 268,
+				avatarHue: 18,
+				createdAt: "2015-05-20T09:27:37.000Z",
+			},
+			externalUserId: "42",
+		});
+		listUserTweetsMock.mockResolvedValue({ items: [] });
+		const { inspectProfileReplies } = await import("./profile-replies");
+
+		await inspectProfileReplies("@jpctan", {
+			account: "acct_primary",
+			limit: 2,
+		});
+
+		expect(resolveOperationAccountMock).toHaveBeenCalledWith("acct_primary");
+		expect(listUserTweetsMock).toHaveBeenCalledWith("42", {
+			maxResults: 20,
+			excludeRetweets: true,
+			username: "selected_user",
 		});
 	});
 

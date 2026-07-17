@@ -2,6 +2,10 @@
 
 ## 0.10.1 - Unreleased
 
+### Added
+
+- Select existing accounts per live operation with `--account <username>` or `accounts.default`, including sync, profile hydration, DMs, compose, moderation, and scheduled jobs, without changing persistent database identity. (idea from #97 - thanks @ivankuznetsov)
+
 ## 0.10.0 - 2026-07-17
 
 ### Highlights

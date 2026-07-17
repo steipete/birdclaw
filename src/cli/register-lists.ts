@@ -14,7 +14,7 @@ export function registerListCommands({
 	listsCommand
 		.command("list")
 		.description("List cached owned X Lists")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.action(async (options) => {
 			await autoUpdateBeforeRead();
 			const items = listStoredXLists({ account: options.account });
@@ -36,7 +36,7 @@ export function registerListCommands({
 		.command("members [name]")
 		.description("List cached members for one X List")
 		.option("--list-id <id>", "Select by List id")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--include-ended", "Include members absent from a complete sync")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (name, options) => {

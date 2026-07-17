@@ -360,7 +360,7 @@ export function registerAnalysisCommands({
 	program
 		.command("research [query]")
 		.description("Build a markdown research brief from bookmarked threads")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--limit <n>", "Seed bookmark limit", "20")
 		.option("--thread-depth <n>", "Maximum ancestor walk depth", "10")
 		.option("--out <path>", "Write the markdown brief to a file")
@@ -382,7 +382,7 @@ export function registerAnalysisCommands({
 	program
 		.command("discuss <query>")
 		.description("Search live/local tweets and summarize the results with AI")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option(
 			"--source <source>",
 			"all, search, home, mentions, authored, likes, or bookmarks",
@@ -413,7 +413,7 @@ export function registerAnalysisCommands({
 		.command("profile-analyze <handle>")
 		.alias("profile-analyse")
 		.description("Backfill a profile with xurl and summarize it with AI")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--model <model>", "OpenAI model id")
 		.option("--refresh", "Bypass profile fetch and analysis caches")
 		.option("--max-tweets <n>", "Maximum profile tweets", "10000")
@@ -447,7 +447,7 @@ export function registerAnalysisCommands({
 	program
 		.command("today")
 		.description("Stream an AI digest of what happened today")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--include-dms", "Include private DM context")
 		.option("--model <model>", "OpenAI model id")
 		.option(
@@ -473,7 +473,7 @@ export function registerAnalysisCommands({
 	program
 		.command("digest [period]")
 		.description("Stream an AI digest for today, 24h, yesterday, or week")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--include-dms", "Include private DM context")
 		.option("--since <isoDate>", "Start of explicit window")
 		.option("--until <isoDate>", "End of explicit window")

@@ -4,7 +4,11 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
-import { createCommandContext } from "#/cli/command-context";
+import {
+	configureOperationAccountSelection,
+	createCommandContext,
+	resetOperationAccountSelection,
+} from "#/cli/command-context";
 import { registerAnalysisCommands } from "#/cli/register-analysis";
 import { registerComposeCommands } from "#/cli/register-compose";
 import { registerCoreCommands } from "#/cli/register-core";
@@ -43,6 +47,7 @@ const program = new Command()
 	.version(packageVersion.version ?? "0.0.0")
 	.option("--json", "Emit JSON output");
 const commandContext = createCommandContext(program);
+configureOperationAccountSelection(program);
 
 registerCoreCommands(commandContext);
 registerSearchCommands(commandContext);
@@ -67,6 +72,7 @@ export async function runCli(argv = process.argv) {
 	try {
 		await program.parseAsync(argv);
 	} finally {
+		resetOperationAccountSelection();
 		await closeDatabase();
 	}
 }

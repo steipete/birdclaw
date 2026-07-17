@@ -143,10 +143,10 @@ A fresh install with just an archive and no live transport still gets a usable [
 The archive ships with stale profile metadata (bios, follower counts, avatars from years ago). Hydrate from live Twitter when you can:
 
 ```bash
-birdclaw import hydrate-profiles --json
+birdclaw import hydrate-profiles --account steipete --json
 ```
 
-With xurl available, this walks the imported profiles table and refreshes each entry. On large archives, that can mean hundreds or thousands of live X profile reads and may spend API credits. In Bird-only mode, the command uses `bird whoami` to correct the seeded local account identity but does not bulk-hydrate imported profiles. Without a live transport, hydration is a no-op and the archive's snapshot stays.
+With xurl available, this walks the imported profiles table and refreshes each entry. On large archives, that can mean hundreds or thousands of live X profile reads and may spend API credits. `--account` accepts a username or stored account ID and routes the operation through that account. In Bird-only mode, the command verifies `bird whoami`; without an explicit selection it retains the legacy seeded-account correction, while explicit selection never relabels another stored identity. Without a live transport, hydration is a no-op and the archive's snapshot stays.
 
 Avatars are written to `~/.birdclaw/media/thumbs/avatars/` so the web UI does not re-fetch them on every render.
 

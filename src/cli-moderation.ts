@@ -31,7 +31,7 @@ export function registerModerationCommands({
 
 	blocksCommand
 		.command("list")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--search <query>", "Filter blocked profiles")
 		.option("--limit <n>", "Limit results", "50")
 		.action((options) => {
@@ -45,7 +45,7 @@ export function registerModerationCommands({
 
 	blocksCommand
 		.command("add <query>")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addBlock(
@@ -58,7 +58,7 @@ export function registerModerationCommands({
 
 	blocksCommand
 		.command("remove <query>")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeBlock(
@@ -71,7 +71,7 @@ export function registerModerationCommands({
 
 	blocksCommand
 		.command("sync")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (options) => {
 			const result = await syncBlocks(options.account);
 			print(result, asJson());
@@ -80,7 +80,7 @@ export function registerModerationCommands({
 	blocksCommand
 		.command("import <path>")
 		.description("Import a newline-delimited blocklist file")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (filePath, options) => {
 			const result = await importBlocklist(options.account, filePath);
 			print(result, asJson());
@@ -91,7 +91,7 @@ export function registerModerationCommands({
 		.description(
 			"Record a known-good remote block locally without another live write",
 		)
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (query, options) => {
 			const result = await recordBlock(options.account, query);
 			print(result, asJson());
@@ -103,7 +103,7 @@ export function registerModerationCommands({
 
 	mutesCommand
 		.command("list")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--search <query>", "Filter muted profiles")
 		.option("--limit <n>", "Limit results", "50")
 		.action((options) => {
@@ -117,7 +117,7 @@ export function registerModerationCommands({
 
 	mutesCommand
 		.command("add <query>")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addMute(
@@ -130,7 +130,7 @@ export function registerModerationCommands({
 
 	mutesCommand
 		.command("remove <query>")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeMute(
@@ -146,7 +146,7 @@ export function registerModerationCommands({
 		.description(
 			"Record a known-good remote mute locally without another live write",
 		)
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (query, options) => {
 			const result = await recordMute(options.account, query);
 			print(result, asJson());
@@ -155,7 +155,7 @@ export function registerModerationCommands({
 	program
 		.command("ban <query>")
 		.description("Alias for blocks add")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addBlock(
@@ -169,7 +169,7 @@ export function registerModerationCommands({
 	program
 		.command("unban <query>")
 		.description("Alias for blocks remove")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeBlock(
@@ -183,7 +183,7 @@ export function registerModerationCommands({
 	program
 		.command("mute <query>")
 		.description("Mute a user for one account")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addMute(
@@ -197,7 +197,7 @@ export function registerModerationCommands({
 	program
 		.command("unmute <query>")
 		.description("Unmute a user for one account")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeMute(

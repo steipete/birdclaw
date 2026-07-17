@@ -18,7 +18,17 @@ const mocks = vi.hoisted(() => ({
 	lookupUsersByIds: vi.fn(),
 	unblockUserViaBird: vi.fn(),
 	unblockUserViaXurl: vi.fn(),
+	getAuthenticatedBirdAccount: vi.fn(),
 }));
+
+vi.mock("./bird", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		getAuthenticatedBirdAccountEffect: fromMock(
+			mocks.getAuthenticatedBirdAccount,
+		),
+	};
+});
 
 vi.mock("./bird-actions", async () => {
 	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
@@ -68,6 +78,7 @@ afterEach(() => {
 	mocks.lookupUsersByIds.mockReset();
 	mocks.unblockUserViaBird.mockReset();
 	mocks.unblockUserViaXurl.mockReset();
+	mocks.getAuthenticatedBirdAccount.mockReset();
 
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
@@ -79,6 +90,10 @@ describe("blocklist", () => {
 		delete process.env.BIRDCLAW_DISABLE_LIVE_WRITES;
 		mocks.lookupProfileViaBird.mockResolvedValue(null);
 		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
 			id: "25401953",
 			username: "steipete",
 		});

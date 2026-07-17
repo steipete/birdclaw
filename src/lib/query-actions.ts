@@ -300,12 +300,21 @@ export function createTweetReply(
 	return runEffectPromise(createTweetReplyEffect(accountId, tweetId, text));
 }
 
-export function createDmReplyEffect(conversationId: string, text: string) {
+export function createDmReplyEffect(
+	conversationId: string,
+	text: string,
+	accountId?: string,
+) {
 	return Effect.gen(function* () {
 		const draft = yield* trySync(() => {
 			const conversation = getConversationThread(conversationId);
 			if (!conversation) {
 				throw new Error("Conversation not found");
+			}
+			if (accountId && conversation.conversation.accountId !== accountId) {
+				throw new Error(
+					`Conversation belongs to ${conversation.conversation.accountId}, not ${accountId}`,
+				);
 			}
 			const authorProfileId = getLocalAuthorProfileId(
 				conversation.conversation.accountId,
@@ -390,8 +399,12 @@ export function createDmReplyEffect(conversationId: string, text: string) {
 	});
 }
 
-export function createDmReply(conversationId: string, text: string) {
-	return runEffectPromise(createDmReplyEffect(conversationId, text));
+export function createDmReply(
+	conversationId: string,
+	text: string,
+	accountId?: string,
+) {
+	return runEffectPromise(createDmReplyEffect(conversationId, text, accountId));
 }
 
 export type DmRequestMutationAction = "accept" | "reject" | "block";

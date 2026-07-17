@@ -16,7 +16,17 @@ const mocks = vi.hoisted(() => ({
 	muteUserViaXurl: vi.fn(),
 	unmuteUserViaXurl: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
+	getAuthenticatedBirdAccount: vi.fn(),
 }));
+
+vi.mock("./bird", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		getAuthenticatedBirdAccountEffect: fromMock(
+			mocks.getAuthenticatedBirdAccount,
+		),
+	};
+});
 
 vi.mock("./bird-actions", async () => {
 	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
@@ -63,7 +73,12 @@ describe("actions transport", () => {
 		mocks.muteUserViaXurl.mockReset();
 		mocks.unmuteUserViaXurl.mockReset();
 		mocks.lookupAuthenticatedUser.mockReset();
+		mocks.getAuthenticatedBirdAccount.mockReset();
 		mocks.lookupAuthenticatedUser.mockResolvedValue({ id: "1" });
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "1",
+			username: "steipete",
+		});
 		mocks.blockUserViaBird.mockResolvedValue({
 			ok: true,
 			output: "bird block ok",
@@ -148,10 +163,14 @@ describe("actions transport", () => {
 		expect(mocks.blockUserViaXurl).not.toHaveBeenCalled();
 	});
 
-	it("does not require xurl account verification before bird actions", async () => {
+	it("verifies the selected bird account without consulting xurl", async () => {
 		mocks.lookupAuthenticatedUser.mockResolvedValue({
 			id: "2",
 			username: "other",
+		});
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
 		});
 		const { runModerationAction } = await import("./actions-transport");
 		const result = await runModerationAction({
@@ -171,6 +190,7 @@ describe("actions transport", () => {
 			transport: "bird",
 		});
 		expect(mocks.blockUserViaBird).toHaveBeenCalledWith("7");
+		expect(mocks.getAuthenticatedBirdAccount).toHaveBeenCalledTimes(1);
 		expect(mocks.lookupAuthenticatedUser).not.toHaveBeenCalled();
 		expect(mocks.blockUserViaXurl).not.toHaveBeenCalled();
 	});

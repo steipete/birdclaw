@@ -19,6 +19,12 @@ vi.mock("./xurl", async () => {
 	return {
 		getTransportStatusEffect: fromMock(mocks.getTransportStatus),
 		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+		lookupAuthenticatedUserUnscopedEffect: fromMock(
+			mocks.lookupAuthenticatedUser,
+		),
+		lookupAuthenticatedOAuth2UserEffect: fromMock(
+			mocks.lookupAuthenticatedUser,
+		),
 		lookupUsersByIdsEffect: fromMock(mocks.lookupUsersByIds),
 	};
 });
@@ -129,7 +135,7 @@ describe("profile hydration", () => {
 		});
 
 		const { hydrateProfilesFromX } = await import("./profile-hydration");
-		const result = await hydrateProfilesFromX();
+		const result = await hydrateProfilesFromX({ account: "steipete" });
 		const hydrated = db
 			.prepare(
 				"select handle, display_name, bio, followers_count, following_count, avatar_url from profiles where id = 'profile_user_42'",
@@ -161,6 +167,66 @@ describe("profile hydration", () => {
 			avatar_url: "https://pbs.twimg.com/profile_images/42/avatar.jpg",
 		});
 		expect(title.title).toBe("Sam Altman");
+		expect(mocks.lookupAuthenticatedUser).toHaveBeenCalledWith("steipete");
+		expect(mocks.lookupUsersByIds).toHaveBeenCalledWith(["42"], {
+			username: "steipete",
+		});
+	});
+
+	it("verifies a selected credential before bulk profile writes", async () => {
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "999",
+			username: "different_user",
+		});
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+
+		await expect(hydrateProfilesFromX({ account: "steipete" })).rejects.toThrow(
+			"refusing to sync",
+		);
+		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
+	});
+
+	it("does not overwrite the primary profile for a selected secondary account", async () => {
+		const db = getNativeDb();
+		db.prepare(
+			`insert into accounts
+			 (id, name, handle, external_user_id, transport, is_default, created_at)
+			 values ('acct_secondary', 'Secondary', '@secondary', '999', 'xurl', 0, '2026-01-01T00:00:00.000Z')`,
+		).run();
+		const before = db
+			.prepare(
+				"select handle, display_name, avatar_url from profiles where id = 'profile_me'",
+			)
+			.get();
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: "xurl",
+			installed: true,
+			statusText: "xurl available",
+		});
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "999",
+			username: "secondary",
+			name: "Secondary Updated",
+			public_metrics: { followers_count: 10 },
+		});
+		mocks.lookupUsersByIds.mockResolvedValue([]);
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+
+		await expect(
+			hydrateProfilesFromX({ account: "acct_secondary" }),
+		).resolves.toMatchObject({ hydratedAccount: true });
+		expect(
+			db
+				.prepare(
+					"select handle, display_name, avatar_url from profiles where id = 'profile_me'",
+				)
+				.get(),
+		).toEqual(before);
 	});
 
 	it("skips non-numeric archive placeholder ids before calling X", async () => {

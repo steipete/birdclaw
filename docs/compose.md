@@ -26,7 +26,7 @@ birdclaw compose post --account acct_primary "Multi-account post."
 
 Flags:
 
-- `--account <id>`
+- `--account <username>` — account username or stored ID
 - `--reply-to <tweet-id>` — equivalent to `compose reply`
 - `--quote <tweet-id>` — quote-tweet
 - `--media <path>` — attach a local file (planned)
@@ -57,6 +57,8 @@ birdclaw compose dm dm_004 --account acct_primary "Sounds good."
 ```
 
 `compose dm` resolves the conversation, picks the right transport (`bird` is preferred for DM writes because OAuth2 DM scopes are flaky), and merges the sent message back into the local DM tables.
+
+All compose commands accept `--account`. For DMs, the selected account must own the local conversation. Set `accounts.default` in `config.json` for a recurring choice.
 
 ## Disabling live writes
 

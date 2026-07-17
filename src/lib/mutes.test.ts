@@ -17,7 +17,17 @@ const mocks = vi.hoisted(() => ({
 	muteUserViaXurl: vi.fn(),
 	unmuteUserViaBird: vi.fn(),
 	unmuteUserViaXurl: vi.fn(),
+	getAuthenticatedBirdAccount: vi.fn(),
 }));
+
+vi.mock("./bird", async () => {
+	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
+	return {
+		getAuthenticatedBirdAccountEffect: fromMock(
+			mocks.getAuthenticatedBirdAccount,
+		),
+	};
+});
 
 vi.mock("./bird-actions", async () => {
 	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
@@ -61,7 +71,12 @@ describe("mutes", () => {
 		mocks.muteUserViaXurl.mockReset();
 		mocks.unmuteUserViaBird.mockReset();
 		mocks.unmuteUserViaXurl.mockReset();
+		mocks.getAuthenticatedBirdAccount.mockReset();
 		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
 			id: "25401953",
 			username: "steipete",
 		});
