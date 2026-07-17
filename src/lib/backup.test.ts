@@ -56,6 +56,7 @@ function clearData() {
     delete from tweet_actions;
     delete from tweet_account_edges;
     delete from tweet_collections;
+		delete from tweet_sources;
     delete from link_occurrences;
     delete from url_expansions;
     delete from blocks;
@@ -163,6 +164,13 @@ function seedBackupFixture() {
       ('tweet_2024', 'Shipping text backups'),
       ('tweet_2025', 'Saved useful thing'),
       ('tweet_unknown_date', 'Unknown creation date like');
+
+    insert into tweet_sources (tweet_id, source, source_url, observed_at)
+    values (
+      'tweet_2024', 'fxtwitter',
+      'https://api.fxtwitter.com/2/status/tweet_2024',
+      '2025-01-03T00:00:00.000Z'
+    );
 
     insert into dm_conversations (
       id, account_id, participant_profile_id, title, inbox_kind, last_message_at, unread_count, needs_reply
@@ -409,6 +417,7 @@ describe("text backup", () => {
 			profile_snapshots: 1,
 			profile_bio_entities: 2,
 			tweets: 3,
+			tweet_sources: 1,
 			timeline_edges_home: 1,
 			timeline_edges_search: 1,
 			collections_bookmarks: 1,
@@ -433,6 +442,9 @@ describe("text backup", () => {
 			true,
 		);
 		expect(existsSync(path.join(repoPath, "data/tweets/unknown.jsonl"))).toBe(
+			true,
+		);
+		expect(existsSync(path.join(repoPath, "data/tweet_sources.jsonl"))).toBe(
 			true,
 		);
 		expect(existsSync(path.join(repoPath, "data/dms/2025.jsonl"))).toBe(true);
@@ -565,6 +577,16 @@ describe("text backup", () => {
 		expect(
 			getNativeDb({ seedDemoData: false })
 				.prepare(
+					"select source, source_url from tweet_sources where tweet_id = 'tweet_2024'",
+				)
+				.get(),
+		).toEqual({
+			source: "fxtwitter",
+			source_url: "https://api.fxtwitter.com/2/status/tweet_2024",
+		});
+		expect(
+			getNativeDb({ seedDemoData: false })
+				.prepare(
 					"select public_metrics_json from profiles where id = 'profile_friend'",
 				)
 				.get(),
@@ -584,7 +606,7 @@ describe("text backup", () => {
 		expect(validation.ok).toBe(true);
 	}, 20000);
 
-	it("emits byte-identical schema-v4 data and hashes for the same database", async () => {
+	it("emits byte-identical schema-v5 data and hashes for the same database", async () => {
 		switchHome("birdclaw-backup-stable-src-");
 		seedBackupFixture();
 		const firstRepoPath = makeTempDir("birdclaw-backup-stable-first-");
@@ -593,9 +615,9 @@ describe("text backup", () => {
 		const first = await exportBackup({ repoPath: firstRepoPath });
 		const second = await exportBackup({ repoPath: secondRepoPath });
 
-		expect(first.manifest.schemaVersion).toBe(4);
+		expect(first.manifest.schemaVersion).toBe(5);
 		expect(first.manifest.backupHash).toBe(
-			"bec137fa89f0f39cef137e8e74dfc59a7a892972189019c7d5e841f9c4c17895",
+			"43fd00e172a6a69a205eb13ecd3179ac0089a1ea252c3697dc3ab26d1a7dacb7",
 		);
 		expect(second.manifest.files).toEqual(first.manifest.files);
 		expect(second.manifest.counts).toEqual(first.manifest.counts);

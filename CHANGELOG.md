@@ -4,6 +4,7 @@
 
 ### Added
 
+- Add explicit, read-only public-tweet import through the fixed FxTwitter endpoint, with durable row provenance and third-party disclosure documentation. (#99 - thanks @0xdevalias)
 - Add a disabled-by-default, bearer-authenticated read-only MCP endpoint for account-scoped cached tweet search and thread research, with startup configuration/schema validation, strict loopback/Host/Origin/path isolation, bounded stateless requests, and no DM, live X, OpenAI, filesystem, or write tools.
 
 ### Changed

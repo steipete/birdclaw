@@ -354,13 +354,19 @@ describe("database init", () => {
 				)
 				.all(),
 		).toEqual([{ name: "x_list_members" }, { name: "x_lists" }]);
+		expect(
+			db
+				.prepare("pragma table_info(tweet_sources)")
+				.all()
+				.map((column) => (column as { name: string }).name),
+		).toEqual(["tweet_id", "source", "source_url", "observed_at"]);
 
 		const busyTimeout = db.pragma("busy_timeout", {
 			simple: true,
 		}) as number;
 		expect(busyTimeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
 		expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
-		expect(db.pragma("user_version", { simple: true })).toBe(4);
+		expect(db.pragma("user_version", { simple: true })).toBe(5);
 	});
 
 	it("does not request a write lock for completed startup backfills", async () => {
@@ -444,8 +450,8 @@ describe("database init", () => {
 	});
 
 	it.each([
-		{ kind: "stale", version: 3 },
-		{ kind: "future", version: 5 },
+		{ kind: "stale", version: 4 },
+		{ kind: "future", version: 6 },
 	])(
 		"rejects a $kind schema and closes its provisional reader",
 		({ version }) => {
@@ -480,10 +486,10 @@ describe("database init", () => {
 
 		const writer = getNativeDb({ seedDemoData: false });
 		getReadDb({ seedDemoData: false });
-		writer.pragma("user_version = 5");
+		writer.pragma("user_version = 6");
 
 		expect(() => getStrictReadDb()).toThrow(
-			/schema 5 is not ready for version 4/,
+			/schema 6 is not ready for version 5/,
 		);
 	});
 

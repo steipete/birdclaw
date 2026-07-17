@@ -9,6 +9,7 @@ import {
 	listThreadViaBirdEffect,
 	searchTweetsViaBirdEffect,
 } from "./bird";
+import { getTweetByIdViaFxTwitterEffect } from "./fxtwitter";
 import {
 	getTransportStatusEffect,
 	getTweetByIdEffect,
@@ -55,8 +56,13 @@ export interface XurlReadTransport {
 	searchRecentTweets: typeof searchRecentTweetsEffect;
 }
 
+export interface FxTwitterReadTransport {
+	getTweetById: typeof getTweetByIdViaFxTwitterEffect;
+}
+
 export interface LiveTransportGateway {
 	bird: BirdReadTransport;
+	fxtwitter: FxTwitterReadTransport;
 	xurl: XurlReadTransport;
 }
 
@@ -75,6 +81,9 @@ export const liveTransportGateway: LiveTransportGateway = {
 		listMentions: (...args) => listMentionsViaBirdEffect(...args),
 		listThread: (...args) => listThreadViaBirdEffect(...args),
 		searchTweets: (...args) => searchTweetsViaBirdEffect(...args),
+	},
+	fxtwitter: {
+		getTweetById: (...args) => getTweetByIdViaFxTwitterEffect(...args),
 	},
 	xurl: {
 		getTransportStatus: (...args) => getTransportStatusEffect(...args),

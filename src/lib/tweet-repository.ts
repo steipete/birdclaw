@@ -15,6 +15,9 @@ export interface IngestTweetPayloadOptions {
 	edgeKind?: TweetAccountEdgeKind;
 	collectionKind?: "likes" | "bookmarks";
 	markRepliesAsReplied?: boolean;
+	provenance?: {
+		sourceUrlByTweetId: ReadonlyMap<string, string>;
+	};
 }
 
 function getReferencedTweetId(tweet: XurlMentionData, type: string) {
@@ -51,6 +54,7 @@ export function ingestTweetPayload(
 		edgeKind,
 		collectionKind,
 		markRepliesAsReplied = false,
+		provenance,
 	}: IngestTweetPayloadOptions,
 ) {
 	const usersById = new Map(
@@ -88,6 +92,15 @@ export function ingestTweetPayload(
       `)
 		: undefined;
 	const tweetIds: string[] = [];
+	const upsertSource = provenance
+		? db.prepare(`
+        insert into tweet_sources (tweet_id, source, source_url, observed_at)
+        values (?, ?, ?, ?)
+        on conflict(tweet_id, source) do update set
+          source_url = excluded.source_url,
+          observed_at = excluded.observed_at
+      `)
+		: undefined;
 
 	db.transaction(() => {
 		const observedAt = new Date().toISOString();
@@ -119,6 +132,10 @@ export function ingestTweetPayload(
 					? 1
 					: 0,
 			);
+			const sourceUrl = provenance?.sourceUrlByTweetId.get(tweet.id);
+			if (sourceUrl) {
+				upsertSource?.run(tweet.id, source, sourceUrl, observedAt);
+			}
 			if (edgeKind && isPrimaryTweet) {
 				upsertTweetAccountEdge(db, {
 					accountId,

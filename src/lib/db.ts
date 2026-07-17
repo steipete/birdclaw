@@ -130,6 +130,14 @@ const BASE_SCHEMA_SQL = `
     quoted_tweet_id text
   );
 
+  create table if not exists tweet_sources (
+    tweet_id text not null,
+    source text not null,
+    source_url text not null,
+    observed_at text not null,
+    primary key (tweet_id, source)
+  );
+
   create table if not exists tweet_collections (
     account_id text not null,
     tweet_id text not null,
@@ -497,6 +505,18 @@ function ensureTweetCollectionsTable(db: Database) {
       raw_json text not null default '{}',
       updated_at text not null,
       primary key (account_id, tweet_id, kind)
+    );
+  `);
+}
+
+function ensureTweetSourcesTable(db: Database) {
+	db.exec(`
+    create table if not exists tweet_sources (
+      tweet_id text not null,
+      source text not null,
+      source_url text not null,
+      observed_at text not null,
+      primary key (tweet_id, source)
     );
   `);
 }
@@ -902,6 +922,11 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 				"create index if not exists idx_tweets_reply_to on tweets(reply_to_id)",
 			);
 		},
+	},
+	{
+		version: 5,
+		name: "add durable tweet source provenance",
+		up: ensureTweetSourcesTable,
 	},
 ];
 

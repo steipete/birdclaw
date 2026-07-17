@@ -9,6 +9,7 @@ const setActionsTransportMock = vi.fn();
 const getQueryEnvelopeMock = vi.fn();
 const findArchivesMock = vi.fn();
 const importArchiveMock = vi.fn();
+const importTweetsViaFxTwitterMock = vi.fn();
 const importBlocklistMock = vi.fn();
 const addBlockMock = vi.fn();
 const recordBlockMock = vi.fn();
@@ -105,6 +106,11 @@ vi.mock("#/lib/archive-import", () => ({
 		"following",
 	],
 	importArchive: (...args: unknown[]) => importArchiveMock(...args),
+}));
+
+vi.mock("#/lib/fxtwitter", () => ({
+	importTweetsViaFxTwitter: (...args: unknown[]) =>
+		importTweetsViaFxTwitterMock(...args),
 }));
 
 vi.mock("#/lib/backup", async (importOriginal) => {
@@ -292,6 +298,7 @@ describe("cli", () => {
 		getQueryEnvelopeMock.mockReset();
 		findArchivesMock.mockReset();
 		importArchiveMock.mockReset();
+		importTweetsViaFxTwitterMock.mockReset();
 		importBlocklistMock.mockReset();
 		addBlockMock.mockReset();
 		recordBlockMock.mockReset();
@@ -377,6 +384,21 @@ describe("cli", () => {
 		importArchiveMock.mockResolvedValue({
 			ok: true,
 			archivePath: "/tmp/twitter.zip",
+		});
+		importTweetsViaFxTwitterMock.mockResolvedValue({
+			ok: true,
+			readOnlyTransport: true,
+			source: "fxtwitter",
+			endpoint: "https://api.fxtwitter.com",
+			requestedCount: 1,
+			importedCount: 1,
+			items: [
+				{
+					tweetId: "20",
+					source: "fxtwitter",
+					sourceUrl: "https://api.fxtwitter.com/2/status/20",
+				},
+			],
 		});
 		importBlocklistMock.mockResolvedValue({
 			ok: true,
@@ -1333,6 +1355,46 @@ describe("cli", () => {
 		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip", {
 			select: ["tweets", "directMessages", "likes"],
 		});
+	});
+
+	it("requires explicit FxTwitter opt-in before public tweet import", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "import", "tweet", "20"]);
+
+		expect(process.exitCode).toBe(1);
+		expect(importTweetsViaFxTwitterMock).not.toHaveBeenCalled();
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			expect.stringContaining("api.fxtwitter.com"),
+		);
+		consoleErrorMock.mockRestore();
+	});
+
+	it("imports public tweets through explicitly selected FxTwitter", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"import",
+			"tweet",
+			"20",
+			"https://x.com/example/status/30",
+			"--fxtwitter",
+		]);
+
+		expect(importTweetsViaFxTwitterMock).toHaveBeenCalledWith([
+			"20",
+			"https://x.com/example/status/30",
+		]);
+		expect(maybeAutoSyncBackupMock).toHaveBeenCalledOnce();
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"source": "fxtwitter"'),
+		);
 	});
 
 	it("rejects unknown archive import slices", async () => {

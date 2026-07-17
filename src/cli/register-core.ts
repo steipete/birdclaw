@@ -8,6 +8,7 @@ import {
 	importArchive,
 } from "#/lib/archive-import";
 import { ensureBirdclawDirs, setActionsTransport } from "#/lib/config";
+import { importTweetsViaFxTwitter } from "#/lib/fxtwitter";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
 import { getQueryEnvelope } from "#/lib/queries";
 import { printError, type CliCommandContext } from "./command-context";
@@ -180,7 +181,7 @@ export function registerCoreCommands({
 
 	const importCommand = program
 		.command("import")
-		.description("Import local archive data");
+		.description("Import local or explicitly selected public data");
 	importCommand
 		.command("archive [archivePath]")
 		.description("Import a Twitter archive into the local SQLite store")
@@ -208,6 +209,27 @@ export function registerCoreCommands({
 			});
 			await autoSyncAfterWrite();
 			print(result, json);
+		});
+	importCommand
+		.command("tweet <tweets...>")
+		.description(
+			"Import public tweets through an explicitly selected read-only transport",
+		)
+		.option(
+			"--fxtwitter",
+			"Send tweet IDs to the fixed third-party api.fxtwitter.com endpoint",
+		)
+		.action(async (tweets: string[], options: { fxtwitter?: boolean }) => {
+			if (!options.fxtwitter) {
+				printError(
+					"Public tweet import is off by default. Pass --fxtwitter to disclose the requested tweet IDs and network metadata to api.fxtwitter.com.",
+				);
+				process.exitCode = 1;
+				return;
+			}
+			const result = await importTweetsViaFxTwitter(tweets);
+			await autoSyncAfterWrite();
+			print(result, asJson());
 		});
 	importCommand
 		.command("hydrate-profiles")

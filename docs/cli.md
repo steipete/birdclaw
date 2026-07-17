@@ -54,6 +54,7 @@ birdclaw init
 birdclaw auth status
 birdclaw auth use <transport>
 birdclaw import archive [path]
+birdclaw import tweet <tweet-id-or-url...> --fxtwitter
 birdclaw sync all
 birdclaw sync tweets
 birdclaw sync authored
@@ -133,6 +134,16 @@ birdclaw debug transport
 - write default config if absent
 - optionally detect `xurl` and `bird`
 
+### `import tweet <tweet-id-or-url...>`
+
+- disabled unless `--fxtwitter` is passed on the same invocation
+- sends only requested public tweet IDs to the fixed read-only `https://api.fxtwitter.com` service
+- rejects custom origins, redirects, noncanonical URLs, and batches larger than 20 tweets
+- stores `fxtwitter` source markers in `tweet_sources` and `data/tweet_sources.jsonl` backups
+- discloses requested IDs plus ordinary network metadata such as IP address and request time to the third-party service
+
+See [Public tweet import](public-tweets.md) for the full privacy and capability boundary.
+
 ### `auth status`
 
 - show transport availability
@@ -171,6 +182,7 @@ birdclaw backup sync --repo ~/Projects/backup-birdclaw --remote https://github.c
 Shard contract:
 
 - tweets: `data/tweets/YYYY.jsonl`
+- tweet provenance: `data/tweet_sources.jsonl`
 - unknown tweet dates: `data/tweets/unknown.jsonl`
 - profiles: `data/profiles.jsonl` includes bio, follower/following counts, profile URL, location, verification type, structured URL entities, and raw profile JSON
 - affiliations: `data/profile_affiliations.jsonl` includes X badge/highlighted-label organization edges

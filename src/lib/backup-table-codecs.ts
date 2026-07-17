@@ -522,6 +522,28 @@ const definitions = {
 			},
 		},
 	},
+	tweet_sources: {
+		exportSql: `
+      select tweet_id, source, source_url, observed_at
+      from tweet_sources
+      order by tweet_id, source
+    `,
+		...fixedShard("data/tweet_sources.jsonl", "tweet_sources"),
+		merge: {
+			order: 12,
+			sql: `
+      insert into tweet_sources (tweet_id, source, source_url, observed_at)
+      values (?, ?, ?, ?)
+      on conflict(tweet_id, source) do update set
+        source_url = case
+          when excluded.observed_at >= tweet_sources.observed_at then excluded.source_url
+          else tweet_sources.source_url
+        end,
+        observed_at = max(tweet_sources.observed_at, excluded.observed_at)
+      `,
+			columns: ["tweet_id", "source", "source_url", "observed_at"],
+		},
+	},
 	tweet_collections: {
 		exportSql: `
       select account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
@@ -537,7 +559,7 @@ const definitions = {
 		countKey: (candidate) =>
 			`collections_${pathLeaf(candidate).replace(/\.jsonl$/, "") || "unknown"}`,
 		merge: {
-			order: 12,
+			order: 13,
 			sql: `
       insert into tweet_collections (
         account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
@@ -583,7 +605,7 @@ const definitions = {
 		countKey: (candidate) =>
 			`timeline_edges_${pathLeaf(candidate).replace(/\.jsonl$/, "") || "unknown"}`,
 		merge: {
-			order: 13,
+			order: 14,
 			sql: `
       insert into tweet_account_edges (
         account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
@@ -622,7 +644,7 @@ const definitions = {
     `,
 		...fixedShard("data/dms/conversations.jsonl", "dm_conversations"),
 		merge: {
-			order: 14,
+			order: 15,
 			sql: `
       insert into dm_conversations (
         id, account_id, participant_profile_id, title, inbox_kind, last_message_at, unread_count, needs_reply
@@ -665,7 +687,7 @@ const definitions = {
 			candidate !== "data/dms/conversations.jsonl",
 		countKey: () => "dm_messages",
 		merge: {
-			order: 15,
+			order: 16,
 			sql: `
       insert into dm_messages (
         id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
@@ -706,7 +728,7 @@ const definitions = {
     `,
 		...fixedShard("data/links/url_expansions.jsonl", "url_expansions"),
 		merge: {
-			order: 16,
+			order: 17,
 			transform: sanitizeImportedUrlExpansions,
 			sql: `
       insert into url_expansions (
@@ -754,7 +776,7 @@ const definitions = {
     `,
 		...fixedShard("data/links/occurrences.jsonl", "link_occurrences"),
 		merge: {
-			order: 17,
+			order: 18,
 			sql: `
       insert into link_occurrences (
         source_kind, source_id, source_position, short_url, account_id,
@@ -786,7 +808,7 @@ const definitions = {
     `,
 		...fixedShard("data/moderation/blocks.jsonl", "blocks"),
 		merge: {
-			order: 18,
+			order: 19,
 			sql: `
       insert into blocks (account_id, profile_id, source, created_at)
       values (?, ?, ?, ?)
@@ -805,7 +827,7 @@ const definitions = {
     `,
 		...fixedShard("data/moderation/mutes.jsonl", "mutes"),
 		merge: {
-			order: 19,
+			order: 20,
 			sql: `
       insert into mutes (account_id, profile_id, source, created_at)
       values (?, ?, ?, ?)
@@ -824,7 +846,7 @@ const definitions = {
     `,
 		...fixedShard("data/actions/tweet_actions.jsonl", "tweet_actions"),
 		merge: {
-			order: 20,
+			order: 21,
 			sql: `
       insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at)
       values (?, ?, ?, ?, ?, ?)
@@ -846,7 +868,7 @@ const definitions = {
     `,
 		...fixedShard("data/ai_scores.jsonl", "ai_scores"),
 		merge: {
-			order: 21,
+			order: 22,
 			sql: `
       insert into ai_scores (
         entity_kind, entity_id, model, score, summary, reasoning, updated_at

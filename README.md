@@ -23,6 +23,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - archive import for tweets, likes, followers/following, profiles, and full DMs
 - selective archive re-imports for one stale slice without wiping the rest of the local store
 - archive import for bookmark exports when present
+- explicit, disabled-by-default import of named public tweets through the fixed read-only FxTwitter endpoint, with durable source provenance
 - archive import streams bundled media files into the local originals cache and extracts `video_info.variants[]` for video and animated-GIF rows
 - live authored sync through `xurl`, plus likes and bookmarks through `xurl` or `bird`
 - cache-first followers/following sync through `bird` or `xurl`
@@ -76,6 +77,7 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 ### Safety
 
 - local-first by default
+- public FxTwitter import never runs automatically and requires a per-invocation flag that discloses the third-party request tradeoff
 - tests disable live writes
 - CI disables live writes
 - local web access has no default auth layer; the optional MCP endpoint uses a

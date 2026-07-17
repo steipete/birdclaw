@@ -14,6 +14,9 @@ birdclaw archive find --json
 birdclaw import archive --json
 birdclaw import archive ~/Downloads/twitter-archive.zip --select likes,bookmarks --json
 
+# Explicitly import named public tweets through the third-party FxTwitter service.
+birdclaw import tweet 20 --fxtwitter --json
+
 # Pull in mentions, likes, bookmarks, and the home timeline.
 birdclaw sync timeline --limit 100 --refresh --json
 birdclaw sync bookmarks --mode auto --all --json
@@ -50,6 +53,7 @@ Stable `--json` envelopes go to stdout, progress and warnings to stderr — pipe
 
 - **First time using birdclaw.** [Install](install.md) → [Quickstart](quickstart.md) covers archive-first account setup, live transports, and the local web app.
 - **Have a Twitter archive ZIP.** [Archive import](archive.md) walks through autodiscovery, selected re-imports, and idempotent re-runs.
+- **Need a few named public tweets without X credentials.** [Public tweet import](public-tweets.md) documents the explicit FxTwitter opt-in and third-party disclosure tradeoff.
 - **Already initialized, want fresh live data.** [Sync](sync.md) covers likes, bookmarks, timeline, mention threads, and rate-limit-aware resumable runs.
 - **Triaging mentions or DMs.** [Search](search.md), [Mentions](mentions.md), [DMs](dms.md), and [Inbox](inbox.md).
 - **Exploring your network.** [Network Map](network-map.md) plots current followers/following by profile location.

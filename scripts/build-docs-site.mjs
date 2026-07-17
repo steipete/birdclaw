@@ -30,7 +30,14 @@ const sections = [
 	],
 	[
 		"Archive & Sync",
-		["archive.md", "sync.md", "media.md", "backup.md", "jobs.md"],
+		[
+			"archive.md",
+			"public-tweets.md",
+			"sync.md",
+			"media.md",
+			"backup.md",
+			"jobs.md",
+		],
 	],
 	[
 		"Reading & Triage",
