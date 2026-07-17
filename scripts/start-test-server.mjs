@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { withSanitizedNodeOptions } from "./sanitize-node-options.mjs";
 
 const cwd = process.cwd();
@@ -18,6 +19,28 @@ if (
 }
 
 rmSync(resolvedHome, { recursive: true, force: true });
+
+const seedEnv = {
+	...withSanitizedNodeOptions(process.env),
+	BIRDCLAW_HOME: resolvedHome,
+	BIRDCLAW_E2E: "1",
+	BIRDCLAW_DISABLE_LIVE_WRITES: "1",
+};
+const require = createRequire(import.meta.url);
+const seed = spawnSync(
+	process.execPath,
+	[
+		require.resolve("tsx/cli"),
+		path.join(cwd, "src", "cli.ts"),
+		"--json",
+		"init",
+		"--demo",
+	],
+	{ cwd, env: seedEnv, stdio: "inherit" },
+);
+if (seed.status !== 0) {
+	throw new Error(`Could not seed Playwright demo (${String(seed.status)})`);
+}
 
 const child = spawn(
 	process.execPath,

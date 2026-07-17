@@ -2,6 +2,19 @@ import type { Database } from "./sqlite";
 
 const now = new Date("2026-03-08T12:00:00.000Z");
 
+export type DemoSeedResult =
+	| {
+			seeded: true;
+			counts: {
+				accounts: number;
+				profiles: number;
+				tweets: number;
+				conversations: number;
+				messages: number;
+			};
+	  }
+	| { seeded: false; reason: "database-not-empty" };
+
 function isoMinutesAgo(minutes: number) {
 	return new Date(now.getTime() - minutes * 60_000).toISOString();
 }
@@ -22,16 +35,27 @@ function svgAvatarDataUrl(label: string, hue: number) {
 	return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-export function seedDemoData(db: Database) {
-	const accountCount = db
-		.prepare("select count(*) as count from accounts")
-		.get() as {
-		count: number;
-	};
+function hasStoredContent(db: Database) {
+	const tables = db
+		.prepare(`
+			select name
+			from sqlite_master
+			where type = 'table'
+			  and name not like 'sqlite_%'
+			  and name not glob 'tweets_fts_*'
+			  and name not glob 'dm_fts_*'
+			order by name
+		`)
+		.all() as Array<{ name: string }>;
 
-	if (accountCount.count > 0) {
-		return;
+	for (const { name } of tables) {
+		if (!/^[a-z0-9_]+$/.test(name)) return true;
+		if (db.prepare(`select 1 from "${name}" limit 1`).get()) return true;
 	}
+	return false;
+}
+
+export function seedDemoData(db: Database): DemoSeedResult {
 	const linkNow = new Date();
 	const linkMinutesAgo = (minutes: number) =>
 		new Date(linkNow.getTime() - minutes * 60_000).toISOString();
@@ -588,7 +612,11 @@ export function seedDemoData(db: Database) {
 		},
 	];
 
-	const transaction = db.transaction(() => {
+	const transaction = db.transaction((): DemoSeedResult => {
+		if (hasStoredContent(db)) {
+			return { seeded: false, reason: "database-not-empty" };
+		}
+
 		for (const account of accounts) {
 			insertAccount.run(account);
 		}
@@ -656,7 +684,18 @@ export function seedDemoData(db: Database) {
 		for (const occurrence of linkOccurrences) {
 			insertLinkOccurrence.run(occurrence);
 		}
+
+		return {
+			seeded: true,
+			counts: {
+				accounts: accounts.length,
+				profiles: profiles.length,
+				tweets: tweets.length,
+				conversations: conversations.length,
+				messages: messages.length,
+			},
+		};
 	});
 
-	transaction();
+	return transaction();
 }

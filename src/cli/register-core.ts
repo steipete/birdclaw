@@ -8,9 +8,11 @@ import {
 	importArchive,
 } from "#/lib/archive-import";
 import { ensureBirdclawDirs, setActionsTransport } from "#/lib/config";
+import { getNativeDb } from "#/lib/db";
 import { importTweetsViaFxTwitter } from "#/lib/fxtwitter";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
 import { getQueryEnvelope } from "#/lib/queries";
+import { seedDemoData } from "#/lib/seed";
 import { printError, type CliCommandContext } from "./command-context";
 
 const IMPORT_SLICE_LABELS: Record<ImportProgressSlice, string> = {
@@ -139,18 +141,30 @@ export function registerCoreCommands({
 }: CliCommandContext) {
 	program
 		.command("init")
-		.description("Create local birdclaw root and seed the database")
-		.action(async () => {
+		.description("Create an empty local birdclaw workspace")
+		.option("--demo", "Seed sample tweets and DMs for offline exploration")
+		.action((options: { demo?: boolean }) => {
 			const paths = ensureBirdclawDirs();
-			await getQueryEnvelope();
+			const db = getNativeDb({ seedDemoData: false });
+			const demo = options.demo
+				? { requested: true, ...seedDemoData(db) }
+				: { requested: false };
 			print(
 				{
 					ok: true,
+					demo,
 					rootDir: paths.rootDir,
 					configPath: paths.configPath,
 					dbPath: paths.dbPath,
 					mediaOriginalsDir: paths.mediaOriginalsDir,
 					mediaThumbsDir: paths.mediaThumbsDir,
+					nextSteps: options.demo
+						? [
+								"birdclaw search tweets --limit 5",
+								"birdclaw dms list --limit 5",
+								"birdclaw serve",
+							]
+						: ["birdclaw import archive <path>", "birdclaw init --demo"],
 				},
 				asJson(),
 			);

@@ -13,7 +13,7 @@ By default, archive import is a full archive replay. It refreshes archive-owned 
 
 ## Get an archive
 
-On a fresh Birdclaw database, archive import establishes the account identity required by live sync. Do not sync a newly initialized demo database before importing your archive. An archive is optional only when restoring an existing Birdclaw database or backup that already contains the correct account.
+On a fresh Birdclaw database, archive import establishes the account identity required by live sync. Do not sync an empty database or the synthetic `init --demo` workspace before importing your archive. An archive is optional only when restoring an existing Birdclaw database or backup that already contains the correct account.
 
 Request flow:
 

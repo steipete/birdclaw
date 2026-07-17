@@ -13,7 +13,7 @@ description: "Sync authored tweets, Lists, likes, bookmarks, home timeline, ment
 - saves cursors so the next run resumes where the last one stopped
 - caches results on cache-backed surfaces so repeat reads do not keep spending the API budget
 
-On a fresh database, import your X archive before the first live sync. The archive replaces Birdclaw's bundled demo identity with your account identity; transport authentication alone does not perform that binding.
+On a fresh database, import your X archive before the first live sync. The archive establishes real account identity; transport authentication alone does not perform that binding, and `init --demo` contains only synthetic sample data.
 
 ## Web auto-sync
 

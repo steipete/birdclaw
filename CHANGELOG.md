@@ -2,6 +2,10 @@
 
 ## 0.10.1 - Unreleased
 
+### Added
+
+- Add explicit `init --demo` sample data for zero-auth offline exploration while keeping normal initialization empty.
+
 ## 0.10.0 - 2026-07-17
 
 ### Highlights

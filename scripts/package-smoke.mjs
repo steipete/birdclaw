@@ -164,6 +164,18 @@ try {
 	if (!helpOutput.includes("Run the local web app")) {
 		throw new Error("Installed CLI help is missing serve");
 	}
+	const { stdout: initOutput } = await run(bin, ["--json", "init", "--demo"], {
+		cwd: installDir,
+		env,
+	});
+	const init = JSON.parse(initOutput);
+	if (
+		init.demo?.seeded !== true ||
+		init.demo?.counts?.accounts !== 2 ||
+		!init.nextSteps?.includes("birdclaw serve")
+	) {
+		throw new Error(`Installed CLI demo init failed: ${initOutput}`);
+	}
 	const { stdout: statsOutput } = await run(bin, ["--json", "db", "stats"], {
 		cwd: installDir,
 		env,

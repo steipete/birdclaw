@@ -50,8 +50,12 @@ describe("docs site", () => {
 		);
 		expect(quickstart).not.toContain("fully usable in live-only mode");
 		expect(quickstart).toContain(
-			"Do not run live sync against a freshly initialized database",
+			"Do not run live sync against an empty or demo database",
 		);
+		expect(quickstart).toContain(
+			'birdclaw</span> init <span class="hl-f">--demo',
+		);
+		expect(quickstart).toContain("no archive, credentials, or network access");
 	});
 
 	it("keeps underscores inside autolink URLs literal", () => {

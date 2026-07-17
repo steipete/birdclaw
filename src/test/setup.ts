@@ -1,4 +1,6 @@
 process.env.BIRDCLAW_DISABLE_LIVE_WRITES ??= "1";
+// Existing integration fixtures opt into the same sample dataset as `init --demo`.
+process.env.BIRDCLAW_TEST_SEED_DEMO_DATA = "1";
 
 export {};
 

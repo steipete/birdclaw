@@ -7,6 +7,8 @@ const getBirdclawPathsMock = vi.fn();
 const resolveMentionsDataSourceMock = vi.fn();
 const setActionsTransportMock = vi.fn();
 const getQueryEnvelopeMock = vi.fn();
+const getNativeDbMock = vi.fn();
+const seedDemoDataMock = vi.fn();
 const findArchivesMock = vi.fn();
 const importArchiveMock = vi.fn();
 const importTweetsViaFxTwitterMock = vi.fn();
@@ -89,6 +91,15 @@ vi.mock("#/lib/config", () => ({
 	resolveMentionsDataSource: (...args: unknown[]) =>
 		resolveMentionsDataSourceMock(...args),
 	setActionsTransport: (...args: unknown[]) => setActionsTransportMock(...args),
+}));
+
+vi.mock("#/lib/db", () => ({
+	closeDatabase: vi.fn(),
+	getNativeDb: (...args: unknown[]) => getNativeDbMock(...args),
+}));
+
+vi.mock("#/lib/seed", () => ({
+	seedDemoData: (...args: unknown[]) => seedDemoDataMock(...args),
 }));
 
 vi.mock("#/lib/archive-finder", () => ({
@@ -296,6 +307,8 @@ describe("cli", () => {
 		resolveMentionsDataSourceMock.mockReset();
 		setActionsTransportMock.mockReset();
 		getQueryEnvelopeMock.mockReset();
+		getNativeDbMock.mockReset();
+		seedDemoDataMock.mockReset();
 		findArchivesMock.mockReset();
 		importArchiveMock.mockReset();
 		importTweetsViaFxTwitterMock.mockReset();
@@ -379,6 +392,17 @@ describe("cli", () => {
 			transport: { statusText: "local", installed: false },
 			accounts: [],
 			archives: [],
+		});
+		getNativeDbMock.mockReturnValue({});
+		seedDemoDataMock.mockReturnValue({
+			seeded: true,
+			counts: {
+				accounts: 2,
+				profiles: 6,
+				tweets: 6,
+				conversations: 4,
+				messages: 8,
+			},
 		});
 		findArchivesMock.mockResolvedValue([{ name: "twitter.zip" }]);
 		importArchiveMock.mockResolvedValue({
@@ -601,6 +625,22 @@ describe("cli", () => {
 			port: 3000,
 			serverVersion: packageVersion,
 		});
+		expect(getNativeDbMock).toHaveBeenCalledWith({ seedDemoData: false });
+		expect(seedDemoDataMock).not.toHaveBeenCalled();
+	});
+
+	it("seeds and explains an offline demo only when requested", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli(["node", "birdclaw", "--json", "init", "--demo"]);
+
+		expect(seedDemoDataMock).toHaveBeenCalledWith({});
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"seeded": true'),
+		);
+		expect(consoleLogMock).toHaveBeenCalledWith(
+			expect.stringContaining('"birdclaw serve"'),
+		);
 	});
 
 	it("sets the preferred auth transport", async () => {

@@ -939,8 +939,17 @@ function ensureDemoData(db: Database) {
 	demoSeedAttempted = true;
 }
 
+function shouldSeedDemoData(options: InitDatabaseOptions) {
+	return (
+		options.seedDemoData === true ||
+		(options.seedDemoData === undefined &&
+			process.env.BIRDCLAW_TEST_SEED_DEMO_DATA === "1")
+	);
+}
+
 function initDatabase(options: InitDatabaseOptions = {}) {
 	ensureBirdclawDirs();
+	const seedDemo = shouldSeedDemoData(options);
 
 	if (!nativeDb) {
 		const { dbPath } = getBirdclawPaths();
@@ -951,10 +960,10 @@ function initDatabase(options: InitDatabaseOptions = {}) {
 		  pragma foreign_keys = on;
 		`);
 		runDatabaseMigrations(nativeDb, DATABASE_MIGRATIONS);
-		if (options.seedDemoData !== false) {
+		if (seedDemo) {
 			ensureDemoData(nativeDb);
 		}
-	} else if (options.seedDemoData !== false) {
+	} else if (seedDemo) {
 		ensureDemoData(nativeDb);
 	}
 }

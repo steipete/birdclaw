@@ -11,6 +11,7 @@ import {
 	getStrictReadDb,
 	resetDatabaseForTests,
 } from "./db";
+import { seedDemoData } from "./seed";
 import NativeSqliteDatabase, { SQLITE_BUSY_TIMEOUT_MS } from "./sqlite";
 
 const tempDirs: string[] = [];
@@ -83,17 +84,24 @@ afterEach(() => {
 });
 
 describe("database init", () => {
-	it("seeds demo data after an initial unseeded open", () => {
+	it("seeds demo data only after an explicit request", () => {
 		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-db-"));
 		tempDirs.push(tempDir);
 		process.env.BIRDCLAW_HOME = tempDir;
 
-		const unseededDb = getNativeDb({ seedDemoData: false });
+		const testSeedFlag = process.env.BIRDCLAW_TEST_SEED_DEMO_DATA;
+		delete process.env.BIRDCLAW_TEST_SEED_DEMO_DATA;
+		const unseededDb = getNativeDb();
+		if (testSeedFlag === undefined) {
+			delete process.env.BIRDCLAW_TEST_SEED_DEMO_DATA;
+		} else {
+			process.env.BIRDCLAW_TEST_SEED_DEMO_DATA = testSeedFlag;
+		}
 		expect(
 			unseededDb.prepare("select count(*) as count from accounts").get(),
 		).toEqual({ count: 0 });
 
-		const seededDb = getNativeDb();
+		const seededDb = getNativeDb({ seedDemoData: true });
 
 		expect(
 			seededDb.prepare("select count(*) as count from accounts").get(),
@@ -105,6 +113,31 @@ describe("database init", () => {
 				)
 				.get(),
 		).toEqual({ count: 3 });
+	});
+
+	it("refuses to mix demo data into a partially populated database", () => {
+		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-db-"));
+		tempDirs.push(tempDir);
+		process.env.BIRDCLAW_HOME = tempDir;
+
+		const db = getNativeDb({ seedDemoData: false });
+		db.prepare(`
+			insert into profiles (
+				id, handle, display_name, bio, followers_count, following_count,
+				avatar_hue, created_at
+			) values (?, ?, ?, '', 0, 0, 0, ?)
+		`).run("profile_real", "real", "Real profile", "2026-07-17T00:00:00Z");
+
+		expect(seedDemoData(db)).toEqual({
+			seeded: false,
+			reason: "database-not-empty",
+		});
+		expect(db.prepare("select count(*) as count from accounts").get()).toEqual({
+			count: 0,
+		});
+		expect(db.prepare("select count(*) as count from profiles").get()).toEqual({
+			count: 1,
+		});
 	});
 
 	it("migrates legacy tweet tables before creating quoted tweet indexes", () => {
