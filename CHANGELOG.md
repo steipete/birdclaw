@@ -4,6 +4,7 @@
 
 ### Added
 
+- Select existing accounts per live operation with `--account <username>` or `accounts.default`, including sync, profile hydration, DMs, compose, moderation, and scheduled jobs, without changing persistent database identity. (idea from #97 - thanks @ivankuznetsov)
 - Add explicit `init --demo` sample data for zero-auth offline exploration while keeping normal initialization empty.
 
 ## 0.10.0 - 2026-07-17

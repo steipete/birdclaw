@@ -79,6 +79,7 @@ export interface BookmarkSyncAuditEntry {
 }
 
 export interface BookmarkSyncLaunchAgentOptions {
+	account?: string;
 	label?: string;
 	intervalSeconds?: number;
 	program?: string;
@@ -251,6 +252,7 @@ export function runBookmarkSyncJob(
 
 function buildProgramArguments({
 	program = "birdclaw",
+	account,
 	mode = "auto",
 	limit = DEFAULT_BOOKMARK_SYNC_LIMIT,
 	all = false,
@@ -271,6 +273,9 @@ function buildProgramArguments({
 		"--log",
 		resolveUserPath(logPath ?? getDefaultBookmarkSyncAuditLogPath()),
 	];
+	if (account) {
+		args.push("--account", account);
+	}
 	if (all || maxPages !== undefined) {
 		args.push("--all");
 	}

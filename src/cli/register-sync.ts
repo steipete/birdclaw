@@ -26,7 +26,7 @@ export function registerSyncCommands({
 	syncCommand
 		.command("lists")
 		.description("Sync owned X Lists and rate-limited membership pages")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "auto, bird, or xurl", "auto")
 		.option("--max-lists <n>", "Maximum owned Lists to inspect", "20")
 		.option("--member-limit <n>", "Members per transport page", "20")
@@ -62,7 +62,7 @@ export function registerSyncCommands({
 	syncCommand
 		.command("timeline")
 		.description("Refresh live home timeline through xurl or bird")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "auto, xurl, or bird", "auto")
 		.option("--limit <n>", "Result limit", "100")
 		.option("--max-pages <n>", "Stop after N xurl pages", "3")
@@ -86,7 +86,7 @@ export function registerSyncCommands({
 	syncCommand
 		.command("mentions")
 		.description("Refresh live mentions through xurl or bird")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "auto, bird, or xurl", "auto")
 		.option("--limit <n>", "Result limit per page", "20")
 		.option("--max-pages <n>", "Stop after N pages")
@@ -129,7 +129,7 @@ export function registerSyncCommands({
 	syncCommand
 		.command("authored")
 		.description("Refresh authenticated authored tweets through xurl")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "xurl", "xurl")
 		.option("--limit <n>", "X API page size", "100")
 		.option("--max-pages <n>", "Stop after N pages and resume later")
@@ -171,7 +171,7 @@ export function registerSyncCommands({
 		.description(
 			"Fetch tweet conversation context for recent mentions through bird or xurl",
 		)
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "bird or xurl", "bird")
 		.option("--limit <n>", "Recent mentions to inspect", "30")
 		.option("--delay-ms <n>", "Delay between thread fetches", "1500")
@@ -210,7 +210,7 @@ export function registerSyncCommands({
 		syncCommand
 			.command(kind)
 			.description(`Refresh live ${kind} through xurl or bird`)
-			.option("--account <accountId>", "Account id")
+			.option("--account <username>", "Account username or id")
 			.option("--mode <mode>", "auto, xurl, or bird", "auto")
 			.option("--limit <n>", "Per-page/result limit", "20")
 			.option("--all", "Fetch every retrievable page")
@@ -244,7 +244,7 @@ export function registerSyncCommands({
 			.description(
 				`Dry-run or refresh live ${direction} into the local follow graph`,
 			)
-			.option("--account <accountId>", "Account id")
+			.option("--account <username>", "Account username or id")
 			.option("--mode <mode>", "auto, bird, or xurl", "auto")
 			.option("--limit <n>", "X API users per page", "1000")
 			.option("--max-pages <n>", "Stop after N pages")

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { findOperationAccount } from "./account-selection";
 import { databaseWriteEffect } from "./database-writer";
 import { toError } from "./effect-runtime";
 import type { Database } from "./sqlite";
@@ -40,12 +41,13 @@ export function resolveLiveSyncAccount(
 	db: Database,
 	accountId?: string,
 ): LiveSyncAccount {
-	const row = accountId
+	const selected = findOperationAccount(db, accountId);
+	const row = selected
 		? (db
 				.prepare(
 					"select id, handle, external_user_id, is_default from accounts where id = ?",
 				)
-				.get(accountId) as
+				.get(selected.id) as
 				| {
 						id: string;
 						handle: string;
@@ -53,23 +55,7 @@ export function resolveLiveSyncAccount(
 						is_default: number;
 				  }
 				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id, is_default
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| {
-						id: string;
-						handle: string;
-						external_user_id: string | null;
-						is_default: number;
-				  }
-				| undefined);
+		: undefined;
 
 	if (!row) {
 		throw new Error(`Unknown account: ${accountId ?? "default"}`);

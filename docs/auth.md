@@ -76,6 +76,16 @@ birdclaw sync mentions --mode bird
 birdclaw sync likes --mode xurl
 ```
 
+Select an existing Birdclaw account per operation with its username or stored ID:
+
+```text
+birdclaw sync timeline --account steipete --mode xurl
+birdclaw import hydrate-profiles --account @steipete
+birdclaw profiles replies @someone --account steipete
+```
+
+With xurl, Birdclaw routes that invocation to the matching named OAuth2 account. With Bird, Birdclaw cannot switch cookie jars itself and instead refuses the operation when `bird whoami` does not match. Put `{"accounts":{"default":"steipete"}}` in `config.json` to omit the repeated flag. This selects an existing row only; it does not change the database default or persist credential identity.
+
 Supported modes differ by command; use `birdclaw sync <command> --help`.
 
 ## Security
@@ -85,4 +95,4 @@ Supported modes differ by command; use `birdclaw sync <command> --help`.
 - Use archive-only mode when live access is unnecessary.
 - Set `BIRDCLAW_DISABLE_LIVE_WRITES=1` for development or dry runs.
 
-For multiple Birdclaw accounts, use `--account <id>` on commands that support it. See [Configuration](configuration.md#multi-account).
+For multiple Birdclaw accounts, use `--account <username>` or a stored account ID on commands that support it. See [Configuration](configuration.md#multi-account).

@@ -1,5 +1,11 @@
-import { runDirectMessageRequestMutationViaBird } from "#/lib/bird";
+import {
+	getAuthenticatedBirdAccount,
+	runDirectMessageRequestMutationViaBird,
+} from "#/lib/bird";
+import { resolveOperationAccount } from "#/lib/account-selection";
+import { getConversationThread } from "#/lib/dm-read-model";
 import { syncDirectMessagesViaCachedBird } from "#/lib/dms-live";
+import { assertLiveAccountMatches } from "#/lib/live-sync-engine";
 import { applyDmRequestMutationToLocalStore } from "#/lib/queries";
 import type { CliCommandContext } from "./command-context";
 import {
@@ -19,7 +25,7 @@ export function registerDirectMessageCommands({
 
 	dmsCommand
 		.command("list")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "auto, bird, or xurl", "bird")
 		.option("--refresh", "Refresh live DMs before listing")
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
@@ -124,7 +130,7 @@ export function registerDirectMessageCommands({
 	dmsCommand
 		.command("sync")
 		.description("Refresh live direct messages into the local store")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "auto, bird, or xurl", "bird")
 		.option("--limit <n>", "Limit messages", "20")
 		.option("--inbox <kind>", "all, accepted, or requests", "all")
@@ -169,13 +175,38 @@ export function registerDirectMessageCommands({
 	for (const action of ["accept", "reject", "block"] as const) {
 		const command = dmsCommand
 			.command(`${action} <conversationId>`)
-			.description(`${action} a live DM message request through bird`);
+			.description(`${action} a live DM message request through bird`)
+			.option("--account <username>", "Account username or id");
 		if (action === "block") {
 			command
 				.option("--max-pages <n>", "Additional timeline pages to search", "3")
 				.option("--all-pages", "Search all accepted/request timeline pages");
 		}
 		command.action(async (conversationId, options) => {
+			const conversation = getConversationThread(conversationId);
+			if (!conversation) throw new Error("Conversation not found");
+			const selected = resolveOperationAccount(
+				options.account ?? conversation.conversation.accountId,
+			);
+			if (selected.id !== conversation.conversation.accountId) {
+				throw new Error(
+					`Conversation belongs to ${conversation.conversation.accountId}, not ${selected.id}`,
+				);
+			}
+			if (process.env.BIRDCLAW_DISABLE_LIVE_WRITES !== "1") {
+				const authenticated = await getAuthenticatedBirdAccount();
+				assertLiveAccountMatches({
+					source: "bird",
+					account: {
+						accountId: selected.id,
+						username: selected.username,
+						externalUserId: selected.externalUserId,
+						isDefault: false,
+					},
+					liveUsername: authenticated.username,
+					liveExternalUserId: authenticated.id,
+				});
+			}
 			const maxPages =
 				action === "block"
 					? parseNonNegativeIntegerOption(options.maxPages, "--max-pages")

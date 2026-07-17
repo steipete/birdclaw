@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 
+import { resolveOperationAccount } from "./account-selection";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { resolveProfile } from "./moderation-target";
 import type { ProfileRepliesResponse, XurlReferencedTweet } from "./types";
@@ -15,16 +16,24 @@ function getScanSize(limit: number) {
 
 export function inspectProfileReplies(
 	query: string,
-	{ limit = 12 }: { limit?: number } = {},
+	{ account, limit = 12 }: { account?: string; limit?: number } = {},
 ): Promise<ProfileRepliesResponse> {
-	return runEffectPromise(inspectProfileRepliesEffect(query, { limit }));
+	return runEffectPromise(
+		inspectProfileRepliesEffect(query, { account, limit }),
+	);
 }
 
 export function inspectProfileRepliesEffect(
 	query: string,
-	{ limit = 12 }: { limit?: number } = {},
+	{ account, limit = 12 }: { account?: string; limit?: number } = {},
 ): Effect.Effect<ProfileRepliesResponse, unknown> {
 	return Effect.gen(function* () {
+		const operationAccount = account
+			? yield* Effect.try({
+					try: () => resolveOperationAccount(account),
+					catch: (error) => error,
+				})
+			: undefined;
 		const resolved = yield* tryPromise(() => resolveProfile(query));
 		const externalUserId = resolved.externalUserId;
 		if (!externalUserId) {
@@ -37,6 +46,7 @@ export function inspectProfileRepliesEffect(
 			listUserTweets(externalUserId, {
 				maxResults: getScanSize(limit),
 				excludeRetweets: true,
+				...(operationAccount ? { username: operationAccount.username } : {}),
 			}),
 		);
 		const items = timeline.items

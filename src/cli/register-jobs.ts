@@ -20,7 +20,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.description(
 			"Refresh live account timelines and append a JSONL audit entry",
 		)
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option(
 			"--steps <steps>",
 			"Comma list: timeline,mentions,mention-threads,likes,bookmarks,dms",
@@ -57,7 +57,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--label <label>", "LaunchAgent label")
 		.option("--interval-seconds <seconds>", "Launch interval", "1800")
 		.option("--program <path>", "birdclaw executable or command", "birdclaw")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option(
 			"--steps <steps>",
 			"Comma list: timeline,mentions,mention-threads,likes,bookmarks,dms",
@@ -104,7 +104,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 	jobsCommand
 		.command("sync-bookmarks")
 		.description("Refresh live bookmarks and append a JSONL audit entry")
-		.option("--account <accountId>", "Account id")
+		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "auto, xurl, or bird", "auto")
 		.option("--limit <n>", "Per-page/result limit", "100")
 		.option("--all", "Fetch every retrievable page")
@@ -130,6 +130,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 	jobsCommand
 		.command("install-bookmarks-launchd")
 		.description("Install a LaunchAgent that runs bookmark sync every 3 hours")
+		.option("--account <username>", "Account username or id")
 		.option("--label <label>", "LaunchAgent label")
 		.option("--interval-seconds <seconds>", "Launch interval", "10800")
 		.option("--program <path>", "birdclaw executable or command", "birdclaw")
@@ -148,6 +149,7 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--no-load", "Write plist without loading it")
 		.action(async (options) => {
 			const result = await installBookmarkSyncLaunchAgent({
+				account: options.account,
 				label: options.label,
 				intervalSeconds: Number(options.intervalSeconds),
 				program: options.program,

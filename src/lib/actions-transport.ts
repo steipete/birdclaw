@@ -5,9 +5,11 @@ import {
 	unblockUserViaBirdEffect,
 	unmuteUserViaBirdEffect,
 } from "./bird-actions";
+import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { type ActionsTransport, resolveActionsTransport } from "./config";
 import { Effect } from "effect";
 import { runEffectPromise } from "./effect-runtime";
+import { assertLiveAccountMatches } from "./live-sync-engine";
 import { profileHandleKey } from "./profile-row";
 import type {
 	ModerationAction,
@@ -98,8 +100,25 @@ function verifyExpectedAccountEffect(
 function runBirdActionEffect(
 	action: ModerationAction,
 	query: string,
+	expectedAccount?: ExpectedActionAccount,
 ): Effect.Effect<ActionTransportResult, unknown> {
 	return Effect.gen(function* () {
+		if (expectedAccount && !liveWritesDisabled()) {
+			const authenticated = yield* getAuthenticatedBirdAccountEffect();
+			yield* trySync(() =>
+				assertLiveAccountMatches({
+					source: "bird",
+					account: {
+						accountId: expectedAccount.id,
+						username: profileHandleKey(expectedAccount.handle),
+						externalUserId: expectedAccount.externalUserId ?? undefined,
+						isDefault: false,
+					},
+					liveUsername: authenticated.username,
+					liveExternalUserId: authenticated.id,
+				}),
+			);
+		}
 		const result = yield* action === "block"
 			? blockUserViaBirdEffect(query)
 			: action === "unblock"
@@ -227,7 +246,7 @@ export function runModerationActionEffect({
 			);
 
 		if (requestedTransport === "bird") {
-			return yield* runBirdActionEffect(action, query);
+			return yield* runBirdActionEffect(action, query, expectedAccount);
 		}
 		if (requestedTransport === "xurl") {
 			const accountCheck = yield* verifyXurlAccount();
@@ -242,7 +261,19 @@ export function runModerationActionEffect({
 			);
 		}
 
-		const birdResult = yield* runBirdActionEffect(action, query);
+		const birdResult = yield* runBirdActionEffect(
+			action,
+			query,
+			expectedAccount,
+		).pipe(
+			Effect.catchAll((error) =>
+				Effect.succeed({
+					ok: false as const,
+					output: error instanceof Error ? error.message : String(error),
+					transport: "bird" as const,
+				}),
+			),
+		);
 		if (birdResult.ok) {
 			return birdResult;
 		}

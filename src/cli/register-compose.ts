@@ -13,7 +13,7 @@ export function registerComposeCommands({
 
 	composeCommand
 		.command("post <text>")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (text, options) => {
 			const result = await createPost(options.account, text);
 			await autoSyncAfterWrite();
@@ -22,7 +22,7 @@ export function registerComposeCommands({
 
 	composeCommand
 		.command("reply <tweetId> <text>")
-		.option("--account <accountId>", "Account id", "acct_primary")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (tweetId, text, options) => {
 			const result = await createTweetReply(options.account, tweetId, text);
 			await autoSyncAfterWrite();
@@ -32,8 +32,9 @@ export function registerComposeCommands({
 	composeCommand
 		.command("dm <conversationId> <text>")
 		.description("Reply inside an existing DM conversation")
-		.action(async (conversationId, text) => {
-			const result = await createDmReply(conversationId, text);
+		.option("--account <username>", "Account username or id")
+		.action(async (conversationId, text, options) => {
+			const result = await createDmReply(conversationId, text, options.account);
 			await autoSyncAfterWrite();
 			print(result, asJson());
 		});

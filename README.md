@@ -241,8 +241,10 @@ Don't have an archive yet? Request it from <https://x.com/settings/download_your
 Optional profile hydration through xurl can improve bios, follower counts, and avatars, but it performs live X profile reads and can spend API credits on large archives. With an existing private bird installation, the command can instead correct the seeded local account identity from `bird whoami` without bulk-hydrating imported profiles:
 
 ```bash
-birdclaw import hydrate-profiles --json
+birdclaw import hydrate-profiles --account steipete --json
 ```
+
+Every command that touches live account auth accepts `--account <username>` (stored IDs also work). To reuse one selection without changing the database identity, set `{"accounts":{"default":"steipete"}}` in `~/.birdclaw/config.json`; an explicit flag overrides it for one operation.
 
 `import archive` is idempotent. Re-running parses follower/following edges into the local follow graph, streams bundled media files under `data/tweets_media/`, `data/direct_messages_media/`, and the other archive media folders into `~/.birdclaw/media/originals/archive/<kind>/<id>/`, and pulls `video_info.variants[]` so archive video and animated-GIF rows carry mp4 URLs for the live media fetcher. Already-extracted files are skipped when size matches.
 

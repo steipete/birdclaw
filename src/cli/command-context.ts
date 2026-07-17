@@ -1,5 +1,10 @@
 import type { Command } from "commander";
+import {
+	resolveOperationAccount,
+	type OperationAccount,
+} from "#/lib/account-selection";
 import { maybeAutoSyncBackup, maybeAutoUpdateBackup } from "#/lib/backup";
+import { getDefaultAccountSelector } from "#/lib/config";
 
 export interface CliCommandContext {
 	program: Command;
@@ -15,6 +20,59 @@ export interface CliCommandContext {
 		value: string | undefined,
 		option: string,
 	) => number | undefined;
+}
+
+let previousXurlUsername:
+	| { existed: boolean; value: string | undefined }
+	| undefined;
+
+function commandHasAccountOption(command: Command) {
+	return command.options.some((option) => option.attributeName() === "account");
+}
+
+function selectOperationAccount(
+	command: Command,
+): OperationAccount | undefined {
+	if (!commandHasAccountOption(command)) return undefined;
+
+	const source = command.getOptionValueSource("account");
+	const current = command.getOptionValue("account");
+	const explicit =
+		source === "cli" && typeof current === "string" ? current : undefined;
+	const configSelector = getDefaultAccountSelector();
+	const selector = explicit || configSelector;
+	if (!selector) return undefined;
+
+	const account = resolveOperationAccount(selector);
+	command.setOptionValueWithSource(
+		"account",
+		account.id,
+		explicit ? "cli" : "config",
+	);
+	return account;
+}
+
+export function resetOperationAccountSelection() {
+	if (!previousXurlUsername) return;
+	if (previousXurlUsername.existed) {
+		process.env.BIRDCLAW_XURL_OAUTH2_USERNAME = previousXurlUsername.value;
+	} else {
+		delete process.env.BIRDCLAW_XURL_OAUTH2_USERNAME;
+	}
+	previousXurlUsername = undefined;
+}
+
+export function configureOperationAccountSelection(program: Command) {
+	program.hook("preAction", (_root, actionCommand) => {
+		const account = selectOperationAccount(actionCommand);
+		if (!account) return;
+		previousXurlUsername ??= {
+			existed: Object.hasOwn(process.env, "BIRDCLAW_XURL_OAUTH2_USERNAME"),
+			value: process.env.BIRDCLAW_XURL_OAUTH2_USERNAME,
+		};
+		process.env.BIRDCLAW_XURL_OAUTH2_USERNAME = account.username;
+	});
+	program.hook("postAction", resetOperationAccountSelection);
 }
 
 export function print(data: unknown, asJson: boolean) {

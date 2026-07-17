@@ -207,6 +207,7 @@ describe("bookmark sync job", () => {
 		resetBirdclawPathsForTests();
 		const launchAgentsDir = makeTempDir("birdclaw-launchagents-");
 		const agent = buildBookmarkSyncLaunchAgentPlist({
+			account: "acct_work",
 			program: "/opt/homebrew/bin/birdclaw",
 			intervalSeconds: 10_800,
 			maxPages: 5,
@@ -215,6 +216,7 @@ describe("bookmark sync job", () => {
 		expect(agent.plist).toContain("<key>StartInterval</key>");
 		expect(agent.plist).toContain("<integer>10800</integer>");
 		expect(agent.programArguments).toContain("sync-bookmarks");
+		expect(agent.programArguments).toContain("acct_work");
 		expect(agent.programArguments).toContain("--all");
 		expect(agent.programArguments).toContain("--max-pages");
 		expect(agent.programArguments).toContain("5");

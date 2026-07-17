@@ -40,6 +40,9 @@ The Playwright test home is `.playwright-home` in the repo, which is why CI neve
 
 ```json
 {
+	"accounts": {
+		"default": "steipete"
+	},
 	"actions": {
 		"transport": "auto"
 	},
@@ -55,6 +58,12 @@ The Playwright test home is `.playwright-home` in the repo, which is why CI neve
 	}
 }
 ```
+
+### `accounts.default`
+
+Set a Birdclaw account username (with or without `@`) or stored account ID. Commands with an `--account` option use this value when the flag is omitted. An explicit `--account` always wins.
+
+Selection is per operation. Birdclaw resolves the existing account row, routes xurl through that username for the command, then restores the process environment. It never creates an account, changes the database default, or binds a live credential to stored data.
 
 ### `actions.transport`
 
@@ -105,7 +114,15 @@ See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge 
 
 ## Multi-account
 
-birdclaw was built around multiple accounts in a single shared database from day one. Pass `--account <id>` on commands that support account selection, including moderation, mentions, DMs, and live sync commands.
+birdclaw was built around multiple accounts in a single shared database from day one. Pass `--account <username>` (or a stored account ID) on commands that support account selection, including moderation, profile hydration, profile reply inspection, mentions, DMs, live sync, and scheduled jobs.
+
+```bash
+birdclaw sync timeline --account steipete --mode xurl
+birdclaw import hydrate-profiles --account @steipete
+birdclaw compose post --account acct_primary "Ship it."
+```
+
+For a recurring choice, set `accounts.default` in `config.json`. Explicit flags remain reversible one-command overrides. xurl can select a named OAuth2 account; Bird has one active cookie identity, so Bird-backed operations verify that identity matches the selected Birdclaw account before reading or writing.
 
 Per-account state — cursors, transport preferences, last-sync watermarks, OpenAI score caches — lives inside the same `birdclaw.sqlite`. There is no per-account directory tree.
 

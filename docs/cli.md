@@ -135,6 +135,8 @@ birdclaw debug transport
 - `--demo` seeds sample tweets, DMs, profiles, and links without authentication or network access
 - print useful next commands for the selected setup path
 
+Account-capable commands accept `--account <username>` or a stored account ID. Set `accounts.default` in `config.json` for a reversible default; an explicit flag wins.
+
 ### `import tweet <tweet-id-or-url...>`
 
 - disabled unless `--fxtwitter` is passed on the same invocation
@@ -611,6 +613,7 @@ birdclaw media fetch --no-include-video --parallel 3 --pacing-ms 250 --json
 
 Flags:
 
+- `--account <username>` — account username or stored ID
 - `--limit <n>`
 
 Examples:

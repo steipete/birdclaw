@@ -250,8 +250,9 @@ export function registerCoreCommands({
 		.description(
 			"Backfill archive-imported profiles from live Twitter metadata",
 		)
-		.action(async () => {
-			const result = await hydrateProfilesFromX();
+		.option("--account <username>", "Account username or id")
+		.action(async (options) => {
+			const result = await hydrateProfilesFromX({ account: options.account });
 			await autoSyncAfterWrite();
 			print(result, asJson());
 		});
