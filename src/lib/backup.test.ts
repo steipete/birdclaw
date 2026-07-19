@@ -769,8 +769,31 @@ describe("text backup", () => {
 		await exportBackup({ repoPath });
 
 		switchHome("birdclaw-backup-tombstone-dst-");
-		const result = await importBackup({ repoPath });
 		const db = getNativeDb({ seedDemoData: false });
+		insertTestTweet(db, {
+			id: "tweet_2025",
+			authorProfileId: "profile_me",
+			text: "later local copy",
+		});
+		db.exec(`
+			update tweets
+			set deleted_at = '2026-07-18T12:00:00.000Z',
+				deletion_source = null,
+				deletion_reason = null
+			where id = 'tweet_2025';
+			insert into tweet_subordinate_tombstones (
+				tweet_id, kind, subordinate_id, deleted_at, deletion_source, deletion_reason
+			) values
+			(
+				'tweet_2025', 'media', 'media-1', '2027-01-01T00:00:00.000Z',
+				'local_later', 'later_local_event'
+			),
+			(
+				'tweet_2025', 'quote', 'tweet_quote', '2026-07-18T12:00:00.000Z',
+				null, 'parent_tweet_deleted'
+			);
+		`);
+		const result = await importBackup({ repoPath });
 
 		expect(result.mode).toBe("merge");
 		expect(
@@ -797,12 +820,24 @@ describe("text backup", () => {
 		expect(
 			db
 				.prepare(
-					"select kind, subordinate_id from tweet_subordinate_tombstones where tweet_id = 'tweet_2025' order by kind, subordinate_id",
+					"select kind, subordinate_id, deleted_at, deletion_source, deletion_reason from tweet_subordinate_tombstones where tweet_id = 'tweet_2025' order by kind, subordinate_id",
 				)
 				.all(),
 		).toEqual([
-			{ kind: "media", subordinate_id: "media-1" },
-			{ kind: "quote", subordinate_id: "tweet_quote" },
+			{
+				kind: "media",
+				subordinate_id: "media-1",
+				deleted_at: "2026-07-18T12:00:00.000Z",
+				deletion_source: "twitter_archive",
+				deletion_reason: "parent_tweet_deleted",
+			},
+			{
+				kind: "quote",
+				subordinate_id: "tweet_quote",
+				deleted_at: "2026-07-18T12:00:00.000Z",
+				deletion_source: "twitter_archive",
+				deletion_reason: "parent_tweet_deleted",
+			},
 		]);
 		expect(
 			db

@@ -518,8 +518,22 @@ const definitions = {
 		  when excluded.deleted_at is null then tweets.deleted_at
 		  else min(tweets.deleted_at, excluded.deleted_at)
 		end,
-		deletion_source = coalesce(tweets.deletion_source, excluded.deletion_source),
-		deletion_reason = coalesce(tweets.deletion_reason, excluded.deletion_reason),
+		deletion_source = case
+		  when excluded.deleted_at is not null
+		    and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
+		    then excluded.deletion_source
+		  when excluded.deleted_at = tweets.deleted_at
+		    then coalesce(tweets.deletion_source, excluded.deletion_source)
+		  else tweets.deletion_source
+		end,
+		deletion_reason = case
+		  when excluded.deleted_at is not null
+		    and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
+		    then excluded.deletion_reason
+		  when excluded.deleted_at = tweets.deleted_at
+		    then coalesce(tweets.deletion_reason, excluded.deletion_reason)
+		  else tweets.deletion_reason
+		end,
 		superseded_at = case
 		  when tweets.superseded_at is null then excluded.superseded_at
 		  when excluded.superseded_at is null then tweets.superseded_at
@@ -615,8 +629,20 @@ const definitions = {
       ) values (?, ?, ?, ?, ?, ?)
       on conflict(tweet_id, kind, subordinate_id) do update set
 		deleted_at = min(tweet_subordinate_tombstones.deleted_at, excluded.deleted_at),
-        deletion_source = coalesce(tweet_subordinate_tombstones.deletion_source, excluded.deletion_source),
-        deletion_reason = coalesce(tweet_subordinate_tombstones.deletion_reason, excluded.deletion_reason)
+		deletion_source = case
+		  when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
+		    then excluded.deletion_source
+		  when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
+		    then coalesce(tweet_subordinate_tombstones.deletion_source, excluded.deletion_source)
+		  else tweet_subordinate_tombstones.deletion_source
+		end,
+		deletion_reason = case
+		  when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
+		    then excluded.deletion_reason
+		  when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
+		    then coalesce(tweet_subordinate_tombstones.deletion_reason, excluded.deletion_reason)
+		  else tweet_subordinate_tombstones.deletion_reason
+		end
       `,
 			columns: [
 				"tweet_id",

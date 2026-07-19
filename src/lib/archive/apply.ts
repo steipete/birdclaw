@@ -153,8 +153,22 @@ export function applyArchiveImportPlanEffect({
 		        when excluded.deleted_at is null then tweets.deleted_at
 		        else min(tweets.deleted_at, excluded.deleted_at)
 		      end,
-		      deletion_source = coalesce(tweets.deletion_source, excluded.deletion_source),
-		      deletion_reason = coalesce(tweets.deletion_reason, excluded.deletion_reason)
+		      deletion_source = case
+		        when excluded.deleted_at is not null
+		          and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
+		          then excluded.deletion_source
+		        when excluded.deleted_at = tweets.deleted_at
+		          then coalesce(tweets.deletion_source, excluded.deletion_source)
+		        else tweets.deletion_source
+		      end,
+		      deletion_reason = case
+		        when excluded.deleted_at is not null
+		          and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
+		          then excluded.deletion_reason
+		        when excluded.deleted_at = tweets.deleted_at
+		          then coalesce(tweets.deletion_reason, excluded.deletion_reason)
+		        else tweets.deletion_reason
+		      end
 		  `);
 		const deleteTweetFts = db.prepare(
 			"delete from tweets_fts where tweet_id = ?",
@@ -163,7 +177,7 @@ export function applyArchiveImportPlanEffect({
 			"insert into tweets_fts (tweet_id, text) values (?, ?)",
 		);
 		const selectTweetFtsState = db.prepare(
-			"select text, deleted_at from tweets where id = ?",
+			"select text, deleted_at, deletion_source from tweets where id = ?",
 		);
 		const insertTimelineEdge = db.prepare(`
 		    insert into tweet_account_edges (
@@ -703,7 +717,11 @@ export function applyArchiveImportPlanEffect({
 					);
 				}
 				const storedTweet = selectTweetFtsState.get(tweet.id) as
-					| { text: string; deleted_at: string | null }
+					| {
+							text: string;
+							deleted_at: string | null;
+							deletion_source: string | null;
+					  }
 					| undefined;
 				if (!storedTweet?.deleted_at) {
 					insertTweetFts.run(tweet.id, storedTweet?.text ?? tweet.text);
@@ -711,7 +729,11 @@ export function applyArchiveImportPlanEffect({
 					tombstoneTweetSubordinates(db, {
 						tweetId: tweet.id,
 						deletedAt: storedTweet.deleted_at,
-						deletionSource: tweet.deletionSource ?? "archive_import",
+						deletionSource:
+							storedTweet.deletion_source ??
+							(tweet.deletedAt === storedTweet.deleted_at
+								? (tweet.deletionSource ?? null)
+								: null),
 					});
 				}
 				recordTweetRevision(db, {

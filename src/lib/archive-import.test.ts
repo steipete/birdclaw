@@ -15,6 +15,7 @@ import {
 	insertTestDmConversation,
 	insertTestDmMessage,
 	insertTestProfile,
+	insertTestTweet,
 	useTestHome,
 } from "../test/test-home";
 import { __test__, importArchive, importArchiveEffect } from "./archive-import";
@@ -344,6 +345,71 @@ function makeTweetRetentionArchive({
 			])}`,
 		);
 	}
+	const archivePath = path.join(root, "archive.zip");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
+	return archivePath;
+}
+
+function makeLateDeletedTweetBodyArchive() {
+	const root = testHome().makeTempDir("birdclaw-archive-late-tombstone-body-");
+	const archiveDir = path.join(root, "sample", "data");
+	mkdirSync(archiveDir, { recursive: true });
+	writeFileSync(
+		path.join(archiveDir, "account.js"),
+		'window.YTD.account.part0 = [{ "account": { "accountId": "25401953", "username": "steipete" } }]',
+	);
+	writeFileSync(
+		path.join(archiveDir, "tweets.js"),
+		`window.YTD.tweets.part0 = ${JSON.stringify([
+			{
+				tweet: {
+					id_str: "header-only",
+					created_at: "Mon Jun 02 19:32:20 +0000 2025",
+					full_text: "late body for an already deleted tweet",
+					quoted_status_id_str: "late-quote",
+					entities: {
+						media: [
+							{
+								media_url_https: "https://img.example.com/late.jpg",
+								type: "photo",
+							},
+						],
+					},
+					extended_entities: {
+						media: [
+							{
+								media_url_https: "https://img.example.com/late.jpg",
+								type: "photo",
+							},
+						],
+					},
+				},
+			},
+			{
+				tweet: {
+					id_str: "legacy-unknown-source",
+					created_at: "Sun Jun 01 19:32:20 +0000 2025",
+					full_text: "late body for a legacy source-less tombstone",
+					entities: {
+						media: [
+							{
+								media_url_https: "https://img.example.com/legacy.jpg",
+								type: "photo",
+							},
+						],
+					},
+					extended_entities: {
+						media: [
+							{
+								media_url_https: "https://img.example.com/legacy.jpg",
+								type: "photo",
+							},
+						],
+					},
+				},
+			},
+		])}`,
+	);
 	const archivePath = path.join(root, "archive.zip");
 	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
 	return archivePath;
@@ -696,6 +762,22 @@ describe("archive import", () => {
 				)
 				.get(),
 		).toEqual({ count: 0 });
+		db.prepare(
+			`update tweets
+			 set deleted_at = '2027-01-01T00:00:00.000Z',
+			     deletion_source = 'local_later',
+			     deletion_reason = 'later_local_event'
+			 where id = 'edit-1'`,
+		).run();
+		insertTestTweet(db, {
+			id: "header-only",
+			authorProfileId: "profile_me",
+			text: "header placeholder",
+			createdAt: "2025-06-02T19:32:20.000Z",
+		});
+		db.prepare(
+			"update tweets set deleted_at = '2026-07-17T12:00:00.000Z' where id = 'header-only'",
+		).run();
 
 		const deletionArchive = makeTweetRetentionArchive({
 			includeEditable: false,
@@ -740,7 +822,7 @@ describe("archive import", () => {
 		expect(
 			db
 				.prepare(
-					"select revision_id, payload_json, created_at, deleted_at from tweet_revisions join tweets on tweets.id = tweet_revisions.revision_id where revision_id = 'header-only'",
+					"select revision_id, payload_json, created_at, deleted_at, deletion_source, deletion_reason from tweet_revisions join tweets on tweets.id = tweet_revisions.revision_id where revision_id = 'header-only'",
 				)
 				.get(),
 		).toEqual({
@@ -748,6 +830,8 @@ describe("archive import", () => {
 			payload_json: null,
 			created_at: "2025-06-02T19:32:20.000Z",
 			deleted_at: "2026-07-17T12:00:00.000Z",
+			deletion_source: "twitter_archive",
+			deletion_reason: "explicit_deleted_tweet_record",
 		});
 		expect(
 			db
@@ -771,6 +855,56 @@ describe("archive import", () => {
 				)
 				.get(),
 		).toEqual({ count: 0 });
+
+		insertTestTweet(db, {
+			id: "legacy-unknown-source",
+			authorProfileId: "profile_me",
+			text: "legacy placeholder",
+			createdAt: "2025-06-01T19:32:20.000Z",
+		});
+		db.prepare(
+			"update tweets set deleted_at = '2020-01-01T00:00:00.000Z' where id = 'legacy-unknown-source'",
+		).run();
+		await importArchive(makeLateDeletedTweetBodyArchive());
+		expect(
+			db
+				.prepare(
+					"select kind, subordinate_id, deletion_source from tweet_subordinate_tombstones where tweet_id = 'header-only' order by kind, subordinate_id",
+				)
+				.all(),
+		).toEqual([
+			{
+				kind: "media",
+				subordinate_id: "https://img.example.com/late.jpg",
+				deletion_source: "twitter_archive",
+			},
+			{
+				kind: "quote",
+				subordinate_id: "late-quote",
+				deletion_source: "twitter_archive",
+			},
+		]);
+		expect(
+			db
+				.prepare(
+					"select deleted_at, deletion_source from tweet_subordinate_tombstones where tweet_id = 'legacy-unknown-source' and kind = 'media'",
+				)
+				.get(),
+		).toEqual({
+			deleted_at: "2020-01-01T00:00:00.000Z",
+			deletion_source: null,
+		});
+		db.prepare(
+			"update tweet_subordinate_tombstones set deletion_source = 'trusted_existing' where tweet_id = 'header-only' and kind = 'media'",
+		).run();
+		await importArchive(makeLateDeletedTweetBodyArchive());
+		expect(
+			db
+				.prepare(
+					"select deletion_source from tweet_subordinate_tombstones where tweet_id = 'header-only' and kind = 'media'",
+				)
+				.get(),
+		).toEqual({ deletion_source: "trusted_existing" });
 
 		await importArchive(initialArchive);
 		expect(

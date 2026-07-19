@@ -145,7 +145,7 @@ export function tombstoneTweetSubordinates(
 	}: {
 		tweetId: string;
 		deletedAt: string;
-		deletionSource: string;
+		deletionSource: string | null;
 		deletionReason?: string;
 	},
 ) {
@@ -170,8 +170,20 @@ export function tombstoneTweetSubordinates(
 		) values (?, ?, ?, ?, ?, ?)
 		on conflict(tweet_id, kind, subordinate_id) do update set
 			deleted_at = min(tweet_subordinate_tombstones.deleted_at, excluded.deleted_at),
-			deletion_source = coalesce(tweet_subordinate_tombstones.deletion_source, excluded.deletion_source),
-			deletion_reason = coalesce(tweet_subordinate_tombstones.deletion_reason, excluded.deletion_reason)
+			deletion_source = case
+				when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
+					then excluded.deletion_source
+				when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
+					then coalesce(tweet_subordinate_tombstones.deletion_source, excluded.deletion_source)
+				else tweet_subordinate_tombstones.deletion_source
+			end,
+			deletion_reason = case
+				when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
+					then excluded.deletion_reason
+				when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
+					then coalesce(tweet_subordinate_tombstones.deletion_reason, excluded.deletion_reason)
+				else tweet_subordinate_tombstones.deletion_reason
+			end
 	`);
 	for (const row of rows) {
 		insert.run(
@@ -341,7 +353,7 @@ export function reconcileTweetTombstones(
 		tombstoneTweetSubordinates(db, {
 			tweetId: tweet.id,
 			deletedAt: tweet.deleted_at,
-			deletionSource: tweet.deletion_source ?? "import",
+			deletionSource: tweet.deletion_source,
 		});
 	}
 	const cleanupFtsSql = `
