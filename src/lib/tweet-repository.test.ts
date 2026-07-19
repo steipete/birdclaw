@@ -9,6 +9,7 @@ import { ingestTweetPayload } from "./tweet-repository";
 import {
 	editHistoryIdsFromPayload,
 	mergeTweetRevisionChain,
+	reconcileTweetTombstones,
 	recordTweetRevision,
 } from "./tweet-retention";
 
@@ -519,6 +520,27 @@ it("merges edge-connected roots while preserving order outside a cycle", () => {
 			)
 			.get(),
 	).toEqual({ source: "archive_observation" });
+	db.exec(`
+		insert into tweets (
+			id, author_profile_id, text, created_at, is_replied, like_count,
+			media_count, entities_json, media_json
+		) values
+			('terminal-root', 'profile_me', 'root', '2026-07-01T00:00:00.000Z', 0, 0, 0, '{}', '[]'),
+			('terminal-a', 'profile_me', 'a', '2026-07-01T00:01:00.000Z', 0, 0, 0, '{}', '[]'),
+			('terminal-b', 'profile_me', 'b', '2026-07-01T00:01:00.000Z', 0, 0, 0, '{}', '[]');
+		insert into tweet_revisions (
+			root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
+		) values
+			('terminal-root', 'terminal-root', 0, null, 'test', '2026-07-01T00:00:00.000Z'),
+			('terminal-root', 'terminal-a', 1, null, 'test', '2026-07-01T00:01:00.000Z'),
+			('terminal-root', 'terminal-b', 1, null, 'test', '2026-07-01T00:01:00.000Z');
+	`);
+	reconcileTweetTombstones(db, ["terminal-root"]);
+	expect(
+		db
+			.prepare("select superseded_by_id from tweets where id = 'terminal-root'")
+			.get(),
+	).toEqual({ superseded_by_id: "terminal-a" });
 });
 
 it("merges revision components beyond SQLite's traditional variable limit", () => {

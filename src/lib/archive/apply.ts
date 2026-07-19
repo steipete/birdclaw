@@ -389,6 +389,11 @@ export function applyArchiveImportPlanEffect({
 		      )
 		    )
 		  `);
+		const deleteOrphanTweetRevisionEdges = db.prepare(`
+			delete from tweet_revision_edges
+			where older_revision_id not in (select revision_id from tweet_revisions)
+			   or newer_revision_id not in (select revision_id from tweet_revisions)
+		`);
 		const clearDmFts = db.prepare(`
 		    delete from dm_fts
 		    where message_id in (
@@ -607,6 +612,7 @@ export function applyArchiveImportPlanEffect({
 					deleteOrphanTweetLinkOccurrences.run();
 					deleteOrphanTweetSubordinateTombstones.run();
 					deleteOrphanTweetRevisionChains.run();
+					deleteOrphanTweetRevisionEdges.run();
 				}
 				if (includeDirectMessages) {
 					clearDmLinkOccurrences.run("acct_primary");

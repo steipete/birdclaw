@@ -941,6 +941,9 @@ describe("archive import", () => {
 				)
 				.get(),
 		).toEqual({ count: 0 });
+		expect(
+			db.prepare("select count(*) as count from tweet_revision_edges").get(),
+		).toEqual({ count: 0 });
 	});
 
 	it("imports tweets, dms, profiles, and envelope stats from a zip archive", async () => {

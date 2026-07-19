@@ -544,7 +544,7 @@ export function reconcileTweetTombstones(
 					join tweet_revisions latest
 						on latest.root_tweet_id = current_revision.root_tweet_id
 					where current_revision.revision_id = tweets.id
-					order by latest.revision_index desc
+					order by latest.revision_index desc, latest.revision_id asc
 					limit 1
 			)
 		where exists (
