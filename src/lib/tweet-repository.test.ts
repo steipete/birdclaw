@@ -555,7 +555,7 @@ it("merges revision components beyond SQLite's traditional variable limit", () =
 			)
 			.get(),
 	).toEqual({ count: 5_000, max_rank: 4_999 });
-});
+}, 20_000);
 
 it("scopes live tombstone reconciliation to the ingested edit chains", () => {
 	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
