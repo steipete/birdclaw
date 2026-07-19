@@ -233,6 +233,117 @@ function makeRootDataArchive() {
 	return archivePath;
 }
 
+function makeTweetRetentionArchive({
+	includeEditable = true,
+	includeVanishing = true,
+	deleteEditable = false,
+}: {
+	includeEditable?: boolean;
+	includeVanishing?: boolean;
+	deleteEditable?: boolean;
+} = {}) {
+	const root = testHome().makeTempDir("birdclaw-archive-retention-");
+	const archiveDir = path.join(root, "sample", "data");
+	mkdirSync(archiveDir, { recursive: true });
+	writeFileSync(
+		path.join(archiveDir, "account.js"),
+		'window.YTD.account.part0 = [{ "account": { "accountId": "25401953", "username": "steipete" } }]',
+	);
+	const tweets = [
+		...(includeEditable
+			? [
+					{
+						tweet: {
+							id_str: "edit-2",
+							created_at: "Tue Jun 03 19:32:20 +0000 2025",
+							full_text: "edited tweet with retained media",
+							quoted_status_id_str: "quote-1",
+							edit_info: {
+								edit: {
+									initialTweetId: "edit-1",
+									editControlInitial: {
+										editTweetIds: ["edit-1", "edit-2"],
+									},
+								},
+							},
+							entities: {
+								media: [
+									{
+										id_str: "media-1",
+										media_url_https: "https://img.example.com/deleted.jpg",
+										type: "photo",
+									},
+								],
+							},
+							extended_entities: {
+								media: [
+									{
+										id_str: "media-1",
+										media_url_https: "https://img.example.com/deleted.jpg",
+										type: "photo",
+									},
+								],
+							},
+						},
+					},
+				]
+			: []),
+		...(includeVanishing
+			? [
+					{
+						tweet: {
+							id_str: "vanishing",
+							created_at: "Wed Jun 04 19:32:20 +0000 2025",
+							full_text: "absence from a later snapshot is not deletion",
+						},
+					},
+				]
+			: []),
+	];
+	writeFileSync(
+		path.join(archiveDir, "tweets.js"),
+		`window.YTD.tweets.part0 = ${JSON.stringify(tweets)}`,
+	);
+	if (deleteEditable) {
+		writeFileSync(
+			path.join(archiveDir, "deleted-tweets.js"),
+			`window.YTD.deleted_tweets.part0 = ${JSON.stringify([
+				{
+					tweet: {
+						id_str: "edit-2",
+						created_at: "Tue Jun 03 19:32:20 +0000 2025",
+						full_text: "edited tweet with retained media",
+					},
+				},
+			])}`,
+		);
+		writeFileSync(
+			path.join(archiveDir, "deleted-tweet-headers.js"),
+			`window.YTD.deleted_tweet_headers.part0 = ${JSON.stringify([
+				{
+					tweet: {
+						tweetId: "edit-2",
+						userId: "25401953",
+						createdAt: "2025-06-03T19:32:20.000Z",
+						deletedAt: "2026-07-18T12:00:00.000Z",
+					},
+				},
+				{
+					tweet: {
+						tweetId: "header-only",
+						userId: "25401953",
+						createdAt: "2025-06-02T19:32:20.000Z",
+						deletedAt: "2026-07-17T12:00:00.000Z",
+					},
+				},
+			])}`,
+		);
+	}
+	const archivePath = path.join(root, "archive.zip");
+	execFileSync("zip", ["-qr", archivePath, "sample"], { cwd: root });
+	return archivePath;
+}
+
 function makeWeirdArchive({ followers = [] }: { followers?: string[] } = {}) {
 	const root = testHome().makeTempDir("birdclaw-archive-weird-");
 	const archiveDir = path.join(root, "sample", "data");
@@ -543,6 +654,155 @@ function makeMediaVariantsArchive() {
 }
 
 describe("archive import", () => {
+	it("retains explicit tweet tombstones without inferring deletion from absence", async () => {
+		const initialArchive = makeTweetRetentionArchive();
+		await importArchive(initialArchive, { restore: true });
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+			insert into tweets (
+				id, author_profile_id, text, created_at, is_replied, reply_to_id,
+				like_count, media_count, entities_json, media_json, quoted_tweet_id
+			) values (
+				'edit-1', 'profile_me', 'original body', '2025-06-03T19:30:20.000Z',
+				0, null, 0, 0, '{}', '[]', null
+			);
+			insert into tweet_account_edges (
+				account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
+				source, raw_json, updated_at
+			) values (
+				'acct_primary', 'edit-1', 'authored', '2025-06-03T19:30:20.000Z',
+				'2025-06-03T19:30:20.000Z', 1, 'archive', '{}',
+				'2025-06-03T19:30:20.000Z'
+			);
+			insert into tweets_fts (tweet_id, text) values ('edit-1', 'original body');
+		`);
+		await importArchive(initialArchive);
+		expect(
+			db
+				.prepare(
+					"select superseded_at is not null as superseded, superseded_by_id from tweets where id = 'edit-1'",
+				)
+				.get(),
+		).toEqual({ superseded: 1, superseded_by_id: "edit-2" });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets_fts where tweet_id = 'edit-1'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+
+		const deletionArchive = makeTweetRetentionArchive({
+			includeEditable: false,
+			includeVanishing: false,
+			deleteEditable: true,
+		});
+		const result = await importArchive(deletionArchive);
+
+		expect(result.mode).toBe("merge");
+		expect(
+			db
+				.prepare(
+					"select created_at, deleted_at, deletion_source, deletion_reason, media_json, quoted_tweet_id from tweets where id = 'edit-2'",
+				)
+				.get(),
+		).toMatchObject({
+			created_at: "2025-06-03T19:32:20.000Z",
+			deleted_at: "2026-07-18T12:00:00.000Z",
+			deletion_source: "twitter_archive",
+			deletion_reason: "explicit_deleted_tweet_record",
+			quoted_tweet_id: "quote-1",
+		});
+		expect(
+			db
+				.prepare(
+					"select kind, subordinate_id, deletion_reason from tweet_subordinate_tombstones where tweet_id = 'edit-2' order by kind, subordinate_id",
+				)
+				.all(),
+		).toEqual([
+			{
+				kind: "media",
+				subordinate_id: "https://img.example.com/deleted.jpg",
+				deletion_reason: "parent_tweet_deleted",
+			},
+			{
+				kind: "quote",
+				subordinate_id: "quote-1",
+				deletion_reason: "parent_tweet_deleted",
+			},
+		]);
+		expect(
+			db
+				.prepare(
+					"select revision_id, payload_json, created_at, deleted_at from tweet_revisions join tweets on tweets.id = tweet_revisions.revision_id where revision_id = 'header-only'",
+				)
+				.get(),
+		).toEqual({
+			revision_id: "header-only",
+			payload_json: null,
+			created_at: "2025-06-02T19:32:20.000Z",
+			deleted_at: "2026-07-17T12:00:00.000Z",
+		});
+		expect(
+			db
+				.prepare(
+					"select revision_id, revision_index, payload_json is not null as hydrated from tweet_revisions where root_tweet_id = 'edit-1' order by revision_index",
+				)
+				.all(),
+		).toEqual([
+			{ revision_id: "edit-1", revision_index: 0, hydrated: 0 },
+			{ revision_id: "edit-2", revision_index: 1, hydrated: 1 },
+		]);
+		expect(
+			listTimelineItems({ resource: "home", limit: 10 }).map(
+				(tweet) => tweet.id,
+			),
+		).toEqual(["vanishing"]);
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets_fts where tweet_id = 'edit-2'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+
+		await importArchive(initialArchive);
+		expect(
+			db.prepare("select deleted_at from tweets where id = 'edit-2'").get(),
+		).toEqual({ deleted_at: "2026-07-18T12:00:00.000Z" });
+
+		const emptyRestore = makeTweetRetentionArchive({
+			includeEditable: false,
+			includeVanishing: false,
+		});
+		const restoreResult = await importArchive(emptyRestore, {
+			restore: true,
+			select: ["tweets"],
+		});
+		expect(restoreResult.mode).toBe("restore");
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets where id in ('edit-2', 'vanishing')",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweet_subordinate_tombstones where tweet_id = 'edit-2'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweet_revisions where root_tweet_id = 'edit-1'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+	});
+
 	it("imports tweets, dms, profiles, and envelope stats from a zip archive", async () => {
 		const archivePath = makeArchive();
 		const staleDb = getNativeDb();
@@ -559,7 +819,7 @@ describe("archive import", () => {
       );
     `);
 
-		const result = await importArchive(archivePath);
+		const result = await importArchive(archivePath, { restore: true });
 		const db = getNativeDb();
 		const envelope = await getQueryEnvelope({ includeArchives: false });
 		const tweets = listTimelineItems({ resource: "home", limit: 10 });
@@ -777,7 +1037,7 @@ describe("archive import", () => {
 		});
 	});
 
-	it("clears mention sync state on full archive re-import", async () => {
+	it("clears mention sync state on an explicit full archive restore", async () => {
 		const archivePath = makeArchive();
 		const db = getNativeDb();
 		db.prepare(
@@ -788,7 +1048,7 @@ describe("archive import", () => {
 			"2026-05-01T00:00:00.000Z",
 		);
 
-		await importArchive(archivePath);
+		await importArchive(archivePath, { restore: true });
 
 		expect(
 			db
@@ -830,7 +1090,10 @@ describe("archive import", () => {
 		db.prepare(
 			"update tweet_collections set source = 'legacy' where tweet_id = '5' and kind = 'likes'",
 		).run();
-		await importArchive(makeRootDataArchive(), { select: ["likes"] });
+		await importArchive(makeRootDataArchive(), {
+			select: ["likes"],
+			restore: true,
+		});
 
 		expect(
 			db.prepare("select id from tweets where id = '5'").get(),
@@ -926,6 +1189,25 @@ describe("archive import", () => {
 		).rejects.toThrow("does not match archive account 25401953");
 		expect(
 			db.prepare("select id from tweets where id = '5'").get(),
+		).toBeUndefined();
+	});
+
+	it("rejects full merge imports for a different existing primary account", async () => {
+		const archivePath = makeArchive();
+		const db = getNativeDb({ seedDemoData: false });
+		insertTestAccount(db, {
+			id: "acct_primary",
+			name: "Other Primary",
+			handle: "@other",
+			externalUserId: "999",
+			transport: "xurl",
+		});
+
+		await expect(importArchive(archivePath)).rejects.toThrow(
+			"does not match archive account 25401953",
+		);
+		expect(
+			db.prepare("select id from tweets where id = '100'").get(),
 		).toBeUndefined();
 	});
 
@@ -1171,7 +1453,10 @@ describe("archive import", () => {
 	      );
 	    `);
 
-		await importArchive(archivePath, { select: ["directMessages"] });
+		await importArchive(archivePath, {
+			select: ["directMessages"],
+			restore: true,
+		});
 
 		expect(
 			(
@@ -1446,7 +1731,10 @@ describe("archive import", () => {
 				account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
 			) values ('acct_other', '5', 'likes', null, 'bird', '{}', '2026-01-02T00:00:00.000Z')`,
 		).run();
-		await importArchive(makeRootDataArchive(), { select: ["likes"] });
+		await importArchive(makeRootDataArchive(), {
+			select: ["likes"],
+			restore: true,
+		});
 
 		expect(
 			db
@@ -1488,7 +1776,10 @@ describe("archive import", () => {
       );
     `);
 
-		await importArchive(archivePath, { select: ["tweets"] });
+		await importArchive(archivePath, {
+			select: ["tweets"],
+			restore: true,
+		});
 
 		expect(
 			db.prepare("select id from profiles where id = 'profile_me'").get(),
@@ -1628,7 +1919,10 @@ describe("archive import", () => {
         'acct_other', '300', 'likes', '2026-01-03T00:00:00.000Z', 'bird', '{}', '2026-01-03T00:00:00.000Z'
       );
 	    `);
-		await importArchive(nextArchivePath, { select: ["tweets"] });
+		await importArchive(nextArchivePath, {
+			select: ["tweets"],
+			restore: true,
+		});
 		const db = getNativeDb();
 
 		expect(
@@ -1787,8 +2081,8 @@ describe("archive import", () => {
 			"following:103:started",
 		]);
 		expect(snapshots.map((row) => row.value)).toEqual([
-			"followers:archive:complete:2",
-			"following:archive:complete:2",
+			"followers:archive:partial:2",
+			"following:archive:partial:2",
 		]);
 		expect(
 			db
@@ -2254,7 +2548,7 @@ describe("archive import", () => {
 		});
 	});
 
-	it("clears archive follower rows when follower file is absent", async () => {
+	it("preserves absent archive follower rows unless restoring", async () => {
 		const firstArchivePath = makeFollowArchive({
 			followers: ["101", "102"],
 			includeFollowing: false,
@@ -2294,6 +2588,47 @@ describe("archive import", () => {
 		).run();
 
 		await importArchive(secondArchivePath);
+
+		expect(
+			db
+				.prepare(
+					`
+          select external_user_id, source, current
+          from follow_edges
+          where direction = 'followers'
+          order by external_user_id
+        `,
+				)
+				.all(),
+		).toEqual([
+			{ external_user_id: "101", source: "archive", current: 1 },
+			{ external_user_id: "102", source: "archive", current: 1 },
+			{ external_user_id: "900", source: "xurl", current: 1 },
+		]);
+		const partialArchivePath = makeFollowArchive({
+			followers: ["102", "103"],
+			includeFollowing: false,
+		});
+		await importArchive(partialArchivePath);
+		expect(
+			db
+				.prepare(
+					`
+          select external_user_id, source, current
+          from follow_edges
+          where direction = 'followers'
+          order by external_user_id
+        `,
+				)
+				.all(),
+		).toEqual([
+			{ external_user_id: "101", source: "archive", current: 1 },
+			{ external_user_id: "102", source: "archive", current: 1 },
+			{ external_user_id: "103", source: "archive", current: 1 },
+			{ external_user_id: "900", source: "xurl", current: 1 },
+		]);
+
+		await importArchive(secondArchivePath, { restore: true });
 
 		expect(
 			db
@@ -2420,7 +2755,7 @@ describe("archive import", () => {
 		).toBe(0);
 	});
 
-	it("keeps live follow source on xurl edges absent from the archive", async () => {
+	it("does not end live follow edges absent from a merge archive", async () => {
 		const archivePath = makeFollowArchive({
 			followers: ["101"],
 			includeFollowing: false,
@@ -2454,14 +2789,26 @@ describe("archive import", () => {
 
 		expect(rows).toEqual([
 			{ profile_id: "profile_user_101", source: "xurl", current: 1 },
-			{ profile_id: "profile_user_900", source: "xurl", current: 0 },
+			{ profile_id: "profile_user_900", source: "xurl", current: 1 },
 		]);
-		expect(events).toEqual([{ external_user_id: "900", kind: "ended" }]);
+		expect(events).toEqual([]);
 		expect(
 			listUnfollowedSince({ date: "2000-01-01" }).items.map(
 				(item) => item.profile.handle,
 			),
-		).toEqual(["id900"]);
+		).toEqual([]);
+
+		await importArchive(archivePath, { restore: true });
+		expect(
+			db
+				.prepare(
+					"select profile_id, source, current from follow_edges where direction = 'followers' order by profile_id",
+				)
+				.all(),
+		).toEqual([
+			{ profile_id: "profile_user_101", source: "xurl", current: 1 },
+			{ profile_id: "profile_user_900", source: "xurl", current: 0 },
+		]);
 		expect(
 			listFollowEvents({
 				direction: "followers",

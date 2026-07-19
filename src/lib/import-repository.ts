@@ -49,6 +49,12 @@ export class ImportRepository {
 		for (const row of rows) {
 			const id = row[idKey];
 			if (typeof id !== "string" || existingIds.has(id)) continue;
+			if (
+				(row.deleted_at !== undefined && row.deleted_at !== null) ||
+				(row.superseded_at !== undefined && row.superseded_at !== null)
+			) {
+				continue;
+			}
 			const text = row[textKey];
 			statement.run(id, typeof text === "string" ? text : "");
 			existingIds.add(id);
@@ -67,6 +73,8 @@ export class ImportRepository {
       delete from tweets_fts;
       delete from dm_messages;
       delete from dm_conversations;
+	  delete from tweet_subordinate_tombstones;
+	  delete from tweet_revisions;
       delete from tweets;
       delete from profiles;
       delete from accounts;
@@ -114,6 +122,8 @@ export class ImportRepository {
       delete from tweets_fts;
       delete from dm_messages;
       delete from dm_conversations;
+	  delete from tweet_subordinate_tombstones;
+	  delete from tweet_revisions;
       delete from tweets;
       delete from profile_bio_entities;
       delete from profile_snapshots;

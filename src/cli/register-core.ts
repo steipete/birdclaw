@@ -17,6 +17,7 @@ import { printError, type CliCommandContext } from "./command-context";
 
 const IMPORT_SLICE_LABELS: Record<ImportProgressSlice, string> = {
 	tweets: "tweets",
+	deletedTweets: "deleted tweets",
 	noteTweets: "note tweets",
 	directMessages: "direct messages",
 	likes: "likes",
@@ -203,27 +204,34 @@ export function registerCoreCommands({
 			"--select <kinds>",
 			`Import only selected archive slices: ${ARCHIVE_IMPORT_SLICES.join(", ")}`,
 		)
-		.action(async (archivePath, options: { select?: string }) => {
-			const select = parseArchiveImportSelect(options.select);
-			if (options.select !== undefined && !select) return;
-			let resolvedArchivePath = archivePath;
-			if (!resolvedArchivePath) {
-				const [latestArchive] = await findArchives();
-				resolvedArchivePath = latestArchive?.path;
-			}
-			if (!resolvedArchivePath) {
-				throw new Error(
-					"No archive found. Pass a path or place one in Downloads.",
-				);
-			}
-			const json = Boolean(asJson());
-			const result = await importArchive(resolvedArchivePath, {
-				select,
-				onProgress: json ? undefined : logImportProgress,
-			});
-			await autoSyncAfterWrite();
-			print(result, json);
-		});
+		.option(
+			"--restore",
+			"Exactly replace imported archive slices instead of safely merging",
+		)
+		.action(
+			async (archivePath, options: { select?: string; restore?: boolean }) => {
+				const select = parseArchiveImportSelect(options.select);
+				if (options.select !== undefined && !select) return;
+				let resolvedArchivePath = archivePath;
+				if (!resolvedArchivePath) {
+					const [latestArchive] = await findArchives();
+					resolvedArchivePath = latestArchive?.path;
+				}
+				if (!resolvedArchivePath) {
+					throw new Error(
+						"No archive found. Pass a path or place one in Downloads.",
+					);
+				}
+				const json = Boolean(asJson());
+				const result = await importArchive(resolvedArchivePath, {
+					select,
+					...(options.restore ? { restore: true } : {}),
+					...(!json ? { onProgress: logImportProgress } : {}),
+				});
+				await autoSyncAfterWrite();
+				print(result, json);
+			},
+		);
 	importCommand
 		.command("tweet <tweets...>")
 		.description(

@@ -211,7 +211,9 @@ function rebuildOccurrences(
         tweet.text,
         tweet.entities_json
       from tweets tweet
-      where text like '%://%' or entities_json like '%://%'
+	  where tweet.deleted_at is null
+	    and tweet.superseded_at is null
+	    and (text like '%://%' or entities_json like '%://%')
     `)
 						.all() as Array<Record<string, unknown>>);
 		for (const row of tweetRows) {

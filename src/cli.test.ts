@@ -881,7 +881,7 @@ describe("cli", () => {
 			"backup",
 			"import",
 			"/tmp/bak",
-			"--replace",
+			"--restore",
 			"--no-validate",
 		]);
 		await runCli([
@@ -1434,6 +1434,25 @@ describe("cli", () => {
 
 		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip", {
 			select: ["tweets", "directMessages", "likes"],
+		});
+	});
+
+	it("passes explicit archive restore mode", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"--json",
+			"import",
+			"archive",
+			"/tmp/explicit.zip",
+			"--restore",
+		]);
+
+		expect(importArchiveMock).toHaveBeenCalledWith("/tmp/explicit.zip", {
+			select: undefined,
+			restore: true,
 		});
 	});
 

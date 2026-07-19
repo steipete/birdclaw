@@ -334,6 +334,8 @@ function queryRows(options: MediaFetchOptions) {
     select t.id, t.media_json
     from tweets t
     where t.media_json not in ('', '[]', 'null')
+	  and t.deleted_at is null
+	  and t.superseded_at is null
   `;
 	const scopeClause = buildScopeClause(params, account, kind);
 	if (scopeClause) sql += ` and (${scopeClause})`;

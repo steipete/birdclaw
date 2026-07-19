@@ -136,6 +136,24 @@ describe("media fetch", () => {
 		);
 	});
 
+	it("does not fetch media belonging to a tombstoned tweet", async () => {
+		home();
+		insertTweet("tweet_deleted", [pbs("deleted_media")]);
+		getNativeDb()
+			.prepare(
+				"update tweets set deleted_at = ?, deletion_reason = ? where id = ?",
+			)
+			.run(
+				"2026-07-18T12:00:00.000Z",
+				"explicit_deleted_tweet_record",
+				"tweet_deleted",
+			);
+
+		const result = await fetchTweetMedia({ dryRun: true });
+
+		expect(result.would_fetch).toEqual([]);
+	});
+
 	it("scopes kind filters through tweet account edges", async () => {
 		const root = home();
 		insertTweet("tweet_1", [pbs("edge_media")]);

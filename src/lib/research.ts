@@ -237,7 +237,7 @@ function getTweetRowById(tweetId: string): ResearchRow | null {
         p.created_at as author_created_at
       from tweets t
       join profiles p on p.id = t.author_profile_id
-      where t.id = ?
+	  where t.id = ? and t.deleted_at is null and t.superseded_at is null
       `,
 		)
 		.get(tweetId) as ResearchRow | undefined;
@@ -256,12 +256,14 @@ function getTweetDescendants(
       with recursive thread(id, depth, path) as (
         select id, 0 as depth, ',' || id || ',' as path
         from tweets
-        where id = ?
+		where id = ? and deleted_at is null and superseded_at is null
         union all
         select child.id, thread.depth + 1, thread.path || child.id || ','
         from tweets child
         join thread on child.reply_to_id = thread.id
         where thread.depth < ?
+		  and child.deleted_at is null
+		  and child.superseded_at is null
           and instr(thread.path, ',' || child.id || ',') = 0
       )
       select
@@ -292,6 +294,8 @@ function getTweetDescendants(
         thread.depth as thread_depth
       from thread
       join tweets t on t.id = thread.id
+	  and t.deleted_at is null
+	  and t.superseded_at is null
       join profiles p on p.id = t.author_profile_id
       order by t.created_at asc, t.id asc
       `,

@@ -268,7 +268,8 @@ function collectLiveSearchTweets(
         p.created_at as profile_created_at
       from tweets t
       join profiles p on p.id = t.author_profile_id
-      where t.id in (${placeholders})
+	  where t.deleted_at is null and t.superseded_at is null
+	    and t.id in (${placeholders})
     `)
 		.all(accountId, accountId, ...ids) as Array<Record<string, unknown>>;
 

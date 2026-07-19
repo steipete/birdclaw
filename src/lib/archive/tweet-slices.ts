@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { ArchiveImportPlan } from "../archive-import-plan";
 import {
+	ARCHIVE_DELETION_REASON,
+	ARCHIVE_DELETION_SOURCE,
+	editHistoryIdsFromPayload,
+} from "../tweet-retention";
+import {
 	asArray,
 	asRecord,
 	extractTweetEntities,
@@ -82,6 +87,11 @@ export function parseTweetSliceEffect({
 					quotedTweetId: tweet.quoted_status_id_str
 						? String(tweet.quoted_status_id_str)
 						: null,
+					editHistoryIds: editHistoryIdsFromPayload(
+						String(tweet.id_str ?? tweet.id),
+						tweet,
+					),
+					rawJson: JSON.stringify(tweet),
 				});
 			});
 			onProgress({
@@ -96,6 +106,94 @@ export function parseTweetSliceEffect({
 				kind: "slice-done",
 				slice: "tweets",
 				count: plan.tweets.length,
+			});
+		}
+	});
+}
+
+export function parseDeletedTweetSliceEffect({
+	archivePath,
+	entries,
+	plan,
+	onProgress,
+	observedAt,
+}: ParseTweetSliceParams & { observedAt: string }) {
+	return Effect.gen(function* () {
+		if (entries.length > 0) {
+			onProgress({
+				kind: "slice-start",
+				slice: "deletedTweets",
+				files: entries.length,
+			});
+		}
+		const rowsBefore = plan.tweets.length;
+		for (const [fileIndex, entry] of entries.entries()) {
+			const isHeaderFile =
+				/(?:^|\/)deleted-tweet-headers(?:-part\d+)?\.js$/i.test(entry);
+			yield* processArchiveEntryRecordsEffect(archivePath, entry, (wrapper) => {
+				const deletedTweet = asRecord(
+					wrapper.deletedTweet ??
+						wrapper.deleted_tweet ??
+						wrapper.deletedTweetHeader ??
+						wrapper.deleted_tweet_header ??
+						wrapper.tweetHeader ??
+						wrapper.tweet_header ??
+						wrapper.tweet,
+				);
+				if (!deletedTweet) return;
+				const id = String(
+					deletedTweet.id_str ??
+						deletedTweet.id ??
+						deletedTweet.tweetId ??
+						deletedTweet.tweet_id ??
+						"",
+				);
+				if (!id) return;
+				const explicitDeletedAt = String(
+					deletedTweet.deleted_at ?? deletedTweet.deletedAt ?? "",
+				).trim();
+				const createdAtValue =
+					deletedTweet.created_at ?? deletedTweet.createdAt;
+				plan.addTweet({
+					id,
+					kind: "home",
+					authorProfileId: "profile_me",
+					text: String(deletedTweet.full_text ?? deletedTweet.text ?? ""),
+					createdAt: createdAtValue
+						? parseTwitterDate(createdAtValue)
+						: new Date(0).toISOString(),
+					isReplied: deletedTweet.in_reply_to_status_id_str ? 1 : 0,
+					replyToId: deletedTweet.in_reply_to_status_id_str
+						? String(deletedTweet.in_reply_to_status_id_str)
+						: null,
+					likeCount: toInt(deletedTweet.favorite_count),
+					mediaCount: getTweetMediaCount(deletedTweet),
+					bookmarked: 0,
+					liked: 0,
+					entitiesJson: JSON.stringify(extractTweetEntities(deletedTweet)),
+					mediaJson: JSON.stringify(extractTweetMedia(deletedTweet)),
+					quotedTweetId: deletedTweet.quoted_status_id_str
+						? String(deletedTweet.quoted_status_id_str)
+						: null,
+					deletedAt: explicitDeletedAt || observedAt,
+					deletionSource: ARCHIVE_DELETION_SOURCE,
+					deletionReason: ARCHIVE_DELETION_REASON,
+					editHistoryIds: editHistoryIdsFromPayload(id, deletedTweet),
+					rawJson: isHeaderFile ? null : JSON.stringify(deletedTweet),
+				});
+			});
+			onProgress({
+				kind: "slice-file",
+				slice: "deletedTweets",
+				processed: fileIndex + 1,
+				files: entries.length,
+			});
+		}
+		if (entries.length > 0) {
+			onProgress({
+				kind: "slice-done",
+				slice: "deletedTweets",
+				count: plan.tweets.length - rowsBefore,
 			});
 		}
 	});
@@ -136,6 +234,10 @@ export function parseNoteTweetSliceEffect({
 					entitiesJson: "{}",
 					mediaJson: "[]",
 					quotedTweetId: null,
+					editHistoryIds: [
+						String(noteTweet.noteTweetId ?? noteTweet.id ?? ""),
+					].filter(Boolean),
+					rawJson: JSON.stringify(noteTweet),
 				});
 			});
 			onProgress({

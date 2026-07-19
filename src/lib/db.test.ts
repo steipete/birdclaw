@@ -189,6 +189,11 @@ describe("database init", () => {
 				"entities_json",
 				"media_json",
 				"quoted_tweet_id",
+				"deleted_at",
+				"deletion_source",
+				"deletion_reason",
+				"superseded_at",
+				"superseded_by_id",
 			]),
 		);
 		expect(columnNames.map((column) => column.name)).not.toEqual(
@@ -250,6 +255,20 @@ describe("database init", () => {
 		expect(replyIndex).toEqual([
 			expect.objectContaining({ name: "reply_to_id" }),
 		]);
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweet_revisions where revision_id in ('legacy_saved_home', 'legacy_authored', 'legacy_search')",
+				)
+				.get(),
+		).toEqual({ count: 3 });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets where deleted_at is not null",
+				)
+				.get(),
+		).toEqual({ count: 0 });
 
 		const syncCacheColumnNames = db
 			.prepare("pragma table_info(sync_cache)")
@@ -399,7 +418,7 @@ describe("database init", () => {
 		}) as number;
 		expect(busyTimeout).toBe(SQLITE_BUSY_TIMEOUT_MS);
 		expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
-		expect(db.pragma("user_version", { simple: true })).toBe(5);
+		expect(db.pragma("user_version", { simple: true })).toBe(6);
 	});
 
 	it("does not request a write lock for completed startup backfills", async () => {
@@ -484,7 +503,7 @@ describe("database init", () => {
 
 	it.each([
 		{ kind: "stale", version: 4 },
-		{ kind: "future", version: 6 },
+		{ kind: "future", version: 7 },
 	])(
 		"rejects a $kind schema and closes its provisional reader",
 		({ version }) => {
@@ -519,10 +538,10 @@ describe("database init", () => {
 
 		const writer = getNativeDb({ seedDemoData: false });
 		getReadDb({ seedDemoData: false });
-		writer.pragma("user_version = 6");
+		writer.pragma("user_version = 7");
 
 		expect(() => getStrictReadDb()).toThrow(
-			/schema 6 is not ready for version 5/,
+			/schema 7 is not ready for version 6/,
 		);
 	});
 

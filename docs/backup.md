@@ -19,6 +19,8 @@ data/profile_snapshots.jsonl
 data/profile_bio_entities.jsonl
 data/tweets/YYYY.jsonl
 data/tweets/unknown.jsonl
+data/tweet_revisions.jsonl
+data/tweet_subordinate_tombstones.jsonl
 data/collections/likes.jsonl
 data/collections/bookmarks.jsonl
 data/dms/conversations.jsonl
@@ -39,6 +41,7 @@ Design rules:
 - **tweets** are sharded by year for human browsing, partial loads, and yearly analysis
 - **DMs** are sharded by year with `conversation_id` in each row, so Git stays fast while preserving conversation membership
 - **collection-only tweets** with unknown timestamps go to `data/tweets/unknown.jsonl` instead of pretending they belong to 1970
+- **tweet tombstones and revisions** preserve explicit deletions, subordinate media/quote deletion state, and observable edit chains without re-exposing deleted or superseded rows through search
 - **likes** and **bookmarks** are stored as collection edges and mirrored into the timeline rows so existing queries keep working
 - **profiles** include bio, follower/following counts, profile URL, location, verification type, structured URL entities, and raw profile JSON so the snapshot is meaningful on its own
 - **profile affiliations** preserve X badge/highlighted-label organization edges separately from profile rows
@@ -102,7 +105,7 @@ birdclaw backup import ~/Projects/birdclaw-store --json
 
 Validates the backup first (unless `--no-validate`), then merge-imports rows into local SQLite. Local-only rows are preserved by default.
 
-`--replace` restores exactly from backup and **deletes local portable rows first**. Use it when you want a known-clean state from the backup, e.g. on a new machine.
+`--restore` restores exactly from backup and **deletes local portable rows first**. Use it when you want a known-clean state from the backup, e.g. on a new machine. The older `--replace` spelling remains as a deprecated alias.
 
 The FTS5 shadow tables for tweets and DMs are rebuilt from the JSONL text after import, so search is immediately available.
 
@@ -127,12 +130,12 @@ Exits non-zero on validation failure. Run it in CI before publishing a backup, o
 
 ```json
 {
-  "backup": {
-    "repoPath": "/Users/steipete/Projects/backup-birdclaw",
-    "remote": "https://github.com/steipete/backup-birdclaw.git",
-    "autoSync": true,
-    "staleAfterSeconds": 900
-  }
+	"backup": {
+		"repoPath": "/Users/steipete/Projects/backup-birdclaw",
+		"remote": "https://github.com/steipete/backup-birdclaw.git",
+		"autoSync": true,
+		"staleAfterSeconds": 900
+	}
 }
 ```
 

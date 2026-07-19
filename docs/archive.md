@@ -7,23 +7,23 @@ description: "Import a Twitter/X archive into local SQLite — autodiscovery, se
 
 `birdclaw import archive` parses a Twitter/X archive ZIP and writes everything into the canonical SQLite tables: tweets, likes, bookmarks, profiles, followers/following edges, DMs, bundled media files, and (when present) blocklists.
 
-It is **idempotent**. Re-running on the same archive replays the import without producing duplicates, so you can import, then re-import after a fresh archive download to top up.
+It is **idempotent and merge-safe**. Re-running on the same archive does not produce duplicates, and importing a newer or incomplete archive preserves destination-only rows by default.
 
-By default, archive import is a full archive replay. It refreshes archive-owned data from the ZIP and rebuilds the local rows for all supported archive slices. Use `--select` when you want to refresh only one or two slices from a newer archive while preserving the rest of your local store.
+By default, archive import merges all supported slices from the ZIP. Use `--select` to merge only one or two slices, or add `--restore` when you deliberately want the imported slices to replace local state exactly.
 
 ## Get an archive
 
-On a fresh Birdclaw database, archive import establishes the account identity required by live sync. Do not sync an empty database or the synthetic `init --demo` workspace before importing your archive. An archive is optional only when restoring an existing Birdclaw database or backup that already contains the correct account.
+On a fresh Birdclaw database, archive import establishes the account identity required by live sync. Do not sync an empty database before importing your archive. To replace the synthetic identity created by `init --demo`, use `import archive --restore`. An archive is optional only when restoring an existing Birdclaw database or backup that already contains the correct account.
 
 Request flow:
 
-1. Sign in to x.com and go to <https://x.com/settings/download_your_data> (also reachable via *Settings and privacy → Your account → Download an archive of your data*).
+1. Sign in to x.com and go to <https://x.com/settings/download_your_data> (also reachable via _Settings and privacy → Your account → Download an archive of your data_).
 2. Re-enter your password and complete 2FA if prompted.
-3. Click *Request archive*. X queues the export and emails a download link when it is ready. [X Help](https://help.x.com/en/managing-your-account/how-to-download-your-x-archive) says preparation may take a few days.
-4. When the email arrives (subject: *Your X data is ready to download*), open the link, sign in again, and download the ZIP. Typical filename: `twitter-YYYY-MM-DD-<hash>.zip`.
+3. Click _Request archive_. X queues the export and emails a download link when it is ready. [X Help](https://help.x.com/en/managing-your-account/how-to-download-your-x-archive) says preparation may take a few days.
+4. When the email arrives (subject: _Your X data is ready to download_), open the link, sign in again, and download the ZIP. Typical filename: `twitter-YYYY-MM-DD-<hash>.zip`.
 5. Save the ZIP into `~/Downloads` so autodiscovery picks it up, or note its path and pass it explicitly to `import archive`.
 
-The archive is a point-in-time snapshot. You can request a fresh one later and use `--select` (see below) to refresh a single slice without wiping the rest of your local store.
+The archive is a point-in-time snapshot. You can request a fresh one later and use `--select` (see below) to merge a single slice without wiping the rest of your local store.
 
 ## Autodiscovery
 
@@ -47,8 +47,9 @@ birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 Flags:
 
 - `--select <kinds>` — comma-separated subset of `tweets,likes,bookmarks,profiles,directMessages,followers,following`
+- `--restore` — exactly replace the imported slices instead of merging them
 
-`--select` is for targeted re-imports. It clears and replays only the selected archive slices for `acct_primary`, then leaves unselected local data alone. This matters when you have live-synced likes/bookmarks, local replies, another account in the same DB, or a fresh archive that only needs one stale surface refreshed.
+`--select` is for targeted re-imports. It merges only the selected archive slices for `acct_primary`, then leaves unselected local data alone. This matters when you have live-synced likes/bookmarks, local replies, another account in the same DB, or a fresh archive that only needs one stale surface refreshed.
 
 Accepted DM aliases:
 
@@ -63,25 +64,32 @@ Examples:
 birdclaw import archive ~/Downloads/twitter-archive.zip --select tweets,directMessages
 birdclaw import archive ~/Downloads/twitter-archive.zip --select likes,bookmarks --json
 birdclaw import archive ~/Downloads/twitter-archive.zip --select dms --json
+birdclaw import archive ~/Downloads/twitter-archive.zip --restore --json
 ```
 
 Use `--select profiles` when you want archive profile metadata refreshed. When selecting only tweets, likes, bookmarks, DMs, followers, or following, birdclaw preserves compatible existing profile rows and only inserts missing stubs needed for references.
 
-Selected imports validate the existing `acct_primary` account before writing. If the local default account does not match the archive account ID or handle, the command fails instead of merging two identities into one account.
+Every merge import validates the existing `acct_primary` account before writing. If the local default account does not match the archive account ID or handle, the command fails instead of merging two identities into one account. An explicit full `--restore` is the only mode that may replace that identity.
 
 ## Full import vs selected import
 
 Full import:
 
 - reads every supported archive file
-- refreshes archive-owned tweets, collections, profiles, DMs, and follow edges together
-- best for a clean first import or a deliberate full archive refresh
+- merges archive-owned tweets, collections, profiles, DMs, and follow edges together
+- best for a clean first import or topping up from a newer archive
 
 Selected import:
 
 - reads only the selected archive data plus the small account/profile baseline needed to validate identity and resolve references
-- clears only rows owned by the selected slice
-- preserves unselected tweets, DMs, likes/bookmarks, live collection rows, profile metadata, and other accounts
+- merges only rows owned by the selected slice
+- preserves destination-only and unselected tweets, DMs, likes/bookmarks, live collection rows, profile metadata, and other accounts
+
+Explicit restore:
+
+- clears portable rows owned by the imported full or selected slices before replaying the archive
+- removes destination-only rows in those slices, so use it only when exact replacement is intended
+- remains identity-scoped for selected imports and preserves unselected slices
 
 Typical targeted re-imports:
 
@@ -97,7 +105,18 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --select directMessages 
 
 # Refresh archive follow graph only.
 birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,following --json
+
+# Deliberately replace only the archive-owned tweet slice.
+birdclaw import archive ~/Downloads/twitter-archive.zip --select tweets --restore --json
 ```
+
+## Deletions and edit history
+
+Archive absence is not deletion. A tweet that disappears from a home or authored timeline may still exist on X, so a later snapshot that simply does not contain a stored tweet leaves that tweet active locally.
+
+Birdclaw creates a tombstone only from an explicit archive deleted-tweet record. The canonical tweet row retains `deleted_at`, a deletion source, and a reason; active search and timeline reads exclude it. Media identifiers and quoted-tweet relationships belonging to that parent receive subordinate tombstones so deleted content does not leak through media fetching or relationship views.
+
+When X exposes an edit-history ID chain, Birdclaw records the ordered revision identities. The raw body is attached only to a revision actually observed in the archive or a live payload; unobserved earlier IDs remain lossless identity stubs rather than invented content. Superseded bodies stay retained but disappear from active timelines, search, links, and media fetching. If the terminal revision is explicitly deleted, the whole chain stays inactive. Tombstones and revisions are included in portable backups.
 
 ## Bundled media files
 
@@ -134,7 +153,7 @@ When the archive ships with `data/follower.js` and `data/following.js`, `import 
 
 - each entry becomes a stub `profiles` row plus a current `follow_edges` row
 - counts land in the archive-import result envelope under `counts.followers` and `counts.following`
-- re-importing the same archive is a no-op; switching to a fresher archive tops up new edges
+- re-importing the same archive is a no-op; switching to a fresher archive tops up new edges without treating missing relationships as ended unless `--restore` is used
 
 A fresh install with just an archive and no live transport still gets a usable [follow graph](follow-graph.md). `birdclaw graph summary`, `graph mutuals`, and `graph top-followers` all work against archive-imported edges. Live `sync followers --yes` can layer churn on top later.
 
@@ -155,6 +174,8 @@ Avatars are written to `~/.birdclaw/media/thumbs/avatars/` so the web UI does no
 After import, archive data and live data live in the same canonical tables. There is no `archive_*` shadow universe.
 
 - **Tweets** → `tweets` table, indexed by FTS5 — searchable via `birdclaw search tweets`
+- **Explicit deletions** → retained tweet metadata plus `tweet_subordinate_tombstones`; excluded from active timelines, search, links, and media fetches
+- **Edit history** → ordered `tweet_revisions` rows, with raw payloads only for observed revision bodies and superseded canonical rows retained outside active views
 - **Likes** → `tweets` table + a `likes` collection edge — searchable via `--liked`
 - **Bookmarks** → `tweets` table + a `bookmarks` collection edge — searchable via `--bookmarked`
 - **DMs** → `dm_conversations` and `dm_events` tables, indexed by FTS5 — searchable via `birdclaw search dms`

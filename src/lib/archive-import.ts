@@ -12,6 +12,7 @@ import {
 } from "./archive/follow-slice";
 import { createArchiveProfileReconciler } from "./archive/profile-reconciler";
 import {
+	parseDeletedTweetSliceEffect,
 	parseNoteTweetSliceEffect,
 	parseTweetSliceEffect,
 } from "./archive/tweet-slices";
@@ -66,6 +67,7 @@ function importArchiveInternalEffect(
 ): Effect.Effect<ImportedArchiveSummary, unknown> {
 	return Effect.gen(function* () {
 		const onProgress = options.onProgress ?? (() => {});
+		const observedAt = new Date().toISOString();
 		const entries = yield* listArchiveEntriesEffect(archivePath);
 		onProgress({ kind: "scanned", entryCount: entries.length });
 		const selection = selectedSlices(options);
@@ -80,6 +82,7 @@ function importArchiveInternalEffect(
 			accountEntry,
 			profileEntry,
 			tweetEntries,
+			deletedTweetEntries,
 			noteTweetEntries,
 			likeEntries,
 			bookmarkEntries,
@@ -103,7 +106,7 @@ function importArchiveInternalEffect(
 			parseArchiveArray(accountContent)[0] ?? null,
 			parseArchiveArray(profileContent)[0] ?? null,
 		);
-		const db = getNativeDb();
+		const db = getNativeDb({ seedDemoData: false });
 		const repository = getImportRepository(db);
 		const plan = new ArchiveImportPlan();
 		const {
@@ -121,6 +124,13 @@ function importArchiveInternalEffect(
 			plan,
 			onProgress,
 		});
+		yield* parseDeletedTweetSliceEffect({
+			archivePath,
+			entries: deletedTweetEntries,
+			plan,
+			onProgress,
+			observedAt,
+		});
 		yield* parseNoteTweetSliceEffect({
 			archivePath,
 			entries: noteTweetEntries,
@@ -132,10 +142,15 @@ function importArchiveInternalEffect(
 		const profileReconciler = createArchiveProfileReconciler({
 			repository,
 			selection,
+			preserveExisting: !(
+				options.restore === true &&
+				(!selection || selection.has("profiles"))
+			),
+			allowAccountReplacement: options.restore === true && !selection,
 			accountPayload,
 			profiles,
 		});
-		profileReconciler.assertSelectedAccountMatchesArchive();
+		profileReconciler.assertAccountMatchesArchive();
 		const localProfile =
 			profileReconciler.initializeLocalProfile(includeProfiles);
 		yield* parseDirectMessagesEffect({
@@ -226,11 +241,13 @@ function importArchiveInternalEffect(
 			followerEntryCount: followerEntries.length,
 			followingEntryCount: followingEntries.length,
 			onProgress,
+			restore: options.restore === true,
 		});
 		onProgress({ kind: "done" });
 
 		return {
 			ok: true,
+			mode: options.restore === true ? "restore" : "merge",
 			archivePath,
 			account: {
 				id: accountPayload.accountId,

@@ -183,10 +183,13 @@ Native SQLite only. Transactional, append-only migrations define the schema; foc
 - `tweets`
   - canonical tweet rows
   - text, metrics, timestamps, references, author id
-  - raw JSON payload column
-- `tweet_media`
-- `tweet_urls`
-- `tweet_mentions`
+  - explicit deletion timestamp, source, and reason; absence from a later snapshot never sets them
+  - supersession timestamp and terminal revision ID keep older edit bodies lossless but inactive
+- `tweet_revisions`
+  - ordered revision identities from observable X edit history
+  - retains raw revision payloads only when the body was actually observed
+- `tweet_subordinate_tombstones`
+  - media and quote-relation tombstones derived from explicitly deleted parent tweets
 - `follow_edges`
   - current complete directional graph for `followers` and `following`
 - `follow_snapshots`
@@ -348,10 +351,14 @@ Principles:
 
 - idempotent reruns
 - preserve richer existing data
-- raw source retained optionally
-- full import refreshes all supported archive slices together
-- selected import refreshes only requested slices and preserves unselected local data
-- selected import validates `acct_primary` identity before writing
+- merge destination-only rows by default; a record missing from a later archive is not a deletion
+- only explicit deleted-tweet records create source-attributed tombstones
+- hide tombstoned tweets and their subordinate media/quote relations from active indexes while retaining lossless archive state
+- retain observable edit-history identities and payloads without inventing unobserved revision bodies; superseded revisions are not active content
+- full import merges all supported archive slices together
+- selected import merges only requested slices and preserves unselected local data
+- explicit `--restore` replaces imported slices exactly
+- merge imports and selected restores validate `acct_primary` identity before writing; only a full restore may replace it
 - selected collection imports preserve live collection rows and local tweet ownership
 - selected DM imports are scoped to `acct_primary` and preserve other accounts
 

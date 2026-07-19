@@ -187,6 +187,8 @@ Shard contract:
 - tweets: `data/tweets/YYYY.jsonl`
 - tweet provenance: `data/tweet_sources.jsonl`
 - unknown tweet dates: `data/tweets/unknown.jsonl`
+- tweet revisions: `data/tweet_revisions.jsonl`
+- subordinate tweet tombstones: `data/tweet_subordinate_tombstones.jsonl`
 - profiles: `data/profiles.jsonl` includes bio, follower/following counts, profile URL, location, verification type, structured URL entities, and raw profile JSON
 - affiliations: `data/profile_affiliations.jsonl` includes X badge/highlighted-label organization edges
 - identity history: `data/profile_snapshots.jsonl` and `data/profile_bio_entities.jsonl` preserve profile-change states and extracted bio identity hints
@@ -231,7 +233,7 @@ to the full path of `bash.exe` for a portable or non-standard installation.
 
 - validates the backup first unless `--no-validate` is passed
 - merge-imports by default so local-only rows are not deleted
-- `--replace` restores exactly from backup and deletes local portable rows first
+- `--restore` restores exactly from backup and deletes local portable rows first (`--replace` remains a deprecated alias)
 - rebuilds tweet and DM FTS from the JSONL text
 
 ```bash
@@ -252,7 +254,9 @@ birdclaw backup validate ~/Projects/birdclaw-store --json
 
 - validate archive
 - analyze contents
-- import selected slices
+- merge selected slices without deleting destination-only rows
+- retain explicit deleted-tweet records as source-attributed tombstones; absence alone is never a deletion
+- use `--restore` for deliberate exact replacement of the imported slices
 - stream bundled media files from `data/tweets_media/`, `data/direct_messages_media/`, `data/community_tweet_media/`, `data/deleted_tweets_media/`, `data/profile_media/`, `data/moments_tweets_media/`, and `data/direct_messages_group_media/` into `~/.birdclaw/media/originals/archive/<kind>/<id>/<filename>`
 - extract `extended_entities.media[].video_info.variants[]` onto each tweet media row for archive video and animated GIFs
 - parse `data/follower.js` and `data/following.js` into the local follow graph
@@ -269,7 +273,7 @@ Flags:
 - valid aliases for `directMessages`: `directmessages`, `direct-messages`, `dms`
 - duplicate names are ignored
 - empty values and unknown names exit as invalid usage
-- selected imports validate that existing `acct_primary` matches the archive account before writing
+- merge imports and selected restores validate that existing `acct_primary` matches the archive account before writing; only a full `--restore` may replace it
 - selected imports preserve compatible existing profile rows unless `profiles` is selected
 
 Examples:

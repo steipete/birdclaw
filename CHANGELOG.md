@@ -2,6 +2,14 @@
 
 ## 0.11.1 - Unreleased
 
+### Added
+
+- Preserve explicit X archive deletions as source-attributed tweet, media, and quote tombstones, and retain observable X edit chains as portable revision records while hiding superseded bodies from active views.
+
+### Changed
+
+- Merge archive and backup imports by default so incomplete snapshots never delete destination-only rows; use explicit `--restore` for exact replacement.
+
 ## 0.11.0 - 2026-07-18
 
 ### Highlights

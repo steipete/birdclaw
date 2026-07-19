@@ -12,6 +12,7 @@ export type ArchiveImportSlice = (typeof ARCHIVE_IMPORT_SLICES)[number];
 
 export type ImportProgressSlice =
 	| "tweets"
+	| "deletedTweets"
 	| "noteTweets"
 	| "directMessages"
 	| "likes"
@@ -48,6 +49,7 @@ export type ImportProgressEvent =
 
 export interface ImportArchiveOptions {
 	select?: ArchiveImportSlice[];
+	restore?: boolean;
 	onProgress?: (event: ImportProgressEvent) => void;
 }
 
@@ -77,6 +79,7 @@ export type ArchiveFollowKey = "follower" | "following";
 
 export interface ImportedArchiveSummary {
 	ok: true;
+	mode: "merge" | "restore";
 	archivePath: string;
 	account: {
 		id: string;

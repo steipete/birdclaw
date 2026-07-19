@@ -119,7 +119,7 @@ Replies use the active live transport (`auto` by default). Without a working tra
 
 Twitter archives include full DM history but the JSON is awkward. `import archive` imports message bodies into SQLite and makes them FTS5-searchable.
 
-Use `--select directMessages` when a newer archive has fresher DMs and you do not want to touch tweets, likes, bookmarks, profiles, or follow data. The selected re-import clears only archive DM rows for `acct_primary`, preserves other accounts, then rebuilds DM FTS. `dms` is accepted as a shorter alias.
+Use `--select directMessages` when a newer archive has fresher DMs and you do not want to touch tweets, likes, bookmarks, profiles, or follow data. The selected re-import merges archive DM rows for `acct_primary` and preserves other accounts. Add `--restore` to clear and exactly replay that account's archive DMs before rebuilding DM FTS. `dms` is accepted as a shorter alias.
 
 ```bash
 birdclaw import archive ~/Downloads/twitter-archive.zip --select directMessages --json

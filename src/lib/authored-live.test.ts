@@ -746,7 +746,7 @@ describe("live authored tweet sync", () => {
 		}
 	});
 
-	it("commits archive baseline after clearImportedData invalidates authored cursor", async () => {
+	it("commits archive baseline after a full restore invalidates authored cursor", async () => {
 		makeTempHome();
 		getNativeDb()
 			.prepare(
@@ -763,7 +763,7 @@ describe("live authored tweet sync", () => {
 				"2026-05-12T12:00:00.000Z",
 			);
 		const { importArchive } = await import("./archive-import");
-		await importArchive(makeArchiveWithTweet("1000"));
+		await importArchive(makeArchiveWithTweet("1000"), { restore: true });
 		mocks.listUserTweets.mockResolvedValueOnce({
 			items: [],
 			nextToken: null,
@@ -782,7 +782,7 @@ describe("live authored tweet sync", () => {
 		});
 	});
 
-	it("commits archive baseline after selected tweet import invalidates authored cursor", async () => {
+	it("commits archive baseline after selected tweet restore invalidates authored cursor", async () => {
 		makeTempHome();
 		const { importArchive } = await import("./archive-import");
 		await importArchive(makeArchiveWithTweet("800"));
@@ -804,7 +804,10 @@ describe("live authored tweet sync", () => {
 				JSON.stringify({ state: "committed", sinceId: "1200" }),
 				"2026-05-12T12:00:00.000Z",
 			);
-		await importArchive(makeArchiveWithTweet("1000"), { select: ["tweets"] });
+		await importArchive(makeArchiveWithTweet("1000"), {
+			select: ["tweets"],
+			restore: true,
+		});
 		mocks.listUserTweets.mockResolvedValueOnce({
 			items: [],
 			nextToken: null,

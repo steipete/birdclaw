@@ -24,7 +24,12 @@ function countTimelineEdges(db: Database, kind: "home" | "mention") {
       select count(distinct tweet_id) as count
 		from tweet_account_edges edge
 		where edge.kind = ?
-		  and exists (select 1 from tweets t where t.id = edge.tweet_id)
+		  and exists (
+			select 1 from tweets t
+			where t.id = edge.tweet_id
+			  and t.deleted_at is null
+			  and t.superseded_at is null
+		  )
       `,
 		)
 		.get(kind) as { count: number | bigint } | undefined;

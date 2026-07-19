@@ -635,6 +635,7 @@ export function buildTimelineItemsQuery(
 	          and tweet_id in (
             select id
             from tweets
+            where deleted_at is null and superseded_at is null
             order by created_at desc
 	            limit ?
 	          )
@@ -662,6 +663,7 @@ export function buildTimelineItemsQuery(
 		where = "where e.kind = ?";
 		params.push(kind);
 	}
+	where += " and t.deleted_at is null and t.superseded_at is null";
 
 	if (
 		hasLiteralAccountId ||
@@ -863,9 +865,9 @@ export function buildTimelineItemsQuery(
       join tweets t on t.id = e.tweet_id
       join accounts a on a.id = e.account_id
       join profiles p on p.id = t.author_profile_id
-      left join tweets rt on rt.id = t.reply_to_id
+      left join tweets rt on rt.id = t.reply_to_id and rt.deleted_at is null and rt.superseded_at is null
       left join profiles rp on rp.id = rt.author_profile_id
-      left join tweets qt on qt.id = t.quoted_tweet_id
+      left join tweets qt on qt.id = t.quoted_tweet_id and qt.deleted_at is null and qt.superseded_at is null
       left join profiles qp on qp.id = qt.author_profile_id
       ${ftsSearch ? "" : where}
       order by t.created_at desc, t.id desc
@@ -1250,7 +1252,7 @@ function getTweetById(
 			: [];
 	const row = db
 		.prepare(
-			`${conversationTweetSelect(options.stateAccountId)} where t.id = ?${membershipClause}`,
+			`${conversationTweetSelect(options.stateAccountId)} where t.id = ? and t.deleted_at is null and t.superseded_at is null${membershipClause}`,
 		)
 		.get(...stateParams, tweetId, ...membershipParams) as
 		| Record<string, unknown>
@@ -1277,6 +1279,8 @@ function hasTweetAccountMembership(
 				select 1
 				from tweets tweet
 				where tweet.id = ?
+					and tweet.deleted_at is null
+					and tweet.superseded_at is null
 					and ${tweetAccountMembershipPredicate("tweet")}
 				limit 1
 				`,
@@ -1296,7 +1300,9 @@ function getAccountMemberTweetIds(
 		.prepare(
 			`select tweet.id
 			 from tweets tweet
-			 where tweet.id in (${uniqueTweetIds.map(() => "?").join(", ")})
+				 where tweet.id in (${uniqueTweetIds.map(() => "?").join(", ")})
+				   and tweet.deleted_at is null
+				   and tweet.superseded_at is null
 			   and ${tweetAccountMembershipPredicate("tweet")}`,
 		)
 		.all(...uniqueTweetIds, accountId, accountId) as Array<{ id: string }>;
@@ -1362,7 +1368,7 @@ function listTweetDescendants(
 				db
 					.prepare(
 						`select 1 from tweets child
-						 where child.reply_to_id = ? and child.id != ?${membershipClause}
+						 where child.reply_to_id = ? and child.id != ? and child.deleted_at is null and child.superseded_at is null${membershipClause}
 						 limit 1`,
 					)
 					.get(
@@ -1388,16 +1394,18 @@ function listTweetDescendants(
       with recursive branch(id, depth, created_at, path) as (
         select t.id, 0, t.created_at, char(31) || t.id || char(31)
         from tweets t
-        where t.id = ?
+        where t.id = ? and t.deleted_at is null and t.superseded_at is null
         union all
         select
 		  child.id,
 		  branch.depth + 1,
 		  child.created_at,
 		  branch.path || child.id || char(31)
-        from tweets child
-        join branch on child.reply_to_id = branch.id
+		from tweets child
+		join branch on child.reply_to_id = branch.id
 		where branch.depth < ?
+		  and child.deleted_at is null
+		  and child.superseded_at is null
 		  ${scopedChildClause}
 		  and instr(branch.path, char(31) || child.id || char(31)) = 0
 		order by 3 asc, 1 asc, 2 asc
@@ -1411,6 +1419,8 @@ function listTweetDescendants(
 			from branch cutoff
 			join tweets child on child.reply_to_id = cutoff.id
 			where cutoff.depth = ?
+			  and child.deleted_at is null
+			  and child.superseded_at is null
 			  ${scopedChildClause}
 			  and instr(
 				cutoff.path,
@@ -1428,6 +1438,8 @@ function listTweetDescendants(
 			)}
 	  cross join branch_stats
       where t.id != ?
+	    and t.deleted_at is null
+	    and t.superseded_at is null
 	  order by t.created_at asc, t.id asc
       limit ?
       `,

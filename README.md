@@ -21,7 +21,8 @@ Status: WIP. Real and usable. Not done. Expect schema churn, transport gaps, and
 - FTS5 search over tweets and DMs
 - archive autodiscovery on macOS
 - archive import for tweets, likes, followers/following, profiles, and full DMs
-- selective archive re-imports for one stale slice without wiping the rest of the local store
+- merge-safe archive re-imports that preserve destination-only rows, with `--restore` for deliberate exact replacement
+- source-attributed tombstones for explicit deleted-tweet records, including subordinate media/quote tombstones and observable edit-chain revisions
 - archive import for bookmark exports when present
 - explicit, disabled-by-default import of named public tweets through the fixed read-only FxTwitter endpoint, with durable source provenance
 - archive import streams bundled media files into the local originals cache and extracts `video_info.variants[]` for video and animated-GIF rows
@@ -236,7 +237,7 @@ birdclaw import archive --json
 birdclaw import archive ~/Downloads/twitter-archive-2025.zip --json
 ```
 
-Don't have an archive yet? Request it from <https://x.com/settings/download_your_data>; X emails a download link when it is ready, which may take a few days. A fresh or demo Birdclaw database needs the archive import to establish real account identity before live sync. See [Archive Import → Get an archive](docs/archive.md#get-an-archive).
+Don't have an archive yet? Request it from <https://x.com/settings/download_your_data>; X emails a download link when it is ready, which may take a few days. A fresh Birdclaw database needs the archive import to establish real account identity before live sync; replace an `init --demo` identity with `import archive --restore`. See [Archive Import → Get an archive](docs/archive.md#get-an-archive).
 
 Optional profile hydration through xurl can improve bios, follower counts, and avatars, but it performs live X profile reads and can spend API credits on large archives. With an existing private bird installation, the command can instead correct the seeded local account identity from `bird whoami` without bulk-hydrating imported profiles:
 
@@ -246,7 +247,7 @@ birdclaw import hydrate-profiles --account steipete --json
 
 Every command that touches live account auth accepts `--account <username>` (stored IDs also work). To reuse one selection without changing the database identity, set `{"accounts":{"default":"steipete"}}` in `~/.birdclaw/config.json`; an explicit flag overrides it for one operation.
 
-`import archive` is idempotent. Re-running parses follower/following edges into the local follow graph, streams bundled media files under `data/tweets_media/`, `data/direct_messages_media/`, and the other archive media folders into `~/.birdclaw/media/originals/archive/<kind>/<id>/`, and pulls `video_info.variants[]` so archive video and animated-GIF rows carry mp4 URLs for the live media fetcher. Already-extracted files are skipped when size matches.
+`import archive` is idempotent and merge-safe. Re-running preserves destination-only rows, so a tweet that is simply absent from a newer timeline snapshot is not treated as deleted. Only an explicit deleted-tweet record creates a source-attributed tombstone; use `--restore` when you deliberately want the selected archive slices to replace local state exactly. Import also parses follower/following edges into the local follow graph, streams bundled media files under `data/tweets_media/`, `data/direct_messages_media/`, and the other archive media folders into `~/.birdclaw/media/originals/archive/<kind>/<id>/`, and pulls `video_info.variants[]` so archive video and animated-GIF rows carry mp4 URLs for the live media fetcher. Already-extracted files are skipped when size matches.
 
 Re-import only one part of a newer archive when you already have live or local data you want to keep:
 

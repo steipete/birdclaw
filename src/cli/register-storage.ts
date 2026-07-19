@@ -64,12 +64,13 @@ export function registerStorageCommands({
 		.command("import <repo>")
 		.description("Merge a canonical JSONL backup into the local SQLite store")
 		.option("--no-validate", "Skip backup validation before import")
-		.option("--replace", "Replace local portable tables instead of merging")
+		.option("--restore", "Exactly replace local portable tables")
+		.option("--replace", "Deprecated alias for --restore")
 		.action(async (repo, options) => {
 			const result = await importBackup({
 				repoPath: repo,
 				validate: options.validate,
-				mode: options.replace ? "replace" : "merge",
+				mode: options.restore || options.replace ? "replace" : "merge",
 			});
 			print(result, true);
 		});

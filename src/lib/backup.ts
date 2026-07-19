@@ -21,13 +21,14 @@ import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { getImportRepository } from "./import-repository";
+import { reconcileTweetTombstones } from "./tweet-retention";
 import {
 	collectIngestionSourcesEffect,
 	streamJsonLines,
 } from "./streaming-ingestion";
 import { runSubprocessEffect, SubprocessError } from "./subprocess";
 
-const BACKUP_SCHEMA_VERSION = 5;
+const BACKUP_SCHEMA_VERSION = 6;
 const MIN_SUPPORTED_BACKUP_SCHEMA_VERSION = 1;
 const DEFAULT_MAX_BACKUP_SHARD_BYTES = 48 * 1024 * 1024;
 const MANIFEST_PATH = "manifest.json";
@@ -1116,6 +1117,7 @@ export function importBackupEffect({
 					existingIds: existingFtsIds.get(codec.name),
 				});
 			}
+			reconcileTweetTombstones(writeDb);
 			return getBackupDatabaseFingerprint(writeDb);
 		}, db);
 

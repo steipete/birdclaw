@@ -1,4 +1,9 @@
 import type { Database } from "./sqlite";
+import {
+	editHistoryIdsFromPayload,
+	reconcileTweetTombstones,
+	recordTweetRevision,
+} from "./tweet-retention";
 import { Effect } from "effect";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
@@ -547,6 +552,12 @@ function getReferencedTweetId(tweet: XurlMentionData, type: string) {
 
 function replaceTweetFts(db: Database, tweetId: string, text: string) {
 	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
+	const row = db
+		.prepare("select deleted_at, superseded_at from tweets where id = ?")
+		.get(tweetId) as
+		| { deleted_at: string | null; superseded_at: string | null }
+		| undefined;
+	if (row?.deleted_at || row?.superseded_at) return;
 	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
 		tweetId,
 		text,
@@ -611,6 +622,7 @@ function mergeAuthoredPayloadIntoLocalStore({
       quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id)
     `,
 	);
+	const observedAt = new Date().toISOString();
 
 	const writeTweet = (tweet: XurlMentionData) => {
 		const author =
@@ -643,11 +655,18 @@ function mergeAuthoredPayloadIntoLocalStore({
 			JSON.stringify(media),
 			quotedTweetId,
 		);
+		recordTweetRevision(db, {
+			tweetId: tweet.id,
+			editHistoryIds: editHistoryIdsFromPayload(tweet.id, tweet),
+			payloadJson: JSON.stringify(tweet),
+			source: "xurl",
+			observedAt,
+		});
 		replaceTweetFts(db, tweet.id, tweet.text);
 	};
 
 	db.transaction(() => {
-		const seenAt = new Date().toISOString();
+		const seenAt = observedAt;
 		for (const includedTweet of payload.includes?.tweets ?? []) {
 			writeTweet(includedTweet);
 		}
@@ -662,6 +681,7 @@ function mergeAuthoredPayloadIntoLocalStore({
 				rawJson: JSON.stringify(tweet),
 			});
 		}
+		reconcileTweetTombstones(db);
 	})();
 }
 

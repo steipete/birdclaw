@@ -448,6 +448,8 @@ function findNewestArchiveMentionId(db: Database, accountId: string) {
       where e.account_id = ?
         and e.kind = 'mention'
         and e.source in ('archive', 'legacy')
+		and t.deleted_at is null
+		and t.superseded_at is null
         and length(t.id) > 0
         and t.id glob '[0-9]*'
         and t.id not glob '*[^0-9]*'

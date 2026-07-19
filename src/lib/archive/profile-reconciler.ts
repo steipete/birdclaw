@@ -115,11 +115,15 @@ function existingProfileToProfileRow(
 export function createArchiveProfileReconciler({
 	repository,
 	selection,
+	preserveExisting = true,
+	allowAccountReplacement = false,
 	accountPayload,
 	profiles,
 }: {
 	repository: ImportRepository;
 	selection: Set<ArchiveImportSlice> | null;
+	preserveExisting?: boolean;
+	allowAccountReplacement?: boolean;
 	accountPayload: ArchiveAccountPayload;
 	profiles: Map<string, ArchiveProfileRow>;
 }) {
@@ -149,8 +153,10 @@ export function createArchiveProfileReconciler({
 	const profileIdAliases = new Map<string, string>();
 
 	function merge(incoming: ArchiveProfileRow) {
-		const existingById = existingProfiles.get(incoming.id);
-		const existingByHandle = selection
+		const existingById = preserveExisting
+			? existingProfiles.get(incoming.id)
+			: undefined;
+		const existingByHandle = preserveExisting
 			? existingProfilesByHandle.get(incoming.handle.toLowerCase())
 			: undefined;
 		const targetExisting = existingById ?? existingByHandle;
@@ -231,8 +237,8 @@ export function createArchiveProfileReconciler({
 		});
 	}
 
-	function assertSelectedAccountMatchesArchive() {
-		if (!selection || !existingPrimaryAccount) return;
+	function assertAccountMatchesArchive() {
+		if (allowAccountReplacement || !existingPrimaryAccount) return;
 		const existingExternalUserId = existingPrimaryAccount.external_user_id;
 		if (
 			existingExternalUserId &&
@@ -257,7 +263,7 @@ export function createArchiveProfileReconciler({
 
 	function initializeLocalProfile(includeProfiles: boolean) {
 		const existingLocalProfile =
-			selection &&
+			preserveExisting &&
 			(existingProfiles.get("profile_me") ??
 				[...existingProfiles.values()].find(
 					(profile) =>
@@ -349,7 +355,7 @@ export function createArchiveProfileReconciler({
 		resolveId,
 		uniqueHandle,
 		addFollowProfile,
-		assertSelectedAccountMatchesArchive,
+		assertAccountMatchesArchive,
 		initializeLocalProfile,
 		retainExistingFollowProfiles,
 		ensureUnknownProfile,

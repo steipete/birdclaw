@@ -191,7 +191,9 @@ function listRecentMentions(
           edge.raw_json as rawJson
         from tweet_account_edges edge
         join tweets t on t.id = edge.tweet_id
-        where edge.kind = 'mention' and edge.account_id = ?
+		where edge.kind = 'mention' and edge.account_id = ?
+		  and t.deleted_at is null
+		  and t.superseded_at is null
       )
       select id, createdAt, replyToId, rawJson
       from local_mentions
@@ -247,6 +249,8 @@ function listMentionsByIds(
         and edge.account_id = ?
         and edge.kind = 'mention'
       where t.id in (${placeholders})
+		and t.deleted_at is null
+		and t.superseded_at is null
       order by t.created_at desc
       limit ?
       `,

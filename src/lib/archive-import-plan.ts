@@ -13,6 +13,11 @@ export type ArchiveTweetRow = {
 	entitiesJson: string;
 	mediaJson: string;
 	quotedTweetId: string | null;
+	deletedAt?: string | null;
+	deletionSource?: string | null;
+	deletionReason?: string | null;
+	editHistoryIds?: string[];
+	rawJson?: string | null;
 };
 
 export type ArchiveCollectionRow = {
@@ -86,9 +91,44 @@ export class ArchiveImportPlan {
 	addTweet(row: ArchiveTweetRow) {
 		const existing = this.tweetsById.get(row.id);
 		if (existing) {
+			const epoch = new Date(0).toISOString();
 			existing.bookmarked = Math.max(existing.bookmarked, row.bookmarked);
 			existing.liked = Math.max(existing.liked, row.liked);
 			if (!existing.text && row.text) existing.text = row.text;
+			if (existing.createdAt === epoch && row.createdAt !== epoch) {
+				existing.createdAt = row.createdAt;
+			}
+			existing.isReplied = Math.max(existing.isReplied, row.isReplied);
+			existing.replyToId ??= row.replyToId;
+			existing.likeCount = Math.max(existing.likeCount, row.likeCount);
+			existing.mediaCount = Math.max(existing.mediaCount, row.mediaCount);
+			if (existing.entitiesJson === "{}" && row.entitiesJson !== "{}") {
+				existing.entitiesJson = row.entitiesJson;
+			}
+			if (existing.mediaJson === "[]" && row.mediaJson !== "[]") {
+				existing.mediaJson = row.mediaJson;
+			}
+			existing.quotedTweetId ??= row.quotedTweetId;
+			if (
+				row.deletedAt &&
+				(!existing.deletedAt || row.deletedAt < existing.deletedAt)
+			) {
+				existing.deletedAt = row.deletedAt;
+				existing.deletionSource = row.deletionSource;
+				existing.deletionReason = row.deletionReason;
+			}
+			const existingEditIds = existing.editHistoryIds ?? [];
+			const rowEditIds = row.editHistoryIds ?? [];
+			const primaryEditIds =
+				rowEditIds.length > existingEditIds.length
+					? rowEditIds
+					: existingEditIds;
+			const secondaryEditIds =
+				primaryEditIds === rowEditIds ? existingEditIds : rowEditIds;
+			existing.editHistoryIds = Array.from(
+				new Set([...primaryEditIds, ...secondaryEditIds]),
+			);
+			if (!existing.rawJson && row.rawJson) existing.rawJson = row.rawJson;
 			return existing;
 		}
 		this.tweets.push(row);

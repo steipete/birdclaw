@@ -5,6 +5,7 @@ export interface ArchiveSliceEntries {
 	accountEntry: string | undefined;
 	profileEntry: string | undefined;
 	tweetEntries: string[];
+	deletedTweetEntries: string[];
 	noteTweetEntries: string[];
 	likeEntries: string[];
 	bookmarkEntries: string[];
@@ -39,6 +40,10 @@ export function selectArchiveSliceEntries(
 		tweetEntries: selected(
 			"tweets",
 			/(?:^|\/)data\/(?:tweets|community-tweet)(?:-part\d+)?\.js$/i,
+		),
+		deletedTweetEntries: selected(
+			"tweets",
+			/(?:^|\/)data\/(?:deleted-tweets?|deleted-tweet-headers)(?:-part\d+)?\.js$/i,
 		),
 		noteTweetEntries: selected(
 			"tweets",

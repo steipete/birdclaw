@@ -127,7 +127,31 @@ const BASE_SCHEMA_SQL = `
     liked integer not null default 0,
     entities_json text not null default '{}',
     media_json text not null default '[]',
-    quoted_tweet_id text
+    quoted_tweet_id text,
+    deleted_at text,
+    deletion_source text,
+    deletion_reason text,
+    superseded_at text,
+    superseded_by_id text
+  );
+
+  create table if not exists tweet_revisions (
+    root_tweet_id text not null,
+    revision_id text primary key,
+    revision_index integer not null,
+    payload_json text,
+    source text not null,
+    observed_at text not null
+  );
+
+  create table if not exists tweet_subordinate_tombstones (
+    tweet_id text not null,
+    kind text not null check (kind in ('media', 'quote')),
+    subordinate_id text not null,
+    deleted_at text not null,
+    deletion_source text,
+    deletion_reason text not null,
+    primary key (tweet_id, kind, subordinate_id)
   );
 
   create table if not exists tweet_sources (
@@ -440,6 +464,53 @@ function ensureTweetMetadataColumns(db: Database) {
 	if (!columnNames.has("quoted_tweet_id")) {
 		db.exec("alter table tweets add column quoted_tweet_id text");
 	}
+}
+
+function ensureTweetRetentionSchema(db: Database) {
+	const columnNames = getColumnNames(db, "tweets");
+	if (!columnNames.has("deleted_at")) {
+		db.exec("alter table tweets add column deleted_at text");
+	}
+	if (!columnNames.has("deletion_source")) {
+		db.exec("alter table tweets add column deletion_source text");
+	}
+	if (!columnNames.has("deletion_reason")) {
+		db.exec("alter table tweets add column deletion_reason text");
+	}
+	if (!columnNames.has("superseded_at")) {
+		db.exec("alter table tweets add column superseded_at text");
+	}
+	if (!columnNames.has("superseded_by_id")) {
+		db.exec("alter table tweets add column superseded_by_id text");
+	}
+	db.exec(`
+		create table if not exists tweet_revisions (
+			root_tweet_id text not null,
+			revision_id text primary key,
+			revision_index integer not null,
+			payload_json text,
+			source text not null,
+			observed_at text not null
+		);
+		create table if not exists tweet_subordinate_tombstones (
+			tweet_id text not null,
+			kind text not null check (kind in ('media', 'quote')),
+			subordinate_id text not null,
+			deleted_at text not null,
+			deletion_source text,
+			deletion_reason text not null,
+			primary key (tweet_id, kind, subordinate_id)
+		);
+		create index if not exists idx_tweets_deleted on tweets(deleted_at);
+		create index if not exists idx_tweets_superseded on tweets(superseded_at);
+		create index if not exists idx_tweet_revisions_root on tweet_revisions(root_tweet_id, revision_index);
+		create index if not exists idx_tweet_subordinate_tombstones_tweet on tweet_subordinate_tombstones(tweet_id);
+		insert or ignore into tweet_revisions (
+			root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
+		)
+		select id, id, 0, null, 'migration', created_at
+		from tweets;
+	`);
 }
 
 function ensureProfileAvatarColumns(db: Database) {
@@ -863,15 +934,22 @@ function normalizeTweetState(db: Database) {
 	    media_count integer not null default 0,
 	    entities_json text not null default '{}',
 	    media_json text not null default '[]',
-	    quoted_tweet_id text
+	    quoted_tweet_id text,
+	    deleted_at text,
+	    deletion_source text,
+	    deletion_reason text,
+	    superseded_at text,
+	    superseded_by_id text
 	  );
 	  insert into tweets (
 	    id, author_profile_id, text, created_at, is_replied, reply_to_id,
-	    like_count, media_count, entities_json, media_json, quoted_tweet_id
+	    like_count, media_count, entities_json, media_json, quoted_tweet_id,
+	    deleted_at, deletion_source, deletion_reason, superseded_at, superseded_by_id
 	  )
 	  select
 	    id, author_profile_id, text, created_at, is_replied, reply_to_id,
-	    like_count, media_count, entities_json, media_json, quoted_tweet_id
+	    like_count, media_count, entities_json, media_json, quoted_tweet_id,
+	    null, null, null, null, null
 	  from tweets_legacy_state;
 	  drop table tweets_legacy_state;
 	  create index idx_tweets_created on tweets(created_at desc);
@@ -927,6 +1005,11 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 		version: 5,
 		name: "add durable tweet source provenance",
 		up: ensureTweetSourcesTable,
+	},
+	{
+		version: 6,
+		name: "retain tweet deletions and observable revisions",
+		up: ensureTweetRetentionSchema,
 	},
 ];
 
