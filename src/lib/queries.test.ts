@@ -1542,6 +1542,144 @@ describe("birdclaw queries", () => {
 		expect(conversation?.truncated).toBe(false);
 	});
 
+	it("traverses hidden replies to retain active descendants", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		insertTestTweet(db, {
+			id: "hidden_thread_root",
+			text: "Visible root",
+			createdAt: "2026-03-10T10:00:00.000Z",
+		});
+		insertTestTweet(db, {
+			id: "hidden_thread_middle",
+			text: "Deleted middle reply",
+			createdAt: "2026-03-10T10:01:00.000Z",
+			replyToId: "hidden_thread_root",
+		});
+		insertTestTweet(db, {
+			id: "hidden_thread_leaf",
+			text: "Visible reply below the deletion",
+			createdAt: "2026-03-10T10:02:00.000Z",
+			replyToId: "hidden_thread_middle",
+		});
+		db.prepare(
+			"update tweets set deleted_at = '2026-03-11T00:00:00.000Z' where id = 'hidden_thread_middle'",
+		).run();
+
+		const conversation = getTweetConversation("hidden_thread_root", 10, db);
+		expect(conversation?.items.map((tweet) => tweet.id)).toEqual([
+			"hidden_thread_root",
+			"hidden_thread_leaf",
+		]);
+		expect(conversation?.truncated).toBe(false);
+		expect(getTweetConversation("hidden_thread_root", 1, db)?.truncated).toBe(
+			true,
+		);
+	});
+
+	it("does not spend the visible result budget on broad hidden branches", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		insertTestTweet(db, {
+			id: "broad_hidden_root",
+			text: "Visible root",
+			createdAt: "2026-03-10T10:00:00.000Z",
+		});
+		for (let index = 0; index < 160; index += 1) {
+			const id = `broad_hidden_${String(index).padStart(3, "0")}`;
+			insertTestTweet(db, {
+				id,
+				text: "Deleted reply",
+				createdAt: new Date(
+					Date.parse("2026-03-10T10:01:00.000Z") + index * 1_000,
+				).toISOString(),
+				replyToId: "broad_hidden_root",
+			});
+			db.prepare(
+				"update tweets set deleted_at = '2026-03-11T00:00:00.000Z' where id = ?",
+			).run(id);
+		}
+		insertTestTweet(db, {
+			id: "broad_hidden_visible_leaf",
+			text: "Visible leaf after the broad hidden level",
+			createdAt: "2026-03-10T11:00:00.000Z",
+			replyToId: "broad_hidden_159",
+		});
+
+		const conversation = getTweetConversation("broad_hidden_root", 5, db);
+		expect(conversation?.items.map((tweet) => tweet.id)).toEqual([
+			"broad_hidden_root",
+			"broad_hidden_visible_leaf",
+		]);
+		expect(conversation?.truncated).toBe(false);
+	});
+
+	it("ignores hidden-only descendants beyond the thread depth limit", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		insertTestTweet(db, {
+			id: "hidden_depth_root",
+			text: "Visible root",
+			createdAt: "2026-03-10T10:00:00.000Z",
+		});
+		let parentId = "hidden_depth_root";
+		for (let depth = 1; depth <= 10; depth += 1) {
+			const id = `hidden_depth_${String(depth)}`;
+			insertTestTweet(db, {
+				id,
+				text: "Deleted depth node",
+				createdAt: `2026-03-10T10:${String(depth).padStart(2, "0")}:00.000Z`,
+				replyToId: parentId,
+			});
+			db.prepare(
+				"update tweets set deleted_at = '2026-03-11T00:00:00.000Z' where id = ?",
+			).run(id);
+			parentId = id;
+		}
+
+		const conversation = getTweetConversation("hidden_depth_root", 10, db);
+		expect(conversation?.items.map((tweet) => tweet.id)).toEqual([
+			"hidden_depth_root",
+		]);
+		expect(conversation?.truncated).toBe(false);
+	});
+
+	it("retains truncation state when the first active descendant is too deep", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		insertTestTweet(db, {
+			id: "hidden_cutoff_root",
+			text: "Visible root",
+			createdAt: "2026-03-10T10:00:00.000Z",
+		});
+		let parentId = "hidden_cutoff_root";
+		for (let depth = 1; depth <= 8; depth += 1) {
+			const id = `hidden_cutoff_${String(depth)}`;
+			insertTestTweet(db, {
+				id,
+				text: "Deleted depth node",
+				createdAt: `2026-03-10T10:${String(depth).padStart(2, "0")}:00.000Z`,
+				replyToId: parentId,
+			});
+			db.prepare(
+				"update tweets set deleted_at = '2026-03-11T00:00:00.000Z' where id = ?",
+			).run(id);
+			parentId = id;
+		}
+		insertTestTweet(db, {
+			id: "hidden_cutoff_active_leaf",
+			text: "Active reply beyond the depth cutoff",
+			createdAt: "2026-03-10T10:09:00.000Z",
+			replyToId: parentId,
+		});
+
+		const conversation = getTweetConversation("hidden_cutoff_root", 10, db);
+		expect(conversation?.items.map((tweet) => tweet.id)).toEqual([
+			"hidden_cutoff_root",
+		]);
+		expect(conversation?.truncated).toBe(true);
+	});
+
 	it("excludes ancestors and descendants cached only for another account", () => {
 		setupTempHome();
 		const db = getNativeDb();

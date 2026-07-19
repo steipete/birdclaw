@@ -426,10 +426,23 @@ export function applyArchiveImportPlanEffect({
 				profile_id: string;
 				external_user_id: string;
 			}>;
-			const incomingRows = rows.map((row) => ({
-				profileId: resolveProfileId(row.profileId),
-				externalUserId: row.externalUserId,
-			}));
+			const existingProfileIds = new Set(
+				existingMembers.map((row) => row.profile_id),
+			);
+			const incomingByProfileId = new Map<
+				string,
+				{ profileId: string; externalUserId: string }
+			>();
+			for (const row of rows) {
+				const profileId = resolveProfileId(row.profileId);
+				if (!incomingByProfileId.has(profileId)) {
+					incomingByProfileId.set(profileId, {
+						profileId,
+						externalUserId: row.externalUserId,
+					});
+				}
+			}
+			const incomingRows = Array.from(incomingByProfileId.values());
 			const effectiveRows = restore
 				? incomingRows
 				: [
@@ -438,10 +451,7 @@ export function applyArchiveImportPlanEffect({
 							externalUserId: row.external_user_id,
 						})),
 						...incomingRows.filter(
-							(row) =>
-								!existingMembers.some(
-									(member) => member.profile_id === row.profileId,
-								),
+							(row) => !existingProfileIds.has(row.profileId),
 						),
 					];
 			const existingMemberKey = existingMembers

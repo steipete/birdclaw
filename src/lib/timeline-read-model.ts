@@ -1357,31 +1357,14 @@ function listTweetDescendants(
 	resolveProfileByHandle?: (handle: string) => ProfileRecord,
 	accountId?: string,
 ) {
-	if (limit <= 0) {
-		const membershipClause =
-			accountId !== undefined
-				? ` and ${tweetAccountMembershipPredicate("child")}`
-				: "";
-		return {
-			items: [],
-			truncated: Boolean(
-				db
-					.prepare(
-						`select 1 from tweets child
-						 where child.reply_to_id = ? and child.id != ? and child.deleted_at is null and child.superseded_at is null${membershipClause}
-						 limit 1`,
-					)
-					.get(
-						rootId,
-						rootId,
-						...(accountId !== undefined ? [accountId, accountId] : []),
-					),
-			),
-		};
-	}
+	const visibleLimit = Number.isFinite(limit)
+		? Math.max(0, Math.floor(limit))
+		: 0;
 	const maxDepth = 8;
-	const maxCandidates = Math.max(128, limit * 8);
-	const cteLimit = maxCandidates + 2;
+	// Keep the traversal safety cap independent from the visible result budget:
+	// retained hidden nodes are graph bridges, not returned candidates.
+	const maxTraversalRows = Math.max(10_000, visibleLimit * 64);
+	const cteLimit = maxTraversalRows + 1;
 	const stateParams = accountId !== undefined ? [accountId, accountId] : [];
 	const scopedChildClause =
 		accountId !== undefined
@@ -1404,44 +1387,72 @@ function listTweetDescendants(
 		from tweets child
 		join branch on child.reply_to_id = branch.id
 		where branch.depth < ?
-		  and child.deleted_at is null
-		  and child.superseded_at is null
 		  ${scopedChildClause}
 		  and instr(branch.path, char(31) || child.id || char(31)) = 0
 		order by 3 asc, 1 asc, 2 asc
 		limit ?
 	  ),
+	  beyond_depth(id, path) as (
+		select
+		  child.id,
+		  cutoff.path || child.id || char(31)
+		from branch cutoff
+		join tweets child on child.reply_to_id = cutoff.id
+		where cutoff.depth = ?
+		  ${scopedChildClause}
+		  and instr(
+			cutoff.path,
+			char(31) || child.id || char(31)
+		  ) = 0
+		union all
+		select
+		  child.id,
+		  beyond_depth.path || child.id || char(31)
+		from beyond_depth
+		join tweets hidden on hidden.id = beyond_depth.id
+		join tweets child on child.reply_to_id = beyond_depth.id
+		where (hidden.deleted_at is not null or hidden.superseded_at is not null)
+		  ${scopedChildClause}
+		  and instr(
+			beyond_depth.path,
+			char(31) || child.id || char(31)
+		  ) = 0
+		limit ?
+	  ),
 	  branch_stats as (
 		select
 		  (select count(*) from branch) > ? as candidate_limited,
-		  exists (
+		  (
+			exists (
 			select 1
-			from branch cutoff
-			join tweets child on child.reply_to_id = cutoff.id
-			where cutoff.depth = ?
-			  and child.deleted_at is null
-			  and child.superseded_at is null
-			  ${scopedChildClause}
-			  and instr(
-				cutoff.path,
-				char(31) || child.id || char(31)
-			  ) = 0
+			from beyond_depth
+			join tweets visible on visible.id = beyond_depth.id
+			where visible.deleted_at is null
+			  and visible.superseded_at is null
 			limit 1
+			)
+			or (select count(*) from beyond_depth) > ?
 		  ) as depth_limited
-      )
+	  ),
+	  visible_branch as (
+		select branch.id
+		from branch
+		join tweets visible on visible.id = branch.id
+		where branch.id != ?
+		  and visible.deleted_at is null
+		  and visible.superseded_at is null
+		order by visible.created_at asc, visible.id asc
+		limit ?
+	  )
       ${conversationTweetSelect(
 				accountId,
 				"branch_stats.candidate_limited, branch_stats.depth_limited,",
-				`from branch
-	  cross join tweets t on t.id = branch.id
-	  join profiles p on p.id = t.author_profile_id`,
+				`from branch_stats
+	  left join visible_branch on true
+	  left join tweets t on t.id = visible_branch.id
+	  left join profiles p on p.id = t.author_profile_id`,
 			)}
-	  cross join branch_stats
-      where t.id != ?
-	    and t.deleted_at is null
-	    and t.superseded_at is null
 	  order by t.created_at asc, t.id asc
-      limit ?
       `,
 		)
 		.all(
@@ -1449,16 +1460,20 @@ function listTweetDescendants(
 			maxDepth,
 			...scopeParams,
 			cteLimit,
-			maxCandidates + 1,
 			maxDepth,
 			...scopeParams,
-			...stateParams,
+			...scopeParams,
+			cteLimit,
+			maxTraversalRows,
+			maxTraversalRows,
 			rootId,
-			limit + 1,
+			visibleLimit + 1,
+			...stateParams,
 		) as Array<Record<string, unknown>>;
 
-	const items = rows
-		.slice(0, limit)
+	const visibleRows = rows.filter((row) => typeof row.id === "string");
+	const items = visibleRows
+		.slice(0, visibleLimit)
 		.map((row) =>
 			buildEmbeddedTweet(
 				db,
@@ -1472,7 +1487,7 @@ function listTweetDescendants(
 	return {
 		items,
 		truncated:
-			rows.length > limit ||
+			visibleRows.length > visibleLimit ||
 			Boolean(rows[0]?.candidate_limited) ||
 			Boolean(rows[0]?.depth_limited),
 	};

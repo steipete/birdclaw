@@ -382,12 +382,14 @@ function mergeXurlTweetsIntoLocalStore(
 	);
 	const existingTweet = db.prepare("select text from tweets where id = ?");
 	const seenAt = new Date().toISOString();
+	const touchedTweetIds: string[] = [];
 	db.transaction(() => {
 		for (const tweet of payload.data) {
 			const authorId = tweet.author_id;
 			if (!authorId) continue;
 			const author = usersById.get(authorId);
 			if (!author) continue;
+			touchedTweetIds.push(tweet.id);
 			const profile = upsertProfileFromXUser(db, author);
 			const replyToId =
 				tweet.referenced_tweets?.find((item) => item.type === "replied_to")
@@ -431,7 +433,7 @@ function mergeXurlTweetsIntoLocalStore(
 			});
 			refreshTweetFts(db, tweet.id, tweet.text, previousText);
 		}
-		reconcileTweetTombstones(db);
+		reconcileTweetTombstones(db, touchedTweetIds);
 	})();
 }
 

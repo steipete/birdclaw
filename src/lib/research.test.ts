@@ -214,6 +214,27 @@ describe("research mode", () => {
 		]);
 	});
 
+	it("keeps active research replies below a hidden intermediate reply", async () => {
+		getNativeDb()
+			.prepare(
+				"update tweets set deleted_at = '2026-05-02T00:00:00.000Z' where id = 'tweet_reply_1'",
+			)
+			.run();
+		const { runResearchMode } = await import("./research");
+
+		const report = await runResearchMode({
+			account: "acct_research",
+			limit: 5,
+			maxThreadDepth: 6,
+		});
+
+		expect(report.items[0]?.thread.map((node) => node.id)).toEqual([
+			"tweet_root",
+			"tweet_reply_3",
+			"tweet_reply_2",
+		]);
+	});
+
 	it("writes the markdown brief to disk when requested", async () => {
 		const { runResearchMode } = await import("./research");
 		const outputPath = path.join(process.env.BIRDCLAW_HOME ?? "", "brief.md");

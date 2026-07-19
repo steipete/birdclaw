@@ -623,8 +623,10 @@ function mergeAuthoredPayloadIntoLocalStore({
     `,
 	);
 	const observedAt = new Date().toISOString();
+	const touchedTweetIds = new Set<string>();
 
 	const writeTweet = (tweet: XurlMentionData) => {
+		touchedTweetIds.add(tweet.id);
 		const author =
 			usersById.get(tweet.author_id) ??
 			({
@@ -681,7 +683,7 @@ function mergeAuthoredPayloadIntoLocalStore({
 				rawJson: JSON.stringify(tweet),
 			});
 		}
-		reconcileTweetTombstones(db);
+		reconcileTweetTombstones(db, Array.from(touchedTweetIds));
 	})();
 }
 

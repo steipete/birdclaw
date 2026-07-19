@@ -103,6 +103,7 @@ export function ingestTweetPayload(
       `)
 		: undefined;
 	const tweetIds: string[] = [];
+	const touchedTweetIds: string[] = [];
 	const upsertSource = provenance
 		? db.prepare(`
         insert into tweet_sources (tweet_id, source, source_url, observed_at)
@@ -117,6 +118,7 @@ export function ingestTweetPayload(
 		const observedAt = new Date().toISOString();
 		const primaryTweetIds = new Set(payload.data.map((tweet) => tweet.id));
 		for (const tweet of toCanonicalTweets(payload)) {
+			touchedTweetIds.push(tweet.id);
 			const isPrimaryTweet = primaryTweetIds.has(tweet.id);
 			const author = usersById.get(tweet.author_id);
 			const profile = author
@@ -179,7 +181,7 @@ export function ingestTweetPayload(
 				tweetIds.push(tweet.id);
 			}
 		}
-		reconcileTweetTombstones(db);
+		reconcileTweetTombstones(db, touchedTweetIds);
 	})();
 
 	return tweetIds;

@@ -185,8 +185,65 @@ export function tombstoneTweetSubordinates(
 	}
 }
 
-export function reconcileTweetTombstones(db: Database) {
-	db.exec(`
+interface TweetRevisionRow {
+	root_tweet_id: string;
+	revision_id: string;
+}
+
+interface DeletedTweetRow {
+	id: string;
+	deleted_at: string;
+	deletion_source: string | null;
+	deletion_reason: string | null;
+}
+
+function placeholders(values: readonly unknown[]) {
+	return values.map(() => "?").join(", ");
+}
+
+function selectRevisionScope(db: Database, tweetIds?: readonly string[]) {
+	if (tweetIds === undefined) {
+		return db
+			.prepare(
+				"select root_tweet_id, revision_id from tweet_revisions order by root_tweet_id, revision_index, revision_id",
+			)
+			.all() as TweetRevisionRow[];
+	}
+	if (tweetIds.length === 0) return [];
+	const roots = (
+		db
+			.prepare(
+				`select distinct root_tweet_id from tweet_revisions where revision_id in (${placeholders(tweetIds)})`,
+			)
+			.all(...tweetIds) as Array<{ root_tweet_id: string }>
+	).map((row) => row.root_tweet_id);
+	if (roots.length === 0) return [];
+	return db
+		.prepare(
+			`select root_tweet_id, revision_id from tweet_revisions where root_tweet_id in (${placeholders(roots)}) order by root_tweet_id, revision_index, revision_id`,
+		)
+		.all(...roots) as TweetRevisionRow[];
+}
+
+export function reconcileTweetTombstones(
+	db: Database,
+	touchedTweetIds?: readonly string[],
+) {
+	const requestedIds =
+		touchedTweetIds === undefined
+			? undefined
+			: Array.from(new Set(touchedTweetIds.filter(Boolean)));
+	if (requestedIds?.length === 0) return;
+	const revisionRows = selectRevisionScope(db, requestedIds);
+	const scopedIds = requestedIds
+		? Array.from(
+				new Set([
+					...requestedIds,
+					...revisionRows.map((row) => row.revision_id),
+				]),
+			)
+		: undefined;
+	const supersessionSql = `
 		update tweets
 		set superseded_at = coalesce(
 				superseded_at,
@@ -215,19 +272,71 @@ export function reconcileTweetTombstones(db: Database) {
 				on newer.root_tweet_id = current_revision.root_tweet_id
 				and newer.revision_index > current_revision.revision_index
 			where current_revision.revision_id = tweets.id
-		);
+		)
+		${scopedIds ? `and tweets.id in (${placeholders(scopedIds)})` : ""}
+	`;
+	if (scopedIds) {
+		db.prepare(supersessionSql).run(...scopedIds);
+	} else {
+		db.exec(supersessionSql);
+	}
+
+	const deletedSql = `
+		select id, deleted_at, deletion_source, deletion_reason
+		from tweets
+		where deleted_at is not null
+		${scopedIds ? `and id in (${placeholders(scopedIds)})` : ""}
+	`;
+	let deletedTweets = db
+		.prepare(deletedSql)
+		.all(...(scopedIds ?? [])) as DeletedTweetRow[];
+	const rootByRevisionId = new Map(
+		revisionRows.map((row) => [row.revision_id, row.root_tweet_id]),
+	);
+	const membersByRoot = new Map<string, string[]>();
+	for (const revision of revisionRows) {
+		const members = membersByRoot.get(revision.root_tweet_id) ?? [];
+		members.push(revision.revision_id);
+		membersByRoot.set(revision.root_tweet_id, members);
+	}
+	const deletionByRoot = new Map<string, DeletedTweetRow>();
+	for (const tweet of deletedTweets) {
+		const rootTweetId = rootByRevisionId.get(tweet.id);
+		if (!rootTweetId) continue;
+		const current = deletionByRoot.get(rootTweetId);
+		if (
+			!current ||
+			tweet.deleted_at < current.deleted_at ||
+			(tweet.deleted_at === current.deleted_at && tweet.id < current.id)
+		) {
+			deletionByRoot.set(rootTweetId, tweet);
+		}
+	}
+	const propagateDeletion = db.prepare(`
+		update tweets
+		set deleted_at = ?,
+			deletion_source = ?,
+			deletion_reason = ?
+		where id = ?
 	`);
-	const deletedTweets = db
+	for (const [rootTweetId, deletion] of deletionByRoot) {
+		for (const revisionId of membersByRoot.get(rootTweetId) ?? []) {
+			propagateDeletion.run(
+				deletion.deleted_at,
+				deletion.deletion_source,
+				deletion.deletion_reason,
+				revisionId,
+			);
+		}
+	}
+	deletedTweets = db
 		.prepare(`
-			select id, deleted_at, deletion_source
+			select id, deleted_at, deletion_source, deletion_reason
 			from tweets
 			where deleted_at is not null
+			${scopedIds ? `and id in (${placeholders(scopedIds)})` : ""}
 		`)
-		.all() as Array<{
-		id: string;
-		deleted_at: string;
-		deletion_source: string | null;
-	}>;
+		.all(...(scopedIds ?? [])) as DeletedTweetRow[];
 	for (const tweet of deletedTweets) {
 		tombstoneTweetSubordinates(db, {
 			tweetId: tweet.id,
@@ -235,46 +344,28 @@ export function reconcileTweetTombstones(db: Database) {
 			deletionSource: tweet.deletion_source ?? "import",
 		});
 	}
-	const revisionsOfDeletedTweets = db
-		.prepare(`
-			select earlier.id, terminal.deleted_at, terminal.deletion_source
-			from tweets earlier
-			join tweet_revisions earlier_revision
-				on earlier_revision.revision_id = earlier.id
-			join tweet_revisions terminal_revision
-				on terminal_revision.root_tweet_id = earlier_revision.root_tweet_id
-			join tweets terminal on terminal.id = terminal_revision.revision_id
-			where terminal_revision.revision_index = (
-				select max(candidate.revision_index)
-				from tweet_revisions candidate
-				where candidate.root_tweet_id = earlier_revision.root_tweet_id
-			)
-			and terminal.deleted_at is not null
-			and earlier.id <> terminal.id
-		`)
-		.all() as Array<{
-		id: string;
-		deleted_at: string;
-		deletion_source: string | null;
-	}>;
-	for (const tweet of revisionsOfDeletedTweets) {
-		tombstoneTweetSubordinates(db, {
-			tweetId: tweet.id,
-			deletedAt: tweet.deleted_at,
-			deletionSource: tweet.deletion_source ?? "revision_parent",
-		});
-	}
-	db.exec(`
+	const cleanupFtsSql = `
 		delete from tweets_fts
 		where tweet_id in (
 			select id from tweets
-			where deleted_at is not null or superseded_at is not null
+			where (deleted_at is not null or superseded_at is not null)
+			${scopedIds ? `and id in (${placeholders(scopedIds)})` : ""}
 		);
+	`;
+	const cleanupLinksSql = `
 		delete from link_occurrences
 		where source_kind = 'tweet'
 			and source_id in (
 				select id from tweets
-				where deleted_at is not null or superseded_at is not null
+				where (deleted_at is not null or superseded_at is not null)
+				${scopedIds ? `and id in (${placeholders(scopedIds)})` : ""}
 			);
-	`);
+	`;
+	if (scopedIds) {
+		db.prepare(cleanupFtsSql).run(...scopedIds);
+		db.prepare(cleanupLinksSql).run(...scopedIds);
+	} else {
+		db.exec(cleanupFtsSql);
+		db.exec(cleanupLinksSql);
+	}
 }

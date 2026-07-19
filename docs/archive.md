@@ -116,7 +116,7 @@ Archive absence is not deletion. A tweet that disappears from a home or authored
 
 Birdclaw creates a tombstone only from an explicit archive deleted-tweet record. The canonical tweet row retains `deleted_at`, a deletion source, and a reason; active search and timeline reads exclude it. Media identifiers and quoted-tweet relationships belonging to that parent receive subordinate tombstones so deleted content does not leak through media fetching or relationship views.
 
-When X exposes an edit-history ID chain, Birdclaw records the ordered revision identities. The raw body is attached only to a revision actually observed in the archive or a live payload; unobserved earlier IDs remain lossless identity stubs rather than invented content. Superseded bodies stay retained but disappear from active timelines, search, links, and media fetching. If the terminal revision is explicitly deleted, the whole chain stays inactive. Tombstones and revisions are included in portable backups.
+When X exposes an edit-history ID chain, Birdclaw records the ordered revision identities. The raw body is attached only to a revision actually observed in the archive or a live payload; unobserved earlier IDs remain lossless identity stubs rather than invented content. Superseded bodies stay retained but disappear from active timelines, search, links, and media fetching. An explicit deletion of any observed revision tombstones the whole edit chain. Tombstones and revisions are included in portable backups.
 
 ## Bundled media files
 

@@ -237,10 +237,12 @@ function makeTweetRetentionArchive({
 	includeEditable = true,
 	includeVanishing = true,
 	deleteEditable = false,
+	deletedRevisionId = "edit-2",
 }: {
 	includeEditable?: boolean;
 	includeVanishing?: boolean;
 	deleteEditable?: boolean;
+	deletedRevisionId?: "edit-1" | "edit-2";
 } = {}) {
 	const root = testHome().makeTempDir("birdclaw-archive-retention-");
 	const archiveDir = path.join(root, "sample", "data");
@@ -310,9 +312,12 @@ function makeTweetRetentionArchive({
 			`window.YTD.deleted_tweets.part0 = ${JSON.stringify([
 				{
 					tweet: {
-						id_str: "edit-2",
+						id_str: deletedRevisionId,
 						created_at: "Tue Jun 03 19:32:20 +0000 2025",
-						full_text: "edited tweet with retained media",
+						full_text:
+							deletedRevisionId === "edit-1"
+								? "original body"
+								: "edited tweet with retained media",
 					},
 				},
 			])}`,
@@ -322,7 +327,7 @@ function makeTweetRetentionArchive({
 			`window.YTD.deleted_tweet_headers.part0 = ${JSON.stringify([
 				{
 					tweet: {
-						tweetId: "edit-2",
+						tweetId: deletedRevisionId,
 						userId: "25401953",
 						createdAt: "2025-06-03T19:32:20.000Z",
 						deletedAt: "2026-07-18T12:00:00.000Z",
@@ -696,6 +701,7 @@ describe("archive import", () => {
 			includeEditable: false,
 			includeVanishing: false,
 			deleteEditable: true,
+			deletedRevisionId: "edit-1",
 		});
 		const result = await importArchive(deletionArchive);
 
@@ -750,7 +756,7 @@ describe("archive import", () => {
 				)
 				.all(),
 		).toEqual([
-			{ revision_id: "edit-1", revision_index: 0, hydrated: 0 },
+			{ revision_id: "edit-1", revision_index: 0, hydrated: 1 },
 			{ revision_id: "edit-2", revision_index: 1, hydrated: 1 },
 		]);
 		expect(
@@ -2606,7 +2612,7 @@ describe("archive import", () => {
 			{ external_user_id: "900", source: "xurl", current: 1 },
 		]);
 		const partialArchivePath = makeFollowArchive({
-			followers: ["102", "103"],
+			followers: ["102", "103", "103"],
 			includeFollowing: false,
 		});
 		await importArchive(partialArchivePath);

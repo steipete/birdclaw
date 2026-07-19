@@ -262,8 +262,6 @@ function getTweetDescendants(
         from tweets child
         join thread on child.reply_to_id = thread.id
         where thread.depth < ?
-		  and child.deleted_at is null
-		  and child.superseded_at is null
           and instr(thread.path, ',' || child.id || ',') = 0
       )
       select

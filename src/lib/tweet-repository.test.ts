@@ -128,8 +128,21 @@ it("records observable edit chains without re-indexing a tombstoned tweet", () =
 		},
 	});
 	db.prepare(
-		"update tweets set deleted_at = ?, deletion_reason = ? where id = ?",
-	).run("2026-07-02T00:00:00.000Z", "explicit_delete", "edit-2");
+		"update tweets set deleted_at = ?, deletion_source = ?, deletion_reason = ? where id = ?",
+	).run(
+		"2026-07-02T00:00:00.000Z",
+		"archive_first",
+		"explicit_delete_first",
+		"edit-1",
+	);
+	db.prepare(
+		"update tweets set deleted_at = ?, deletion_source = ?, deletion_reason = ? where id = ?",
+	).run(
+		"2026-07-03T00:00:00.000Z",
+		"archive_second",
+		"explicit_delete_second",
+		"edit-2",
+	);
 
 	ingestTweetPayload(db, {
 		accountId: "acct_primary",
@@ -193,6 +206,26 @@ it("records observable edit chains without re-indexing a tombstoned tweet", () =
 	expect(
 		db
 			.prepare(
+				"select id, deleted_at, deletion_source, deletion_reason from tweets where id in ('edit-1', 'edit-2') order by id",
+			)
+			.all(),
+	).toEqual([
+		{
+			id: "edit-1",
+			deleted_at: "2026-07-02T00:00:00.000Z",
+			deletion_source: "archive_first",
+			deletion_reason: "explicit_delete_first",
+		},
+		{
+			id: "edit-2",
+			deleted_at: "2026-07-02T00:00:00.000Z",
+			deletion_source: "archive_first",
+			deletion_reason: "explicit_delete_first",
+		},
+	]);
+	expect(
+		db
+			.prepare(
 				"select kind, subordinate_id from tweet_subordinate_tombstones where tweet_id = 'edit-2' order by kind",
 			)
 			.all(),
@@ -203,6 +236,84 @@ it("records observable edit chains without re-indexing a tombstoned tweet", () =
 		},
 		{ kind: "quote", subordinate_id: "quote-1" },
 	]);
+});
+
+it("scopes live tombstone reconciliation to the ingested edit chains", () => {
+	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	const db = getNativeDb({ seedDemoData: false });
+	const user = [{ id: "42", username: "sam", name: "Sam" }];
+
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "unrelated-edit-1",
+					author_id: "42",
+					text: "old unrelated revision",
+					created_at: "2026-07-01T09:00:00.000Z",
+				},
+			],
+			includes: { users: user },
+		},
+	});
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "unrelated-edit-2",
+					author_id: "42",
+					text: "new unrelated revision",
+					created_at: "2026-07-01T10:00:00.000Z",
+					edit_history_tweet_ids: ["unrelated-edit-1", "unrelated-edit-2"],
+				},
+			],
+			includes: { users: user },
+		},
+	});
+	db.prepare(
+		"update tweets set superseded_at = null, superseded_by_id = null where id = 'unrelated-edit-1'",
+	).run();
+	db.prepare(
+		"insert into tweets_fts (tweet_id, text) values ('unrelated-edit-1', 'scope sentinel')",
+	).run();
+
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "isolated-tweet",
+					author_id: "42",
+					text: "isolated payload",
+					created_at: "2026-07-01T11:00:00.000Z",
+				},
+			],
+			includes: { users: user },
+		},
+	});
+
+	expect(
+		db
+			.prepare(
+				"select superseded_at, superseded_by_id from tweets where id = 'unrelated-edit-1'",
+			)
+			.get(),
+	).toEqual({ superseded_at: null, superseded_by_id: null });
+	expect(
+		db
+			.prepare(
+				"select count(*) as count from tweets_fts where tweet_id = 'unrelated-edit-1'",
+			)
+			.get(),
+	).toEqual({ count: 1 });
 });
 
 it("reads both X archive edit-info variants", () => {

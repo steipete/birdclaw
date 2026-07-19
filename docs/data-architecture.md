@@ -188,6 +188,7 @@ Native SQLite only. Transactional, append-only migrations define the schema; foc
 - `tweet_revisions`
   - ordered revision identities from observable X edit history
   - retains raw revision payloads only when the body was actually observed
+  - an explicit deletion on any revision tombstones every retained body in the chain
 - `tweet_subordinate_tombstones`
   - media and quote-relation tombstones derived from explicitly deleted parent tweets
 - `follow_edges`
