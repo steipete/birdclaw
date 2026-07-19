@@ -144,6 +144,14 @@ const BASE_SCHEMA_SQL = `
     observed_at text not null
   );
 
+  create table if not exists tweet_revision_edges (
+    older_revision_id text not null,
+    newer_revision_id text not null,
+    source text not null,
+    observed_at text not null,
+    primary key (older_revision_id, newer_revision_id)
+  );
+
   create table if not exists tweet_subordinate_tombstones (
     tweet_id text not null,
     kind text not null check (kind in ('media', 'quote')),
@@ -466,6 +474,61 @@ function ensureTweetMetadataColumns(db: Database) {
 	}
 }
 
+function ensureTweetRevisionEdgeSchema(db: Database) {
+	db.exec(`
+		create table if not exists tweet_revision_edges (
+			older_revision_id text not null,
+			newer_revision_id text not null,
+			source text not null,
+			observed_at text not null,
+			primary key (older_revision_id, newer_revision_id)
+		);
+		create index if not exists idx_tweet_revision_edges_newer
+			on tweet_revision_edges(newer_revision_id);
+	`);
+	const revisions = db.prepare(
+		`select root_tweet_id, revision_id, revision_index, observed_at
+		 from tweet_revisions
+		 order by root_tweet_id, revision_index, revision_id`,
+	);
+	type RevisionRow = {
+		root_tweet_id: string;
+		revision_id: string;
+		revision_index: number;
+		observed_at: string;
+	};
+	const insertEdge = db.prepare(`
+		insert or ignore into tweet_revision_edges (
+			older_revision_id, newer_revision_id, source, observed_at
+		) values (?, ?, 'migration', ?)
+	`);
+	let currentRoot: string | undefined;
+	let currentRank: number | undefined;
+	let currentRankRepresentative: RevisionRow | undefined;
+	let previousRankRepresentative: RevisionRow | undefined;
+	for (const revision of revisions.iterate() as IterableIterator<RevisionRow>) {
+		if (revision.root_tweet_id !== currentRoot) {
+			currentRoot = revision.root_tweet_id;
+			currentRank = revision.revision_index;
+			currentRankRepresentative = revision;
+			previousRankRepresentative = undefined;
+			continue;
+		}
+		if (revision.revision_index !== currentRank) {
+			previousRankRepresentative = currentRankRepresentative;
+			currentRankRepresentative = revision;
+			currentRank = revision.revision_index;
+		}
+		if (previousRankRepresentative) {
+			insertEdge.run(
+				previousRankRepresentative.revision_id,
+				revision.revision_id,
+				revision.observed_at,
+			);
+		}
+	}
+}
+
 function ensureTweetRetentionSchema(db: Database) {
 	const columnNames = getColumnNames(db, "tweets");
 	if (!columnNames.has("deleted_at")) {
@@ -511,6 +574,7 @@ function ensureTweetRetentionSchema(db: Database) {
 		select id, id, 0, null, 'migration', created_at
 		from tweets;
 	`);
+	ensureTweetRevisionEdgeSchema(db);
 }
 
 function ensureProfileAvatarColumns(db: Database) {
@@ -1010,6 +1074,11 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 		version: 6,
 		name: "retain tweet deletions and observable revisions",
 		up: ensureTweetRetentionSchema,
+	},
+	{
+		version: 7,
+		name: "retain observable tweet revision ordering",
+		up: ensureTweetRevisionEdgeSchema,
 	},
 ];
 

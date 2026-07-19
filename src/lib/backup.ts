@@ -21,14 +21,17 @@ import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { getImportRepository } from "./import-repository";
-import { reconcileTweetTombstones } from "./tweet-retention";
+import {
+	mergeTweetRevisionChain,
+	reconcileTweetTombstones,
+} from "./tweet-retention";
 import {
 	collectIngestionSourcesEffect,
 	streamJsonLines,
 } from "./streaming-ingestion";
 import { runSubprocessEffect, SubprocessError } from "./subprocess";
 
-const BACKUP_SCHEMA_VERSION = 6;
+const BACKUP_SCHEMA_VERSION = 7;
 const MIN_SUPPORTED_BACKUP_SCHEMA_VERSION = 1;
 const DEFAULT_MAX_BACKUP_SHARD_BYTES = 48 * 1024 * 1024;
 const MANIFEST_PATH = "manifest.json";
@@ -1085,6 +1088,55 @@ export function importBackupEffect({
 		);
 		importRows.tweet_collections = canonicalTweetState.collections;
 		importRows.tweet_account_edges = canonicalTweetState.timelineEdges;
+		if (manifest.schemaVersion < 7) {
+			const revisionsByRoot = new Map<string, JsonRecord[]>();
+			for (const row of importRows.tweet_revisions) {
+				if (typeof row.root_tweet_id !== "string") continue;
+				const revisions = revisionsByRoot.get(row.root_tweet_id) ?? [];
+				revisions.push(row);
+				revisionsByRoot.set(row.root_tweet_id, revisions);
+			}
+			for (const revisions of revisionsByRoot.values()) {
+				const ordered = revisions
+					.filter(
+						(row) =>
+							typeof row.revision_id === "string" &&
+							typeof row.revision_index === "number",
+					)
+					.sort(
+						(left, right) =>
+							Number(left.revision_index) - Number(right.revision_index) ||
+							(String(left.revision_id) < String(right.revision_id)
+								? -1
+								: String(left.revision_id) > String(right.revision_id)
+									? 1
+									: 0),
+					);
+				const rankGroups = new Map<number, JsonRecord[]>();
+				for (const revision of ordered) {
+					const rank = Number(revision.revision_index);
+					const group = rankGroups.get(rank) ?? [];
+					group.push(revision);
+					rankGroups.set(rank, group);
+				}
+				const groups = [...rankGroups.values()];
+				for (let groupIndex = 1; groupIndex < groups.length; groupIndex += 1) {
+					const older = groups[groupIndex - 1]?.[0];
+					if (!older) continue;
+					for (const newer of groups[groupIndex] ?? []) {
+						importRows.tweet_revision_edges.push({
+							older_revision_id: String(older.revision_id),
+							newer_revision_id: String(newer.revision_id),
+							source: "backup_migration",
+							observed_at:
+								typeof newer.observed_at === "string"
+									? newer.observed_at
+									: new Date(0).toISOString(),
+						});
+					}
+				}
+			}
+		}
 		const fingerprint = yield* databaseWriteEffect((writeDb) => {
 			const repository = getImportRepository(writeDb);
 			if (mode === "replace") {
@@ -1116,6 +1168,40 @@ export function importBackupEffect({
 					textKey: fts.textKey,
 					existingIds: existingFtsIds.get(codec.name),
 				});
+			}
+			const importedRevisionChains = new Map<
+				string,
+				Array<{ revisionId: string; revisionIndex: number }>
+			>();
+			for (const row of importRows.tweet_revisions) {
+				if (
+					typeof row.root_tweet_id !== "string" ||
+					typeof row.revision_id !== "string" ||
+					typeof row.revision_index !== "number"
+				)
+					continue;
+				const chain = importedRevisionChains.get(row.root_tweet_id) ?? [];
+				chain.push({
+					revisionId: row.revision_id,
+					revisionIndex: row.revision_index,
+				});
+				importedRevisionChains.set(row.root_tweet_id, chain);
+			}
+			const processedRevisionIds = new Set<string>();
+			for (const chain of importedRevisionChains.values()) {
+				if (
+					chain.some((revision) =>
+						processedRevisionIds.has(revision.revisionId),
+					)
+				)
+					continue;
+				const component = mergeTweetRevisionChain(
+					writeDb,
+					chain.map((revision) => revision.revisionId),
+				);
+				for (const revisionId of component) {
+					processedRevisionIds.add(revisionId);
+				}
 			}
 			reconcileTweetTombstones(writeDb);
 			return getBackupDatabaseFingerprint(writeDb);

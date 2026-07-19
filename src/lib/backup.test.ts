@@ -66,6 +66,7 @@ function clearData() {
 		delete from dm_messages;
 		delete from dm_conversations;
 		delete from tweet_subordinate_tombstones;
+		delete from tweet_revision_edges;
 		delete from tweet_revisions;
 		delete from tweets;
     delete from profile_bio_entities;
@@ -608,7 +609,7 @@ describe("text backup", () => {
 		expect(validation.ok).toBe(true);
 	}, 20000);
 
-	it("emits byte-identical schema-v6 data and hashes for the same database", async () => {
+	it("emits byte-identical schema-v7 data and hashes for the same database", async () => {
 		switchHome("birdclaw-backup-stable-src-");
 		seedBackupFixture();
 		const firstRepoPath = makeTempDir("birdclaw-backup-stable-first-");
@@ -617,7 +618,7 @@ describe("text backup", () => {
 		const first = await exportBackup({ repoPath: firstRepoPath });
 		const second = await exportBackup({ repoPath: secondRepoPath });
 
-		expect(first.manifest.schemaVersion).toBe(6);
+		expect(first.manifest.schemaVersion).toBe(7);
 		expect(second.manifest.files).toEqual(first.manifest.files);
 		expect(second.manifest.counts).toEqual(first.manifest.counts);
 		expect(second.manifest.backupHash).toBe(first.manifest.backupHash);
@@ -747,6 +748,10 @@ describe("text backup", () => {
 				'tweet_2025_v1', 'profile_me', 'before edit',
 				'2025-01-02T07:00:00.000Z', 0, null, 0, 0, '{}', '[]', null,
 				'2025-01-02T08:00:00.000Z', 'tweet_2025'
+			), (
+				'tweet_2025_v2', 'profile_me', 'middle edit',
+				'2025-01-02T07:30:00.000Z', 0, null, 0, 0, '{}', '[]', null,
+				'2025-01-02T08:00:00.000Z', 'tweet_2025'
 			);
 			update tweets
 			set deleted_at = '2026-07-18T12:00:00.000Z',
@@ -758,7 +763,21 @@ describe("text backup", () => {
 				root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
 			) values
 				('tweet_2025_v1', 'tweet_2025_v1', 0, null, 'xurl', '2025-01-02T07:00:00.000Z'),
-				('tweet_2025_v1', 'tweet_2025', 1, '{"text":"after"}', 'xurl', '2025-01-02T08:00:00.000Z');
+				('tweet_2025_v1', 'tweet_2025_v2', 1, '{"text":"middle"}', 'xurl', '2025-01-02T07:30:00.000Z'),
+				('tweet_2025_v1', 'tweet_2025', 2, '{"text":"after"}', 'xurl', '2025-01-02T08:00:00.000Z');
+			insert into tweet_revisions (
+				root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
+			) values
+				('partial_root', 'partial_root', 0, null, 'xurl', '2025-01-02T07:00:00.000Z'),
+				('partial_root', 'partial_left', 1, null, 'xurl', '2025-01-02T08:00:00.000Z'),
+				('partial_root', 'partial_right', 1, null, 'xurl', '2025-01-02T08:00:00.000Z');
+			insert into tweet_revision_edges (
+				older_revision_id, newer_revision_id, source, observed_at
+			) values
+				('tweet_2025_v1', 'tweet_2025_v2', 'xurl', '2025-01-02T07:30:00.000Z'),
+				('tweet_2025_v2', 'tweet_2025', 'xurl', '2025-01-02T08:00:00.000Z'),
+				('partial_root', 'partial_left', 'xurl', '2025-01-02T08:00:00.000Z'),
+				('partial_root', 'partial_right', 'xurl', '2025-01-02T08:00:00.000Z');
 			insert into tweet_subordinate_tombstones (
 				tweet_id, kind, subordinate_id, deleted_at, deletion_source, deletion_reason
 			) values
@@ -792,6 +811,15 @@ describe("text backup", () => {
 				'tweet_2025', 'quote', 'tweet_quote', '2026-07-18T12:00:00.000Z',
 				null, 'parent_tweet_deleted'
 			);
+			insert into tweet_revisions (
+				root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
+			) values
+				('tweet_2025_v2', 'tweet_2025_v2', 0, null, 'xurl', '2025-01-02T07:30:00.000Z'),
+				('tweet_2025_v2', 'tweet_2025', 1, null, 'xurl', '2025-01-02T08:00:00.000Z');
+			insert into tweet_revision_edges (
+				older_revision_id, newer_revision_id, source, observed_at
+			) values
+				('tweet_2025_v2', 'tweet_2025', 'xurl', '2025-01-02T08:00:00.000Z');
 		`);
 		const result = await importBackup({ repoPath });
 
@@ -847,7 +875,19 @@ describe("text backup", () => {
 				.all(),
 		).toEqual([
 			{ revision_id: "tweet_2025_v1", revision_index: 0, hydrated: 0 },
-			{ revision_id: "tweet_2025", revision_index: 1, hydrated: 1 },
+			{ revision_id: "tweet_2025_v2", revision_index: 1, hydrated: 1 },
+			{ revision_id: "tweet_2025", revision_index: 2, hydrated: 1 },
+		]);
+		expect(
+			db
+				.prepare(
+					"select revision_id, revision_index from tweet_revisions where root_tweet_id = 'partial_root' order by revision_index, revision_id",
+				)
+				.all(),
+		).toEqual([
+			{ revision_id: "partial_root", revision_index: 0 },
+			{ revision_id: "partial_left", revision_index: 1 },
+			{ revision_id: "partial_right", revision_index: 1 },
 		]);
 		expect(
 			db

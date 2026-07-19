@@ -6,7 +6,11 @@ import { afterEach, expect, it } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { ingestTweetPayload } from "./tweet-repository";
-import { editHistoryIdsFromPayload } from "./tweet-retention";
+import {
+	editHistoryIdsFromPayload,
+	mergeTweetRevisionChain,
+	recordTweetRevision,
+} from "./tweet-retention";
 
 let tempRoot: string | undefined;
 
@@ -236,6 +240,321 @@ it("records observable edit chains without re-indexing a tombstoned tweet", () =
 		},
 		{ kind: "quote", subordinate_id: "quote-1" },
 	]);
+});
+
+it("merges an enriched edit history into one revision chain", () => {
+	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	const db = getNativeDb({ seedDemoData: false });
+	const users = [{ id: "42", username: "sam", name: "Sam" }];
+
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "edit-3",
+					author_id: "42",
+					text: "latest body",
+					created_at: "2026-07-01T11:00:00.000Z",
+					edit_history_tweet_ids: ["edit-2", "edit-3"],
+				},
+			],
+			includes: { users },
+		},
+	});
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "edit-2",
+					author_id: "42",
+					text: "middle body",
+					created_at: "2026-07-01T10:00:00.000Z",
+					edit_history_tweet_ids: ["edit-1", "edit-2", "edit-3"],
+				},
+			],
+			includes: { users },
+		},
+	});
+
+	expect(
+		db
+			.prepare(
+				"select root_tweet_id, revision_id, revision_index from tweet_revisions order by revision_index",
+			)
+			.all(),
+	).toEqual([
+		{ root_tweet_id: "edit-1", revision_id: "edit-1", revision_index: 0 },
+		{ root_tweet_id: "edit-1", revision_id: "edit-2", revision_index: 1 },
+		{ root_tweet_id: "edit-1", revision_id: "edit-3", revision_index: 2 },
+	]);
+	for (const [id, history] of [
+		["gap-3", ["gap-1", "gap-3"]],
+		["gap-2", ["gap-1", "gap-2", "gap-3"]],
+	] as const) {
+		ingestTweetPayload(db, {
+			accountId: "acct_primary",
+			source: "xurl",
+			payload: {
+				data: [
+					{
+						id,
+						author_id: "42",
+						text: `${id} body`,
+						created_at: "2026-07-01T11:00:00.000Z",
+						edit_history_tweet_ids: [...history],
+					},
+				],
+				includes: { users },
+			},
+		});
+	}
+	expect(
+		db
+			.prepare(
+				"select revision_id, revision_index from tweet_revisions where root_tweet_id = 'gap-1' order by revision_index",
+			)
+			.all(),
+	).toEqual([
+		{ revision_id: "gap-1", revision_index: 0 },
+		{ revision_id: "gap-2", revision_index: 1 },
+		{ revision_id: "gap-3", revision_index: 2 },
+	]);
+	for (const [id, history] of [
+		["branch-b", ["branch-a", "branch-b"]],
+		["branch-c", ["branch-a", "branch-c"]],
+		["branch-b", ["branch-a", "branch-c", "branch-b"]],
+	] as const) {
+		ingestTweetPayload(db, {
+			accountId: "acct_primary",
+			source: "xurl",
+			payload: {
+				data: [
+					{
+						id,
+						author_id: "42",
+						text: `${id} body`,
+						created_at: "2026-07-01T11:00:00.000Z",
+						edit_history_tweet_ids: [...history],
+					},
+				],
+				includes: { users },
+			},
+		});
+	}
+	expect(
+		db
+			.prepare(
+				"select revision_id, revision_index from tweet_revisions where root_tweet_id = 'branch-a' order by revision_index, revision_id",
+			)
+			.all(),
+	).toEqual([
+		{ revision_id: "branch-a", revision_index: 0 },
+		{ revision_id: "branch-c", revision_index: 1 },
+		{ revision_id: "branch-b", revision_index: 2 },
+	]);
+	db.prepare(
+		"update tweets set deleted_at = ?, deletion_source = ?, deletion_reason = ? where id = ?",
+	).run(
+		"2026-07-02T00:00:00.000Z",
+		"twitter_archive",
+		"explicit_deleted_tweet_record",
+		"edit-2",
+	);
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "edit-3",
+					author_id: "42",
+					text: "latest body",
+					created_at: "2026-07-01T11:00:00.000Z",
+					edit_history_tweet_ids: ["edit-1", "edit-2", "edit-3"],
+				},
+			],
+			includes: { users },
+		},
+	});
+	expect(
+		db
+			.prepare(
+				"select deleted_at, deletion_source from tweets where id = 'edit-3'",
+			)
+			.get(),
+	).toEqual({
+		deleted_at: "2026-07-02T00:00:00.000Z",
+		deletion_source: "twitter_archive",
+	});
+});
+
+it("prefers attributed deletion provenance when revision timestamps tie", () => {
+	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	const db = getNativeDb({ seedDemoData: false });
+	const users = [{ id: "42", username: "sam", name: "Sam" }];
+	for (const [id, history] of [
+		["edit-1", ["edit-1"]],
+		["edit-2", ["edit-1", "edit-2"]],
+	] as const) {
+		ingestTweetPayload(db, {
+			accountId: "acct_primary",
+			source: "xurl",
+			payload: {
+				data: [
+					{
+						id,
+						author_id: "42",
+						text: `${id} body`,
+						created_at: "2026-07-01T10:00:00.000Z",
+						edit_history_tweet_ids: [...history],
+					},
+				],
+				includes: { users },
+			},
+		});
+	}
+	const deletedAt = "2026-07-02T00:00:00.000Z";
+	db.prepare("update tweets set deleted_at = ? where id = 'edit-1'").run(
+		deletedAt,
+	);
+	db.prepare(
+		"update tweets set deleted_at = ?, deletion_source = ?, deletion_reason = ? where id = 'edit-2'",
+	).run(deletedAt, "twitter_archive", "explicit_deleted_tweet_record");
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "edit-2",
+					author_id: "42",
+					text: "edit-2 body",
+					created_at: "2026-07-01T10:00:00.000Z",
+					edit_history_tweet_ids: ["edit-1", "edit-2"],
+				},
+			],
+			includes: { users },
+		},
+	});
+	expect(
+		db
+			.prepare(
+				"select id, deletion_source, deletion_reason from tweets where id in ('edit-1', 'edit-2') order by id",
+			)
+			.all(),
+	).toEqual([
+		{
+			id: "edit-1",
+			deletion_source: "twitter_archive",
+			deletion_reason: "explicit_deleted_tweet_record",
+		},
+		{
+			id: "edit-2",
+			deletion_source: "twitter_archive",
+			deletion_reason: "explicit_deleted_tweet_record",
+		},
+	]);
+});
+
+it("merges edge-connected roots while preserving order outside a cycle", () => {
+	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	const db = getNativeDb({ seedDemoData: false });
+	db.exec(`
+		insert into tweet_revisions (
+			root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
+		) values
+			('cycle-a', 'cycle-a', 0, null, 'test', '2026-07-01T00:00:00.000Z'),
+			('cycle-a', 'cycle-b', 1, null, 'test', '2026-07-01T00:00:00.000Z'),
+			('cycle-c', 'cycle-c', 0, null, 'test', '2026-07-01T00:00:00.000Z'),
+			('cycle-c', 'cycle-d', 1, null, 'test', '2026-07-01T00:00:00.000Z');
+		insert into tweet_revision_edges (
+			older_revision_id, newer_revision_id, source, observed_at
+		) values
+			('cycle-a', 'cycle-b', 'test', '2026-07-01T00:00:00.000Z'),
+			('cycle-b', 'cycle-c', 'test', '2026-07-01T00:00:00.000Z'),
+			('cycle-c', 'cycle-b', 'test', '2026-07-01T00:00:00.000Z'),
+			('cycle-c', 'cycle-d', 'test', '2026-07-01T00:00:00.000Z');
+	`);
+
+	mergeTweetRevisionChain(db, ["cycle-a"]);
+
+	expect(
+		db
+			.prepare(
+				"select root_tweet_id, revision_id, revision_index from tweet_revisions order by revision_index, revision_id",
+			)
+			.all(),
+	).toEqual([
+		{ root_tweet_id: "cycle-a", revision_id: "cycle-a", revision_index: 0 },
+		{ root_tweet_id: "cycle-a", revision_id: "cycle-b", revision_index: 1 },
+		{ root_tweet_id: "cycle-a", revision_id: "cycle-c", revision_index: 1 },
+		{ root_tweet_id: "cycle-a", revision_id: "cycle-d", revision_index: 2 },
+	]);
+	for (const source of ["archive_observation", "backup_migration"]) {
+		recordTweetRevision(db, {
+			tweetId: "provenance-b",
+			editHistoryIds: ["provenance-a", "provenance-b"],
+			payloadJson: null,
+			source,
+			observedAt: "2026-07-01T00:00:00.000Z",
+		});
+	}
+	expect(
+		db
+			.prepare(
+				"select source from tweet_revision_edges where older_revision_id = 'provenance-a' and newer_revision_id = 'provenance-b'",
+			)
+			.get(),
+	).toEqual({ source: "archive_observation" });
+});
+
+it("merges revision components beyond SQLite's traditional variable limit", () => {
+	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	const db = getNativeDb({ seedDemoData: false });
+	const insertRevision = db.prepare(`
+		insert into tweet_revisions (
+			root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
+		) values (?, ?, 0, null, 'test', '2026-07-01T00:00:00.000Z')
+	`);
+	const insertEdge = db.prepare(`
+		insert into tweet_revision_edges (
+			older_revision_id, newer_revision_id, source, observed_at
+		) values (?, ?, 'test', '2026-07-01T00:00:00.000Z')
+	`);
+	for (let index = 0; index < 5_000; index += 1) {
+		const revisionId = `scale-${String(index).padStart(4, "0")}`;
+		insertRevision.run(revisionId, revisionId);
+		if (index > 0) {
+			insertEdge.run(`scale-${String(index - 1).padStart(4, "0")}`, revisionId);
+		}
+	}
+
+	const component = mergeTweetRevisionChain(db, ["scale-0000"]);
+
+	expect(component).toHaveLength(5_000);
+	expect(
+		db
+			.prepare(
+				"select count(*) as count, max(revision_index) as max_rank from tweet_revisions where root_tweet_id = 'scale-0000'",
+			)
+			.get(),
+	).toEqual({ count: 5_000, max_rank: 4_999 });
 });
 
 it("scopes live tombstone reconciliation to the ingested edit chains", () => {

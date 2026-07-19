@@ -74,6 +74,7 @@ export class ImportRepository {
       delete from dm_messages;
       delete from dm_conversations;
 	  delete from tweet_subordinate_tombstones;
+	  delete from tweet_revision_edges;
 	  delete from tweet_revisions;
       delete from tweets;
       delete from profiles;
@@ -123,6 +124,7 @@ export class ImportRepository {
       delete from dm_messages;
       delete from dm_conversations;
 	  delete from tweet_subordinate_tombstones;
+	  delete from tweet_revision_edges;
 	  delete from tweet_revisions;
       delete from tweets;
       delete from profile_bio_entities;
