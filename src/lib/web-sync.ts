@@ -82,6 +82,21 @@ const completedJobCleanupTimers = new Map<
 >();
 const COMPLETED_JOB_TTL_MS = 5 * 60 * 1000;
 
+function readWebSyncModeOverride(
+	runtime: ServerRuntimeServices,
+): "bird" | "xurl" | undefined {
+	const configured = runtime.env("BIRDCLAW_WEB_SYNC_MODE");
+	if (configured === undefined || configured.trim() === "auto") {
+		return undefined;
+	}
+	const mode = configured.trim();
+	if (mode === "bird" || mode === "xurl") return mode;
+	console.warn(
+		`[${runtime.now().toISOString()}] web-sync invalid BIRDCLAW_WEB_SYNC_MODE; falling back to auto`,
+	);
+	return undefined;
+}
+
 function assertRecord(
 	value: unknown,
 ): asserts value is Record<string, unknown> {
@@ -159,12 +174,14 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 		accountAware: true,
 		run: (account, _options, runtime) =>
 			Effect.gen(function* () {
+				const modeOverride = readWebSyncModeOverride(runtime);
 				const result = yield* syncHomeTimelineEffect({
 					account,
 					mode:
-						!account || account === resolveDefaultSyncAccountId(runtime)
+						modeOverride ??
+						(!account || account === resolveDefaultSyncAccountId(runtime)
 							? "auto"
-							: "xurl",
+							: "xurl"),
 					limit: 100,
 					maxPages: 3,
 					following: true,
@@ -183,11 +200,12 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	mentions: {
 		label: "Mentions",
 		accountAware: true,
-		run: (account) =>
+		run: (account, _options, runtime) =>
 			Effect.gen(function* () {
+				const modeOverride = readWebSyncModeOverride(runtime);
 				const mentions = yield* syncMentionsEffect({
 					account,
-					mode: "auto",
+					mode: modeOverride ?? "auto",
 					limit: 100,
 					maxPages: 3,
 					refresh: true,
@@ -204,7 +222,7 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 
 				const threads = yield* syncMentionThreadsEffect({
 					account,
-					mode: "xurl",
+					mode: modeOverride ?? "xurl",
 					limit: 30,
 					delayMs: 1500,
 					timeoutMs: 15000,
@@ -238,11 +256,13 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	dms: {
 		label: "Direct messages",
 		accountAware: false,
-		run: (account, options) =>
+		run: (account, options, runtime) =>
 			Effect.gen(function* () {
 				const inbox = options.inbox ?? "all";
+				const modeOverride = readWebSyncModeOverride(runtime);
 				const result = yield* syncDirectMessagesViaCachedBirdEffect({
 					account,
+					...(modeOverride ? { mode: modeOverride } : {}),
 					inbox,
 					limit: options.limit ?? (inbox === "requests" ? 200 : 50),
 					...(options.maxPages !== undefined
@@ -272,12 +292,13 @@ function syncSavedCollection(
 	runtime: ServerRuntimeServices,
 ): Effect.Effect<WebSyncStep[], unknown> {
 	return Effect.gen(function* () {
+		const modeOverride = readWebSyncModeOverride(runtime);
 		const isNonDefaultAccount =
 			account !== undefined && account !== resolveDefaultSyncAccountId(runtime);
 		const result = yield* syncTimelineCollectionEffect({
 			kind,
 			account,
-			mode: isNonDefaultAccount ? "xurl" : "auto",
+			mode: modeOverride ?? (isNonDefaultAccount ? "xurl" : "auto"),
 			limit: 100,
 			maxPages: 5,
 			refresh: true,
