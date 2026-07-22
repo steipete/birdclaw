@@ -9,6 +9,7 @@ import {
 	defaultServerRuntimeServices,
 	type ServerRuntimeServices,
 } from "./server-runtime-services";
+import { redactSensitiveLogText } from "./live-sync-engine";
 import NativeSqliteDatabase from "./sqlite";
 import { syncTimelineCollectionEffect } from "./timeline-collections-live";
 import { syncHomeTimelineEffect } from "./timeline-live";
@@ -81,6 +82,21 @@ const completedJobCleanupTimers = new Map<
 >();
 const COMPLETED_JOB_TTL_MS = 5 * 60 * 1000;
 
+function readWebSyncModeOverride(
+	runtime: ServerRuntimeServices,
+): "bird" | "xurl" | undefined {
+	const configured = runtime.env("BIRDCLAW_WEB_SYNC_MODE");
+	if (configured === undefined || configured.trim() === "auto") {
+		return undefined;
+	}
+	const mode = configured.trim();
+	if (mode === "bird" || mode === "xurl") return mode;
+	console.warn(
+		`[${runtime.now().toISOString()}] web-sync invalid BIRDCLAW_WEB_SYNC_MODE; falling back to auto`,
+	);
+	return undefined;
+}
+
 function assertRecord(
 	value: unknown,
 ): asserts value is Record<string, unknown> {
@@ -111,6 +127,30 @@ function messageFromError(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function formatFullError(error: unknown, runtime: ServerRuntimeServices) {
+	const value =
+		error instanceof Error ? (error.stack ?? error.message) : String(error);
+	const secrets = [
+		"AUTH_TOKEN",
+		"CT0",
+		"BIRDCLAW_WEB_TOKEN",
+		"BIRDCLAW_MCP_TOKEN",
+		"OPENAI_API_KEY",
+		"OPENCAGE_API_KEY",
+	].map((name) => runtime.env(name) ?? "");
+	return redactSensitiveLogText(value, secrets).replaceAll("\n", "\\n");
+}
+
+function summarizeSyncResult(result: WebSyncResponse) {
+	const transports = [
+		...new Set(result.steps.map((step) => step.source).filter(Boolean)),
+	];
+	return {
+		transport: transports.join(",") || "unknown",
+		fetched: result.steps.reduce((sum, step) => sum + step.count, 0),
+	};
+}
+
 export function parseWebSyncKind(value: unknown): WebSyncKind | null {
 	return value === "timeline" ||
 		value === "mentions" ||
@@ -134,12 +174,14 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 		accountAware: true,
 		run: (account, _options, runtime) =>
 			Effect.gen(function* () {
+				const modeOverride = readWebSyncModeOverride(runtime);
 				const result = yield* syncHomeTimelineEffect({
 					account,
 					mode:
-						!account || account === resolveDefaultSyncAccountId(runtime)
+						modeOverride ??
+						(!account || account === resolveDefaultSyncAccountId(runtime)
 							? "auto"
-							: "xurl",
+							: "xurl"),
 					limit: 100,
 					maxPages: 3,
 					following: true,
@@ -158,11 +200,12 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	mentions: {
 		label: "Mentions",
 		accountAware: true,
-		run: (account) =>
+		run: (account, _options, runtime) =>
 			Effect.gen(function* () {
+				const modeOverride = readWebSyncModeOverride(runtime);
 				const mentions = yield* syncMentionsEffect({
 					account,
-					mode: "auto",
+					mode: modeOverride ?? "auto",
 					limit: 100,
 					maxPages: 3,
 					refresh: true,
@@ -179,7 +222,7 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 
 				const threads = yield* syncMentionThreadsEffect({
 					account,
-					mode: "xurl",
+					mode: modeOverride ?? "xurl",
 					limit: 30,
 					delayMs: 1500,
 					timeoutMs: 15000,
@@ -213,11 +256,13 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 	dms: {
 		label: "Direct messages",
 		accountAware: false,
-		run: (account, options) =>
+		run: (account, options, runtime) =>
 			Effect.gen(function* () {
 				const inbox = options.inbox ?? "all";
+				const modeOverride = readWebSyncModeOverride(runtime);
 				const result = yield* syncDirectMessagesViaCachedBirdEffect({
 					account,
+					...(modeOverride ? { mode: modeOverride } : {}),
 					inbox,
 					limit: options.limit ?? (inbox === "requests" ? 200 : 50),
 					...(options.maxPages !== undefined
@@ -247,12 +292,13 @@ function syncSavedCollection(
 	runtime: ServerRuntimeServices,
 ): Effect.Effect<WebSyncStep[], unknown> {
 	return Effect.gen(function* () {
+		const modeOverride = readWebSyncModeOverride(runtime);
 		const isNonDefaultAccount =
 			account !== undefined && account !== resolveDefaultSyncAccountId(runtime);
 		const result = yield* syncTimelineCollectionEffect({
 			kind,
 			account,
-			mode: isNonDefaultAccount ? "xurl" : "auto",
+			mode: modeOverride ?? (isNonDefaultAccount ? "xurl" : "auto"),
 			limit: 100,
 			maxPages: 5,
 			refresh: true,
@@ -426,11 +472,20 @@ export function startWebSync(
 	};
 	webSyncJobKeys.set(job.id, syncKey);
 	setJobSnapshot(job);
+	const resolvedAccountId =
+		effectiveAccountId ?? resolveDefaultSyncAccountId(runtime);
+	console.info(
+		`[${startedAt}] web-sync start jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=pending fetched=0`,
+	);
 
 	runEffectBackground(
 		performWebSyncEffect(kind, effectiveAccountId, options, runtime),
 		{
 			onSuccess: (result) => {
+				const { transport, fetched } = summarizeSyncResult(result);
+				console.info(
+					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=${transport} fetched=${String(fetched)} status=succeeded`,
+				);
 				setJobSnapshot({
 					...job,
 					status: "succeeded",
@@ -457,6 +512,9 @@ export function startWebSync(
 					result,
 					error: result.error,
 				});
+				console.error(
+					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=unknown fetched=0 status=failed error=${formatFullError(error, runtime)}`,
+				);
 			},
 		},
 	);

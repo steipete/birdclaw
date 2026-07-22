@@ -88,6 +88,7 @@ function deferred<T>() {
 }
 
 const originalBirdclawHome = process.env.BIRDCLAW_HOME;
+const originalWebSyncMode = process.env.BIRDCLAW_WEB_SYNC_MODE;
 const tempRoots: string[] = [];
 
 function setupDefaultAccount(accountId: string) {
@@ -108,6 +109,10 @@ function setupDefaultAccount(accountId: string) {
 
 describe("web sync dispatcher", () => {
 	beforeEach(() => {
+		delete process.env.BIRDCLAW_WEB_SYNC_MODE;
+		vi.spyOn(console, "info").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "warn").mockImplementation(() => {});
 		clearWebSyncLocksForTests();
 		vi.useRealTimers();
 		maybeAutoSyncBackupMock.mockReset();
@@ -124,12 +129,18 @@ describe("web sync dispatcher", () => {
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		if (originalBirdclawHome === undefined) {
 			delete process.env.BIRDCLAW_HOME;
 		} else {
 			process.env.BIRDCLAW_HOME = originalBirdclawHome;
+		}
+		if (originalWebSyncMode === undefined) {
+			delete process.env.BIRDCLAW_WEB_SYNC_MODE;
+		} else {
+			process.env.BIRDCLAW_WEB_SYNC_MODE = originalWebSyncMode;
 		}
 		for (const tempRoot of tempRoots.splice(0)) {
 			rmSync(tempRoot, { recursive: true, force: true });
@@ -288,6 +299,80 @@ describe("web sync dispatcher", () => {
 			refresh: true,
 			earlyStop: true,
 		});
+	});
+
+	it("forces bird mode across transport-aware web sync steps", async () => {
+		process.env.BIRDCLAW_WEB_SYNC_MODE = "bird";
+		syncHomeTimelineMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			count: 1,
+		});
+		syncMentionsMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			count: 1,
+			partial: false,
+		});
+		syncMentionThreadsMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			mergedTweets: 1,
+			partial: false,
+		});
+		syncTimelineCollectionMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			count: 1,
+		});
+		syncDirectMessagesViaCachedBirdMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			conversations: 1,
+			messages: 1,
+		});
+
+		await runWebSync("timeline");
+		await runWebSync("mentions");
+		await runWebSync("bookmarks");
+		await runWebSync("dms");
+
+		expect(syncHomeTimelineMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "bird" }),
+		);
+		expect(syncMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "bird" }),
+		);
+		expect(syncMentionThreadsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "bird" }),
+		);
+		expect(syncTimelineCollectionMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "bird" }),
+		);
+		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "bird" }),
+		);
+	});
+
+	it("warns once and uses the upstream auto mode for an invalid override", async () => {
+		process.env.BIRDCLAW_WEB_SYNC_MODE = "invalid";
+		syncTimelineCollectionMock.mockResolvedValue({
+			ok: true,
+			source: "bird",
+			count: 1,
+		});
+
+		await runWebSync("bookmarks");
+
+		expect(syncTimelineCollectionMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "auto" }),
+		);
+		expect(console.warn).toHaveBeenCalledTimes(1);
+		expect(console.warn).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync invalid BIRDCLAW_WEB_SYNC_MODE; falling back to auto$/,
+			),
+		);
 	});
 
 	it("returns an in-progress response for duplicate sync clicks", async () => {
@@ -459,6 +544,16 @@ describe("web sync dispatcher", () => {
 				summary: "Synced 5 items",
 			});
 		});
+		expect(console.info).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync start jobId=.* kind=timeline accountId=acct_primary transport=pending fetched=0$/,
+			),
+		);
+		expect(console.info).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=bird fetched=5 status=succeeded$/,
+			),
+		);
 	});
 
 	it("keeps non-Error background failure messages in job snapshots", async () => {
@@ -473,6 +568,42 @@ describe("web sync dispatcher", () => {
 				error: "rate limited",
 			});
 		});
+		expect(console.error).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=unknown fetched=0 status=failed error=rate limited$/,
+			),
+		);
+	});
+
+	it("logs full background errors without exposing configured secrets", async () => {
+		const previousToken = process.env.BIRDCLAW_WEB_TOKEN;
+		process.env.BIRDCLAW_WEB_TOKEN = "do-not-log-web-secret";
+		try {
+			syncHomeTimelineMock.mockRejectedValue(
+				new Error("sync exploded: do-not-log-web-secret"),
+			);
+
+			const job = startWebSync("timeline");
+			await vi.waitFor(() => {
+				expect(getWebSyncJob(job.id)).toMatchObject({ status: "failed" });
+			});
+
+			const failureLine = vi
+				.mocked(console.error)
+				.mock.calls.flat()
+				.map(String)
+				.find((line) => line.includes(`jobId=${job.id}`));
+			expect(failureLine).toContain(
+				"error=Error: sync exploded: [REDACTED]\\n",
+			);
+			expect(failureLine).not.toContain("do-not-log-web-secret");
+		} finally {
+			if (previousToken === undefined) {
+				delete process.env.BIRDCLAW_WEB_TOKEN;
+			} else {
+				process.env.BIRDCLAW_WEB_TOKEN = previousToken;
+			}
+		}
 	});
 
 	it("expires completed background sync jobs after the polling window", async () => {

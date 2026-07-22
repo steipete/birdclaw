@@ -3,12 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./queries";
 
 const mocks = vi.hoisted(() => ({
+	getAuthenticatedBirdAccount: vi.fn(),
 	listBookmarkedTweetsViaBird: vi.fn(),
 	listHomeTimelineViaBird: vi.fn(),
 	listLikedTweetsViaBird: vi.fn(),
@@ -18,6 +19,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./bird", () => ({
+	getAuthenticatedBirdAccountEffect: () =>
+		Effect.tryPromise({
+			try: () => mocks.getAuthenticatedBirdAccount(),
+			catch: (error) => error,
+		}),
 	listBookmarkedTweetsViaBird: mocks.listBookmarkedTweetsViaBird,
 	listBookmarkedTweetsViaBirdEffect: (options: unknown) =>
 		Effect.tryPromise({
@@ -57,6 +63,13 @@ vi.mock("./xurl", () => ({
 }));
 
 const tempRoots: string[] = [];
+
+beforeEach(() => {
+	mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+		id: "25401953",
+		username: "steipete",
+	});
+});
 
 function makeTweet(id: string, text = id, authorId = "42") {
 	return {
@@ -761,6 +774,35 @@ describe("live timeline collection sync", () => {
 		});
 	});
 
+	it("rejects bird collection writes for a mismatched authenticated account", async () => {
+		setupTempHome();
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "999",
+			username: "other",
+		});
+		mocks.listLikedTweetsViaBird.mockResolvedValue({
+			data: [makeTweet("wrong_account_like")],
+			meta: { result_count: 1 },
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await expect(
+			syncTimelineCollection({
+				kind: "likes",
+				mode: "bird",
+				limit: 5,
+				refresh: true,
+			}),
+		).rejects.toThrow("refusing to sync");
+		expect(mocks.listLikedTweetsViaBird).not.toHaveBeenCalled();
+		expect(
+			getNativeDb()
+				.prepare("select id from tweets where id = ?")
+				.get("wrong_account_like"),
+		).toBeUndefined();
+	});
+
 	it("does not pass the implicit early-stop cap to bird fallback", async () => {
 		setupTempHome();
 		const consoleError = vi
@@ -796,6 +838,9 @@ describe("live timeline collection sync", () => {
 
 	it("keeps live saved-state scoped to the syncing account", async () => {
 		setupTempHome();
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			username: "birdclaw_lab",
+		});
 		mocks.listLikedTweetsViaBird.mockResolvedValue({
 			data: [
 				{

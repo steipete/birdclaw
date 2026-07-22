@@ -1,9 +1,11 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
+import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
 import { liveTransportGateway } from "./live-transport-gateway";
 import {
+	assertLiveAccountMatches,
 	createLiveTransportAdapter,
 	normalizeCacheTtlMs,
 	resolveLiveSyncAccount,
@@ -351,11 +353,22 @@ export function syncTimelineCollectionEffect({
 			maxPages: xurlMaxPages,
 			earlyStop,
 		});
-		const birdFetch = fetchBirdCollectionEffect({
-			kind,
-			limit,
-			all,
-			maxPages: parsedMaxPages,
+		const birdFetch = Effect.gen(function* () {
+			const authenticated = yield* getAuthenticatedBirdAccountEffect();
+			yield* trySync(() =>
+				assertLiveAccountMatches({
+					source: "bird",
+					account: resolvedAccount,
+					liveUsername: authenticated.username,
+					liveExternalUserId: authenticated.id,
+				}),
+			);
+			return yield* fetchBirdCollectionEffect({
+				kind,
+				limit,
+				all,
+				maxPages: parsedMaxPages,
+			});
 		});
 		const transports =
 			mode === "bird"
