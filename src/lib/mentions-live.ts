@@ -465,7 +465,7 @@ function mergeMentionsIntoLocalStore(
 	payload: XurlMentionsResponse,
 	source: MentionsDataSource,
 ) {
-	ingestTweetPayload(db, {
+	return ingestTweetPayload(db, {
 		accountId,
 		payload,
 		edgeKind: "mention",
@@ -772,7 +772,7 @@ export function syncMentionsEffect({
 			cached &&
 			cacheAgeMs <= ttlMs
 		) {
-			yield* databaseWriteEffect((writeDb) =>
+			const cachedPersisted = yield* databaseWriteEffect((writeDb) =>
 				mergeMentionsIntoLocalStore(
 					writeDb,
 					resolvedAccount.accountId,
@@ -794,6 +794,7 @@ export function syncMentionsEffect({
 				kind: "mentions",
 				accountId: resolvedAccount.accountId,
 				count: cached.value.data.length,
+				newCount: cachedPersisted.newTweetIds.length,
 				partial: isMaxPagesPartial({
 					payload: cached.value,
 					maxPages: parsedMaxPages,
@@ -852,7 +853,7 @@ export function syncMentionsEffect({
 				}),
 			);
 		}
-		yield* databaseWriteEffect((writeDb) =>
+		const persisted = yield* databaseWriteEffect((writeDb) =>
 			mergeMentionsIntoLocalStore(
 				writeDb,
 				resolvedAccount.accountId,
@@ -931,6 +932,7 @@ export function syncMentionsEffect({
 			kind: "mentions",
 			accountId: resolvedAccount.accountId,
 			count: payload.data.length,
+			newCount: persisted.newTweetIds.length,
 			partial: isMaxPagesPartial({ payload, maxPages: parsedMaxPages }),
 			payload,
 		};

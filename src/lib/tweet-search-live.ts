@@ -279,7 +279,7 @@ function runModeEffect(
 				),
 		});
 		const { payload, source } = syncResult;
-		const tweetIds = syncResult.persisted ?? [];
+		const tweetIds = syncResult.persisted?.tweetIds ?? [];
 
 		return {
 			ok: true,

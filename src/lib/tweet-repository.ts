@@ -20,6 +20,20 @@ export interface IngestTweetPayloadOptions {
 	};
 }
 
+export interface IngestTweetPayloadResult {
+	/** All primary tweet ids from payload.data that were ingested (existing or new). */
+	tweetIds: string[];
+	/**
+	 * Primary tweet ids that were NOT already a member of the scope this ingest
+	 * writes to (tweet_collections for a given kind, or tweet_account_edges for a
+	 * given kind) before this call. This is "new" as in "actually added", not
+	 * "never seen anywhere before" — a tweet already on the timeline that gets
+	 * bookmarked today is new to the bookmarks collection even though its row in
+	 * `tweets` already existed.
+	 */
+	newTweetIds: string[];
+}
+
 function getReferencedTweetId(tweet: XurlMentionData, type: string) {
 	return (
 		tweet.referenced_tweets?.find((item) => item.type === type)?.id ?? null
@@ -56,7 +70,7 @@ export function ingestTweetPayload(
 		markRepliesAsReplied = false,
 		provenance,
 	}: IngestTweetPayloadOptions,
-) {
+): IngestTweetPayloadResult {
 	const usersById = new Map(
 		(payload.includes?.users ?? []).map((user) => [user.id, user]),
 	);
@@ -92,6 +106,7 @@ export function ingestTweetPayload(
       `)
 		: undefined;
 	const tweetIds: string[] = [];
+	const newTweetIds: string[] = [];
 	const upsertSource = provenance
 		? db.prepare(`
         insert into tweet_sources (tweet_id, source, source_url, observed_at)
@@ -101,12 +116,39 @@ export function ingestTweetPayload(
           observed_at = excluded.observed_at
       `)
 		: undefined;
+	// "New" means not already a member of the scope this ingest writes to.
+	// Point-lookup per id (rather than a single WHERE IN (...tweetIds)) so a
+	// large --all merged payload never trips SQLite's bound-variable limit.
+	const checkCollectionMember = collectionKind
+		? db.prepare(
+				"select 1 from tweet_collections where account_id = ? and tweet_id = ? and kind = ?",
+			)
+		: undefined;
+	const checkEdgeMember = edgeKind
+		? db.prepare(
+				"select 1 from tweet_account_edges where account_id = ? and tweet_id = ? and kind = ?",
+			)
+		: undefined;
+	const checkTweetExists = db.prepare("select 1 from tweets where id = ?");
 
 	db.transaction(() => {
 		const observedAt = new Date().toISOString();
 		const primaryTweetIds = new Set(payload.data.map((tweet) => tweet.id));
 		for (const tweet of toCanonicalTweets(payload)) {
 			const isPrimaryTweet = primaryTweetIds.has(tweet.id);
+			if (isPrimaryTweet) {
+				// Existence must be checked before this tweet's own upserts run below,
+				// since those upserts are what create the membership row.
+				const alreadyMember = checkCollectionMember
+					? checkCollectionMember.get(accountId, tweet.id, collectionKind) !==
+						undefined
+					: checkEdgeMember
+						? checkEdgeMember.get(accountId, tweet.id, edgeKind) !== undefined
+						: checkTweetExists.get(tweet.id) !== undefined;
+				if (!alreadyMember) {
+					newTweetIds.push(tweet.id);
+				}
+			}
 			const author = usersById.get(tweet.author_id);
 			const profile = author
 				? upsertProfileFromXUser(db, author)
@@ -163,5 +205,5 @@ export function ingestTweetPayload(
 		}
 	})();
 
-	return tweetIds;
+	return { tweetIds, newTweetIds };
 }

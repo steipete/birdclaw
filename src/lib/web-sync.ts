@@ -21,6 +21,12 @@ export interface WebSyncStep {
 	kind: WebSyncKind | "mention-threads";
 	label: string;
 	count: number;
+	/**
+	 * Items actually added to their scope by this step (deduplicated), as
+	 * opposed to `count`, which is everything the transport fetched. Undefined
+	 * where a step doesn't track this distinction (e.g. mention-threads).
+	 */
+	newCount?: number;
 	source?: string;
 	partial?: boolean;
 	warnings?: string[];
@@ -148,6 +154,10 @@ function summarizeSyncResult(result: WebSyncResponse) {
 	return {
 		transport: transports.join(",") || "unknown",
 		fetched: result.steps.reduce((sum, step) => sum + step.count, 0),
+		newCount: result.steps.reduce(
+			(sum, step) => sum + (step.newCount ?? 0),
+			0,
+		),
 	};
 }
 
@@ -192,6 +202,7 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 						kind: "timeline",
 						label: "Home timeline",
 						count: readNumber(result, "count"),
+						newCount: readNumber(result, "newCount"),
 						source: readString(result, "source"),
 					},
 				];
@@ -215,6 +226,7 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 						kind: "mentions",
 						label: "Mentions",
 						count: readNumber(mentions, "count"),
+						newCount: readNumber(mentions, "newCount"),
 						source: readString(mentions, "source"),
 						partial: readBoolean(mentions, "partial"),
 					},
@@ -309,6 +321,7 @@ function syncSavedCollection(
 				kind,
 				label: kind === "likes" ? "Likes" : "Bookmarks",
 				count: readNumber(result, "count"),
+				newCount: readNumber(result, "newCount"),
 				source: readString(result, "source"),
 			},
 		];
@@ -482,9 +495,9 @@ export function startWebSync(
 		performWebSyncEffect(kind, effectiveAccountId, options, runtime),
 		{
 			onSuccess: (result) => {
-				const { transport, fetched } = summarizeSyncResult(result);
+				const { transport, fetched, newCount } = summarizeSyncResult(result);
 				console.info(
-					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=${transport} fetched=${String(fetched)} status=succeeded`,
+					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=${transport} fetched=${String(fetched)} new=${String(newCount)} status=succeeded`,
 				);
 				setJobSnapshot({
 					...job,
@@ -513,7 +526,7 @@ export function startWebSync(
 					error: result.error,
 				});
 				console.error(
-					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=unknown fetched=0 status=failed error=${formatFullError(error, runtime)}`,
+					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=unknown fetched=0 new=0 status=failed error=${formatFullError(error, runtime)}`,
 				);
 			},
 		},

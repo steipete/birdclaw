@@ -524,7 +524,12 @@ describe("web sync dispatcher", () => {
 	});
 
 	it("tracks background sync jobs through completion", async () => {
-		const pending = deferred<{ ok: boolean; source: string; count: number }>();
+		const pending = deferred<{
+			ok: boolean;
+			source: string;
+			count: number;
+			newCount: number;
+		}>();
 		syncHomeTimelineMock.mockReturnValue(pending.promise);
 
 		const job = startWebSync("timeline");
@@ -536,7 +541,7 @@ describe("web sync dispatcher", () => {
 		});
 		expect(getWebSyncJob(job.id)).toMatchObject({ status: "running" });
 
-		pending.resolve({ ok: true, source: "bird", count: 5 });
+		pending.resolve({ ok: true, source: "bird", count: 5, newCount: 3 });
 		await vi.waitFor(() => {
 			expect(getWebSyncJob(job.id)).toMatchObject({
 				status: "succeeded",
@@ -551,7 +556,7 @@ describe("web sync dispatcher", () => {
 		);
 		expect(console.info).toHaveBeenCalledWith(
 			expect.stringMatching(
-				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=bird fetched=5 status=succeeded$/,
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=bird fetched=5 new=3 status=succeeded$/,
 			),
 		);
 	});
@@ -570,7 +575,7 @@ describe("web sync dispatcher", () => {
 		});
 		expect(console.error).toHaveBeenCalledWith(
 			expect.stringMatching(
-				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=unknown fetched=0 status=failed error=rate limited$/,
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=unknown fetched=0 new=0 status=failed error=rate limited$/,
 			),
 		);
 	});

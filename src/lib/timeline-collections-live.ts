@@ -167,7 +167,7 @@ function mergeTimelineCollectionIntoLocalStore(
 	payload: XurlMentionsResponse,
 	source: "xurl" | "bird",
 ) {
-	ingestTweetPayload(db, {
+	return ingestTweetPayload(db, {
 		accountId,
 		payload,
 		collectionKind: kind,
@@ -406,6 +406,7 @@ export function syncTimelineCollectionEffect({
 			kind,
 			accountId: resolvedAccount.accountId,
 			count: payload.data.length,
+			newCount: syncResult.persisted?.newTweetIds.length ?? 0,
 			payload,
 			...(saturatedAtPage === undefined
 				? {}

@@ -131,7 +131,7 @@ function mergeHomeTimelineIntoLocalStore(
 	payload: XurlMentionsResponse,
 	source: "bird" | "xurl",
 ) {
-	ingestTweetPayload(db, {
+	return ingestTweetPayload(db, {
 		accountId,
 		payload,
 		edgeKind: "home",
@@ -158,6 +158,7 @@ export function syncHomeTimelineEffect({
 		accountId: string;
 		feed: "following" | "for-you";
 		count: number;
+		newCount: number;
 		payload: XurlMentionsResponse;
 	},
 	unknown
@@ -296,6 +297,7 @@ export function syncHomeTimelineEffect({
 			accountId,
 			feed: following ? "following" : "for-you",
 			count: payload.data.length,
+			newCount: syncResult.persisted?.newTweetIds.length ?? 0,
 			payload,
 		} as const;
 	});

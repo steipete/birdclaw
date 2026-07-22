@@ -459,7 +459,7 @@ export function importTweetsViaFxTwitterEffect(
 						payload: result.payload,
 						source: "fxtwitter",
 						provenance: { sourceUrlByTweetId: result.provenance },
-					})) {
+					}).tweetIds) {
 						importedIds.add(tweetId);
 					}
 				}
