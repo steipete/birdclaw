@@ -84,11 +84,16 @@ describe("live sync engine", () => {
 	});
 
 	it("falls through transport adapters in order", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
 		const result = await runEffectPromise(
 			fetchWithTransportFallbackEffect([
 				{
 					source: "xurl",
-					fetch: Effect.fail(new Error("unavailable")),
+					fetch: Effect.fail(
+						new Error("unavailable auth_token=do-not-log-this"),
+					),
 				},
 				{
 					source: "bird",
@@ -98,6 +103,15 @@ describe("live sync engine", () => {
 		);
 
 		expect(result).toEqual({ source: "bird", payload: { value: 2 } });
+		expect(consoleError).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] live-sync transport-fallback source=xurl reason=unavailable auth_token=\[REDACTED\]$/,
+			),
+		);
+		expect(consoleError).not.toHaveBeenCalledWith(
+			expect.stringContaining("do-not-log-this"),
+		);
+		consoleError.mockRestore();
 	});
 
 	it("returns a fresh cache without fetching", async () => {

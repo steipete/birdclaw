@@ -108,6 +108,8 @@ function setupDefaultAccount(accountId: string) {
 
 describe("web sync dispatcher", () => {
 	beforeEach(() => {
+		vi.spyOn(console, "info").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
 		clearWebSyncLocksForTests();
 		vi.useRealTimers();
 		maybeAutoSyncBackupMock.mockReset();
@@ -124,6 +126,7 @@ describe("web sync dispatcher", () => {
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		if (originalBirdclawHome === undefined) {
@@ -459,6 +462,16 @@ describe("web sync dispatcher", () => {
 				summary: "Synced 5 items",
 			});
 		});
+		expect(console.info).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync start jobId=.* kind=timeline accountId=acct_primary transport=pending fetched=0$/,
+			),
+		);
+		expect(console.info).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=bird fetched=5 status=succeeded$/,
+			),
+		);
 	});
 
 	it("keeps non-Error background failure messages in job snapshots", async () => {
@@ -473,6 +486,42 @@ describe("web sync dispatcher", () => {
 				error: "rate limited",
 			});
 		});
+		expect(console.error).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^\[\d{4}-\d{2}-\d{2}T.*Z\] web-sync end jobId=.* kind=timeline accountId=acct_primary transport=unknown fetched=0 status=failed error=rate limited$/,
+			),
+		);
+	});
+
+	it("logs full background errors without exposing configured secrets", async () => {
+		const previousToken = process.env.BIRDCLAW_WEB_TOKEN;
+		process.env.BIRDCLAW_WEB_TOKEN = "do-not-log-web-secret";
+		try {
+			syncHomeTimelineMock.mockRejectedValue(
+				new Error("sync exploded: do-not-log-web-secret"),
+			);
+
+			const job = startWebSync("timeline");
+			await vi.waitFor(() => {
+				expect(getWebSyncJob(job.id)).toMatchObject({ status: "failed" });
+			});
+
+			const failureLine = vi
+				.mocked(console.error)
+				.mock.calls.flat()
+				.map(String)
+				.find((line) => line.includes(`jobId=${job.id}`));
+			expect(failureLine).toContain(
+				"error=Error: sync exploded: [REDACTED]\\n",
+			);
+			expect(failureLine).not.toContain("do-not-log-web-secret");
+		} finally {
+			if (previousToken === undefined) {
+				delete process.env.BIRDCLAW_WEB_TOKEN;
+			} else {
+				process.env.BIRDCLAW_WEB_TOKEN = previousToken;
+			}
+		}
 	});
 
 	it("expires completed background sync jobs after the polling window", async () => {

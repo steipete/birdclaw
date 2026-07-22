@@ -37,6 +37,22 @@ export interface CachedLiveSyncResult<
 	persisted: Persisted | undefined;
 }
 
+export function redactSensitiveLogText(
+	value: string,
+	sensitiveValues: readonly string[] = [],
+) {
+	let redacted = value;
+	for (const secret of sensitiveValues) {
+		if (secret) redacted = redacted.replaceAll(secret, "[REDACTED]");
+	}
+	return redacted
+		.replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
+		.replace(
+			/((?:authorization|cookie|auth[_-]?token|ct0)\s*[:=]\s*)\S+/gi,
+			"$1[REDACTED]",
+		);
+}
+
 export function resolveLiveSyncAccount(
 	db: Database,
 	accountId?: string,
@@ -132,11 +148,14 @@ export function fetchWithTransportFallbackEffect<
 	}
 	return first.fetch.pipe(
 		Effect.map((payload) => ({ source: first.source, payload })),
-		Effect.catchAll((error) =>
-			rest.length > 0
-				? fetchWithTransportFallbackEffect(rest)
-				: Effect.fail(toError(error)),
-		),
+		Effect.catchAll((error) => {
+			const reason = toError(error);
+			if (rest.length === 0) return Effect.fail(reason);
+			console.error(
+				`[${new Date().toISOString()}] live-sync transport-fallback source=${first.source} reason=${redactSensitiveLogText(reason.message)}`,
+			);
+			return fetchWithTransportFallbackEffect(rest);
+		}),
 	);
 }
 

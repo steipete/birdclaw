@@ -9,6 +9,7 @@ import {
 	defaultServerRuntimeServices,
 	type ServerRuntimeServices,
 } from "./server-runtime-services";
+import { redactSensitiveLogText } from "./live-sync-engine";
 import NativeSqliteDatabase from "./sqlite";
 import { syncTimelineCollectionEffect } from "./timeline-collections-live";
 import { syncHomeTimelineEffect } from "./timeline-live";
@@ -109,6 +110,30 @@ function readBoolean(value: unknown, key: string) {
 
 function messageFromError(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function formatFullError(error: unknown, runtime: ServerRuntimeServices) {
+	const value =
+		error instanceof Error ? (error.stack ?? error.message) : String(error);
+	const secrets = [
+		"AUTH_TOKEN",
+		"CT0",
+		"BIRDCLAW_WEB_TOKEN",
+		"BIRDCLAW_MCP_TOKEN",
+		"OPENAI_API_KEY",
+		"OPENCAGE_API_KEY",
+	].map((name) => runtime.env(name) ?? "");
+	return redactSensitiveLogText(value, secrets).replaceAll("\n", "\\n");
+}
+
+function summarizeSyncResult(result: WebSyncResponse) {
+	const transports = [
+		...new Set(result.steps.map((step) => step.source).filter(Boolean)),
+	];
+	return {
+		transport: transports.join(",") || "unknown",
+		fetched: result.steps.reduce((sum, step) => sum + step.count, 0),
+	};
 }
 
 export function parseWebSyncKind(value: unknown): WebSyncKind | null {
@@ -426,11 +451,20 @@ export function startWebSync(
 	};
 	webSyncJobKeys.set(job.id, syncKey);
 	setJobSnapshot(job);
+	const resolvedAccountId =
+		effectiveAccountId ?? resolveDefaultSyncAccountId(runtime);
+	console.info(
+		`[${startedAt}] web-sync start jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=pending fetched=0`,
+	);
 
 	runEffectBackground(
 		performWebSyncEffect(kind, effectiveAccountId, options, runtime),
 		{
 			onSuccess: (result) => {
+				const { transport, fetched } = summarizeSyncResult(result);
+				console.info(
+					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=${transport} fetched=${String(fetched)} status=succeeded`,
+				);
 				setJobSnapshot({
 					...job,
 					status: "succeeded",
@@ -457,6 +491,9 @@ export function startWebSync(
 					result,
 					error: result.error,
 				});
+				console.error(
+					`[${result.finishedAt}] web-sync end jobId=${job.id} kind=${kind} accountId=${resolvedAccountId} transport=unknown fetched=0 status=failed error=${formatFullError(error, runtime)}`,
+				);
 			},
 		},
 	);
