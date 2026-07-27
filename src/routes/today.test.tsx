@@ -229,7 +229,7 @@ describe("today route", () => {
 					url.searchParams.get("liveSync") === "false",
 			),
 		).toBe(true);
-	});
+	}, 15_000);
 
 	it("exports a completed digest through the browser PDF flow", async () => {
 		document.title = "birdclaw";

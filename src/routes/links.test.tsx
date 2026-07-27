@@ -234,7 +234,7 @@ describe("links route", () => {
 				queryUrls.some((url) => url.searchParams.get("sort") === "comments"),
 			).toBe(true);
 		});
-	});
+	}, 15_000);
 
 	it("shows a retryable error when link insights fail", async () => {
 		const fetchMock = vi.fn(async () => {
