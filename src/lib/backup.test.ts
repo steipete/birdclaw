@@ -32,8 +32,10 @@ import {
 	validateBackup,
 	validateBackupEffect,
 } from "./backup";
+import { BACKUP_TABLE_CODECS } from "./backup-table-codecs";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb } from "./db";
+import type { Database } from "./sqlite";
 
 const testHome = useTestHome({ prefix: "birdclaw-backup-home-" });
 
@@ -608,6 +610,65 @@ describe("text backup", () => {
 		const validation = await validateBackup(repoPath);
 		expect(validation.ok).toBe(true);
 	}, 20000);
+
+	it("streams fingerprint rows instead of materializing every table", () => {
+		let iterateCalls = 0;
+		const database = {
+			prepare(sql: string) {
+				return {
+					all() {
+						throw new Error("fingerprinting must not materialize result sets");
+					},
+					iterate() {
+						iterateCalls += 1;
+						return [{ sql }].values();
+					},
+				};
+			},
+		} as unknown as Database;
+
+		const fingerprint = getBackupDatabaseFingerprint(database);
+
+		expect(iterateCalls).toBe(BACKUP_TABLE_CODECS.length);
+		expect(Object.values(fingerprint.counts)).toEqual(
+			BACKUP_TABLE_CODECS.map(() => 1),
+		);
+	});
+
+	it("skips topology normalization for canonical singleton revisions", async () => {
+		switchHome("birdclaw-backup-singleton-src-");
+		seedBackupFixture();
+		const sourceDb = getNativeDb({ seedDemoData: false });
+		sourceDb.exec(`
+			insert into tweet_revisions (
+				root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
+			) values (
+				'singleton', 'singleton', 0, null, 'xurl', '2026-08-01T00:00:00.000Z'
+			)
+		`);
+		const repoPath = makeTempDir("birdclaw-singleton-store-");
+		await exportBackup({ repoPath });
+
+		switchHome("birdclaw-backup-singleton-dst-");
+		const db = getNativeDb({ seedDemoData: false });
+		let topologyQueries = 0;
+		const instrumentedDb = new Proxy(db, {
+			get(target, property, receiver) {
+				if (property === "prepare") {
+					return (sql: string) => {
+						if (sql.includes("with recursive component")) topologyQueries += 1;
+						return target.prepare(sql);
+					};
+				}
+				const value = Reflect.get(target, property, receiver) as unknown;
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as Database;
+
+		await importBackup({ repoPath, db: instrumentedDb, mode: "replace" });
+
+		expect(topologyQueries).toBe(0);
+	});
 
 	it("emits byte-identical schema-v7 data and hashes for the same database", async () => {
 		switchHome("birdclaw-backup-stable-src-");

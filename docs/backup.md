@@ -109,6 +109,10 @@ Validates the backup first (unless `--no-validate`), then merge-imports rows int
 
 The FTS5 shadow tables for tweets and DMs are rebuilt from the JSONL text after import, so search is immediately available.
 
+The portable database fingerprint is computed after the write transaction commits and streams rows in canonical order inside a read snapshot. Large first imports therefore keep bounded memory, do not hold the SQLite write lock while producing the verification hash, and remain atomically usable even while the fingerprint is being calculated.
+
+Revision topology reconciliation visits only multi-revision or explicitly edge-connected components. Canonical singleton revisions are imported directly instead of each triggering an identical recursive component query and rewrite.
+
 ## `backup validate`
 
 ```bash

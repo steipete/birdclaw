@@ -1137,7 +1137,7 @@ export function importBackupEffect({
 				}
 			}
 		}
-		const fingerprint = yield* databaseWriteEffect((writeDb) => {
+		yield* databaseWriteEffect((writeDb) => {
 			const repository = getImportRepository(writeDb);
 			if (mode === "replace") {
 				repository.clearBackupImport();
@@ -1173,6 +1173,15 @@ export function importBackupEffect({
 				string,
 				Array<{ revisionId: string; revisionIndex: number }>
 			>();
+			const connectedRevisionIds = new Set<string>();
+			for (const row of importRows.tweet_revision_edges) {
+				if (typeof row.older_revision_id === "string") {
+					connectedRevisionIds.add(row.older_revision_id);
+				}
+				if (typeof row.newer_revision_id === "string") {
+					connectedRevisionIds.add(row.newer_revision_id);
+				}
+			}
 			for (const row of importRows.tweet_revisions) {
 				if (
 					typeof row.root_tweet_id !== "string" ||
@@ -1188,7 +1197,14 @@ export function importBackupEffect({
 				importedRevisionChains.set(row.root_tweet_id, chain);
 			}
 			const processedRevisionIds = new Set<string>();
-			for (const chain of importedRevisionChains.values()) {
+			for (const [rootTweetId, chain] of importedRevisionChains) {
+				const onlyRevision = chain.length === 1 ? chain[0] : undefined;
+				if (
+					onlyRevision?.revisionId === rootTweetId &&
+					!connectedRevisionIds.has(onlyRevision.revisionId)
+				) {
+					continue;
+				}
 				if (
 					chain.some((revision) =>
 						processedRevisionIds.has(revision.revisionId),
@@ -1204,8 +1220,10 @@ export function importBackupEffect({
 				}
 			}
 			reconcileTweetTombstones(writeDb);
-			return getBackupDatabaseFingerprint(writeDb);
 		}, db);
+		const fingerprint = yield* trySync(() =>
+			db.readTransaction(() => getBackupDatabaseFingerprint(db))(),
+		);
 
 		return {
 			ok: true,
@@ -1779,13 +1797,19 @@ export function getBackupDatabaseFingerprint(
 ): BackupDatabaseFingerprint {
 	const counts: Record<string, number> = {};
 	const hash = createHash("sha256");
-	for (const rowSet of getExportRowSets(db)) {
-		counts[rowSet.logicalName] = rowSet.rows.length;
-		hash.update(`${rowSet.logicalName}\n`);
-		for (const row of rowSet.rows) {
+	for (const codec of BACKUP_TABLE_CODECS) {
+		let count = 0;
+		hash.update(`${codec.name}\n`);
+		const rows = db.prepare(codec.exportSql).iterate() as IterableIterator<
+			Record<string, unknown>
+		>;
+		for (const rawRow of rows) {
+			const row = toJsonRecord(rawRow);
 			hash.update(canonicalStringify(row));
 			hash.update("\n");
+			count += 1;
 		}
+		counts[codec.name] = count;
 	}
 	return { counts, hash: hash.digest("hex") };
 }
