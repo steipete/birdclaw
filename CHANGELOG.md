@@ -2,6 +2,10 @@
 
 ## 0.11.3 - Unreleased
 
+### Fixed
+
+- Stream portable database fingerprint rows after the import transaction commits and skip recursive topology rewrites for canonical singleton revisions, reducing large Birdclaw backup imports from hour-scale work to seconds while keeping the same deterministic fingerprint contract.
+
 ## 0.11.2 - 2026-08-01
 
 ### Fixed
@@ -11,10 +15,6 @@
 ### Dependencies and maintenance
 
 - Move development and CI to Node 26.5.1 and pnpm 11.18.0 with explicit dependency build approvals; refresh direct packages, lockfile resolutions, and GitHub Actions.
-
-### Fixed
-
-- Stream portable database fingerprint rows after the import transaction commits and skip recursive topology rewrites for canonical singleton revisions, reducing large Birdclaw backup imports from hour-scale work to seconds while keeping the same deterministic fingerprint contract.
 
 ## 0.11.1 - 2026-07-27
 
