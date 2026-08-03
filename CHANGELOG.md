@@ -6,6 +6,10 @@
 
 - Stream portable database fingerprint rows after the import transaction commits and skip recursive topology rewrites for canonical singleton revisions, reducing large Birdclaw backup imports from hour-scale work to seconds while keeping the same deterministic fingerprint contract.
 
+### Docs
+
+- Rewrite the README around the zero-auth demo, archive-first setup, and progressive links into the documentation site.
+
 ## 0.11.2 - 2026-08-01
 
 ### Fixed
