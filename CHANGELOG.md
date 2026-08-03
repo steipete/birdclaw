@@ -10,6 +10,10 @@
 
 - Rewrite the README around the zero-auth demo, archive-first setup, and progressive links into the documentation site.
 
+### Dependencies and maintenance
+
+- Refresh transitive lockfile resolutions for baseline-browser-mapping 2.11.10, jose 6.2.7, and tinyexec 1.3.0.
+
 ## 0.11.2 - 2026-08-01
 
 ### Fixed
