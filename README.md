@@ -1,8 +1,8 @@
 # birdclaw 🪶 — Your Twitter history, with a longer memory
 
 [![CI](https://img.shields.io/github/actions/workflow/status/steipete/birdclaw/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/steipete/birdclaw/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/birdclaw?style=flat-square)](https://registry.npmjs.org/birdclaw)
-[![Node](https://img.shields.io/node/v/birdclaw?style=flat-square)](https://registry.npmjs.org/birdclaw)
+[![npm](https://img.shields.io/npm/v/birdclaw?style=flat-square)](https://www.npmjs.com/package/birdclaw)
+[![Node](https://img.shields.io/node/v/birdclaw?style=flat-square)](https://nodejs.org/)
 [![License](https://img.shields.io/github/license/steipete/birdclaw?style=flat-square)](LICENSE)
 [![Homebrew](https://img.shields.io/badge/homebrew-steipete%2Ftap-blue?style=flat-square)](https://github.com/steipete/homebrew-tap)
 [![Docs](https://img.shields.io/badge/docs-birdclaw.sh-blue?style=flat-square)](https://birdclaw.sh)
