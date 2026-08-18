@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./queries";
+import { writeSyncCache } from "./sync-cache";
 
 const mocks = vi.hoisted(() => ({
 	listBookmarkedTweetsViaBird: vi.fn(),
@@ -992,6 +993,33 @@ describe("live timeline collection sync", () => {
 			2,
 			expect.objectContaining({ paginationToken: "head" }),
 		);
+	});
+
+	it("reuses a legacy head cache entry without a pagination token", async () => {
+		setupTempHome();
+		writeSyncCache("likes:xurl:acct_primary:5:single:all-pages", {
+			data: [makeTweet("liked_from_legacy_cache")],
+			includes: { users: [makeUser()] },
+			meta: { result_count: 1 },
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		const result = await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			cacheTtlMs: 15_000,
+		});
+
+		expect(result).toMatchObject({
+			source: "cache",
+			count: 1,
+			payload: {
+				data: [expect.objectContaining({ id: "liked_from_legacy_cache" })],
+			},
+		});
+		expect(mocks.listLikedTweetsViaXurl).not.toHaveBeenCalled();
 	});
 
 	it("validates collection sync options before fetching", async () => {
