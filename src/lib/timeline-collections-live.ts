@@ -227,7 +227,7 @@ function fetchXurlCollectionEffect({
 								maxResults: limit,
 								username,
 								userId: resolvedUserId,
-								isPaginatedWalk: all,
+								isPaginatedWalk: all || cursor !== undefined,
 								paginationToken: cursor,
 							});
 					if (!earlyStop) {

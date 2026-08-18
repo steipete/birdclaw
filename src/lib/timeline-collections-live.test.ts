@@ -507,6 +507,33 @@ describe("live timeline collection sync", () => {
 		);
 	});
 
+	it("marks a resumed bookmark page as paginated for the max_results cap", async () => {
+		setupTempHome();
+		mocks.listBookmarkedTweetsViaXurl.mockResolvedValue({
+			data: [],
+			meta: {},
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await syncTimelineCollection({
+			kind: "bookmarks",
+			mode: "xurl",
+			limit: 100,
+			paginationToken: "resume-page",
+			refresh: true,
+		});
+
+		expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenCalledOnce();
+		expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenCalledWith(
+			expect.objectContaining({
+				maxResults: 100,
+				isPaginatedWalk: true,
+				paginationToken: "resume-page",
+			}),
+		);
+	});
+
 	it("stops xurl collection paging when a page is fully existing rows", async () => {
 		setupTempHome();
 		insertCollectionRow({ tweetId: "liked_existing" });
