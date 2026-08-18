@@ -12,26 +12,16 @@ const listHomeTimelineViaBirdMock = vi.fn();
 const listHomeTimelineViaXurlMock = vi.fn();
 
 vi.mock("./bird", async () => {
-	const { Effect } = await import("effect");
+	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
-		listHomeTimelineViaBird: (...args: unknown[]) =>
-			listHomeTimelineViaBirdMock(...args),
-		listHomeTimelineViaBirdEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => listHomeTimelineViaBirdMock(...args),
-				catch: (error) => error,
-			}),
+		listHomeTimelineViaBirdEffect: effectFromMock(listHomeTimelineViaBirdMock),
 	};
 });
 
 vi.mock("./xurl", async () => {
-	const { Effect } = await import("effect");
+	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
-		listHomeTimelineViaXurlEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => listHomeTimelineViaXurlMock(...args),
-				catch: (error) => error,
-			}),
+		listHomeTimelineViaXurlEffect: effectFromMock(listHomeTimelineViaXurlMock),
 	};
 });
 

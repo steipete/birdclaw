@@ -14,47 +14,26 @@ const listDirectMessageEventsViaXurlMock = vi.fn();
 const lookupAuthenticatedUserMock = vi.fn();
 
 vi.mock("./bird", async () => {
-	const { Effect } = await import("effect");
+	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
-		getAuthenticatedBirdAccount: (...args: unknown[]) =>
-			getAuthenticatedBirdAccountMock(...args),
-		getAuthenticatedBirdAccountEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => getAuthenticatedBirdAccountMock(...args),
-				catch: (error) => error,
-			}),
-		listDirectMessagesViaBird: (...args: unknown[]) =>
-			listDirectMessagesViaBirdMock(...args),
-		listDirectMessagesViaBirdEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => listDirectMessagesViaBirdMock(...args),
-				catch: (error) => error,
-			}),
+		getAuthenticatedBirdAccountEffect: effectFromMock(
+			getAuthenticatedBirdAccountMock,
+		),
+		listDirectMessagesViaBirdEffect: effectFromMock(
+			listDirectMessagesViaBirdMock,
+		),
 	};
 });
 
 vi.mock("./xurl", async () => {
-	const { Effect } = await import("effect");
+	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
-		lookupAuthenticatedUser: (...args: unknown[]) =>
-			lookupAuthenticatedUserMock(...args),
-		lookupAuthenticatedUserEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => lookupAuthenticatedUserMock(...args),
-				catch: (error) => error,
-			}),
-		lookupAuthenticatedOAuth2UserEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => lookupAuthenticatedUserMock(...args),
-				catch: (error) => error,
-			}),
-		listDirectMessageEventsViaXurl: (...args: unknown[]) =>
-			listDirectMessageEventsViaXurlMock(...args),
-		listDirectMessageEventsViaXurlEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => listDirectMessageEventsViaXurlMock(...args),
-				catch: (error) => error,
-			}),
+		lookupAuthenticatedOAuth2UserEffect: effectFromMock(
+			lookupAuthenticatedUserMock,
+		),
+		listDirectMessageEventsViaXurlEffect: effectFromMock(
+			listDirectMessageEventsViaXurlMock,
+		),
 	};
 });
 

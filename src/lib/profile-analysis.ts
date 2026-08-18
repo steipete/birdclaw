@@ -15,13 +15,7 @@ import {
 	tryPromise,
 	trySync,
 } from "./effect-runtime";
-import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import type { Database } from "./sqlite";
-import {
-	editHistoryIdsFromPayload,
-	reconcileTweetTombstones,
-	recordTweetRevision,
-} from "./tweet-retention";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
@@ -31,13 +25,10 @@ import type {
 	XurlMentionUser,
 	XurlTweetData,
 	XurlTweetsResponse,
-	XurlUserTweet,
 	XurlUserTweetsResponse,
 } from "./types";
-import {
-	type TweetAccountEdgeKind,
-	upsertTweetAccountEdge,
-} from "./tweet-account-edges";
+import { ingestTweetPayload } from "./tweet-repository";
+import type { TweetAccountEdgeKind } from "./tweet-account-edges";
 import { buildExternalProfileId, upsertProfileFromXUser } from "./x-profile";
 import { recordXurlRateLimitEventSafe } from "./xurl-rate-limits";
 import type { XurlJsonCommandAttempt } from "./xurl";
@@ -315,133 +306,24 @@ function tweetUrl(handle: string, id: string) {
 	return `https://x.com/${handle}/status/${id}`;
 }
 
-function replaceTweetFts(db: Database, tweetId: string, text: string) {
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
-	const row = db
-		.prepare("select deleted_at, superseded_at from tweets where id = ?")
-		.get(tweetId) as
-		| { deleted_at: string | null; superseded_at: string | null }
-		| undefined;
-	if (row?.deleted_at || row?.superseded_at) return;
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
-function refreshTweetFts(
-	db: Database,
-	tweetId: string,
-	text: string,
-	previousText: string | null,
-) {
-	if (previousText === text) return;
-	if (previousText !== null) {
-		replaceTweetFts(db, tweetId, text);
-		return;
-	}
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
-function mergeXurlTweetsIntoLocalStore(
+function ingestProfileAnalysisPayload(
 	db: Database,
 	accountId: string,
 	payload: XurlTweetsResponse,
 	edgeKind: TweetAccountEdgeKind,
-	source: "xurl" | "cache",
 ) {
-	const usersById = new Map(
-		(payload.includes?.users ?? []).map((user) => [user.id, user]),
+	const authorIds = new Set(
+		(payload.includes?.users ?? []).map((user) => user.id),
 	);
-	const upsertTweet = db.prepare(
-		`
-    insert into tweets (
-      id, author_profile_id, text, created_at, is_replied, reply_to_id,
-      like_count, media_count, entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
-    on conflict(id) do update set
-      author_profile_id = excluded.author_profile_id,
-      text = excluded.text,
-      created_at = excluded.created_at,
-      reply_to_id = coalesce(tweets.reply_to_id, excluded.reply_to_id),
-      like_count = excluded.like_count,
-      media_count = max(tweets.media_count, excluded.media_count),
-      entities_json = excluded.entities_json,
-      media_json = case
-        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
-        else tweets.media_json
-      end,
-      quoted_tweet_id = coalesce(tweets.quoted_tweet_id, excluded.quoted_tweet_id)
-    `,
-	);
-	const existingTweet = db.prepare("select text from tweets where id = ?");
-	const seenAt = new Date().toISOString();
-	const touchedTweetIds: string[] = [];
-	db.transaction(() => {
-		for (const tweet of payload.data) {
-			const authorId = tweet.author_id;
-			if (!authorId) continue;
-			const author = usersById.get(authorId);
-			if (!author) continue;
-			touchedTweetIds.push(tweet.id);
-			const profile = upsertProfileFromXUser(db, author);
-			const replyToId =
-				tweet.referenced_tweets?.find((item) => item.type === "replied_to")
-					?.id ?? null;
-			const quotedTweetId =
-				tweet.referenced_tweets?.find((item) => item.type === "quoted")?.id ??
-				null;
-			const previousTweet = existingTweet.get(tweet.id) as
-				| { text: string | null }
-				| undefined;
-			const previousText =
-				previousTweet && typeof previousTweet.text === "string"
-					? previousTweet.text
-					: null;
-			upsertTweet.run(
-				tweet.id,
-				profile.profile.id,
-				tweet.text,
-				tweet.created_at,
-				replyToId,
-				Number(tweet.public_metrics?.like_count ?? 0),
-				countTweetMedia(tweet),
-				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
-				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
-				quotedTweetId,
-			);
-			recordTweetRevision(db, {
-				tweetId: tweet.id,
-				editHistoryIds: editHistoryIdsFromPayload(tweet.id, tweet),
-				payloadJson: JSON.stringify(tweet),
-				source,
-				observedAt: seenAt,
-			});
-			upsertTweetAccountEdge(db, {
-				accountId,
-				tweetId: tweet.id,
-				kind: edgeKind,
-				source,
-				seenAt,
-				rawJson: JSON.stringify(tweet),
-			});
-			refreshTweetFts(db, tweet.id, tweet.text, previousText);
-		}
-		reconcileTweetTombstones(db, touchedTweetIds);
-	})();
-}
-
-function toTweetData(
-	tweet: XurlUserTweet,
-	fallbackAuthorId: string,
-): XurlTweetData {
-	return {
-		...tweet,
-		author_id: tweet.author_id ?? fallbackAuthorId,
-	};
+	ingestTweetPayload(db, {
+		accountId,
+		payload: {
+			...payload,
+			data: payload.data.filter((tweet) => authorIds.has(tweet.author_id)),
+		},
+		edgeKind,
+		source: "xurl",
+	});
 }
 
 function userTimelineToTweetsResponse(
@@ -449,7 +331,10 @@ function userTimelineToTweetsResponse(
 	fallbackAuthorId: string,
 ): XurlTweetsResponse {
 	return {
-		data: response.items.map((tweet) => toTweetData(tweet, fallbackAuthorId)),
+		data: response.items.map((tweet) => ({
+			...tweet,
+			author_id: tweet.author_id ?? fallbackAuthorId,
+		})),
 		includes: response.includes,
 		meta: {
 			result_count: response.items.length,
@@ -872,13 +757,7 @@ export function collectProfileAnalysisContextEffect(
 		}
 		const profilePayload = mergeResponses(tweetResponses);
 		yield* trySync(() =>
-			mergeXurlTweetsIntoLocalStore(
-				db,
-				account.id,
-				profilePayload,
-				"profile",
-				"xurl",
-			),
+			ingestProfileAnalysisPayload(db, account.id, profilePayload, "profile"),
 		);
 
 		const conversationRoots = topConversationIds(
@@ -967,12 +846,11 @@ export function collectProfileAnalysisContextEffect(
 		}
 		const conversationPayload = mergeResponses(conversationResponses);
 		yield* trySync(() =>
-			mergeXurlTweetsIntoLocalStore(
+			ingestProfileAnalysisPayload(
 				db,
 				account.id,
 				conversationPayload,
 				"thread_context",
-				"xurl",
 			),
 		);
 

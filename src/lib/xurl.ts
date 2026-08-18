@@ -1,12 +1,10 @@
 import { Data, Duration, Effect, Schedule } from "effect";
-import { runEffectPromise } from "./effect-runtime";
 import { runSubprocessEffect, SubprocessError } from "./subprocess";
 import type {
 	FollowDirection,
 	LiveDataSourceAccount,
 	TransportStatus,
 	XurlDmEventsResponse,
-	XurlFollowUsersResponse,
 	XurlMentionsResponse,
 	XurlMentionUser,
 	XurlTweetsResponse,
@@ -262,10 +260,6 @@ export function getTransportStatusEffect(): Effect.Effect<
 	never
 > {
 	return cachedTransportStatus;
-}
-
-export function getTransportStatus(): Promise<TransportStatus> {
-	return runEffectPromise(getTransportStatusEffect());
 }
 
 const runShortcutEffect = Effect.fn("xurl.runShortcut")(function* (
@@ -715,13 +709,6 @@ export const lookupUsersByIdsEffect = Effect.fn("xurl.lookupUsersByIds")((
 	);
 });
 
-export function lookupUsersByIds(
-	ids: string[],
-	options: { username?: string } = {},
-) {
-	return runEffectPromise(lookupUsersByIdsEffect(ids, options));
-}
-
 function normalizeXListPage(payload: Record<string, unknown>): XListPage {
 	const rawItems = Array.isArray(payload.data) ? payload.data : [];
 	const data = rawItems
@@ -793,15 +780,6 @@ export const listOwnedXListsViaXurlEffect = Effect.fn("xurl.listOwnedXLists")(({
 	}).pipe(Effect.map(normalizeXListPage));
 });
 
-export function listOwnedXListsViaXurl(options: {
-	userId: string;
-	username?: string;
-	maxResults: number;
-	paginationToken?: string;
-}) {
-	return runEffectPromise(listOwnedXListsViaXurlEffect(options));
-}
-
 export const listXListMembersViaXurlEffect = Effect.fn("xurl.listXListMembers")(
 	({
 		listId,
@@ -835,15 +813,6 @@ export const listXListMembersViaXurlEffect = Effect.fn("xurl.listXListMembers")(
 		);
 	},
 );
-
-export function listXListMembersViaXurl(options: {
-	listId: string;
-	username?: string;
-	maxResults: number;
-	paginationToken?: string;
-}) {
-	return runEffectPromise(listXListMembersViaXurlEffect(options));
-}
 
 export const lookupUsersByHandlesEffect = Effect.fn(
 	"xurl.lookupUsersByHandles",
@@ -881,18 +850,6 @@ export const lookupUsersByHandlesEffect = Effect.fn(
 		),
 	);
 });
-
-export function lookupUsersByHandles(
-	handles: string[],
-	options: {
-		auth?: "oauth2";
-		username?: string;
-		signal?: AbortSignal;
-		useConfiguredCandidate?: boolean;
-	} = {},
-) {
-	return runEffectPromise(lookupUsersByHandlesEffect(handles, options));
-}
 
 function authenticatedUserFromPayload(payload: Record<string, unknown>) {
 	const data = payload.data;
@@ -941,14 +898,6 @@ export function lookupAuthenticatedUserEffect() {
 	);
 	if (username) return lookupAuthenticatedOAuth2UserEffect(username);
 	return lookupAuthenticatedUserUnscopedEffect();
-}
-
-export function lookupAuthenticatedUser() {
-	return runEffectPromise(lookupAuthenticatedUserEffect());
-}
-
-export function lookupAuthenticatedUserFresh() {
-	return runEffectPromise(lookupAuthenticatedUserFreshEffect());
 }
 
 const resolveUserIdEffect = Effect.fn("xurl.resolveUserId")(function* ({
@@ -1020,17 +969,6 @@ export const listMentionsViaXurlEffect = Effect.fn("xurl.listMentions")(
 	},
 );
 
-export function listMentionsViaXurl(options: {
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	paginationToken?: string;
-	sinceId?: string;
-	startTime?: string;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listMentionsViaXurlEffect(options));
-}
-
 export const listHomeTimelineViaXurlEffect = Effect.fn("xurl.listHomeTimeline")(
 	function* ({
 		maxResults,
@@ -1068,16 +1006,6 @@ export const listHomeTimelineViaXurlEffect = Effect.fn("xurl.listHomeTimeline")(
 		return toXurlMentionsResponse(payload);
 	},
 );
-
-export function listHomeTimelineViaXurl(options: {
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	paginationToken?: string;
-	timeoutMs?: number;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listHomeTimelineViaXurlEffect(options));
-}
 
 function toXurlMentionsResponse(
 	payload: Record<string, unknown>,
@@ -1152,15 +1080,6 @@ export function listLikedTweetsViaXurlEffect(options: {
 	});
 }
 
-export function listLikedTweetsViaXurl(options: {
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	paginationToken?: string;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listLikedTweetsViaXurlEffect(options));
-}
-
 export function listBookmarkedTweetsViaXurlEffect(options: {
 	maxResults: number;
 	username?: string;
@@ -1172,16 +1091,6 @@ export function listBookmarkedTweetsViaXurlEffect(options: {
 		...options,
 		collection: "bookmarks",
 	});
-}
-
-export function listBookmarkedTweetsViaXurl(options: {
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	isPaginatedWalk?: boolean;
-	paginationToken?: string;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listBookmarkedTweetsViaXurlEffect(options));
 }
 
 export function listDirectMessageEventsViaXurlEffect({
@@ -1224,14 +1133,6 @@ export function listDirectMessageEventsViaXurlEffect({
 	);
 }
 
-export function listDirectMessageEventsViaXurl(options: {
-	maxResults: number;
-	username?: string;
-	paginationToken?: string;
-}): Promise<XurlDmEventsResponse> {
-	return runEffectPromise(listDirectMessageEventsViaXurlEffect(options));
-}
-
 export const listFollowUsersViaXurlEffect = Effect.fn("xurl.listFollowUsers")(
 	function* ({
 		direction,
@@ -1272,16 +1173,6 @@ export const listFollowUsersViaXurlEffect = Effect.fn("xurl.listFollowUsers")(
 	},
 );
 
-export function listFollowUsersViaXurl(options: {
-	direction: FollowDirection;
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	paginationToken?: string;
-}): Promise<XurlFollowUsersResponse> {
-	return runEffectPromise(listFollowUsersViaXurlEffect(options));
-}
-
 export const listBlockedUsersEffect = Effect.fn("xurl.listBlockedUsers")((
 	userId: string,
 	paginationToken?: string,
@@ -1316,10 +1207,6 @@ export const listBlockedUsersEffect = Effect.fn("xurl.listBlockedUsers")((
 		}),
 	);
 });
-
-export function listBlockedUsers(userId: string, paginationToken?: string) {
-	return runEffectPromise(listBlockedUsersEffect(userId, paginationToken));
-}
 
 export const listUserTweetsEffect = Effect.fn("xurl.listUserTweets")((
 	userId: string,
@@ -1419,28 +1306,6 @@ export const listUserTweetsEffect = Effect.fn("xurl.listUserTweets")((
 	);
 });
 
-export function listUserTweets(
-	userId: string,
-	options: {
-		maxResults: number;
-		paginationToken?: string;
-		excludeRetweets?: boolean;
-		sinceId?: string;
-		untilId?: string;
-		tweetFields?: string[];
-		expansions?: string[];
-		userFields?: string[];
-		mediaFields?: string[];
-		auth?: "oauth2";
-		username?: string;
-		signal?: AbortSignal;
-		onAttempt?: JsonCommandOptions["onAttempt"];
-		useConfiguredCandidate?: boolean;
-	},
-): Promise<XurlUserTweetsResponse> {
-	return runEffectPromise(listUserTweetsEffect(userId, options));
-}
-
 function toXurlTweetsResponse(
 	payload: Record<string, unknown>,
 ): XurlTweetsResponse {
@@ -1480,10 +1345,6 @@ export const lookupTweetsByIdsEffect = Effect.fn("xurl.lookupTweetsByIds")((
 		Effect.map(toXurlTweetsResponse),
 	);
 });
-
-export function lookupTweetsByIds(ids: string[]): Promise<XurlTweetsResponse> {
-	return runEffectPromise(lookupTweetsByIdsEffect(ids));
-}
 
 export const searchRecentByConversationIdEffect = Effect.fn(
 	"xurl.searchRecentByConversationId",
@@ -1532,23 +1393,6 @@ export const searchRecentByConversationIdEffect = Effect.fn(
 	return command.pipe(Effect.map(toXurlTweetsResponse));
 });
 
-export function searchRecentByConversationId(
-	conversationId: string,
-	options: {
-		maxResults: number;
-		paginationToken?: string;
-		timeoutMs?: number;
-		auth?: "oauth2";
-		username?: string;
-		signal?: AbortSignal;
-		onAttempt?: JsonCommandOptions["onAttempt"];
-	},
-): Promise<XurlTweetsResponse> {
-	return runEffectPromise(
-		searchRecentByConversationIdEffect(conversationId, options),
-	);
-}
-
 export const searchRecentTweetsEffect = Effect.fn("xurl.searchRecentTweets")((
 	searchQuery: string,
 	{
@@ -1593,20 +1437,6 @@ export const searchRecentTweetsEffect = Effect.fn("xurl.searchRecentTweets")((
 	}).pipe(Effect.map(toXurlTweetsResponse));
 });
 
-export function searchRecentTweets(
-	searchQuery: string,
-	options: {
-		maxResults: number;
-		paginationToken?: string;
-		startTime?: string;
-		endTime?: string;
-		username?: string;
-		timeoutMs?: number;
-	},
-): Promise<XurlTweetsResponse> {
-	return runEffectPromise(searchRecentTweetsEffect(searchQuery, options));
-}
-
 export const getTweetByIdEffect = Effect.fn("xurl.getTweetById")((
 	id: string,
 	{ timeoutMs }: { timeoutMs?: number } = {},
@@ -1646,27 +1476,12 @@ export const getTweetByIdEffect = Effect.fn("xurl.getTweetById")((
 	);
 });
 
-export function getTweetById(
-	id: string,
-	options: { timeoutMs?: number } = {},
-): Promise<XurlTweetsResponse> {
-	return runEffectPromise(getTweetByIdEffect(id, options));
-}
-
 export function postViaXurlEffect(text: string) {
 	return runShortcutEffect(["post", text]);
 }
 
-export function postViaXurl(text: string) {
-	return runEffectPromise(postViaXurlEffect(text));
-}
-
 export function replyViaXurlEffect(tweetId: string, text: string) {
 	return runShortcutEffect(["reply", tweetId, text]);
-}
-
-export function replyViaXurl(tweetId: string, text: string) {
-	return runEffectPromise(replyViaXurlEffect(tweetId, text));
 }
 
 export function dmViaXurlEffect(handle: string, text: string) {
@@ -1675,10 +1490,6 @@ export function dmViaXurlEffect(handle: string, text: string) {
 		handle.startsWith("@") ? handle : `@${handle}`,
 		text,
 	]);
-}
-
-export function dmViaXurl(handle: string, text: string) {
-	return runEffectPromise(dmViaXurlEffect(handle, text));
 }
 
 export function blockUserViaXurlEffect(
@@ -1694,10 +1505,6 @@ export function blockUserViaXurlEffect(
 	]);
 }
 
-export function blockUserViaXurl(sourceUserId: string, targetUserId: string) {
-	return runEffectPromise(blockUserViaXurlEffect(sourceUserId, targetUserId));
-}
-
 export function unblockUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
@@ -1707,10 +1514,6 @@ export function unblockUserViaXurlEffect(
 		"DELETE",
 		`/2/users/${sourceUserId}/blocking/${targetUserId}`,
 	]);
-}
-
-export function unblockUserViaXurl(sourceUserId: string, targetUserId: string) {
-	return runEffectPromise(unblockUserViaXurlEffect(sourceUserId, targetUserId));
 }
 
 export function muteUserViaXurlEffect(
@@ -1726,10 +1529,6 @@ export function muteUserViaXurlEffect(
 	]);
 }
 
-export function muteUserViaXurl(sourceUserId: string, targetUserId: string) {
-	return runEffectPromise(muteUserViaXurlEffect(sourceUserId, targetUserId));
-}
-
 export function unmuteUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
@@ -1739,8 +1538,4 @@ export function unmuteUserViaXurlEffect(
 		"DELETE",
 		`/2/users/${sourceUserId}/muting/${targetUserId}`,
 	]);
-}
-
-export function unmuteUserViaXurl(sourceUserId: string, targetUserId: string) {
-	return runEffectPromise(unmuteUserViaXurlEffect(sourceUserId, targetUserId));
 }

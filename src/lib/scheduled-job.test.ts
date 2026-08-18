@@ -159,11 +159,18 @@ describe("scheduled job runtime", () => {
 		expect(afterFailure).toEqual(initial);
 
 		__test__.setBeforeRenewalRename(undefined);
-		await new Promise((resolve) => setTimeout(resolve, 250));
-		const renewed = JSON.parse(readFileSync(lockPath, "utf8")) as {
-			token: string;
-			renewedAt: string;
-		};
+		let renewed = initial;
+		for (
+			let attempt = 0;
+			attempt < 100 && renewed.renewedAt === initial.renewedAt;
+			attempt += 1
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			renewed = JSON.parse(readFileSync(lockPath, "utf8")) as {
+				token: string;
+				renewedAt: string;
+			};
+		}
 		expect(renewed.token).toBe(initial.token);
 		expect(renewed.renewedAt).not.toBe(initial.renewedAt);
 		await expect(

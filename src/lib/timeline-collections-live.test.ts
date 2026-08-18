@@ -17,44 +17,29 @@ const mocks = vi.hoisted(() => ({
 	lookupUsersByHandles: vi.fn(),
 }));
 
-vi.mock("./bird", () => ({
-	listBookmarkedTweetsViaBird: mocks.listBookmarkedTweetsViaBird,
-	listBookmarkedTweetsViaBirdEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listBookmarkedTweetsViaBird(options),
-			catch: (error) => error,
-		}),
-	listHomeTimelineViaBird: mocks.listHomeTimelineViaBird,
-	listHomeTimelineViaBirdEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listHomeTimelineViaBird(options),
-			catch: (error) => error,
-		}),
-	listLikedTweetsViaBird: mocks.listLikedTweetsViaBird,
-	listLikedTweetsViaBirdEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listLikedTweetsViaBird(options),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./bird", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		listBookmarkedTweetsViaBirdEffect: effectFromMock(
+			mocks.listBookmarkedTweetsViaBird,
+		),
+		listHomeTimelineViaBirdEffect: effectFromMock(
+			mocks.listHomeTimelineViaBird,
+		),
+		listLikedTweetsViaBirdEffect: effectFromMock(mocks.listLikedTweetsViaBird),
+	};
+});
 
-vi.mock("./xurl", () => ({
-	listBookmarkedTweetsViaXurlEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listBookmarkedTweetsViaXurl(options),
-			catch: (error) => error,
-		}),
-	listLikedTweetsViaXurlEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listLikedTweetsViaXurl(options),
-			catch: (error) => error,
-		}),
-	lookupUsersByHandlesEffect: (...args: unknown[]) =>
-		Effect.tryPromise({
-			try: () => mocks.lookupUsersByHandles(...args),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		listBookmarkedTweetsViaXurlEffect: effectFromMock(
+			mocks.listBookmarkedTweetsViaXurl,
+		),
+		listLikedTweetsViaXurlEffect: effectFromMock(mocks.listLikedTweetsViaXurl),
+		lookupUsersByHandlesEffect: effectFromMock(mocks.lookupUsersByHandles),
+	};
+});
 
 const tempRoots: string[] = [];
 

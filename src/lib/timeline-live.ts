@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
+import { listHomeTimelineViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
-import { liveTransportGateway } from "./live-transport-gateway";
 import {
 	createLiveTransportAdapter,
 	normalizeCacheTtlMs,
@@ -16,6 +16,7 @@ import type {
 	XurlMentionsResponse,
 } from "./types";
 import { ingestTweetPayload } from "./tweet-repository";
+import { listHomeTimelineViaXurlEffect } from "./xurl";
 
 const DEFAULT_TIMELINE_CACHE_TTL_MS = 2 * 60_000;
 const MAX_XURL_TIMELINE_PAGE_SIZE = 100;
@@ -206,7 +207,7 @@ export function syncHomeTimelineEffect({
 						Math.max(5, remaining),
 					);
 					pageSizes.set(pageIndex, pageSize);
-					return liveTransportGateway.xurl.listHomeTimeline({
+					return listHomeTimelineViaXurlEffect({
 						maxResults: pageSize,
 						userId: resolvedAccount.externalUserId,
 						username: resolvedAccount.username,
@@ -238,7 +239,7 @@ export function syncHomeTimelineEffect({
 			});
 			return mergeTimelinePayloads(result.pages, effectiveLimit);
 		});
-		const fetchViaBird = liveTransportGateway.bird.listHomeTimeline({
+		const fetchViaBird = listHomeTimelineViaBirdEffect({
 			maxResults: finiteFallbackLimit,
 			following,
 		});

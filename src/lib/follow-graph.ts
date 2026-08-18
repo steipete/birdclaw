@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { resolveOperationAccount } from "./account-selection";
+import { listFollowUsersViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { liveTransportGateway } from "./live-transport-gateway";
 import {
 	resolveLiveSyncAccount,
 	type LiveSyncAccount,
@@ -22,6 +22,7 @@ import type {
 	XurlPublicMetrics,
 } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
+import { listFollowUsersViaXurlEffect } from "./xurl";
 
 const DEFAULT_FOLLOW_CACHE_TTL_MS = 24 * 60 * 60_000;
 const DEFAULT_FOLLOW_PAGE_LIMIT = 1000;
@@ -227,7 +228,7 @@ function fetchFollowGraphViaXurlEffect({
 	return Effect.gen(function* () {
 		const result = yield* runSyncPlanEffect({
 			fetchPage: ({ cursor }) =>
-				liveTransportGateway.xurl.listFollowUsers({
+				listFollowUsersViaXurlEffect({
 					direction,
 					username,
 					userId,
@@ -269,7 +270,7 @@ function fetchFollowGraphViaBirdEffect({
 						maxPages ?? Number.POSITIVE_INFINITY,
 						Math.ceil(maxResources / birdLimit),
 					);
-		const payload = yield* liveTransportGateway.bird.listFollowUsers({
+		const payload = yield* listFollowUsersViaBirdEffect({
 			direction,
 			userId,
 			maxResults: Math.min(birdLimit, maxResources ?? birdLimit),

@@ -191,6 +191,155 @@ describe("profile analysis", () => {
 		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 
+	it("keeps missing-author primary rows out of persistence without dropping analysis context", async () => {
+		mocks.listUserTweetsEffect.mockReturnValue(
+			Effect.succeed({
+				items: [
+					{
+						id: "tweet_known_author",
+						author_id: "42",
+						text: "Known author",
+						created_at: "2026-05-20T10:00:00.000Z",
+						conversation_id: "tweet_known_author",
+					},
+					{
+						id: "tweet_missing_author",
+						author_id: "404",
+						text: "Missing included author",
+						created_at: "2026-05-20T10:01:00.000Z",
+						conversation_id: "tweet_missing_author",
+					},
+				],
+				nextToken: null,
+				includes: { users: [profileUser], media: [] },
+			}),
+		);
+
+		const result = await streamProfileAnalysis({
+			handle: "alice",
+			maxPages: 1,
+			maxTweets: 10,
+			maxConversations: 1,
+			maxConversationPages: 1,
+			refresh: true,
+		});
+
+		expect(result.context.tweets.map((tweet) => tweet.id)).toEqual(
+			expect.arrayContaining(["tweet_known_author", "tweet_missing_author"]),
+		);
+		expect(result.context.tweets).toHaveLength(2);
+		expect(
+			getNativeDb()
+				.prepare(
+					"select id from tweets where id in ('tweet_known_author', 'tweet_missing_author') order by id",
+				)
+				.all(),
+		).toEqual([{ id: "tweet_known_author" }]);
+		expect(
+			getNativeDb()
+				.prepare(
+					"select tweet_id from tweet_account_edges where tweet_id = 'tweet_missing_author'",
+				)
+				.all(),
+		).toEqual([]);
+	});
+
+	it("persists canonical metrics, references, rich media, edges, and FTS", async () => {
+		mocks.listUserTweetsEffect.mockReturnValue(
+			Effect.succeed({
+				items: [
+					{
+						id: "tweet_rich",
+						author_id: "42",
+						text: "Rich canonical profile tweet",
+						created_at: "2026-05-20T10:00:00.000Z",
+						conversation_id: "tweet_rich",
+						attachments: { media_keys: ["video-rich"] },
+						public_metrics: { like_count: 37 },
+						referenced_tweets: [
+							{ type: "replied_to", id: "parent-1" },
+							{ type: "quoted", id: "quote-1" },
+						],
+					},
+				],
+				nextToken: null,
+				includes: {
+					users: [profileUser],
+					media: [
+						{
+							media_key: "video-rich",
+							type: "video",
+							preview_image_url:
+								"https://pbs.twimg.com/ext_tw_video_thumb/rich.jpg",
+							duration_ms: 45_000,
+							variants: [
+								{
+									url: "https://video.twimg.com/rich.mp4",
+									content_type: "video/mp4",
+									bit_rate: 2_176_000,
+								},
+							],
+						},
+					],
+				},
+			}),
+		);
+
+		await streamProfileAnalysis({
+			handle: "alice",
+			maxPages: 1,
+			maxTweets: 10,
+			maxConversations: 1,
+			maxConversationPages: 1,
+			refresh: true,
+		});
+
+		const db = getNativeDb();
+		const tweet = db
+			.prepare(
+				"select reply_to_id, quoted_tweet_id, like_count, media_count, media_json from tweets where id = 'tweet_rich'",
+			)
+			.get() as {
+			reply_to_id: string;
+			quoted_tweet_id: string;
+			like_count: number;
+			media_count: number;
+			media_json: string;
+		};
+		expect(tweet).toMatchObject({
+			reply_to_id: "parent-1",
+			quoted_tweet_id: "quote-1",
+			like_count: 37,
+			media_count: 1,
+		});
+		expect(JSON.parse(tweet.media_json)).toEqual([
+			expect.objectContaining({
+				durationMs: 45_000,
+				variants: [
+					{
+						url: "https://video.twimg.com/rich.mp4",
+						contentType: "video/mp4",
+						bitRate: 2_176_000,
+					},
+				],
+			}),
+		]);
+		expect(
+			db
+				.prepare(
+					"select kind, source from tweet_account_edges where tweet_id = 'tweet_rich'",
+				)
+				.get(),
+		).toEqual({ kind: "profile", source: "xurl" });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets_fts where tweet_id = 'tweet_rich'",
+				)
+				.get(),
+		).toEqual({ count: 1 });
+	});
+
 	it("keeps unchanged backfilled tweets to one FTS row", async () => {
 		for (let attempt = 0; attempt < 2; attempt += 1) {
 			await streamProfileAnalysis({

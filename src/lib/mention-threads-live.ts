@@ -1,9 +1,9 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
+import { listThreadViaBirdEffect } from "./bird";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { liveTransportGateway } from "./live-transport-gateway";
 import { resolveLiveSyncAccount } from "./live-sync-engine";
 import { runSyncPlanEffect } from "./sync-plan";
 import type {
@@ -18,6 +18,7 @@ import {
 	upsertTweetAccountEdge,
 } from "./tweet-account-edges";
 import { ingestTweetPayload } from "./tweet-repository";
+import { getTweetByIdEffect, searchRecentByConversationIdEffect } from "./xurl";
 
 const DEFAULT_LIMIT = 30;
 const DEFAULT_DELAY_MS = 1500;
@@ -356,7 +357,7 @@ function fetchConversationViaRecentSearchEffect({
 			fetchPage: ({ cursor }) =>
 				trySync(() => getRemainingThreadTimeoutMs(deadlineMs, timeoutMs)).pipe(
 					Effect.flatMap((remainingTimeoutMs) =>
-						liveTransportGateway.xurl.searchConversation(conversationId, {
+						searchRecentByConversationIdEffect(conversationId, {
 							maxResults: MAX_XURL_SEARCH_RESULTS,
 							paginationToken: cursor,
 							timeoutMs: remainingTimeoutMs,
@@ -406,14 +407,11 @@ function fetchParentChainViaXurlEffect({
 		let shouldUseRawAnchor = Boolean(rawAnchorPayload);
 
 		if (!nextParentId) {
-			const anchorPayload = yield* liveTransportGateway.xurl.getTweetById(
-				mention.id,
-				{
-					timeoutMs: yield* trySync(() =>
-						getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
-					),
-				},
-			);
+			const anchorPayload = yield* getTweetByIdEffect(mention.id, {
+				timeoutMs: yield* trySync(() =>
+					getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
+				),
+			});
 			pages.push(anchorPayload);
 			generalReadTweets += anchorPayload.data.length;
 			const anchorTweet = anchorPayload.data[0];
@@ -445,14 +443,11 @@ function fetchParentChainViaXurlEffect({
 			}
 
 			fallbackDepth += 1;
-			const parentPayload = yield* liveTransportGateway.xurl.getTweetById(
-				nextParentId,
-				{
-					timeoutMs: yield* trySync(() =>
-						getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
-					),
-				},
-			);
+			const parentPayload = yield* getTweetByIdEffect(nextParentId, {
+				timeoutMs: yield* trySync(() =>
+					getRemainingThreadTimeoutMs(deadlineMs, timeoutMs),
+				),
+			});
 			pages.push(parentPayload);
 			generalReadTweets += parentPayload.data.length;
 			const parentTweet = parentPayload.data[0];
@@ -681,24 +676,22 @@ export function syncMentionThreadsEffect({
 			}
 			const fetchEffect: Effect.Effect<ThreadFetchResult, unknown, never> =
 				parsedMode === "bird"
-					? liveTransportGateway.bird
-							.listThread({
-								tweetId: mention.id,
-								all,
-								maxPages: parsedMaxPages,
-								timeoutMs: parsedTimeoutMs,
-							})
-							.pipe(
-								Effect.map((payload) => ({
-									strategy: "bird" as const,
-									payload,
-									pages: undefined,
-									fallbackDepth: undefined,
-									generalReadTweets: 0,
-									truncated: undefined,
-									warnings: [] as string[],
-								})),
-							)
+					? listThreadViaBirdEffect({
+							tweetId: mention.id,
+							all,
+							maxPages: parsedMaxPages,
+							timeoutMs: parsedTimeoutMs,
+						}).pipe(
+							Effect.map((payload) => ({
+								strategy: "bird" as const,
+								payload,
+								pages: undefined,
+								fallbackDepth: undefined,
+								generalReadTweets: 0,
+								truncated: undefined,
+								warnings: [] as string[],
+							})),
+						)
 					: fetchThreadContextViaXurlEffect({
 							mention,
 							all,

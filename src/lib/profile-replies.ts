@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 
 import { resolveOperationAccount } from "./account-selection";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
-import { resolveProfile } from "./moderation-target";
+import { runEffectPromise } from "./effect-runtime";
+import { resolveProfileEffect } from "./moderation-target";
 import type { ProfileRepliesResponse, XurlReferencedTweet } from "./types";
-import { listUserTweets } from "./xurl";
+import { listUserTweetsEffect } from "./xurl";
 
 function getReplyTargetId(references?: XurlReferencedTweet[]) {
 	return references?.find((item) => item.type === "replied_to")?.id;
@@ -34,7 +34,7 @@ export function inspectProfileRepliesEffect(
 					catch: (error) => error,
 				})
 			: undefined;
-		const resolved = yield* tryPromise(() => resolveProfile(query));
+		const resolved = yield* resolveProfileEffect(query);
 		const externalUserId = resolved.externalUserId;
 		if (!externalUserId) {
 			return yield* Effect.fail(
@@ -42,13 +42,11 @@ export function inspectProfileRepliesEffect(
 			);
 		}
 
-		const timeline = yield* tryPromise(() =>
-			listUserTweets(externalUserId, {
-				maxResults: getScanSize(limit),
-				excludeRetweets: true,
-				...(operationAccount ? { username: operationAccount.username } : {}),
-			}),
-		);
+		const timeline = yield* listUserTweetsEffect(externalUserId, {
+			maxResults: getScanSize(limit),
+			excludeRetweets: true,
+			...(operationAccount ? { username: operationAccount.username } : {}),
+		});
 		const items = timeline.items
 			.map((tweet) => {
 				const replyToTweetId = getReplyTargetId(tweet.referenced_tweets);

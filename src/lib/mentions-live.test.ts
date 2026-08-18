@@ -14,35 +14,22 @@ const lookupUsersByHandlesMock = vi.fn();
 const getAuthenticatedBirdAccountMock = vi.fn();
 
 vi.mock("./bird", async () => {
-	const { Effect } = await import("effect");
+	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
-		listMentionsViaBird: (...args: unknown[]) =>
-			listMentionsViaBirdMock(...args),
-		listMentionsViaBirdEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => listMentionsViaBirdMock(...args),
-				catch: (error) => error,
-			}),
-		getAuthenticatedBirdAccountEffect: () =>
-			Effect.tryPromise({
-				try: () => getAuthenticatedBirdAccountMock(),
-				catch: (error) => error,
-			}),
+		listMentionsViaBirdEffect: effectFromMock(listMentionsViaBirdMock),
+		getAuthenticatedBirdAccountEffect: effectFromMock(
+			getAuthenticatedBirdAccountMock,
+		),
 	};
 });
 
-vi.mock("./xurl", () => ({
-	listMentionsViaXurlEffect: (...args: unknown[]) =>
-		Effect.tryPromise({
-			try: () => listMentionsViaXurlMock(...args),
-			catch: (error) => error,
-		}),
-	lookupUsersByHandlesEffect: (...args: unknown[]) =>
-		Effect.tryPromise({
-			try: () => lookupUsersByHandlesMock(...args),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		listMentionsViaXurlEffect: effectFromMock(listMentionsViaXurlMock),
+		lookupUsersByHandlesEffect: effectFromMock(lookupUsersByHandlesMock),
+	};
+});
 
 const tempDirs: string[] = [];
 

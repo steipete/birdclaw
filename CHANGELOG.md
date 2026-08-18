@@ -16,10 +16,12 @@
 - Roll back invocation-created Git state after failed non-Git backup promotion unless a push receipt/remote commit requires retention, and bound profile reconciliation to indexed identity candidates.
 - Propagate explicit selected-account identity proof through Bird, Xurl, and local DM hydration, and compare pending-push remotes using credential-free canonical endpoint identity.
 - Preserve endpoint-routing identity while redacting remote credentials, fail closed for live/cross-host lease owners, and bind recovery journals to repository and Git-directory inode identities.
+- Route authored and profile-analysis live ingestion through the canonical tweet repository so sparse media/profile refreshes, rich video metadata, included context, revisions, and FTS stay consistent across Xurl sources.
 
 ### Testing and maintenance
 
 - Remove obsolete query compatibility facades and internal Promise transport wrappers in favor of their owning read-model, action, and Effect modules.
+- Remove the static live-transport forwarding facade and zero-consumer low-level Xurl Promise mirrors so consumers and tests use the owning Effect functions directly.
 - Add synthetic regressions for profile identity collisions and canonicalization, atomic mention cursor writes, backup lease takeover, fsynced publication recovery, hidden data, large shards, malicious paths, read-only freshness, receipt-owned push retries, corrupt remotes, and diverged histories.
 
 ## 0.12.1 - 2026-08-08

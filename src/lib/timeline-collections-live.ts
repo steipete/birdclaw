@@ -1,8 +1,11 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
+import {
+	listBookmarkedTweetsViaBirdEffect,
+	listLikedTweetsViaBirdEffect,
+} from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { liveTransportGateway } from "./live-transport-gateway";
 import {
 	createLiveTransportAdapter,
 	normalizeCacheTtlMs,
@@ -17,6 +20,11 @@ import type {
 	XurlMentionUser,
 } from "./types";
 import { ingestTweetPayload } from "./tweet-repository";
+import {
+	listBookmarkedTweetsViaXurlEffect,
+	listLikedTweetsViaXurlEffect,
+	lookupUsersByHandlesEffect,
+} from "./xurl";
 
 import type { TimelineCollectionKind } from "./api-enums";
 export type { TimelineCollectionKind } from "./api-enums";
@@ -198,8 +206,7 @@ function fetchXurlCollectionEffect({
 	return Effect.gen(function* () {
 		let resolvedUserId = userId;
 		if (!resolvedUserId) {
-			const [accountUser] =
-				yield* liveTransportGateway.xurl.lookupUsersByHandles([username]);
+			const [accountUser] = yield* lookupUsersByHandlesEffect([username]);
 			if (!accountUser?.id) {
 				return yield* Effect.fail(
 					new Error(`Could not resolve Twitter user id for @${username}`),
@@ -213,13 +220,13 @@ function fetchXurlCollectionEffect({
 			fetchPage: ({ cursor, pageIndex }) =>
 				Effect.gen(function* () {
 					const payload = yield* kind === "likes"
-						? liveTransportGateway.xurl.listLikes({
+						? listLikedTweetsViaXurlEffect({
 								maxResults: limit,
 								username,
 								userId: resolvedUserId,
 								paginationToken: cursor,
 							})
-						: liveTransportGateway.xurl.listBookmarks({
+						: listBookmarkedTweetsViaXurlEffect({
 								maxResults: limit,
 								username,
 								userId: resolvedUserId,
@@ -292,12 +299,12 @@ function fetchBirdCollectionEffect({
 	maxPages: number | null;
 }) {
 	return kind === "likes"
-		? liveTransportGateway.bird.listLikes({
+		? listLikedTweetsViaBirdEffect({
 				maxResults: limit,
 				all,
 				maxPages: maxPages ?? undefined,
 			})
-		: liveTransportGateway.bird.listBookmarks({
+		: listBookmarkedTweetsViaBirdEffect({
 				maxResults: limit,
 				all,
 				maxPages: maxPages ?? undefined,

@@ -1,10 +1,13 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
+import {
+	getAuthenticatedBirdAccountEffect,
+	listMentionsViaBirdEffect,
+} from "./bird";
 import type { MentionsDataSource } from "./config";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { liveTransportGateway } from "./live-transport-gateway";
 import {
 	assertLiveAccountMatches,
 	resolveLiveSyncAccount,
@@ -22,6 +25,7 @@ import type {
 	XurlMentionUser,
 } from "./types";
 import { ingestTweetPayload } from "./tweet-repository";
+import { listMentionsViaXurlEffect, lookupUsersByHandlesEffect } from "./xurl";
 
 export const DEFAULT_MENTIONS_CACHE_TTL_MS = 2 * 60_000;
 const MIN_XURL_MENTIONS_LIMIT = 5;
@@ -421,8 +425,7 @@ function writeMentionHighWaterId(
 
 function verifyBirdAccountMatchesEffect(account: LiveSyncAccount) {
 	return Effect.gen(function* () {
-		const authenticated =
-			yield* liveTransportGateway.bird.getAuthenticatedAccount();
+		const authenticated = yield* getAuthenticatedBirdAccountEffect();
 		return yield* Effect.try({
 			try: () =>
 				assertLiveAccountMatches({
@@ -587,9 +590,9 @@ function fetchMentionsViaXurlEffect({
 	return Effect.gen(function* () {
 		const accountUserId =
 			resolvedAccount.externalUserId ??
-			(yield* liveTransportGateway.xurl
-				.lookupUsersByHandles([resolvedAccount.username])
-				.pipe(Effect.map((users) => users[0]?.id)));
+			(yield* lookupUsersByHandlesEffect([resolvedAccount.username]).pipe(
+				Effect.map((users) => users[0]?.id),
+			));
 		if (!accountUserId) {
 			return yield* Effect.fail(
 				new Error(
@@ -600,7 +603,7 @@ function fetchMentionsViaXurlEffect({
 
 		const result = yield* runSyncPlanEffect({
 			fetchPage: ({ cursor }) =>
-				liveTransportGateway.xurl.listMentions({
+				listMentionsViaXurlEffect({
 					maxResults: limit,
 					username: resolvedAccount.username,
 					userId: String(accountUserId),
@@ -632,7 +635,7 @@ function fetchMentionsViaXurlEffect({
 }
 
 function fetchMentionsViaBirdEffect({ limit }: { limit: number }) {
-	return liveTransportGateway.bird.listMentions({ maxResults: limit });
+	return listMentionsViaBirdEffect({ maxResults: limit });
 }
 
 function isMaxPagesPartial({

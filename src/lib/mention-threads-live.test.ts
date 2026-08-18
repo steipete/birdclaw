@@ -14,32 +14,20 @@ const mocks = vi.hoisted(() => ({
 	getTweetById: vi.fn(),
 }));
 
-vi.mock("./bird", () => ({
-	listThreadViaBird: mocks.listThreadViaBird,
-	listThreadViaBirdEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listThreadViaBird(options),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./bird", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return { listThreadViaBirdEffect: effectFromMock(mocks.listThreadViaBird) };
+});
 
-vi.mock("./xurl", () => ({
-	searchRecentByConversationId: mocks.searchRecentByConversationId,
-	searchRecentByConversationIdEffect: (
-		conversationId: string,
-		options: unknown,
-	) =>
-		Effect.tryPromise({
-			try: () => mocks.searchRecentByConversationId(conversationId, options),
-			catch: (error) => error,
-		}),
-	getTweetById: mocks.getTweetById,
-	getTweetByIdEffect: (id: string, options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.getTweetById(id, options),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		searchRecentByConversationIdEffect: effectFromMock(
+			mocks.searchRecentByConversationId,
+		),
+		getTweetByIdEffect: effectFromMock(mocks.getTweetById),
+	};
+});
 
 const tempRoots: string[] = [];
 

@@ -13,22 +13,19 @@ const mocks = vi.hoisted(() => ({
 	listFollowUsersViaXurl: vi.fn(),
 }));
 
-vi.mock("./bird", () => ({
-	listFollowUsersViaBird: mocks.listFollowUsersViaBird,
-	listFollowUsersViaBirdEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listFollowUsersViaBird(options),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./bird", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		listFollowUsersViaBirdEffect: effectFromMock(mocks.listFollowUsersViaBird),
+	};
+});
 
-vi.mock("./xurl", () => ({
-	listFollowUsersViaXurlEffect: (options: unknown) =>
-		Effect.tryPromise({
-			try: () => mocks.listFollowUsersViaXurl(options),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		listFollowUsersViaXurlEffect: effectFromMock(mocks.listFollowUsersViaXurl),
+	};
+});
 
 const tempRoots: string[] = [];
 
