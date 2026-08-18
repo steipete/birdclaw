@@ -2,6 +2,23 @@
 
 ## 0.12.2 - Unreleased
 
+### Fixed
+
+- Make numeric X user IDs the durable live-profile identity, preserving history and dependent references across proven legacy rekeys, handle reuse, case-fold collisions, handoffs, and swaps.
+- Serialize backup repositories with renewable token-owned leases and reliable token-checked release, validate NUL-safe fetched and staged generations before checkout mutation, prove Git ownership before finalizing journal recovery, and protect fsynced pending-push receipts from later export generations.
+- Adopt validated non-Git exports into empty backup remotes without weakening inventory checks, and preserve sparse handle-less DM avatar enrichment without fabricating public handles.
+- Validate recovery journals and every referenced transaction/index path before filesystem mutation, and preserve rich display names when sparse Bird/DM payloads omit names.
+- Normalize shadow external IDs during target-absent profile canonicalization, and renew scheduled-job leases with fsynced atomic token-checked replacement.
+- Normalize stale shadow IDs already attached to canonical profiles, and restore only managed backup index entries during crash recovery so unrelated staging survives.
+- Reclaim stale lock guards with marker-owned revalidation, validate receipt roots before discovery/removal, and probe transaction-root writability before fallback selection.
+- Roll back invocation-created Git state after failed non-Git backup promotion unless a push receipt/remote commit requires retention, and bound profile reconciliation to indexed identity candidates.
+- Propagate explicit selected-account identity proof through Bird, Xurl, and local DM hydration, and compare pending-push remotes using credential-free canonical endpoint identity.
+- Preserve endpoint-routing identity while redacting remote credentials, fail closed for live/cross-host lease owners, and bind recovery journals to repository and Git-directory inode identities.
+
+### Testing and maintenance
+
+- Add synthetic regressions for profile identity collisions and canonicalization, atomic mention cursor writes, backup lease takeover, fsynced publication recovery, hidden data, large shards, malicious paths, read-only freshness, receipt-owned push retries, corrupt remotes, and diverged histories.
+
 ## 0.12.1 - 2026-08-08
 
 ### Changed

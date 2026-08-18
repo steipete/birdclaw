@@ -4,6 +4,11 @@ import { syncIdentitySearchIndexForProfileIds } from "./identity-search-index";
 import { syncProfileBioEntitiesForProfileId } from "./profile-bio-entities";
 import { syncProfileAffiliationsFromUser } from "./profile-affiliations";
 import { recordProfileSnapshot } from "./profile-history";
+import {
+	allocateReservedProfileHandle,
+	reconcileCanonicalXProfileIdentity,
+	repairCanonicalProfileRawIdentity,
+} from "./profile-identity";
 import { normalizeProfileHandle, profileFromDbRow } from "./profile-row";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 
@@ -12,13 +17,24 @@ export interface ResolvedXProfile {
 	externalUserId: string;
 }
 
+export interface XProfileIdentityOptions {
+	provenLegacyProfileIds?: ReadonlySet<string>;
+}
+
 export function buildExternalProfileId(externalUserId: string) {
+	if (!/^[0-9]+$/.test(externalUserId)) {
+		throw new Error("X user id must be numeric");
+	}
 	return `profile_user_${externalUserId}`;
 }
 
 export function getExternalUserId(profileId: string) {
-	if (profileId.startsWith("profile_user_")) {
-		return profileId.replace(/^profile_user_/, "");
+	const externalUserId = profileId.replace(/^profile_user_/, "");
+	if (
+		profileId.startsWith("profile_user_") &&
+		/^[0-9]+$/.test(externalUserId)
+	) {
+		return externalUserId;
 	}
 	return null;
 }
@@ -88,8 +104,10 @@ function updateExistingProfileFromUser(
 	db: Database,
 	profileId: string,
 	user: XurlMentionUser,
+	storedHandle?: string,
 ): ResolvedXProfile {
 	const username = normalizeProfileHandle(String(user.username ?? ""));
+	const profileHandle = storedHandle ?? username;
 	const displayName = String(user.name ?? "").trim() || username;
 	const followersCount = Number(user.public_metrics?.followers_count ?? 0);
 	const hasFollowingCount =
@@ -123,7 +141,7 @@ function updateExistingProfileFromUser(
     where id = ?
     `,
 	).run(
-		username,
+		profileHandle,
 		displayName,
 		bio,
 		followersCount,
@@ -160,13 +178,18 @@ function updateExistingProfileFromUser(
 	};
 }
 
-export function upsertProfileFromXUser(
+function upsertProfileFromXUserInTransaction(
 	db: Database,
 	user: XurlMentionUser,
+	options: XProfileIdentityOptions = {},
 ): ResolvedXProfile {
 	const externalUserId = String(user.id ?? "");
-	if (!externalUserId) {
-		throw new Error("Resolved user is missing an id");
+	if (!/^[0-9]+$/.test(externalUserId)) {
+		throw new Error(
+			externalUserId
+				? "Resolved user id must be numeric"
+				: "Resolved user is missing an id",
+		);
 	}
 
 	const username = normalizeProfileHandle(String(user.username ?? ""));
@@ -175,19 +198,35 @@ export function upsertProfileFromXUser(
 	}
 
 	const profileId = buildExternalProfileId(externalUserId);
+	const reconciliation = reconcileCanonicalXProfileIdentity({
+		db,
+		externalUserId,
+		canonicalProfileId: profileId,
+		incomingHandle: username,
+		provenLegacyProfileIds: options.provenLegacyProfileIds,
+	});
+	const storedHandle =
+		reconciliation.blockedHandleProfileIds.length > 0
+			? allocateReservedProfileHandle(db, profileId)
+			: username;
 	const existingRow = db
 		.prepare(
 			`
       select id
       from profiles
-      where id = ? or handle = ?
+      where id = ?
       limit 1
       `,
 		)
-		.get(profileId, username) as { id: string } | undefined;
+		.get(profileId) as { id: string } | undefined;
 
 	if (existingRow) {
-		return updateExistingProfileFromUser(db, existingRow.id, user);
+		return updateExistingProfileFromUser(
+			db,
+			existingRow.id,
+			user,
+			storedHandle,
+		);
 	}
 
 	const displayName = String(user.name ?? "").trim() || username;
@@ -232,7 +271,7 @@ export function upsertProfileFromXUser(
     `,
 	).run(
 		profileId,
-		username,
+		storedHandle,
 		displayName,
 		bio,
 		followersCount,
@@ -256,7 +295,7 @@ export function upsertProfileFromXUser(
 	return {
 		profile: {
 			id: profileId,
-			handle: username,
+			handle: storedHandle,
 			displayName,
 			bio,
 			followersCount,
@@ -273,11 +312,152 @@ export function upsertProfileFromXUser(
 	};
 }
 
+export function upsertProfileFromXUser(
+	db: Database,
+	user: XurlMentionUser,
+	options: XProfileIdentityOptions = {},
+): ResolvedXProfile {
+	return db.transaction(() =>
+		upsertProfileFromXUserInTransaction(db, user, options),
+	)();
+}
+
+export function canonicalizeProvenXProfileIdentity(
+	db: Database,
+	externalUserId: string,
+	username: string,
+	options: { provenLegacyProfileIds?: ReadonlySet<string> } = {},
+) {
+	const canonicalProfileId = buildExternalProfileId(externalUserId);
+	return reconcileCanonicalXProfileIdentity({
+		db,
+		externalUserId,
+		canonicalProfileId,
+		incomingHandle: normalizeProfileHandle(username),
+		provenLegacyProfileIds: options.provenLegacyProfileIds,
+	});
+}
+
+export function upsertSparseProfileFromXUser(
+	db: Database,
+	user: Pick<XurlMentionUser, "id"> &
+		Partial<Pick<XurlMentionUser, "username" | "name" | "profile_image_url">>,
+	options: XProfileIdentityOptions = {},
+): ResolvedXProfile {
+	return db.transaction(() => {
+		const externalUserId = String(user.id ?? "");
+		if (!/^[0-9]+$/.test(externalUserId)) {
+			throw new Error("Sparse X user id must be numeric");
+		}
+		const username = normalizeProfileHandle(String(user.username ?? ""));
+		const profileId = buildExternalProfileId(externalUserId);
+		const avatarUrl = normalizeAvatarUrl(user.profile_image_url);
+		const reconciliation = reconcileCanonicalXProfileIdentity({
+			db,
+			externalUserId,
+			canonicalProfileId: profileId,
+			incomingHandle: username,
+			provenLegacyProfileIds: options.provenLegacyProfileIds,
+		});
+		const storedHandle =
+			reconciliation.blockedHandleProfileIds.length > 0
+				? allocateReservedProfileHandle(db, profileId)
+				: username;
+		let resolved = canonicalizeOrCreateStubProfileInTransaction(
+			db,
+			externalUserId,
+		);
+		const current = db
+			.prepare(
+				`select handle, display_name, avatar_url
+				 from profiles where id = ?`,
+			)
+			.get(profileId) as {
+			handle: string;
+			display_name: string;
+			avatar_url: string | null;
+		};
+		const incomingName = String(user.name ?? "").trim();
+		const placeholderDisplayName =
+			!current.display_name ||
+			current.display_name === current.handle ||
+			current.display_name.startsWith("birdclaw_stub_");
+		const displayName =
+			incomingName && (username || placeholderDisplayName)
+				? incomingName
+				: username && placeholderDisplayName
+					? username
+					: undefined;
+		const handleChanged = Boolean(username && current.handle !== storedHandle);
+		const nameChanged = Boolean(
+			displayName && current.display_name !== displayName,
+		);
+		const avatarChanged = Boolean(
+			avatarUrl && current.avatar_url !== avatarUrl,
+		);
+		const profileChanged = handleChanged || nameChanged || avatarChanged;
+		if (profileChanged) {
+			recordProfileSnapshot(db, profileId, "pre_sparse_update");
+			db.prepare(
+				`update profiles set
+				 handle = case when ? <> '' then ? else handle end,
+				 display_name = case when ? = 1 then ? else display_name end,
+				 avatar_url = coalesce(?, avatar_url)
+				 where id = ?`,
+			).run(
+				username,
+				storedHandle,
+				nameChanged ? 1 : 0,
+				displayName ?? "",
+				avatarUrl,
+				profileId,
+			);
+		}
+		if (username) {
+			reconcileCanonicalXProfileIdentity({
+				db,
+				externalUserId,
+				canonicalProfileId: profileId,
+				incomingHandle: username,
+			});
+		}
+		repairCanonicalProfileRawIdentity(db, profileId, externalUserId, username);
+		if (profileChanged) {
+			recordProfileSnapshot(db, profileId, "sparse_profile");
+			syncIdentitySearchIndexForProfileIds(db, [profileId]);
+			const row = db
+				.prepare(
+					`select id, handle, display_name, bio, followers_count, following_count,
+					 avatar_hue, avatar_url, location, url, verified_type, entities_json,
+					 created_at from profiles where id = ?`,
+				)
+				.get(profileId) as Record<string, unknown>;
+			resolved = { profile: profileFromDbRow(row), externalUserId };
+		}
+		return resolved;
+	})();
+}
+
 export function ensureStubProfileForXUser(
 	db: Database,
 	externalUserId: string,
 ): ResolvedXProfile {
+	return db.transaction(() =>
+		canonicalizeOrCreateStubProfileInTransaction(db, externalUserId),
+	)();
+}
+
+function canonicalizeOrCreateStubProfileInTransaction(
+	db: Database,
+	externalUserId: string,
+): ResolvedXProfile {
 	const profileId = buildExternalProfileId(externalUserId);
+	reconcileCanonicalXProfileIdentity({
+		db,
+		externalUserId,
+		canonicalProfileId: profileId,
+		incomingHandle: "",
+	});
 	const existingRow = db
 		.prepare(
 			`
@@ -297,17 +477,24 @@ export function ensureStubProfileForXUser(
 		};
 	}
 
-	const handle = `user_${externalUserId}`;
+	const handle = allocateReservedProfileHandle(db, profileId);
 	const createdAt = new Date().toISOString();
 	const avatarHue = randomAvatarHue(handle);
 	db.prepare(
 		`
     insert into profiles (
       id, handle, display_name, bio, followers_count, following_count, avatar_hue,
-      avatar_url, location, url, verified_type, entities_json, raw_json, created_at
-    ) values (?, ?, ?, '', 0, 0, ?, null, null, null, null, '{}', '{}', ?)
+		avatar_url, location, url, verified_type, entities_json, raw_json, created_at
+	) values (?, ?, ?, '', 0, 0, ?, null, null, null, null, '{}', ?, ?)
     `,
-	).run(profileId, handle, handle, avatarHue, createdAt);
+	).run(
+		profileId,
+		handle,
+		handle,
+		avatarHue,
+		JSON.stringify({ id: externalUserId }),
+		createdAt,
+	);
 
 	return {
 		profile: {

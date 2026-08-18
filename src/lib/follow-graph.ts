@@ -1014,13 +1014,15 @@ export function listFollowEvents({
 
 	return {
 		accountId: resolved.accountId,
-		items: rows.map((row): FollowGraphEvent => ({
-			eventAt: String(row.event_at),
-			direction: row.direction as FollowDirection,
-			kind: row.kind as FollowEventKind,
-			snapshotId: String(row.snapshot_id),
-			profile: toGraphProfile(row),
-		})),
+		items: rows.map(
+			(row): FollowGraphEvent => ({
+				eventAt: String(row.event_at),
+				direction: row.direction as FollowDirection,
+				kind: row.kind as FollowEventKind,
+				snapshotId: String(row.snapshot_id),
+				profile: toGraphProfile(row),
+			}),
+		),
 	};
 }
 

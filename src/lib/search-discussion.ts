@@ -280,35 +280,37 @@ function collectLiveSearchTweets(
 				(positionById.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER),
 		)
 		.filter((row) => liveSearchRowPassesFilters(row, options))
-		.map((row): CompactSearchTweet => ({
-			id: String(row.id),
-			url: tweetUrl(String(row.handle), String(row.id)),
-			source: "search",
-			author: String(row.handle),
-			name: String(row.display_name),
-			authorProfile: {
-				id: String(row.profile_id),
-				handle: String(row.handle),
-				displayName: String(row.display_name),
-				bio: String(row.bio),
-				followersCount: Number(row.followers_count),
-				followingCount: Number(row.following_count ?? 0),
-				avatarHue: Number(row.avatar_hue),
-				avatarUrl:
-					typeof row.avatar_url === "string"
-						? String(row.avatar_url)
-						: undefined,
-				createdAt: String(row.profile_created_at),
-			},
-			createdAt: String(row.created_at),
-			text: String(row.text),
-			entities: parseJsonField<TweetEntities>(row.entities_json, {}),
-			media: parseJsonField<TweetMediaItem[]>(row.media_json, []),
-			likeCount: Number(row.like_count),
-			liked: Boolean(row.liked),
-			bookmarked: Boolean(row.bookmarked),
-			needsReply: !row.is_replied,
-		}));
+		.map(
+			(row): CompactSearchTweet => ({
+				id: String(row.id),
+				url: tweetUrl(String(row.handle), String(row.id)),
+				source: "search",
+				author: String(row.handle),
+				name: String(row.display_name),
+				authorProfile: {
+					id: String(row.profile_id),
+					handle: String(row.handle),
+					displayName: String(row.display_name),
+					bio: String(row.bio),
+					followersCount: Number(row.followers_count),
+					followingCount: Number(row.following_count ?? 0),
+					avatarHue: Number(row.avatar_hue),
+					avatarUrl:
+						typeof row.avatar_url === "string"
+							? String(row.avatar_url)
+							: undefined,
+					createdAt: String(row.profile_created_at),
+				},
+				createdAt: String(row.created_at),
+				text: String(row.text),
+				entities: parseJsonField<TweetEntities>(row.entities_json, {}),
+				media: parseJsonField<TweetMediaItem[]>(row.media_json, []),
+				likeCount: Number(row.like_count),
+				liked: Boolean(row.liked),
+				bookmarked: Boolean(row.bookmarked),
+				needsReply: !row.is_replied,
+			}),
+		);
 }
 
 function liveSearchRowPassesFilters(

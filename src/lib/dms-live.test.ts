@@ -577,6 +577,309 @@ describe("cached live DMs", () => {
 		]);
 	});
 
+	it("updates sparse remote DM identity without downgrading rich profile fields", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`insert into profiles (
+			 id, handle, display_name, bio, followers_count, following_count,
+			 public_metrics_json, avatar_hue, avatar_url, entities_json, raw_json,
+			 created_at
+			) values (
+			 'profile_user_4242', 'old4242', 'Old Name', 'rich remote bio', 4242, 242,
+			 '{"followers_count":4242,"following_count":242}', 42,
+			 'https://img.example/4242.jpg', '{"description":{"urls":[]}}',
+			 '{"id":"4242","username":"old4242","rich":true}',
+			 '2025-01-01T00:00:00.000Z'
+			)`,
+		).run();
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
+			success: true,
+			conversations: [
+				{
+					id: "25401953-4242",
+					participants: [
+						{ id: "25401953" },
+						{
+							id: "4242",
+							username: "new4242",
+							name: "New Name",
+							profileImageUrl: "https://img.example/new4242.jpg",
+						},
+					],
+					messages: [],
+				},
+			],
+			events: [
+				{
+					id: "dm_sparse_remote",
+					conversationId: "25401953-4242",
+					text: "Sparse remote participant",
+					createdAt: "2026-04-25T20:00:00.000Z",
+					senderId: "4242",
+					recipientId: "25401953",
+					sender: {
+						id: "4242",
+						username: "new4242",
+						name: "New Name",
+						profileImageUrl: "https://img.example/new4242.jpg",
+					},
+				},
+			],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		await syncDirectMessagesViaCachedBird({ limit: 5, refresh: true });
+
+		const row = db
+			.prepare(
+				`select handle, display_name, bio, followers_count, following_count,
+				 public_metrics_json, avatar_url, entities_json, raw_json
+				 from profiles where id = 'profile_user_4242'`,
+			)
+			.get() as Record<string, unknown>;
+		expect(row).toMatchObject({
+			handle: "new4242",
+			display_name: "New Name",
+			bio: "rich remote bio",
+			followers_count: 4242,
+			following_count: 242,
+			public_metrics_json: '{"followers_count":4242,"following_count":242}',
+			avatar_url: "https://img.example/new4242.jpg",
+			entities_json: '{"description":{"urls":[]}}',
+		});
+		expect(JSON.parse(String(row.raw_json))).toMatchObject({
+			id: "4242",
+			username: "new4242",
+			rich: true,
+		});
+	});
+
+	it("preserves a rich display name for a username-only DM participant", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`insert into profiles (
+			 id, handle, display_name, bio, followers_count, avatar_hue, raw_json, created_at
+			) values (
+			 'profile_user_4243', 'old4243', 'Rich Display Name', 'rich bio', 43, 43,
+			 '{"id":"4243","username":"old4243"}', '2025-01-01T00:00:00.000Z'
+			)`,
+		).run();
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
+			success: true,
+			conversations: [
+				{
+					id: "25401953-4243",
+					participants: [
+						{ id: "25401953" },
+						{ id: "4243", username: "new4243" },
+					],
+					messages: [],
+				},
+			],
+			events: [],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		await syncDirectMessagesViaCachedBird({ limit: 5, refresh: true });
+
+		const row = db
+			.prepare(
+				"select handle, display_name, bio, raw_json from profiles where id = 'profile_user_4243'",
+			)
+			.get() as Record<string, unknown>;
+		expect(row).toMatchObject({
+			handle: "new4243",
+			display_name: "Rich Display Name",
+			bio: "rich bio",
+		});
+		expect(JSON.parse(String(row.raw_json))).toMatchObject({
+			id: "4243",
+			username: "new4243",
+		});
+	});
+
+	it("indexes a learned name for a handle-less remote DM participant", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
+			success: true,
+			conversations: [
+				{
+					id: "25401953-4343",
+					participants: [
+						{ id: "25401953" },
+						{
+							id: "4343",
+							name: "Name Only",
+							profileImageUrl:
+								"https://pbs.twimg.com/profile_images/4343/name_normal.jpg",
+						},
+					],
+					messages: [],
+				},
+			],
+			events: [
+				{
+					id: "dm_handleless_remote",
+					conversationId: "25401953-4343",
+					text: "Handle-less remote participant",
+					createdAt: "2026-04-25T20:00:00.000Z",
+					senderId: "4343",
+					recipientId: "25401953",
+					sender: {
+						id: "4343",
+						name: "Name Only",
+					},
+				},
+			],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		await syncDirectMessagesViaCachedBird({ limit: 5, refresh: true });
+
+		const profile = db
+			.prepare(
+				`select handle, display_name, avatar_url, raw_json
+				 from profiles where id = 'profile_user_4343'`,
+			)
+			.get() as Record<string, unknown>;
+		expect(profile).toMatchObject({
+			display_name: "Name Only",
+			avatar_url: "https://pbs.twimg.com/profile_images/4343/name.jpg",
+		});
+		expect(String(profile.handle)).toMatch(/^birdclaw_stub_/);
+		expect(JSON.parse(String(profile.raw_json))).toEqual({ id: "4343" });
+		expect(
+			db
+				.prepare(
+					`select value from identity_search_index
+					 where profile_id = 'profile_user_4343' and kind = 'profile_name'`,
+				)
+				.get(),
+		).toEqual({ value: "Name Only" });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from profile_snapshots where profile_id = 'profile_user_4343'",
+				)
+				.get(),
+		).toEqual({ count: 2 });
+	});
+
+	it("coalesces handle-less DM avatars without downgrading a rich profile", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`insert into profiles (
+			 id, handle, display_name, bio, followers_count, following_count,
+			 public_metrics_json, avatar_hue, avatar_url, entities_json, raw_json,
+			 created_at
+			) values (
+			 'profile_user_4444', 'birdclaw_stub_existing4444', 'Rich Person',
+			 'rich handle-less bio', 444, 44,
+			 '{"followers_count":444,"following_count":44}', 44,
+			 'https://img.example/original4444.jpg', '{"description":{"urls":[]}}',
+			 '{"id":"4444","rich":true}', '2025-01-01T00:00:00.000Z'
+			)`,
+		).run();
+		const payload = (profileImageUrl?: string) => ({
+			success: true as const,
+			conversations: [
+				{
+					id: "25401953-4444",
+					participants: [
+						{ id: "25401953" },
+						{
+							id: "4444",
+							name: "Incoming Sparse Name",
+							...(profileImageUrl ? { profileImageUrl } : {}),
+						},
+					],
+					messages: [],
+				},
+			],
+			events: [
+				{
+					id: profileImageUrl
+						? "dm_handleless_avatar_new"
+						: "dm_handleless_no_avatar",
+					conversationId: "25401953-4444",
+					text: "Sparse handle-less participant",
+					createdAt: "2026-04-25T20:00:00.000Z",
+					senderId: "4444",
+					recipientId: "25401953",
+					sender: {
+						id: "4444",
+						name: "Incoming Sparse Name",
+						...(profileImageUrl ? { profileImageUrl } : {}),
+					},
+				},
+			],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce(payload());
+		await syncDirectMessagesViaCachedBird({ limit: 5, refresh: true });
+		const first = db
+			.prepare(
+				`select handle, display_name, bio, followers_count, following_count,
+				 public_metrics_json, avatar_url, entities_json, raw_json
+				 from profiles where id = 'profile_user_4444'`,
+			)
+			.get() as Record<string, unknown>;
+		expect(first).toMatchObject({
+			handle: "birdclaw_stub_existing4444",
+			display_name: "Rich Person",
+			bio: "rich handle-less bio",
+			followers_count: 444,
+			following_count: 44,
+			public_metrics_json: '{"followers_count":444,"following_count":44}',
+			avatar_url: "https://img.example/original4444.jpg",
+			entities_json: '{"description":{"urls":[]}}',
+		});
+
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce(
+			payload(
+				"https://pbs.twimg.com/profile_images/4444/replacement_normal.jpg",
+			),
+		);
+		await syncDirectMessagesViaCachedBird({ limit: 5, refresh: true });
+		const updated = db
+			.prepare(
+				`select handle, display_name, bio, followers_count, avatar_url, raw_json
+				 from profiles where id = 'profile_user_4444'`,
+			)
+			.get() as Record<string, unknown>;
+		expect(updated).toMatchObject({
+			handle: "birdclaw_stub_existing4444",
+			display_name: "Rich Person",
+			bio: "rich handle-less bio",
+			followers_count: 444,
+			avatar_url: "https://pbs.twimg.com/profile_images/4444/replacement.jpg",
+		});
+		expect(JSON.parse(String(updated.raw_json))).toEqual({
+			id: "4444",
+			rich: true,
+		});
+		expect(
+			db
+				.prepare(
+					`select value from identity_search_index
+					 where profile_id = 'profile_user_4444' and kind = 'profile_name'`,
+				)
+				.get(),
+		).toEqual({ value: "Rich Person" });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from profile_snapshots where profile_id = 'profile_user_4444'",
+				)
+				.get(),
+		).toEqual({ count: 1 });
+	});
+
 	it("keeps request conversations that only have a last-message preview", async () => {
 		makeTempHome();
 		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
@@ -645,13 +948,30 @@ describe("cached live DMs", () => {
 
 	it("imports sparse outbound messages from the stable account id", async () => {
 		makeTempHome();
+		const db = getNativeDb();
+		db.prepare(
+			`update profiles set bio = 'rich local account', followers_count = 999,
+				 avatar_url = 'https://img.example/account.jpg',
+				 entities_json = '{"description":{"urls":[]}}', raw_json = '{}'
+				 where id = 'profile_me'`,
+		).run();
+		db.prepare(
+			"insert into tweets (id, author_profile_id, text, created_at) values ('dm-local-proof-tweet', 'profile_me', 'local proof', '2026-01-01T00:00:00.000Z')",
+		).run();
+		db.prepare(
+			"insert into profile_snapshots (profile_id, snapshot_hash, observed_at, last_seen_at, source, handle, display_name, bio, followers_count, following_count) values ('profile_me', 'dm-local-proof-snapshot', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'test', 'steipete', 'Peter Steinberger', 'rich local account', 999, 0)",
+		).run();
 		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
 			success: true,
 			conversations: [
 				{
 					id: "25401953-66",
 					participants: [
-						{ id: "25401953" },
+						{
+							id: "25401953",
+							username: "steipete",
+							name: "Sparse Peter",
+						},
 						{ id: "66", username: "pat", name: "Pat" },
 					],
 					messages: [],
@@ -690,6 +1010,43 @@ describe("cached live DMs", () => {
 				direction: "outbound",
 			}),
 		]);
+		expect(
+			db
+				.prepare(
+					`select bio, followers_count, avatar_url, entities_json
+					 from profiles where id = 'profile_user_25401953'`,
+				)
+				.get(),
+		).toEqual({
+			bio: "rich local account",
+			followers_count: 999,
+			avatar_url: "https://img.example/account.jpg",
+			entities_json: '{"description":{"urls":[]}}',
+		});
+		expect(
+			db.prepare("select 1 from profiles where id = 'profile_me'").get(),
+		).toBeUndefined();
+		expect(
+			db
+				.prepare(
+					"select author_profile_id from tweets where id = 'dm-local-proof-tweet'",
+				)
+				.get(),
+		).toEqual({ author_profile_id: "profile_user_25401953" });
+		expect(
+			db
+				.prepare(
+					"select sender_profile_id from dm_messages where id = 'dm_sparse_outbound'",
+				)
+				.get(),
+		).toEqual({ sender_profile_id: "profile_user_25401953" });
+		expect(
+			db
+				.prepare(
+					"select profile_id from profile_snapshots where handle = 'steipete' and bio = 'rich local account' limit 1",
+				)
+				.get(),
+		).toEqual({ profile_id: "profile_user_25401953" });
 	});
 
 	it("uses the live bird account id when the selected account has no stored external id", async () => {
@@ -872,7 +1229,7 @@ describe("cached live DMs", () => {
 				id: "25401953-99",
 				needsReply: false,
 				participant: expect.objectContaining({
-					handle: "user_99",
+					handle: expect.stringMatching(/^birdclaw_stub_/),
 					displayName: "No Handle",
 				}),
 			}),

@@ -854,18 +854,16 @@ export function syncMentionsEffect({
 				}),
 			);
 		}
-		yield* databaseWriteEffect((writeDb) =>
+		const payloadPaginationToken = getCachedPaginationToken({ value: payload });
+		yield* databaseWriteEffect((writeDb) => {
 			mergeMentionsIntoLocalStore(
 				writeDb,
 				resolvedAccount.accountId,
 				payload,
 				source,
-			),
-		);
-		const payloadPaginationToken = getCachedPaginationToken({ value: payload });
-		if (source === "xurl") {
-			if (payloadPaginationToken) {
-				yield* trySync(() => {
+			);
+			if (source === "xurl") {
+				if (payloadPaginationToken) {
 					writeSyncCache(
 						cursorKey,
 						addMentionCursorState(
@@ -876,30 +874,28 @@ export function syncMentionsEffect({
 							}),
 							maxNumericTweetId(resolvedSinceId, getNewestMentionId(payload)),
 						),
-						db,
+						writeDb,
 					);
-					deleteSyncCache(resultCacheKey, db);
+					deleteSyncCache(resultCacheKey, writeDb);
 					deleteSyncCache(
 						getMentionResultCacheKey({
 							shape: cursorShape,
 							all: fetchAll,
 							maxPages: parsedMaxPages,
 						}),
-						db,
+						writeDb,
 					);
 					for (const legacyKey of cursor?.legacyKeys ?? []) {
-						deleteSyncCache(legacyKey, db);
+						deleteSyncCache(legacyKey, writeDb);
 					}
-				});
-			} else {
-				yield* trySync(() => {
-					deleteSyncCache(cursorKey, db);
+				} else {
+					deleteSyncCache(cursorKey, writeDb);
 					for (const legacyKey of legacyCursorKeys) {
-						deleteSyncCache(legacyKey, db);
+						deleteSyncCache(legacyKey, writeDb);
 					}
 					if (cursorShape.boundary.kind === "auto") {
 						writeMentionHighWaterId(
-							db,
+							writeDb,
 							source,
 							resolvedAccount.accountId,
 							maxNumericTweetId(
@@ -909,23 +905,23 @@ export function syncMentionsEffect({
 							),
 						);
 					}
-				});
+				}
 			}
-		}
-		if (!payloadPaginationToken && !startPaginationToken) {
-			const writeCacheKey =
-				source === primaryMode
-					? resultCacheKey
-					: getMentionResultCacheKey({
-							shape: {
-								...resultShape,
-								mode: source,
-							},
-							all: false,
-							maxPages: null,
-						});
-			yield* trySync(() => writeSyncCache(writeCacheKey, payload, db));
-		}
+			if (!payloadPaginationToken && !startPaginationToken) {
+				const writeCacheKey =
+					source === primaryMode
+						? resultCacheKey
+						: getMentionResultCacheKey({
+								shape: {
+									...resultShape,
+									mode: source,
+								},
+								all: false,
+								maxPages: null,
+							});
+				writeSyncCache(writeCacheKey, payload, writeDb);
+			}
+		});
 
 		return {
 			ok: true,

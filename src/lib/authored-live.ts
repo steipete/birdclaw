@@ -27,6 +27,7 @@ import type {
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
 import {
 	buildExternalProfileId,
+	canonicalizeProvenXProfileIdentity,
 	ensureStubProfileForXUser,
 	upsertProfileFromXUser,
 } from "./x-profile";
@@ -565,19 +566,17 @@ function replaceTweetFts(db: Database, tweetId: string, text: string) {
 }
 
 function findExistingProfileIdForUser(db: Database, user: XurlMentionUser) {
-	const username = String(user.username ?? "").replace(/^@/, "");
+	canonicalizeProvenXProfileIdentity(db, user.id, String(user.username ?? ""));
 	const row = db
 		.prepare(
 			`
       select id
       from profiles
-      where id = ? or handle = ?
+      where id = ?
       limit 1
       `,
 		)
-		.get(buildExternalProfileId(user.id), username) as
-		| { id: string }
-		| undefined;
+		.get(buildExternalProfileId(user.id)) as { id: string } | undefined;
 	return row?.id ?? null;
 }
 

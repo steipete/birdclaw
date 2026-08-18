@@ -401,7 +401,7 @@ describe("live authored tweet sync", () => {
 			db
 				.prepare("select author_profile_id from tweets where id = ?")
 				.get("101"),
-		).toEqual({ author_profile_id: "profile_me" });
+		).toEqual({ author_profile_id: "profile_user_25401953" });
 	});
 
 	it("paginates authored tweets and deduplicates users", async () => {

@@ -7,7 +7,9 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import {
 	fetchProfileSnapshots,
+	profileSnapshotHash,
 	recordProfileSnapshot,
+	rekeyProfileSnapshots,
 } from "./profile-history";
 
 let homeDir = "";
@@ -123,5 +125,56 @@ describe("profile history", () => {
 				],
 			]),
 		);
+	});
+
+	it("recomputes and deduplicates hashes when snapshot affiliation ids are rekeyed", () => {
+		const db = getNativeDb();
+		const payload = {
+			handle: "history",
+			displayName: "History",
+			bio: "bio",
+			location: null,
+			url: null,
+			verifiedType: null,
+			followersCount: 1,
+			followingCount: 2,
+			affiliations: [{ organizationProfileId: "profile_user_77" }],
+		};
+		const canonicalHash = profileSnapshotHash(payload);
+		db.prepare(
+			`insert into profile_snapshots (
+			 profile_id, snapshot_hash, observed_at, last_seen_at, source, handle,
+			 display_name, bio, followers_count, following_count, affiliations_json, raw_json
+			) values
+			 ('profile_legacy_77', 'stale-hash', ?, ?, 'legacy', 'history', 'History',
+			  'bio', 1, 2, '[{"organizationProfileId":"profile_legacy_77"}]', '{"legacy":true}'),
+			 ('profile_user_77', ?, ?, ?, 'canonical', 'history', 'History',
+			  'bio', 1, 2, '[{"organizationProfileId":"profile_user_77"}]', '{"canonical":true}')`,
+		).run(
+			"2025-01-01T00:00:00.000Z",
+			"2025-02-01T00:00:00.000Z",
+			canonicalHash,
+			"2025-01-15T00:00:00.000Z",
+			"2026-02-01T00:00:00.000Z",
+		);
+
+		rekeyProfileSnapshots(db, "profile_legacy_77", "profile_user_77");
+
+		expect(
+			db
+				.prepare(
+					"select profile_id, snapshot_hash, observed_at, last_seen_at, source, raw_json from profile_snapshots",
+				)
+				.all(),
+		).toEqual([
+			{
+				profile_id: "profile_user_77",
+				snapshot_hash: canonicalHash,
+				observed_at: "2025-01-01T00:00:00.000Z",
+				last_seen_at: "2026-02-01T00:00:00.000Z",
+				source: "canonical",
+				raw_json: '{"canonical":true}',
+			},
+		]);
 	});
 });

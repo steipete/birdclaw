@@ -644,6 +644,84 @@ describe("cached live mentions", () => {
 		);
 	});
 
+	it("rolls back a mention page and high-water together, then retries the same page", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		insertLocalMentionBaseline({ tweetId: "5000" });
+		const page = {
+			data: [
+				{
+					id: "5100",
+					author_id: "4242",
+					text: "synthetic atomic mention",
+					created_at: "2026-03-09T02:10:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "4242", username: "atomic_user", name: "Atomic User" }],
+			},
+			meta: { result_count: 1, newest_id: "5100" },
+		};
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce(page)
+			.mockResolvedValueOnce(page);
+		const db = getNativeDb();
+		db.exec(`
+			create trigger synthetic_high_water_failure
+			before insert on sync_cache
+			when new.cache_key like 'mentions:sync:high-water:%'
+			begin
+				select raise(abort, 'synthetic high-water failure');
+			end;
+		`);
+		const { syncMentions } = await import("./mentions-live");
+
+		await expect(
+			syncMentions({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				refresh: true,
+			}),
+		).rejects.toThrow("synthetic high-water failure");
+		expect(
+			db.prepare("select id from tweets where id = '5100'").get(),
+		).toBeUndefined();
+		expect(
+			db
+				.prepare(
+					"select cache_key from sync_cache where cache_key like 'mentions:sync:high-water:%'",
+				)
+				.all(),
+		).toEqual([]);
+
+		db.exec("drop trigger synthetic_high_water_failure");
+		await expect(
+			syncMentions({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				refresh: true,
+			}),
+		).resolves.toMatchObject({ count: 1, source: "xurl" });
+		expect(db.prepare("select id from tweets where id = '5100'").get()).toEqual(
+			{
+				id: "5100",
+			},
+		);
+		expect(
+			db
+				.prepare(
+					"select value_json from sync_cache where cache_key like 'mentions:sync:high-water:%'",
+				)
+				.get(),
+		).toEqual({ value_json: '{"sinceId":"5100"}' });
+		expect(listMentionsViaXurlMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ sinceId: "5000" }),
+		);
+	});
+
 	it("does not seed first-run xurl mention sync from live-only mention edges", async () => {
 		makeTempHome();
 		clearLocalMentionRows();
@@ -1434,7 +1512,7 @@ describe("cached live mentions", () => {
 				mediaCount: 1,
 				author: expect.objectContaining({
 					id: "profile_user_999",
-					handle: "user_999",
+					handle: expect.stringMatching(/^birdclaw_stub_/),
 				}),
 			}),
 		]);

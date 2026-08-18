@@ -78,24 +78,26 @@ export function exportMentionItems({
 		limit,
 	});
 
-	return items.map((item): MentionExportItem => ({
-		id: item.id,
-		url: `https://x.com/${item.author.handle}/status/${item.id}`,
-		createdAt: item.createdAt,
-		accountId: item.accountId,
-		accountHandle: item.accountHandle,
-		isReplied: item.isReplied,
-		author: item.author,
-		text: item.text,
-		plainText: renderTweetPlainText(item.text, item.entities),
-		markdown: renderTweetMarkdown(item.text, item.entities),
-		likeCount: item.likeCount,
-		mediaCount: item.mediaCount,
-		bookmarked: item.bookmarked,
-		liked: item.liked,
-		replyToTweetId: item.replyToTweet?.id ?? null,
-		quotedTweetId: item.quotedTweet?.id ?? null,
-	}));
+	return items.map(
+		(item): MentionExportItem => ({
+			id: item.id,
+			url: `https://x.com/${item.author.handle}/status/${item.id}`,
+			createdAt: item.createdAt,
+			accountId: item.accountId,
+			accountHandle: item.accountHandle,
+			isReplied: item.isReplied,
+			author: item.author,
+			text: item.text,
+			plainText: renderTweetPlainText(item.text, item.entities),
+			markdown: renderTweetMarkdown(item.text, item.entities),
+			likeCount: item.likeCount,
+			mediaCount: item.mediaCount,
+			bookmarked: item.bookmarked,
+			liked: item.liked,
+			replyToTweetId: item.replyToTweet?.id ?? null,
+			quotedTweetId: item.quotedTweet?.id ?? null,
+		}),
+	);
 }
 
 export function serializeMentionItemsAsXurlCompatible(

@@ -8,6 +8,7 @@ import {
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import { liveTransportGateway } from "./live-transport-gateway";
+import { getProvenSelectedAccountLegacyProfileIds } from "./profile-identity";
 import {
 	assertLiveAccountMatches,
 	resolveLiveSyncAccount,
@@ -17,9 +18,9 @@ import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
 import type { XurlDmEventsResponse, XurlMentionUser } from "./types";
 import {
-	buildExternalProfileId,
-	randomAvatarHue,
-	upsertProfileFromXUser,
+	canonicalizeProvenXProfileIdentity,
+	ensureStubProfileForXUser,
+	upsertSparseProfileFromXUser,
 } from "./x-profile";
 
 export const DEFAULT_DMS_CACHE_TTL_MS = 2 * 60_000;
@@ -89,16 +90,6 @@ function toIsoTimestamp(value?: string) {
 	return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 }
 
-function toXUser(user: BirdDmUser): XurlMentionUser {
-	return {
-		id: user.id,
-		username: user.username ?? `user_${user.id}`,
-		name: user.name ?? user.username ?? `user_${user.id}`,
-		profile_image_url: user.profileImageUrl,
-		public_metrics: { followers_count: 0 },
-	};
-}
-
 function collectUsers(
 	payload: {
 		conversations: BirdDmConversation[];
@@ -113,11 +104,18 @@ function collectUsers(
 			accountExternalUserId &&
 			user.id === accountExternalUserId &&
 			!user.username &&
-			!user.name
+			!user.name &&
+			!user.profileImageUrl
 		) {
 			return;
 		}
-		users.set(user.id, { ...users.get(user.id), ...user });
+		const merged: BirdDmUser = { ...users.get(user.id), id: user.id };
+		if (user.username?.trim()) merged.username = user.username;
+		if (user.name?.trim()) merged.name = user.name;
+		if (user.profileImageUrl?.trim()) {
+			merged.profileImageUrl = user.profileImageUrl;
+		}
+		users.set(user.id, merged);
 	};
 	const addId = (id?: string) => {
 		if (!id || users.has(id) || id === accountExternalUserId) return;
@@ -262,33 +260,18 @@ function payloadReferencesExternalUserId(
 
 function ensureSparseLocalProfile(
 	db: Database,
+	account: LiveSyncAccount,
 	externalUserId: string,
-	accountUsername: string,
 ) {
-	const profileId = buildExternalProfileId(externalUserId);
-	const existing = db
-		.prepare("select id from profiles where id = ? or handle = ? limit 1")
-		.get(profileId, accountUsername) as { id: string } | undefined;
-	if (existing) {
-		return existing.id;
-	}
-
-	const createdAt = new Date().toISOString();
-	db.prepare(
-		`
-    insert into profiles (
-      id, handle, display_name, bio, followers_count, following_count,
-      public_metrics_json, avatar_hue, entities_json, raw_json, created_at
-    ) values (?, ?, ?, '', 0, 0, '{}', ?, '{}', '{}', ?)
-    `,
-	).run(
-		profileId,
-		accountUsername,
-		accountUsername,
-		randomAvatarHue(accountUsername),
-		createdAt,
+	const provenLegacyProfileIds = getProvenSelectedAccountLegacyProfileIds(
+		db,
+		account,
+		externalUserId,
 	);
-	return profileId;
+	canonicalizeProvenXProfileIdentity(db, externalUserId, account.username, {
+		provenLegacyProfileIds,
+	});
+	return ensureStubProfileForXUser(db, externalUserId).profile.id;
 }
 
 function mergeDirectMessagesIntoLocalStore(
@@ -327,9 +310,47 @@ function mergeDirectMessagesIntoLocalStore(
 	if (!localExternalUserId) {
 		return;
 	}
+	const selectedAccount = resolveLiveSyncAccount(db, accountId);
+	const localProvenLegacyProfileIds =
+		accountExternalUserId === localExternalUserId
+			? getProvenSelectedAccountLegacyProfileIds(
+					db,
+					selectedAccount,
+					localExternalUserId,
+				)
+			: undefined;
 	const profilesByExternalId = new Map<string, string>();
 	for (const user of users.values()) {
-		const resolved = upsertProfileFromXUser(db, toXUser(user));
+		const hasSparseMetadata = Boolean(
+			user.username?.trim() ||
+			user.name?.trim() ||
+			user.profileImageUrl?.trim(),
+		);
+		const resolved = hasSparseMetadata
+			? upsertSparseProfileFromXUser(
+					db,
+					{
+						id: user.id,
+						username: user.username,
+						name: user.name,
+						profile_image_url: user.profileImageUrl,
+					},
+					{
+						provenLegacyProfileIds:
+							user.id === localExternalUserId
+								? localProvenLegacyProfileIds
+								: undefined,
+					},
+				)
+			: user.id === localExternalUserId
+				? (canonicalizeProvenXProfileIdentity(
+						db,
+						localExternalUserId,
+						accountUsername,
+						{ provenLegacyProfileIds: localProvenLegacyProfileIds },
+					),
+					ensureStubProfileForXUser(db, user.id))
+				: ensureStubProfileForXUser(db, user.id);
 		profilesByExternalId.set(user.id, resolved.profile.id);
 	}
 	if (
@@ -338,7 +359,7 @@ function mergeDirectMessagesIntoLocalStore(
 	) {
 		profilesByExternalId.set(
 			accountExternalUserId,
-			ensureSparseLocalProfile(db, accountExternalUserId, accountUsername),
+			ensureSparseLocalProfile(db, selectedAccount, accountExternalUserId),
 		);
 	}
 

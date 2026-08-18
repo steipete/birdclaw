@@ -88,6 +88,7 @@ function isPlaceholderProfile(profile: ProfileRecord) {
 	return (
 		profile.handle === `id${externalUserId}` ||
 		profile.handle === `user_${externalUserId}` ||
+		profile.handle.startsWith("birdclaw_stub_") ||
 		profile.displayName === `id${externalUserId}` ||
 		profile.displayName === `user_${externalUserId}` ||
 		profile.bio === `Imported from archive user ${externalUserId}` ||

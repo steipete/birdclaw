@@ -452,11 +452,12 @@ function parseOAuth2UsernamesFromStatus(rawStatus: string) {
 
 const readOAuth2UsernameCandidatesEffect = Effect.fn(
 	"xurl.readOAuth2UsernameCandidates",
-)((deadlineMs?: number): Effect.Effect<OAuth2UsernameCandidate[], never> =>
-	execXurlTextEffect(["auth", "status"], deadlineMs).pipe(
-		Effect.map(({ stdout }) => parseOAuth2UsernamesFromStatus(stdout)),
-		Effect.catchAll(() => Effect.succeed([])),
-	),
+)(
+	(deadlineMs?: number): Effect.Effect<OAuth2UsernameCandidate[], never> =>
+		execXurlTextEffect(["auth", "status"], deadlineMs).pipe(
+			Effect.map(({ stdout }) => parseOAuth2UsernamesFromStatus(stdout)),
+			Effect.catchAll(() => Effect.succeed([])),
+		),
 );
 
 export function readXurlOAuth2AccountsEffect(): Effect.Effect<

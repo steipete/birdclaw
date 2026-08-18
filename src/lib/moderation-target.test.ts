@@ -224,7 +224,7 @@ describe("moderation target helpers", () => {
 		});
 		await expect(Effect.runPromise(targetEffect)).resolves.toMatchObject({
 			resolvedAccountId: "acct_primary",
-			actionQuery: "amelia",
+			actionQuery: "88",
 		});
 	});
 

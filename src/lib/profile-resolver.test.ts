@@ -276,7 +276,7 @@ describe("profile resolver", () => {
 				status: "hit",
 				source: "xurl",
 				profile: expect.objectContaining({
-					id: "profile_local_fcoury",
+					id: "profile_user_123",
 					handle: "fcoury",
 					avatarUrl: "https://pbs.twimg.com/profile_images/123/avatar.jpg",
 					followersCount: 456,
