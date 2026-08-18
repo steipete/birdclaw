@@ -439,17 +439,15 @@ function collectDms(options: {
 		until: options.window.until,
 		sort: "recent",
 		limit: options.limit,
-	}).map(
-		(item): CompactDm => ({
-			id: item.id,
-			participant: item.participant.handle,
-			name: item.participant.displayName,
-			lastMessageAt: item.lastMessageAt,
-			text: item.lastMessagePreview,
-			needsReply: item.needsReply,
-			influenceScore: item.influenceScore,
-		}),
-	);
+	}).map((item): CompactDm => ({
+		id: item.id,
+		participant: item.participant.handle,
+		name: item.participant.displayName,
+		lastMessageAt: item.lastMessageAt,
+		text: item.lastMessagePreview,
+		needsReply: item.needsReply,
+		influenceScore: item.influenceScore,
+	}));
 }
 
 function compactLinks(options: {
@@ -466,27 +464,24 @@ function compactLinks(options: {
 		until: options.window.until,
 		limit: options.limit,
 		commentsLimit: 5,
-	}).items.map(
-		(item): CompactLink => ({
-			title: item.title ?? item.displayUrl,
-			url: item.url,
-			displayUrl: item.displayUrl,
-			description: item.description,
-			shareCount: item.shareCount,
-			commentCount: item.commentCount,
-			lastSeenAt: item.lastSeenAt,
-			mentions: item.mentions.slice(0, 5).map((mention) => ({
-				id: mention.id,
-				sourceKind: mention.sourceKind,
-				sourceId: mention.sourceId,
-				createdAt: mention.createdAt,
-				author: mention.sharedBy?.handle,
-				text:
-					mention.commentText || mention.sharedContentText || mention.rawText,
-				tweetId: mention.timelineTweetId ?? mention.contentTweetId,
-			})),
-		}),
-	);
+	}).items.map((item): CompactLink => ({
+		title: item.title ?? item.displayUrl,
+		url: item.url,
+		displayUrl: item.displayUrl,
+		description: item.description,
+		shareCount: item.shareCount,
+		commentCount: item.commentCount,
+		lastSeenAt: item.lastSeenAt,
+		mentions: item.mentions.slice(0, 5).map((mention) => ({
+			id: mention.id,
+			sourceKind: mention.sourceKind,
+			sourceId: mention.sourceId,
+			createdAt: mention.createdAt,
+			author: mention.sharedBy?.handle,
+			text: mention.commentText || mention.sharedContentText || mention.rawText,
+			tweetId: mention.timelineTweetId ?? mention.contentTweetId,
+		})),
+	}));
 }
 
 function contextHash(context: Omit<PeriodDigestContext, "hash">) {

@@ -152,6 +152,7 @@ interface BackupTransactionJournal {
 	repoPath: string;
 	repoDevice: number;
 	repoInode: number;
+	repoBirthTimeNs: string;
 	stagePath: string;
 	rollbackPath: string;
 	state: "publishing" | "published" | "rolled_back" | "committed";
@@ -1292,6 +1293,7 @@ async function validateBackupTransactionJournal({
 		"repoPath",
 		"repoDevice",
 		"repoInode",
+		"repoBirthTimeNs",
 		"stagePath",
 		"rollbackPath",
 		"state",
@@ -1323,6 +1325,8 @@ async function validateBackupTransactionJournal({
 		!Number.isSafeInteger(value.repoDevice) ||
 		typeof value.repoInode !== "number" ||
 		!Number.isSafeInteger(value.repoInode) ||
+		typeof value.repoBirthTimeNs !== "string" ||
+		!/^\d+$/u.test(value.repoBirthTimeNs) ||
 		!(
 			["publishing", "published", "rolled_back", "committed"] as unknown[]
 		).includes(value.state) ||
@@ -1332,12 +1336,17 @@ async function validateBackupTransactionJournal({
 	) {
 		throw new Error("Backup transaction journal schema is invalid");
 	}
-	const currentRepoStat = await fs.lstat(repoPath);
+	const currentRepoStat = await fs.lstat(repoPath, { bigint: true });
+	const currentRepoDevice = Number(currentRepoStat.dev);
+	const currentRepoInode = Number(currentRepoStat.ino);
 	if (
+		!Number.isSafeInteger(currentRepoDevice) ||
+		!Number.isSafeInteger(currentRepoInode) ||
 		!currentRepoStat.isDirectory() ||
 		currentRepoStat.isSymbolicLink() ||
-		currentRepoStat.dev !== value.repoDevice ||
-		currentRepoStat.ino !== value.repoInode
+		currentRepoDevice !== value.repoDevice ||
+		currentRepoInode !== value.repoInode ||
+		currentRepoStat.birthtimeNs.toString() !== value.repoBirthTimeNs
 	) {
 		throw new Error("Backup transaction journal repository identity changed");
 	}
@@ -1493,6 +1502,7 @@ async function validateBackupTransactionJournal({
 		repoPath,
 		repoDevice: value.repoDevice,
 		repoInode: value.repoInode,
+		repoBirthTimeNs: value.repoBirthTimeNs,
 		stagePath,
 		rollbackPath,
 		state: value.state as BackupTransactionJournal["state"],
@@ -2040,7 +2050,16 @@ function copyExistingSupportFileEffect(
 
 function publishStagedBackupEffect(repoPath: string, stagingPath: string) {
 	return Effect.gen(function* () {
-		const repoStat = yield* tryPromise(() => fs.lstat(repoPath));
+		const repoStat = yield* tryPromise(() =>
+			fs.lstat(repoPath, { bigint: true }),
+		);
+		const repoDevice = Number(repoStat.dev);
+		const repoInode = Number(repoStat.ino);
+		if (!Number.isSafeInteger(repoDevice) || !Number.isSafeInteger(repoInode)) {
+			return yield* Effect.fail(
+				new Error("Backup repository identity exceeds safe integer range"),
+			);
+		}
 		const transactionRoot = yield* getBackupTransactionRootEffect(repoPath);
 		const rollbackPath = yield* tryPromise(() =>
 			durableMkdtemp(path.join(transactionRoot, "rollback-")),
@@ -2106,8 +2125,9 @@ function publishStagedBackupEffect(repoPath: string, stagingPath: string) {
 		const journal: BackupTransactionJournal = {
 			version: 1,
 			repoPath,
-			repoDevice: repoStat.dev,
-			repoInode: repoStat.ino,
+			repoDevice,
+			repoInode,
+			repoBirthTimeNs: repoStat.birthtimeNs.toString(),
 			stagePath: stagingPath,
 			rollbackPath,
 			state: "publishing",

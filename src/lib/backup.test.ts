@@ -96,7 +96,12 @@ async function makeRecoveryJournalFixture(repoPath: string) {
 		["-C", repoPath, "rev-parse", "HEAD"],
 		{ encoding: "utf8" },
 	).trim();
-	const repoStat = statSync(realpathSync(repoPath));
+	const repoStat = statSync(realpathSync(repoPath), { bigint: true });
+	const repoDevice = Number(repoStat.dev);
+	const repoInode = Number(repoStat.ino);
+	if (!Number.isSafeInteger(repoDevice) || !Number.isSafeInteger(repoInode)) {
+		throw new Error("test repository identity exceeds safe integer range");
+	}
 	const rawCommonDir = execFileSync(
 		"git",
 		["-C", repoPath, "rev-parse", "--git-common-dir"],
@@ -114,8 +119,9 @@ async function makeRecoveryJournalFixture(repoPath: string) {
 		journal: {
 			version: 1,
 			repoPath: realpathSync(repoPath),
-			repoDevice: repoStat.dev,
-			repoInode: repoStat.ino,
+			repoDevice,
+			repoInode,
+			repoBirthTimeNs: repoStat.birthtimeNs.toString(),
 			stagePath,
 			rollbackPath,
 			state: "committed",
