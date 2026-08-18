@@ -28,6 +28,7 @@ export interface SyncTimelineCollectionOptions {
 	limit?: number;
 	all?: boolean;
 	maxPages?: number;
+	paginationToken?: string;
 	refresh?: boolean;
 	cacheTtlMs?: number;
 	earlyStop?: boolean;
@@ -183,6 +184,7 @@ function fetchXurlCollectionEffect({
 	limit,
 	all,
 	maxPages,
+	paginationToken,
 	earlyStop,
 }: {
 	db: Database;
@@ -193,6 +195,7 @@ function fetchXurlCollectionEffect({
 	limit: number;
 	all: boolean;
 	maxPages: number | null;
+	paginationToken?: string;
 	earlyStop: boolean;
 }) {
 	return Effect.gen(function* () {
@@ -210,6 +213,7 @@ function fetchXurlCollectionEffect({
 
 		let saturatedAtPage: number | undefined;
 		const result = yield* runSyncPlanEffect({
+			initialCursor: paginationToken,
 			fetchPage: ({ cursor, pageIndex }) =>
 				Effect.gen(function* () {
 					const payload = yield* kind === "likes"
@@ -223,7 +227,7 @@ function fetchXurlCollectionEffect({
 								maxResults: limit,
 								username,
 								userId: resolvedUserId,
-								isPaginatedWalk: all,
+								isPaginatedWalk: all || cursor !== undefined,
 								paginationToken: cursor,
 							});
 					if (!earlyStop) {
@@ -311,12 +315,18 @@ export function syncTimelineCollectionEffect({
 	limit = 20,
 	all = false,
 	maxPages,
+	paginationToken,
 	refresh = false,
 	cacheTtlMs,
 	earlyStop = false,
 }: SyncTimelineCollectionOptions) {
 	return Effect.gen(function* () {
 		yield* trySync(() => assertLimit(limit));
+		if (paginationToken !== undefined && mode !== "xurl") {
+			return yield* Effect.fail(
+				new Error("--pagination-token requires --mode xurl"),
+			);
+		}
 		const parsedMaxPages = yield* trySync(() => parseMaxPages(maxPages));
 		const shouldApplyEarlyStopCap =
 			earlyStop && !all && parsedMaxPages === null && mode !== "bird";
@@ -332,7 +342,7 @@ export function syncTimelineCollectionEffect({
 			resolveLiveSyncAccount(db, account),
 		);
 		const cacheMaxPages = mode === "bird" ? parsedMaxPages : xurlMaxPages;
-		const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${earlyStop ? ":early-stop" : ""}`;
+		const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${paginationToken === undefined ? "" : `:cursor:${JSON.stringify(paginationToken)}`}${earlyStop ? ":early-stop" : ""}`;
 
 		if (shouldApplyEarlyStopCap) {
 			console.error(
@@ -349,6 +359,7 @@ export function syncTimelineCollectionEffect({
 			limit,
 			all,
 			maxPages: xurlMaxPages,
+			paginationToken,
 			earlyStop,
 		});
 		const birdFetch = fetchBirdCollectionEffect({

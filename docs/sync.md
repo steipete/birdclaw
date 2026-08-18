@@ -29,6 +29,7 @@ Most `sync *` commands accept:
 - `--limit <n>` — page size in `xurl` mode, total in single-page modes
 - `--all` — keep paginating until the retrievable window is exhausted
 - `--max-pages <n>` — cap a paged scan; implies `--all`
+- `--pagination-token <token>` — on `sync likes` and `sync bookmarks` in `xurl` mode, resume from a previous response's `payload.meta.next_token`
 - `--early-stop` — on `sync likes` and `sync bookmarks`, stop paging once a fetched page is 100% already local (dedupe saturation); without `--all` or `--max-pages`, caps at 10 pages
 - `--refresh` — bypass the cache and force a live fetch
 - `--cache-ttl <seconds>` — tune freshness without forcing a full refresh
@@ -60,11 +61,14 @@ Mirror the authenticated user's Likes feed:
 birdclaw sync likes --mode auto --limit 100 --refresh --json
 birdclaw sync likes --mode bird --all --max-pages 5 --refresh --json
 birdclaw sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
+birdclaw sync likes --mode xurl --limit 100 --max-pages 70 --pagination-token "$NEXT_TOKEN" --refresh --json
 ```
 
 Liked tweets land in the same `tweets` table as archive imports and can be queried with `birdclaw search tweets --liked`.
 
 `--early-stop` halts pagination as soon as one fetched page is 100% already in the local store. Pair it with `--max-pages` on a cron loop: the first run after a long absence walks back as far as `--max-pages` allows, every subsequent run stops at the first saturated page and spends one X API page read instead of `--max-pages` of them. If neither `--all` nor `--max-pages` is present, Birdclaw applies a 10-page cap.
+
+For a bounded backfill, copy `payload.meta.next_token` from one run into `--pagination-token` on the next. The token is an opaque X cursor and starts the first request at that point; the new response carries the following token. Use `--mode xurl` explicitly when resuming.
 
 ## sync bookmarks
 
@@ -74,6 +78,7 @@ Mirror Bookmarks:
 birdclaw sync bookmarks --mode auto --limit 100 --refresh --json
 birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
+birdclaw sync bookmarks --mode xurl --limit 100 --max-pages 70 --pagination-token "$NEXT_TOKEN" --refresh --json
 ```
 
 Bookmarks are queried via `birdclaw search tweets --bookmarked` and drive the [research](research.md) workflow.
