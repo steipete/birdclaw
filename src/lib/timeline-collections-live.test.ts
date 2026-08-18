@@ -921,6 +921,52 @@ describe("live timeline collection sync", () => {
 		});
 	});
 
+	it("keeps the head cache separate from a supplied head pagination token", async () => {
+		setupTempHome();
+		mocks.listLikedTweetsViaXurl
+			.mockResolvedValueOnce({
+				data: [makeTweet("liked_from_head")],
+				includes: { users: [makeUser()] },
+				meta: { result_count: 1 },
+			})
+			.mockResolvedValueOnce({
+				data: [makeTweet("liked_from_head_token")],
+				includes: { users: [makeUser()] },
+				meta: { result_count: 1 },
+			});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		const head = await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+			cacheTtlMs: 15_000,
+		});
+		const resumed = await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			paginationToken: "head",
+			cacheTtlMs: 15_000,
+		});
+
+		expect(head).toMatchObject({ source: "xurl", count: 1 });
+		expect(resumed).toMatchObject({
+			source: "xurl",
+			count: 1,
+			payload: {
+				data: [expect.objectContaining({ id: "liked_from_head_token" })],
+			},
+		});
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenCalledTimes(2);
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ paginationToken: "head" }),
+		);
+	});
+
 	it("validates collection sync options before fetching", async () => {
 		setupTempHome();
 		const { syncTimelineCollection } =
