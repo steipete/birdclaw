@@ -7,7 +7,11 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import {
 	__test__ as profileIdentityTest,
+	getProfileRawIdentityEvidence,
 	getProvenSelectedAccountLegacyProfileIds,
+	markProfileIdentityConflict,
+	profileIdentityHasConflict,
+	repairCanonicalProfileRawIdentity,
 } from "./profile-identity";
 import {
 	buildExternalProfileId,
@@ -43,6 +47,82 @@ describe("x profile sync helpers", () => {
 		expect(buildExternalProfileId("42")).toBe("profile_user_42");
 		expect(getExternalUserId("profile_user_42")).toBe("42");
 		expect(getExternalUserId("profile_me")).toBeNull();
+	});
+
+	it("classifies numeric profile identity evidence conservatively", () => {
+		expect(getProfileRawIdentityEvidence(undefined)).toEqual({ kind: "none" });
+		expect(getProfileRawIdentityEvidence("not json")).toEqual({ kind: "none" });
+		expect(getProfileRawIdentityEvidence("[]")).toEqual({ kind: "none" });
+		expect(
+			getProfileRawIdentityEvidence(
+				'{"id":"00042","id_str":42,"legacy":{"id_str":"42"}}',
+			),
+		).toEqual({ kind: "consistent", externalUserId: "42" });
+		expect(
+			getProfileRawIdentityEvidence('{"id":-1,"id_str":"nope","rest_id":1.5}'),
+		).toEqual({ kind: "none" });
+		expect(getProfileRawIdentityEvidence('{"id":"42","rest_id":"43"}')).toEqual(
+			{ kind: "contradictory" },
+		);
+	});
+
+	it("persists sorted identity conflicts and handles missing profiles", () => {
+		const db = makeTempHome();
+		expect(markProfileIdentityConflict(db, "profile_missing", "99")).toBe(
+			false,
+		);
+		expect(
+			repairCanonicalProfileRawIdentity(db, "profile_missing", "99", "missing"),
+		).toBe(false);
+		db.prepare("update profiles set raw_json = ? where id = ?").run(
+			'{"birdclaw_identity_conflicts":["bad",7,"100"]}',
+			"profile_me",
+		);
+		expect(markProfileIdentityConflict(db, "profile_me", "42")).toBe(true);
+		expect(markProfileIdentityConflict(db, "profile_me", "42")).toBe(true);
+		const row = db
+			.prepare("select raw_json from profiles where id = ?")
+			.get("profile_me") as { raw_json: string };
+		expect(JSON.parse(row.raw_json).birdclaw_identity_conflicts).toEqual([
+			"100",
+			"42",
+		]);
+		expect(profileIdentityHasConflict(row.raw_json, "42")).toBe(true);
+		expect(profileIdentityHasConflict(row.raw_json, "7")).toBe(false);
+		expect(profileIdentityHasConflict("{}", "42")).toBe(false);
+	});
+
+	it("repairs malformed and nested legacy raw identity metadata", () => {
+		const db = makeTempHome();
+		db.prepare("update profiles set raw_json = ? where id = ?").run(
+			"not json",
+			"profile_me",
+		);
+		expect(markProfileIdentityConflict(db, "profile_me", "77")).toBe(true);
+		let row = db
+			.prepare("select raw_json from profiles where id = ?")
+			.get("profile_me") as { raw_json: string };
+		expect(JSON.parse(row.raw_json)).toEqual({
+			birdclaw_identity_conflicts: ["77"],
+		});
+
+		db.prepare("update profiles set raw_json = ? where id = ?").run(
+			'{"id":"1","id_str":"1","rest_id":"1","username":"old","legacy":{"id_str":"1","screen_name":"old"}}',
+			"profile_me",
+		);
+		expect(
+			repairCanonicalProfileRawIdentity(db, "profile_me", "88", "current"),
+		).toBe(true);
+		row = db
+			.prepare("select raw_json from profiles where id = ?")
+			.get("profile_me") as { raw_json: string };
+		expect(JSON.parse(row.raw_json)).toEqual({
+			id: "88",
+			id_str: "88",
+			rest_id: "88",
+			username: "current",
+			legacy: { id_str: "88", screen_name: "old" },
+		});
 	});
 
 	it("upserts new x users and updates existing local handles in place", () => {
