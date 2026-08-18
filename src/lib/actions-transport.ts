@@ -8,7 +8,7 @@ import {
 import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { type ActionsTransport, resolveActionsTransport } from "./config";
 import { Effect } from "effect";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { assertLiveAccountMatches } from "./live-sync-engine";
 import { profileHandleKey } from "./profile-row";
 import type {
@@ -38,17 +38,6 @@ export interface ExpectedActionAccount {
 	id: string;
 	handle: string;
 	externalUserId?: string | null;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 function normalizeFailure(transport: ModerationTransportKind, output: string) {

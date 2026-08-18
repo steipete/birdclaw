@@ -9,7 +9,12 @@ import {
 	resolveAnalysisModelSettings,
 } from "./analysis-runtime";
 import { getNativeDb } from "./db";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import {
+	runEffectPromise,
+	toError,
+	tryPromise,
+	trySync,
+} from "./effect-runtime";
 import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
 import type { Database } from "./sqlite";
 import {
@@ -162,10 +167,6 @@ const XURL_PAGE_SIZE = 100;
 const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
 
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
 function isXurlRateLimitError(error: Error) {
 	// Structured classification from the transport (tag check, so it also works
 	// across module instances); message heuristics stay as a fallback for 429s
@@ -179,10 +180,6 @@ function isXurlRateLimitError(error: Error) {
 		error.message.includes('"status":429') ||
 		/\b429\b/.test(error.message)
 	);
-}
-
-function tryProfileSync<T>(try_: () => T): Effect.Effect<T, Error> {
-	return Effect.try({ try: try_, catch: toError });
 }
 
 function tryProfilePromise<T>(
@@ -693,7 +690,7 @@ function emitStatus(
 }
 
 function abortIfRequestedEffect(signal: AbortSignal | undefined) {
-	return tryProfileSync(() => {
+	return trySync(() => {
 		if (signal?.aborted) {
 			throw new Error("Profile analysis aborted");
 		}
@@ -728,32 +725,30 @@ export function collectProfileAnalysisContextEffect(
 ): Effect.Effect<ProfileAnalysisContext, Error> {
 	return Effect.gen(function* () {
 		const db = getNativeDb();
-		const handle = yield* tryProfileSync(() => normalizeHandle(options.handle));
-		const account = yield* tryProfileSync(() =>
-			resolveAccount(db, options.account),
-		);
-		const maxTweets = yield* tryProfileSync(() =>
+		const handle = yield* trySync(() => normalizeHandle(options.handle));
+		const account = yield* trySync(() => resolveAccount(db, options.account));
+		const maxTweets = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxTweets,
 				DEFAULT_MAX_TWEETS,
 				"--max-tweets",
 			),
 		);
-		const maxPages = yield* tryProfileSync(() =>
+		const maxPages = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxPages,
 				DEFAULT_MAX_PAGES,
 				"--max-pages",
 			),
 		);
-		const maxConversations = yield* tryProfileSync(() =>
+		const maxConversations = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxConversations,
 				DEFAULT_MAX_CONVERSATIONS,
 				"--max-conversations",
 			),
 		);
-		const maxConversationPages = yield* tryProfileSync(() =>
+		const maxConversationPages = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxConversationPages,
 				DEFAULT_MAX_CONVERSATION_PAGES,
@@ -772,7 +767,7 @@ export function collectProfileAnalysisContextEffect(
 			maxConversations,
 			maxConversationPages,
 		});
-		const cached = yield* tryProfileSync(() =>
+		const cached = yield* trySync(() =>
 			readSyncCache<ProfileAnalysisContext>(contextKey, db),
 		);
 		const ageMs = cached
@@ -811,9 +806,7 @@ export function collectProfileAnalysisContextEffect(
 		if (!user) {
 			return yield* Effect.fail(new Error(`Could not resolve @${handle}`));
 		}
-		const resolved = yield* tryProfileSync(() =>
-			upsertProfileFromXUser(db, user),
-		);
+		const resolved = yield* trySync(() => upsertProfileFromXUser(db, user));
 
 		const tweetResponses: XurlTweetsResponse[] = [];
 		let nextToken: string | undefined;
@@ -878,7 +871,7 @@ export function collectProfileAnalysisContextEffect(
 			if (!nextToken || limitedResponse.items.length === 0) break;
 		}
 		const profilePayload = mergeResponses(tweetResponses);
-		yield* tryProfileSync(() =>
+		yield* trySync(() =>
 			mergeXurlTweetsIntoLocalStore(
 				db,
 				account.id,
@@ -973,7 +966,7 @@ export function collectProfileAnalysisContextEffect(
 			}
 		}
 		const conversationPayload = mergeResponses(conversationResponses);
-		yield* tryProfileSync(() =>
+		yield* trySync(() =>
 			mergeXurlTweetsIntoLocalStore(
 				db,
 				account.id,
@@ -996,7 +989,7 @@ export function collectProfileAnalysisContextEffect(
 			fetchCached: false,
 		});
 		if (!conversationRateLimited) {
-			yield* tryProfileSync(() => writeSyncCache(contextKey, context, db));
+			yield* trySync(() => writeSyncCache(contextKey, context, db));
 		}
 		return context;
 	});
@@ -1140,7 +1133,7 @@ export function streamProfileAnalysisEffect(
 		);
 		const cached = options.refresh
 			? null
-			: yield* tryProfileSync(() =>
+			: yield* trySync(() =>
 					readSyncCache<{
 						analysis: ProfileAnalysis;
 						markdown: string;
@@ -1150,7 +1143,7 @@ export function streamProfileAnalysisEffect(
 					}>(resultCacheKey(context, options)),
 				);
 		if (cached) {
-			const result: ProfileAnalysisRunResult = yield* tryProfileSync(() => ({
+			const result: ProfileAnalysisRunResult = yield* trySync(() => ({
 				context,
 				analysis: ProfileAnalysisSchema.parse(cached.value.analysis),
 				markdown: cached.value.markdown,
@@ -1176,7 +1169,7 @@ export function streamProfileAnalysisEffect(
 			fallback: (markdown) => fallbackAnalysis(context, markdown),
 			delimiterPattern: DELIMITER_PATTERN,
 		});
-		const updatedAt = yield* tryProfileSync(() =>
+		const updatedAt = yield* trySync(() =>
 			writeSyncCache(resultCacheKey(context, options), {
 				analysis: analysisResponse.value,
 				markdown: analysisResponse.markdown,

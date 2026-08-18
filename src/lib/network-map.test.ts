@@ -162,6 +162,14 @@ describe("network map", () => {
 		expect(studio.features.map((item) => item.properties.handle)).toEqual([
 			"studiofriend",
 		]);
+		for (const selector of ["@STUDIO", "studio"]) {
+			await expect(
+				getNetworkMap({ account: selector, type: "following", limit: 1 }, db),
+			).resolves.toMatchObject({ meta: { accountId: "acct_studio" } });
+		}
+		await expect(getNetworkMap({ account: "missing" }, db)).rejects.toThrow(
+			"Unknown account: missing",
+		);
 	});
 
 	it("only exposes public Mapbox tokens to the browser config", () => {

@@ -41,7 +41,7 @@ const packageRoot = findPackageRoot(import.meta.url);
 const packageVersion = JSON.parse(
 	readFileSync(join(packageRoot, "package.json"), "utf8"),
 ) as { version?: string };
-const program = new Command()
+export const program = new Command()
 	.name("birdclaw")
 	.description("Local-first Twitter workspace")
 	.version(packageVersion.version ?? "0.0.0")

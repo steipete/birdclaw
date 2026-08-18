@@ -188,7 +188,7 @@ Not backed up intentionally: `sync_cache`, `identity_search_index`, FTS tables/s
 After query/filter changes, run focused tests first:
 
 ```bash
-./scripts/bun-canary.sh ./scripts/run-vitest.mjs run src/lib/queries.test.ts src/cli.test.ts src/routes/api/query.test.ts
+./scripts/bun-canary.sh ./scripts/run-vitest.mjs run src/lib/query-models.test.ts src/cli.test.ts src/routes/api/query.test.ts
 ```
 
 After link-index or backup changes:

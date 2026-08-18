@@ -6,7 +6,7 @@ import { resolveOperationAccount } from "#/lib/account-selection";
 import { getConversationThread } from "#/lib/dm-read-model";
 import { syncDirectMessagesViaCachedBird } from "#/lib/dms-live";
 import { assertLiveAccountMatches } from "#/lib/live-sync-engine";
-import { applyDmRequestMutationToLocalStore } from "#/lib/queries";
+import { applyDmRequestMutationToLocalStore } from "#/lib/query-actions";
 import type { CliCommandContext } from "./command-context";
 import {
 	enrichDmItems,

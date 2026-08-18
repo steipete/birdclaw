@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { tryPromise } from "./effect-runtime";
+import { toError, tryPromise } from "./effect-runtime";
 import {
 	readOpenAIResponseStreamEffect,
 	requestOpenAIResponseEffect,
@@ -35,10 +35,6 @@ export interface HybridAnalysisResult<T> {
 	rawText: string;
 	responseId?: string;
 	usage?: unknown;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
 }
 
 export function resolveAnalysisModelSettings(

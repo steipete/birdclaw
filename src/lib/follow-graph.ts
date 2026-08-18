@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
+import { resolveOperationAccount } from "./account-selection";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
 import { liveTransportGateway } from "./live-transport-gateway";
+import {
+	resolveLiveSyncAccount,
+	type LiveSyncAccount,
+} from "./live-sync-engine";
 import type { Database } from "./sqlite";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
@@ -39,12 +44,6 @@ export interface SyncFollowGraphOptions {
 
 type FollowGraphSyncMode = "auto" | "bird" | "xurl";
 type FollowGraphLiveSource = "bird" | "xurl";
-
-interface ResolvedAccount {
-	accountId: string;
-	username: string;
-	externalUserId?: string;
-}
 
 interface MergedFollowPayload {
 	data: XurlMentionUser[];
@@ -98,43 +97,6 @@ function parseJsonField<T>(value: unknown, fallback: T): T {
 	} catch {
 		return fallback;
 	}
-}
-
-function resolveAccount(db: Database, accountId?: string): ResolvedAccount {
-	const row = accountId
-		? (db
-				.prepare(
-					"select id, handle, external_user_id from accounts where id = ?",
-				)
-				.get(accountId) as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		username: row.handle.replace(/^@/, ""),
-		externalUserId:
-			typeof row.external_user_id === "string" &&
-			row.external_user_id.length > 0
-				? row.external_user_id
-				: undefined,
-	};
 }
 
 function buildCacheKey({
@@ -584,7 +546,7 @@ function makeDryRunResponse({
 	cacheTtlMs,
 }: {
 	db: Database;
-	account: ResolvedAccount;
+	account: LiveSyncAccount;
 	direction: FollowDirection;
 	mode: FollowGraphSyncMode;
 	limit: number;
@@ -652,7 +614,9 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 			parseOptionalPositiveInteger("--max-resources", options.maxResources),
 		);
 		const cacheTtlMs = parseCacheTtlMs(options.cacheTtlMs);
-		const account = yield* trySync(() => resolveAccount(db, options.account));
+		const account = yield* trySync(() =>
+			resolveLiveSyncAccount(db, options.account),
+		);
 		const cacheKey = buildCacheKey({
 			direction: options.direction,
 			accountId: account.accountId,
@@ -771,7 +735,7 @@ export function listTopFollowers({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const rows = db
 		.prepare(
 			`
@@ -791,11 +755,9 @@ export function listTopFollowers({
       limit ?
       `,
 		)
-		.all(resolved.accountId, parseRowLimit(limit)) as Array<
-		Record<string, unknown>
-	>;
+		.all(resolved.id, parseRowLimit(limit)) as Array<Record<string, unknown>>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map(toGraphProfile),
 	};
 }
@@ -808,7 +770,7 @@ export function listMutuals({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const rows = db
 		.prepare(
 			`
@@ -836,11 +798,9 @@ export function listMutuals({
       limit ?
       `,
 		)
-		.all(resolved.accountId, parseRowLimit(limit)) as Array<
-		Record<string, unknown>
-	>;
+		.all(resolved.id, parseRowLimit(limit)) as Array<Record<string, unknown>>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map(toGraphProfile),
 	};
 }
@@ -855,7 +815,7 @@ export function listNonMutualFollowing({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const orderBy =
 		sort === "handle"
 			? "lower(p.handle) asc"
@@ -888,11 +848,9 @@ export function listNonMutualFollowing({
       limit ?
       `,
 		)
-		.all(resolved.accountId, parseRowLimit(limit)) as Array<
-		Record<string, unknown>
-	>;
+		.all(resolved.id, parseRowLimit(limit)) as Array<Record<string, unknown>>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map(toGraphProfile),
 	};
 }
@@ -909,7 +867,7 @@ export function listUnfollowedSince({
 	limit?: number;
 }) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const since = date.includes("T") ? date : `${date}T00:00:00.000Z`;
 	const rows = db
 		.prepare(
@@ -935,11 +893,11 @@ export function listUnfollowedSince({
       limit ?
       `,
 		)
-		.all(resolved.accountId, direction, since, parseRowLimit(limit)) as Array<
+		.all(resolved.id, direction, since, parseRowLimit(limit)) as Array<
 		Record<string, unknown>
 	>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		direction,
 		since,
 		items: rows.map((row) => ({
@@ -965,9 +923,9 @@ export function listFollowEvents({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const where = ["ev.account_id = ?"];
-	const params: unknown[] = [resolved.accountId];
+	const params: unknown[] = [resolved.id];
 
 	if (direction) {
 		where.push("ev.direction = ?");
@@ -1013,7 +971,7 @@ export function listFollowEvents({
 		.all(...params) as Array<Record<string, unknown>>;
 
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map((row): FollowGraphEvent => ({
 			eventAt: String(row.event_at),
 			direction: row.direction as FollowDirection,
@@ -1028,9 +986,9 @@ export function getFollowGraphSummary({
 	account,
 }: { account?: string } = {}): FollowGraphSummary {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
-	const followers = readCurrentCount(db, resolved.accountId, "followers");
-	const following = readCurrentCount(db, resolved.accountId, "following");
+	const resolved = resolveOperationAccount(account, db);
+	const followers = readCurrentCount(db, resolved.id, "followers");
+	const following = readCurrentCount(db, resolved.id, "following");
 	const mutualsRow = db
 		.prepare(
 			`
@@ -1047,41 +1005,21 @@ export function getFollowGraphSummary({
         and following.current = 1
       `,
 		)
-		.get(resolved.accountId) as { count: number };
+		.get(resolved.id) as { count: number };
 
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		followers,
 		following,
 		mutuals: Number(mutualsRow.count),
 		nonMutualFollowing: following - Number(mutualsRow.count),
 		lastCompleteSnapshots: {
-			followers: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"followers",
-				"complete",
-			),
-			following: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"following",
-				"complete",
-			),
+			followers: getLastSnapshot(db, resolved.id, "followers", "complete"),
+			following: getLastSnapshot(db, resolved.id, "following", "complete"),
 		},
 		lastIncompleteSnapshots: {
-			followers: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"followers",
-				"incomplete",
-			),
-			following: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"following",
-				"incomplete",
-			),
+			followers: getLastSnapshot(db, resolved.id, "followers", "incomplete"),
+			following: getLastSnapshot(db, resolved.id, "following", "incomplete"),
 		},
 	};
 }

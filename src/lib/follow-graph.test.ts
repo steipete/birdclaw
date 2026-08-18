@@ -258,6 +258,20 @@ describe("follow graph sync and cache-only queries", () => {
 		);
 	});
 
+	it("applies shared account selection to graph reads", async () => {
+		setupTempHome();
+		const { listTopFollowers } = await import("./follow-graph");
+
+		for (const selector of ["acct_primary", "@STEIPETE", "steipete"]) {
+			expect(listTopFollowers({ account: selector })).toMatchObject({
+				accountId: "acct_primary",
+			});
+		}
+		expect(() => listTopFollowers({ account: "missing" })).toThrow(
+			"Unknown account: missing",
+		);
+	});
+
 	it("reuses fresh cache for duplicate sync requests instead of calling xurl again", async () => {
 		setupTempHome();
 		mocks.listFollowUsersViaXurl.mockResolvedValueOnce({

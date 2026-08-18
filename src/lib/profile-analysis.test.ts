@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { streamProfileAnalysis } from "./profile-analysis";
-import { listTimelineItems } from "./queries";
+import { listTimelineItems } from "./timeline-read-model";
 
 const mocks = vi.hoisted(() => ({
 	listUserTweetsEffect: vi.fn(),

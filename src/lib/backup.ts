@@ -25,6 +25,7 @@ import { databaseWriteEffect } from "./database-writer";
 import {
 	runEffectBackground,
 	runEffectPromise,
+	trySync,
 	tryPromise,
 } from "./effect-runtime";
 import { getImportRepository } from "./import-repository";
@@ -213,17 +214,6 @@ export class BackupGitCommandError extends Data.TaggedError(
 	readonly stderr?: string;
 	readonly cause?: unknown;
 }> {}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
-}
 
 function openBackupDatabase() {
 	beforeDatabaseOpenForTests?.();

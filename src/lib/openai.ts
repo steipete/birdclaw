@@ -1,5 +1,10 @@
 import { Effect } from "effect";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import {
+	runEffectPromise,
+	toError,
+	tryPromise,
+	trySync,
+} from "./effect-runtime";
 import { debugLog, resolveOpenAIBaseUrl } from "./openai-response-runtime";
 
 const getEnv = (name: string) => process.env[name];
@@ -26,17 +31,6 @@ export interface OpenAIInboxInput {
 
 function clampScore(value: number) {
 	return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 export function scoreInboxItemWithOpenAIEffect(

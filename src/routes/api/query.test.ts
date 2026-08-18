@@ -115,4 +115,18 @@ describe("api query route", () => {
 			}),
 		);
 	});
+
+	it("rejects invalid resources before querying", async () => {
+		const response = await GET({
+			request: new Request("http://localhost/api/query?resource=unknown"),
+		});
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			ok: false,
+			message: "Invalid query resource",
+		});
+		expect(queryResourceMock).not.toHaveBeenCalled();
+		expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+	});
 });

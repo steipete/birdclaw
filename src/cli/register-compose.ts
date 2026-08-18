@@ -1,4 +1,8 @@
-import { createDmReply, createPost, createTweetReply } from "#/lib/queries";
+import {
+	createDmReply,
+	createPost,
+	createTweetReply,
+} from "#/lib/query-actions";
 import type { CliCommandContext } from "./command-context";
 
 export function registerComposeCommands({

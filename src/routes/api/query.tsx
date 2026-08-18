@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Effect } from "effect";
 import { queryResponseSchema } from "#/lib/api-contracts";
+import { resourceKindSchema } from "#/lib/api-enums";
 import { requestBackupAutoUpdate } from "#/lib/backup";
 import {
 	jsonResponse,
@@ -9,12 +10,7 @@ import {
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
 import { queryResource } from "#/lib/query-resource";
-import type {
-	DmQuery,
-	ReplyFilter,
-	ResourceKind,
-	TimelineQualityFilter,
-} from "#/lib/types";
+import type { DmQuery, ReplyFilter, TimelineQualityFilter } from "#/lib/types";
 
 function parseReplyFilter(value: string | null): ReplyFilter {
 	if (value === "replied" || value === "unreplied") {
@@ -54,10 +50,18 @@ export const Route = createFileRoute("/api/query")({
 						const denied = sensitiveRequestErrorResponse(request);
 						if (denied) return denied;
 
-						requestBackupAutoUpdate();
 						const url = new URL(request.url);
-						const resource = (url.searchParams.get("resource") ??
-							"home") as ResourceKind;
+						const parsedResource = resourceKindSchema.safeParse(
+							url.searchParams.get("resource") ?? "home",
+						);
+						if (!parsedResource.success) {
+							return jsonResponse(
+								{ ok: false, message: "Invalid query resource" },
+								{ status: 400 },
+							);
+						}
+						const resource = parsedResource.data;
+						requestBackupAutoUpdate();
 						const baseFilters = {
 							account: url.searchParams.get("account") ?? undefined,
 							search: url.searchParams.get("search") ?? undefined,

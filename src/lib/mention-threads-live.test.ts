@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
-import { listTimelineItems } from "./queries";
+import { listTimelineItems } from "./timeline-read-model";
 
 const mocks = vi.hoisted(() => ({
 	listThreadViaBird: vi.fn(),

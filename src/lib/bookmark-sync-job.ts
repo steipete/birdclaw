@@ -7,7 +7,7 @@ import {
 } from "./backup";
 import { ensureBirdclawDirs, getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import {
 	buildLaunchAgent,
 	buildLaunchProgramArguments,
@@ -114,17 +114,6 @@ function countBookmarks(db: Database) {
 		.prepare("select count(*) as count from tweet_collections where kind = ?")
 		.get("bookmarks") as { count: number };
 	return row.count;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 function messageFromError(error: unknown) {

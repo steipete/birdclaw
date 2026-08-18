@@ -137,6 +137,7 @@ vi.mock("#/lib/account-selection", () => ({
 vi.mock("#/lib/dm-read-model", () => ({
 	getConversationThread: (...args: unknown[]) =>
 		getConversationThreadMock(...args),
+	listDmConversations: (...args: unknown[]) => listDmConversationsMock(...args),
 }));
 
 vi.mock("#/lib/archive-finder", () => ({
@@ -304,15 +305,20 @@ vi.mock("#/lib/authored-live", () => ({
 	syncAuthoredTweets: (...args: unknown[]) => syncAuthoredTweetsMock(...args),
 }));
 
-vi.mock("#/lib/queries", () => ({
+vi.mock("#/lib/query-actions", () => ({
 	applyDmRequestMutationToLocalStore: (...args: unknown[]) =>
 		applyDmRequestMutationToLocalStoreMock(...args),
-	getQueryEnvelope: (...args: unknown[]) => getQueryEnvelopeMock(...args),
-	listTimelineItems: (...args: unknown[]) => listTimelineItemsMock(...args),
-	listDmConversations: (...args: unknown[]) => listDmConversationsMock(...args),
 	createPost: (...args: unknown[]) => createPostMock(...args),
 	createTweetReply: (...args: unknown[]) => createTweetReplyMock(...args),
 	createDmReply: (...args: unknown[]) => createDmReplyMock(...args),
+}));
+
+vi.mock("#/lib/query-status", () => ({
+	getQueryEnvelope: (...args: unknown[]) => getQueryEnvelopeMock(...args),
+}));
+
+vi.mock("#/lib/timeline-read-model", () => ({
+	listTimelineItems: (...args: unknown[]) => listTimelineItemsMock(...args),
 }));
 
 vi.mock("#/lib/production-server", () => ({
@@ -729,6 +735,35 @@ describe("cli", () => {
 		});
 		expect(getNativeDbMock).toHaveBeenCalledWith({ seedDemoData: false });
 		expect(seedDemoDataMock).not.toHaveBeenCalled();
+	});
+
+	it("registers archive and db as nested command groups", async () => {
+		const { program } = await loadCli();
+		const archive = program.commands.find(
+			(command) => command.name() === "archive",
+		);
+		const db = program.commands.find((command) => command.name() === "db");
+
+		expect(archive?.description()).toBe("Find and inspect Twitter archives");
+		expect(archive?.commands.map((command) => command.name())).toEqual([
+			"find",
+		]);
+		expect(archive?.commands[0]?.description()).toBe(
+			"Find likely Twitter archives on disk",
+		);
+		expect(db?.description()).toBe("Inspect local storage");
+		expect(db?.commands.map((command) => command.name())).toEqual(["stats"]);
+		expect(db?.commands[0]?.description()).toBe(
+			"Show local storage and dataset stats",
+		);
+
+		for (const command of [archive, db]) {
+			command?.exitOverride();
+			command?.configureOutput({ writeErr: () => {}, writeOut: () => {} });
+			await expect(
+				command?.parseAsync(["nonsense"], { from: "user" }),
+			).rejects.toMatchObject({ code: "commander.unknownCommand" });
+		}
 	});
 
 	it("seeds and explains an offline demo only when requested", async () => {

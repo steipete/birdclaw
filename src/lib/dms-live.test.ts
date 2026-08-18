@@ -5,7 +5,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
-import { getConversationThread, listDmConversations } from "./queries";
+import { getConversationThread, listDmConversations } from "./dm-read-model";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const listDirectMessagesViaBirdMock = vi.fn();

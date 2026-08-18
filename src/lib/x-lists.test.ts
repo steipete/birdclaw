@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { exportBackup, importBackup } from "./backup";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
-import { listTimelineItems } from "./queries";
+import { listTimelineItems } from "./timeline-read-model";
 import { ingestTweetPayload } from "./tweet-repository";
 import type { XurlMentionUser } from "./types";
 

@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { normalizeAvatarUrl } from "./avatar-cache";
 import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { getNativeDb } from "./db";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import {
 	getProvenSelectedAccountLegacyProfileIds,
 	getProfileRawIdentityEvidence,
@@ -43,17 +43,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function toInt(value: unknown) {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 const SEEDED_ACCOUNT_HANDLE = "steipete";

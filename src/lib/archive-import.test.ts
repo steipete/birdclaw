@@ -22,12 +22,9 @@ import { __test__, importArchive, importArchiveEffect } from "./archive-import";
 import { getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
 import { listFollowEvents, listUnfollowedSince } from "./follow-graph";
-import {
-	getConversationThread,
-	getQueryEnvelope,
-	listDmConversations,
-	listTimelineItems,
-} from "./queries";
+import { getConversationThread, listDmConversations } from "./dm-read-model";
+import { getQueryEnvelope } from "./query-status";
+import { listTimelineItems } from "./timeline-read-model";
 
 const testHome = useTestHome({ prefix: "birdclaw-home-" });
 

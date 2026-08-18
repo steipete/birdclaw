@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { getNativeDb } from "./db";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { scoreInboxItemWithOpenAIEffect } from "./openai";
 import { listDmConversations } from "./dm-read-model";
 import { listTimelineItems } from "./timeline-read-model";
@@ -156,17 +156,6 @@ export function listInboxItems({
 			heuristic: filtered.filter((item) => item.source === "heuristic").length,
 		},
 	};
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 export function scoreInboxEffect({

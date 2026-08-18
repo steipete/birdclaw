@@ -56,7 +56,30 @@ describe("operation account selection", () => {
 
 	it("accepts ids, usernames, and @usernames without changing storage", () => {
 		const db = getNativeDb({ seedDemoData: false });
+		db.prepare(
+			`insert into accounts
+			 (id, name, handle, external_user_id, transport, is_default, created_at)
+			 values (?, ?, ?, ?, ?, ?, ?)`,
+		).run(
+			"first_user",
+			"ID Owner",
+			"id_owner",
+			"300",
+			"archive",
+			0,
+			"2026-01-03T00:00:00.000Z",
+		);
 		expect(findOperationAccount(db, "acct_first")).toEqual({
+			id: "acct_first",
+			username: "first_user",
+			externalUserId: "100",
+		});
+		expect(findOperationAccount(db, "first_user")).toEqual({
+			id: "first_user",
+			username: "id_owner",
+			externalUserId: "300",
+		});
+		expect(findOperationAccount(db, "@first_user")).toEqual({
 			id: "acct_first",
 			username: "first_user",
 			externalUserId: "100",
@@ -76,7 +99,11 @@ describe("operation account selection", () => {
 		).toEqual([
 			{ id: "acct_default", is_default: 1 },
 			{ id: "acct_first", is_default: 0 },
+			{ id: "first_user", is_default: 0 },
 		]);
+		expect(resolveOperationAccount("@DEFAULT_USER", db)).toMatchObject({
+			id: "acct_default",
+		});
 	});
 
 	it("uses the database default only when no selector is supplied", () => {

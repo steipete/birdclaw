@@ -1,7 +1,7 @@
 import { backfillLinkIndex, searchLinks } from "#/lib/link-index";
 import { FxTwitterError, importSearchViaFxTwitter } from "#/lib/fxtwitter";
 import { fetchTweetMedia, formatMediaFetchResult } from "#/lib/media-fetch";
-import { listTimelineItems } from "#/lib/queries";
+import { listTimelineItems } from "#/lib/timeline-read-model";
 import { formatWhois, runWhois } from "#/lib/whois";
 import { resolveStoredXListSelector } from "#/lib/x-lists";
 import type { CliCommandContext } from "./command-context";

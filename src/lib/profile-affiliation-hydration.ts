@@ -1,7 +1,7 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
 import { lookupProfileViaBirdEffect } from "./bird";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { syncIdentitySearchIndexForProfileIds } from "./identity-search-index";
 import { syncProfileBioEntitiesForProfileId } from "./profile-bio-entities";
 import { recordProfileSnapshot } from "./profile-history";
@@ -25,17 +25,6 @@ interface SyntheticAffiliationRow {
 	label: string | null;
 	source: string;
 	raw_json: string;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 function replaceSyntheticAffiliation(
