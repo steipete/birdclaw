@@ -342,11 +342,7 @@ export function syncTimelineCollectionEffect({
 			resolveLiveSyncAccount(db, account),
 		);
 		const cacheMaxPages = mode === "bird" ? parsedMaxPages : xurlMaxPages;
-		const paginationCacheKey =
-			paginationToken === undefined
-				? ""
-				: `:cursor:${JSON.stringify(paginationToken)}`;
-		const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${paginationCacheKey}${earlyStop ? ":early-stop" : ""}`;
+		const cacheKey = `${kind}:${mode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${paginationToken === undefined ? "" : `:cursor:${JSON.stringify(paginationToken)}`}${earlyStop ? ":early-stop" : ""}`;
 
 		if (shouldApplyEarlyStopCap) {
 			console.error(
