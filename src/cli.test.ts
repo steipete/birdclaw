@@ -2779,6 +2779,84 @@ describe("cli", () => {
 		consoleErrorMock.mockRestore();
 	});
 
+	it.each([
+		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock],
+		["dms", ["search", "dms", "query"], listDmConversationsMock],
+		["links", ["search", "links", "query"], searchLinksMock],
+		["whois", ["whois", "query"], runWhoisMock],
+	])(
+		"rejects invalid %s limits before querying",
+		async (_name, args, queryMock) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			for (const limit of ["3.5", "abc", "-1"]) {
+				process.exitCode = 0;
+				consoleErrorMock.mockClear();
+				queryMock.mockClear();
+
+				await runCli(["node", "birdclaw", ...args, "--limit", limit]);
+
+				expect(consoleErrorMock).toHaveBeenCalledWith(
+					JSON.stringify({ error: "--limit must be a non-negative integer" }),
+				);
+				expect(process.exitCode).toBe(1);
+				expect(queryMock).not.toHaveBeenCalled();
+			}
+			consoleErrorMock.mockRestore();
+		},
+	);
+
+	it("passes valid search limits to each read model", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"tweets",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"dms",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli(["node", "birdclaw", "whois", "query", "--limit", "5"]);
+
+		expect(listTimelineItemsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(listDmConversationsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(searchLinksMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(runWhoisMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 5 }),
+		);
+	});
+
 	it("dispatches blocklist commands", async () => {
 		const { runCli } = await loadCli();
 
