@@ -17,6 +17,7 @@
 - Propagate explicit selected-account identity proof through Bird, Xurl, and local DM hydration, and compare pending-push remotes using credential-free canonical endpoint identity.
 - Preserve endpoint-routing identity while redacting remote credentials, fail closed for live/cross-host lease owners, and bind recovery journals to repository and Git-directory inode identities.
 - Route authored and profile-analysis live ingestion through the canonical tweet repository so sparse media/profile refreshes, rich video metadata, included context, revisions, and FTS stay consistent across Xurl sources.
+- Make live pagination, cache freshness, account verification, collection saturation, and follow/list completeness conservative across timeline, mentions, authored tweets, saved collections, DMs, and follow graph syncs.
 
 ### Testing and maintenance
 

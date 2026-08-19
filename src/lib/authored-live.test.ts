@@ -207,10 +207,13 @@ describe("live authored tweet sync", () => {
 		const effect = syncAuthoredTweetsEffect({ limit: 4 });
 
 		await expect(Effect.runPromise(effect)).rejects.toThrow(
-			"xurl mode requires --limit between 5 and 100",
+			"--limit must be between 5 and 100",
 		);
 		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
 		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+		await expect(
+			Effect.runPromise(syncAuthoredTweetsEffect({ mode: "auto" as never })),
+		).rejects.toThrow("only supports --mode xurl");
 	});
 
 	it("handles an empty authored response without moving the cursor", async () => {
@@ -663,6 +666,30 @@ describe("live authored tweet sync", () => {
 			nextToken: "page-2",
 		});
 		expect(authoredEdgeCount("250")).toEqual({ count: 1 });
+	});
+
+	it("does not commit a cursor when the first authored fetch fails", async () => {
+		makeTempHome();
+		const savedCursor = {
+			state: "pending-forward",
+			sinceId: "600",
+			token: "saved-page",
+			pendingNewestId: "700",
+		};
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify(savedCursor),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets.mockRejectedValueOnce(new Error("offline"));
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await expect(syncAuthoredTweets({ limit: 5 })).rejects.toThrow("offline");
+		expect(authoredCursor()).toEqual(savedCursor);
 	});
 
 	it("uses an explicit account external id without calling whoami", async () => {
@@ -1154,7 +1181,7 @@ describe("live authored tweet sync", () => {
 		});
 	});
 
-	it("migrates legacy paginationToken cursors to pending-forward on read", async () => {
+	it("ignores legacy paginationToken cursor fields", async () => {
 		makeTempHome();
 		getNativeDb()
 			.prepare(
@@ -1179,9 +1206,29 @@ describe("live authored tweet sync", () => {
 		expect(requestOptions).toEqual(
 			expect.objectContaining({
 				sinceId: "600",
-				paginationToken: "legacy-page",
+				paginationToken: undefined,
 			}),
 		);
+	});
+
+	it("does not persist a repeated authored cursor as resumable", async () => {
+		makeTempHome();
+		mocks.listUserTweets
+			.mockResolvedValueOnce(authoredPage("700", "same-page"))
+			.mockResolvedValueOnce(authoredPage("650", "same-page"));
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		const result = await syncAuthoredTweets({ limit: 5, sinceId: "600" });
+
+		expect(result).toMatchObject({
+			partial: true,
+			nextToken: null,
+			cursor: { paginationToken: null, pending: false },
+			payload: {
+				meta: { next_token: "same-page" },
+			},
+		});
+		expect(authoredCursor()).toEqual({ state: "committed", sinceId: "600" });
 	});
 
 	it("passes until_id without preserving a stale pending pagination token", async () => {

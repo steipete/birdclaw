@@ -4,18 +4,23 @@ import {
 	type BirdDmConversation,
 	type BirdDmEvent,
 	type BirdDmUser,
-	getAuthenticatedBirdAccountEffect,
 	listDirectMessagesViaBirdEffect,
 } from "./bird";
+import { verifyBirdAccountMatchesEffect } from "./bird-account";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import { getProvenSelectedAccountLegacyProfileIds } from "./profile-identity";
 import {
 	assertLiveAccountMatches,
+	parseLiveSyncMode,
+	parseOptionalPageDelayMs,
+	parseOptionalMaxPages,
+	parseLivePageSize,
 	resolveLiveSyncAccount,
 	type LiveSyncAccount,
+	type LiveSyncMode,
 } from "./live-sync-engine";
-import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { inspectSyncCache, writeSyncCache } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
 import type { XurlDmEventsResponse, XurlMentionUser } from "./types";
 import {
@@ -32,7 +37,7 @@ export const DEFAULT_DMS_CACHE_TTL_MS = 2 * 60_000;
 const PREVIEW_MESSAGE_ID_PREFIX = "preview:";
 const XURL_DMS_MAX_RESULTS = 100;
 
-export type DirectMessagesSyncMode = "auto" | "bird" | "xurl";
+export type DirectMessagesSyncMode = LiveSyncMode;
 
 export interface SyncDirectMessagesViaCachedBirdOptions {
 	account?: string;
@@ -44,32 +49,6 @@ export interface SyncDirectMessagesViaCachedBirdOptions {
 	pageDelayMs?: number;
 	refresh?: boolean;
 	cacheTtlMs?: number;
-}
-
-function parseCacheTtlMs(value?: number) {
-	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-		return DEFAULT_DMS_CACHE_TTL_MS;
-	}
-	return Math.floor(value);
-}
-
-function assertBirdLimit(limit: number) {
-	if (!Number.isFinite(limit) || limit < 1) {
-		throw new Error("bird DM mode requires --limit of at least 1");
-	}
-}
-
-function assertXurlLimit(limit: number) {
-	if (!Number.isFinite(limit) || limit < 1 || limit > XURL_DMS_MAX_RESULTS) {
-		throw new Error("xurl DM mode requires --limit between 1 and 100");
-	}
-}
-
-function parseSyncMode(mode: DirectMessagesSyncMode | undefined) {
-	if (!mode || mode === "bird" || mode === "xurl" || mode === "auto") {
-		return mode ?? "bird";
-	}
-	throw new Error("--mode must be auto, bird, or xurl");
 }
 
 function makePreviewMessageId(conversationId: string): string {
@@ -164,25 +143,6 @@ function getLatestEvent(events: BirdDmEvent[]) {
 			new Date(right.createdAt ?? 0).getTime() -
 			new Date(left.createdAt ?? 0).getTime(),
 	)[0];
-}
-
-function assertAuthenticatedBirdAccountMatches({
-	source,
-	account,
-	liveUsername,
-	liveExternalUserId,
-}: {
-	source: "bird" | "xurl";
-	account: LiveSyncAccount;
-	liveUsername: string;
-	liveExternalUserId?: string;
-}) {
-	assertLiveAccountMatches({
-		source,
-		account,
-		liveUsername,
-		liveExternalUserId,
-	});
 }
 
 function getAuthenticatedXurlAccount(payload: Record<string, unknown> | null): {
@@ -677,7 +637,11 @@ function mergeXurlDmPages(pages: XurlDmEventsResponse[]): XurlDmEventsResponse {
 		...(usersById.size > 0
 			? { includes: { users: [...usersById.values()] } }
 			: {}),
-		...(meta ? { meta } : {}),
+		meta: {
+			...meta,
+			result_count: eventsById.size,
+			page_count: pages.length,
+		},
 	};
 }
 
@@ -709,7 +673,15 @@ function fetchDirectMessagesViaXurlEffect({
 			maxPages: pageLimit,
 			pageDelayMs,
 		});
-		return mergeXurlDmPages(result.pages);
+		if (result.stopReason === "repeated-cursor") {
+			return yield* Effect.fail(
+				new Error("xurl DM pagination stopped on a repeated cursor"),
+			);
+		}
+		return {
+			payload: mergeXurlDmPages(result.pages),
+			stopReason: result.stopReason,
+		};
 	});
 }
 
@@ -734,12 +706,15 @@ export function syncDirectMessagesViaCachedBirdEffect({
 	unknown
 > {
 	return Effect.gen(function* () {
-		const parsedMode = parseSyncMode(mode);
-		if (parsedMode === "xurl") {
-			assertXurlLimit(limit);
-		} else {
-			assertBirdLimit(limit);
-		}
+		const parsedMode = parseLiveSyncMode(mode, "bird");
+		const parsedMaxPages = parseOptionalMaxPages(maxPages, { allowZero: true });
+		const parsedPageDelayMs = parseOptionalPageDelayMs(
+			pageDelayMs,
+			"--page-delay-ms",
+		);
+		parseLivePageSize(limit, {
+			max: parsedMode === "xurl" ? XURL_DMS_MAX_RESULTS : undefined,
+		});
 		if (inbox === "requests" && parsedMode === "xurl") {
 			throw new Error(
 				"xurl DM mode cannot read the message-request inbox or accept/reject state; use --mode bird",
@@ -752,16 +727,17 @@ export function syncDirectMessagesViaCachedBirdEffect({
 			: `max-pages:${String(maxPages ?? 0)}`;
 		const cacheMode = parsedMode === "auto" ? "auto" : parsedMode;
 		const cacheKey = `dms:${cacheMode}:${resolvedAccount.accountId}:${String(limit)}:${inbox}:${pageKey}`;
-		const ttlMs = parseCacheTtlMs(cacheTtlMs);
-		const cached = readSyncCache<{
+		const cache = inspectSyncCache<{
 			conversations: BirdDmConversation[];
 			events: BirdDmEvent[];
-		}>(cacheKey, db);
-		const cacheAgeMs = cached
-			? Date.now() - new Date(cached.updatedAt).getTime()
-			: Number.POSITIVE_INFINITY;
+		}>(
+			cacheKey,
+			{ ttlMs: cacheTtlMs, defaultTtlMs: DEFAULT_DMS_CACHE_TTL_MS },
+			db,
+		);
+		const cached = cache.entry;
 
-		const cacheHit = !refresh && cached && cacheAgeMs <= ttlMs;
+		const cacheHit = !refresh && cached && cache.fresh;
 		let accountExternalUserId = resolvedAccount.externalUserId;
 		let payload:
 			| {
@@ -777,7 +753,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 				(parsedMode === "xurl" || parsedMode === "auto") &&
 				inbox !== "requests";
 			if (tryXurl) {
-				const xurlPayload = yield* Effect.gen(function* () {
+				const xurlResult = yield* Effect.gen(function* () {
 					const authenticated = getAuthenticatedXurlAccount(
 						yield* lookupAuthenticatedOAuth2UserEffect(
 							resolvedAccount.username,
@@ -788,7 +764,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 							new Error("xurl authenticated user unavailable"),
 						);
 					}
-					assertAuthenticatedBirdAccountMatches({
+					assertLiveAccountMatches({
 						source: "xurl",
 						account: resolvedAccount,
 						liveUsername: authenticated.username ?? resolvedAccount.username,
@@ -812,9 +788,13 @@ export function syncDirectMessagesViaCachedBirdEffect({
 					return yield* fetchDirectMessagesViaXurlEffect({
 						limit,
 						username: resolvedAccount.username,
-						...(typeof maxPages === "number" ? { maxPages } : {}),
+						...(parsedMaxPages !== undefined
+							? { maxPages: parsedMaxPages }
+							: {}),
 						allPages,
-						...(typeof pageDelayMs === "number" ? { pageDelayMs } : {}),
+						...(parsedPageDelayMs !== undefined
+							? { pageDelayMs: parsedPageDelayMs }
+							: {}),
 					});
 				}).pipe(
 					Effect.catchAll((error) => {
@@ -822,7 +802,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 						return Effect.succeed(undefined);
 					}),
 				);
-				if (xurlPayload) {
+				if (xurlResult) {
 					const localExternalUserId = accountExternalUserId;
 					if (!localExternalUserId) {
 						throw new Error(
@@ -830,7 +810,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 						);
 					}
 					payload = adaptXurlDmEventsToBirdPayload({
-						payload: xurlPayload,
+						payload: xurlResult.payload,
 						localExternalUserId,
 						accountUsername: resolvedAccount.username,
 					});
@@ -838,13 +818,8 @@ export function syncDirectMessagesViaCachedBirdEffect({
 				}
 			}
 			if (!payload) {
-				const authenticated = yield* getAuthenticatedBirdAccountEffect();
-				assertAuthenticatedBirdAccountMatches({
-					source: "bird",
-					account: resolvedAccount,
-					liveUsername: authenticated.username,
-					liveExternalUserId: authenticated.id,
-				});
+				const authenticated =
+					yield* verifyBirdAccountMatchesEffect(resolvedAccount);
 				accountExternalUserId ??= authenticated.id;
 				if (!resolvedAccount.externalUserId && accountExternalUserId) {
 					persistAccountExternalUserId(
@@ -856,9 +831,11 @@ export function syncDirectMessagesViaCachedBirdEffect({
 				payload = yield* listDirectMessagesViaBirdEffect({
 					maxResults: limit,
 					...(inbox !== "all" ? { inbox } : {}),
-					...(typeof maxPages === "number" ? { maxPages } : {}),
+					...(parsedMaxPages !== undefined ? { maxPages: parsedMaxPages } : {}),
 					...(allPages ? { allPages } : {}),
-					...(typeof pageDelayMs === "number" ? { pageDelayMs } : {}),
+					...(parsedPageDelayMs !== undefined
+						? { pageDelayMs: parsedPageDelayMs }
+						: {}),
 				});
 				source = "bird";
 			}
@@ -874,7 +851,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 			accountExternalUserId,
 			payload,
 		);
-		if (!cached || refresh || cacheAgeMs > ttlMs) {
+		if (!cacheHit) {
 			writeSyncCache(cacheKey, payload, db);
 		}
 

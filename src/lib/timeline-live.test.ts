@@ -4,16 +4,21 @@ import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { birdAccountForTest } from "../test/bird-account";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./timeline-read-model";
 
 const listHomeTimelineViaBirdMock = vi.fn();
 const listHomeTimelineViaXurlMock = vi.fn();
+const getAuthenticatedBirdAccountMock = vi.fn();
 
 vi.mock("./bird", async () => {
 	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
+		getAuthenticatedBirdAccountEffect: effectFromMock(
+			getAuthenticatedBirdAccountMock,
+		),
 		listHomeTimelineViaBirdEffect: effectFromMock(listHomeTimelineViaBirdMock),
 	};
 });
@@ -33,6 +38,10 @@ function makeTempHome() {
 	);
 	tempDirs.push(tempDir);
 	process.env.BIRDCLAW_HOME = tempDir;
+	getAuthenticatedBirdAccountMock.mockResolvedValue({
+		id: "25401953",
+		username: "steipete",
+	});
 	return tempDir;
 }
 
@@ -42,6 +51,7 @@ afterEach(() => {
 	delete process.env.BIRDCLAW_HOME;
 	listHomeTimelineViaBirdMock.mockReset();
 	listHomeTimelineViaXurlMock.mockReset();
+	getAuthenticatedBirdAccountMock.mockReset();
 
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
@@ -49,6 +59,27 @@ afterEach(() => {
 });
 
 describe("live home timeline sync", () => {
+	it("rejects a mismatched Bird account before timeline persistence", async () => {
+		makeTempHome();
+		getAuthenticatedBirdAccountMock.mockResolvedValue({
+			id: "999",
+			username: "wrong",
+		});
+		const { syncHomeTimeline } = await import("./timeline-live");
+
+		await expect(
+			syncHomeTimeline({ mode: "bird", limit: 5, refresh: true }),
+		).rejects.toThrow("refusing to sync");
+		expect(listHomeTimelineViaBirdMock).not.toHaveBeenCalled();
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from sync_cache where cache_key like 'timeline:%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+	});
+
 	it("keeps home timeline sync effects lazy", async () => {
 		makeTempHome();
 		listHomeTimelineViaBirdMock.mockResolvedValueOnce({
@@ -84,6 +115,9 @@ describe("live home timeline sync", () => {
 	it("stores account-scoped home timeline edges without moving canonical tweets", async () => {
 		makeTempHome();
 		const db = getNativeDb();
+		getAuthenticatedBirdAccountMock.mockResolvedValue(
+			birdAccountForTest(db, "acct_studio"),
+		);
 		listHomeTimelineViaBirdMock.mockResolvedValueOnce({
 			data: [
 				{

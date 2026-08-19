@@ -3,19 +3,20 @@ import { Effect } from "effect";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { resolveLiveSyncAccount } from "./live-sync-engine";
+import {
+	parseOptionalMaxPages,
+	parseLivePageSize,
+	resolveLiveSyncAccount,
+} from "./live-sync-engine";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
-import type {
-	XurlMedia,
-	XurlMentionData,
-	XurlMentionUser,
-	XurlTweetData,
-	XurlTweetIncludes,
-	XurlUserTweet,
-	XurlUserTweetsResponse,
-} from "./types";
+import type { XurlMentionData } from "./types";
 import { ingestTweetPayload } from "./tweet-repository";
+import {
+	adaptUserTimelinePage,
+	mergeTweetPages,
+	type TweetPage,
+} from "./tweet-page";
 import {
 	getTransportStatusEffect,
 	listUserTweetsEffect,
@@ -65,7 +66,7 @@ type AuthoredCursorState =
 
 interface AuthoredPayload {
 	data: XurlMentionData[];
-	includes?: XurlTweetIncludes;
+	includes?: TweetPage["includes"];
 	meta: {
 		result_count: number;
 		page_count: number;
@@ -105,27 +106,6 @@ const AUTHORED_USER_FIELDS = [
 	"verified",
 	"verified_type",
 ];
-function assertXurlLimit(limit: number) {
-	if (
-		!Number.isFinite(limit) ||
-		limit < MIN_XURL_LIMIT ||
-		limit > MAX_XURL_LIMIT
-	) {
-		throw new Error("xurl mode requires --limit between 5 and 100");
-	}
-	return Math.floor(limit);
-}
-
-function parseMaxPages(value?: number) {
-	if (value === undefined) {
-		return null;
-	}
-	if (!Number.isFinite(value) || value < 1) {
-		throw new Error("--max-pages must be at least 1");
-	}
-	return Math.floor(value);
-}
-
 function cursorKey(accountId: string) {
 	return `${AUTHORED_CURSOR_PREFIX}:${accountId}:cursor`;
 }
@@ -164,19 +144,6 @@ function normalizeCursor(value: unknown): AuthoredCursorState {
 			token: record.token,
 			untilId: record.untilId,
 			...(requestedSinceId !== undefined ? { requestedSinceId } : {}),
-		};
-	}
-	const legacyToken =
-		typeof record.paginationToken === "string" ? record.paginationToken : null;
-	if (legacyToken) {
-		return {
-			state: "pending-forward",
-			sinceId,
-			token: legacyToken,
-			pendingNewestId:
-				typeof record.pendingNewestId === "string"
-					? record.pendingNewestId
-					: null,
 		};
 	}
 	return { state: "committed", sinceId };
@@ -434,92 +401,20 @@ function resolveAuthoredIdentityEffect({
 	});
 }
 
-function toMentionData(tweet: XurlUserTweet, fallbackAuthorId: string) {
+function mergePages(pages: readonly TweetPage[]): AuthoredPayload {
+	const merged = mergeTweetPages(pages);
+	const newestId = getNewestTweetId(merged.data);
+	const oldestId = getOldestTweetId(merged.data);
 	return {
-		...tweet,
-		author_id: tweet.author_id ?? fallbackAuthorId,
-	} satisfies XurlMentionData;
-}
-
-function appendUniqueById<T extends { id: string }>(
-	target: T[],
-	seenIds: Set<string>,
-	items: T[] | undefined,
-) {
-	for (const item of items ?? []) {
-		if (seenIds.has(item.id)) {
-			continue;
-		}
-		seenIds.add(item.id);
-		target.push(item);
-	}
-}
-
-function appendUniqueMedia(
-	target: XurlMedia[],
-	seenIds: Set<string>,
-	items: XurlMedia[] | undefined,
-) {
-	for (const item of items ?? []) {
-		if (seenIds.has(item.media_key)) {
-			continue;
-		}
-		seenIds.add(item.media_key);
-		target.push(item);
-	}
-}
-
-function mergePages({
-	pages,
-	userId,
-	nextToken,
-}: {
-	pages: XurlUserTweetsResponse[];
-	userId: string;
-	nextToken: string | null;
-}): AuthoredPayload {
-	const tweets: XurlMentionData[] = [];
-	const users: XurlMentionUser[] = [];
-	const includedTweets: XurlTweetData[] = [];
-	const media: XurlMedia[] = [];
-	const seenTweetIds = new Set<string>();
-	const seenUserIds = new Set<string>();
-	const seenIncludedTweetIds = new Set<string>();
-	const seenMediaKeys = new Set<string>();
-
-	for (const page of pages) {
-		for (const tweet of page.items) {
-			const normalized = toMentionData(tweet, userId);
-			if (seenTweetIds.has(normalized.id)) {
-				continue;
-			}
-			seenTweetIds.add(normalized.id);
-			tweets.push(normalized);
-		}
-		appendUniqueById(users, seenUserIds, page.includes?.users);
-		appendUniqueById(
-			includedTweets,
-			seenIncludedTweetIds,
-			page.includes?.tweets,
-		);
-		appendUniqueMedia(media, seenMediaKeys, page.includes?.media);
-	}
-
-	const newestId = getNewestTweetId(tweets);
-	const oldestId = getOldestTweetId(tweets);
-	const includes = {
-		...(users.length > 0 ? { users } : {}),
-		...(includedTweets.length > 0 ? { tweets: includedTweets } : {}),
-		...(media.length > 0 ? { media } : {}),
-	};
-
-	return {
-		data: tweets,
-		...(Object.keys(includes).length > 0 ? { includes } : {}),
+		...merged,
 		meta: {
-			result_count: tweets.length,
+			...merged.meta,
+			result_count: merged.data.length,
 			page_count: pages.length,
-			next_token: nextToken,
+			next_token:
+				typeof merged.meta?.next_token === "string"
+					? merged.meta.next_token
+					: null,
 			...(newestId ? { newest_id: newestId } : {}),
 			...(oldestId ? { oldest_id: oldestId } : {}),
 		},
@@ -588,8 +483,12 @@ export function syncAuthoredTweetsEffect({
 			);
 		}
 
-		const pageLimit = yield* trySync(() => assertXurlLimit(limit));
-		const parsedMaxPages = yield* trySync(() => parseMaxPages(maxPages));
+		const pageLimit = yield* trySync(() =>
+			parseLivePageSize(limit, { min: MIN_XURL_LIMIT, max: MAX_XURL_LIMIT }),
+		);
+		const parsedMaxPages = yield* trySync(() =>
+			parseOptionalMaxPages(maxPages),
+		);
 		const db = yield* trySync(() => getNativeDb());
 		const identity = yield* resolveAuthoredIdentityEffect({ account, db });
 		const cursor = yield* trySync(() =>
@@ -651,77 +550,67 @@ export function syncAuthoredTweetsEffect({
 					userFields: AUTHORED_USER_FIELDS,
 					auth: "oauth2",
 					username: identity.username,
-				}),
+				}).pipe(
+					Effect.map((page) => ({
+						payload: adaptUserTimelinePage(page, identity.userId),
+						nextToken: page.nextToken,
+					})),
+				),
 			getNextCursor: (page) => page.nextToken,
-			persistPage: ({ page, nextCursor: pendingToken }) => {
-				const pagePayload = mergePages({
-					pages: [page],
-					userId: identity.userId,
-					nextToken: page.nextToken,
-				});
+			persistPage: ({ page }) => {
 				return databaseWriteEffect((writeDb) =>
 					ingestTweetPayload(writeDb, {
 						accountId: identity.accountId,
-						payload: pagePayload,
+						payload: page.payload,
 						source: "xurl",
 						edgeKind: "authored",
 						markRepliesAsReplied: true,
 					}),
 				).pipe(
-					Effect.flatMap(() =>
-						trySync(() => {
+					Effect.tap(() =>
+						Effect.sync(() => {
 							newestSeenId = maxTweetId(
 								newestSeenId,
-								pagePayload.meta.newest_id,
+								getNewestTweetId(page.payload.data),
 							);
-							if (pendingToken && untilId) {
-								writePendingUntilCursor(db, identity.accountId, {
-									sinceId: cursor.sinceId,
-									token: pendingToken,
-									untilId,
-									requestedSinceId: effectiveSinceId,
-								});
-							} else if (pendingToken) {
-								writePendingForwardCursor(db, identity.accountId, {
-									sinceId: effectiveSinceId,
-									token: pendingToken,
-									pendingNewestId: newestSeenId,
-								});
-							}
 						}),
 					),
 				);
 			},
 		});
-		const pages = planResult.pages;
+		const pages = planResult.pages.map((page) => page.payload);
 		const pageCount = pages.length;
-		const nextToken = planResult.nextCursor;
-		if (planResult.stopReason === "error") {
-			const payload = mergePages({
-				pages,
-				userId: identity.userId,
-				nextToken: nextToken ?? null,
-			});
-			return buildResult({
-				accountId: identity.accountId,
-				userId: identity.userId,
-				effectiveSinceId,
-				nextSinceId: untilId ? cursor.sinceId : effectiveSinceId,
-				nextToken: nextToken ?? null,
-				pageCount,
-				payload,
-				partial: true,
-				error: formatError(planResult.error),
-			});
-		}
-
-		const capped = Boolean(nextToken);
+		const nextToken =
+			planResult.stopReason === "page-limit" ||
+			planResult.stopReason === "error"
+				? planResult.nextCursor
+				: undefined;
+		const partial = !planResult.complete;
 		const nextSinceId = untilId
 			? cursor.sinceId
-			: capped
+			: partial
 				? effectiveSinceId
 				: maxTweetId(newestSeenId, effectiveSinceId, cursor.sinceId);
-		if (untilId && capped && nextToken) {
+		if (planResult.stopReason === "error") {
+			if (nextToken && untilId) {
+				yield* trySync(() =>
+					writePendingUntilCursor(db, identity.accountId, {
+						sinceId: cursor.sinceId,
+						token: nextToken,
+						untilId,
+						requestedSinceId: effectiveSinceId,
+					}),
+				);
+			} else if (nextToken) {
+				yield* trySync(() =>
+					writePendingForwardCursor(db, identity.accountId, {
+						sinceId: effectiveSinceId,
+						token: nextToken,
+						pendingNewestId: newestSeenId,
+					}),
+				);
+			}
+		} else if (untilId && nextToken) {
 			yield* trySync(() =>
 				writePendingUntilCursor(db, identity.accountId, {
 					sinceId: cursor.sinceId,
@@ -734,7 +623,7 @@ export function syncAuthoredTweetsEffect({
 			yield* trySync(() =>
 				writeCommittedCursor(db, identity.accountId, cursor.sinceId),
 			);
-		} else if (capped && nextToken) {
+		} else if (nextToken) {
 			yield* trySync(() =>
 				writePendingForwardCursor(db, identity.accountId, {
 					sinceId: nextSinceId,
@@ -748,11 +637,7 @@ export function syncAuthoredTweetsEffect({
 			);
 		}
 
-		const payload = mergePages({
-			pages,
-			userId: identity.userId,
-			nextToken: nextToken ?? null,
-		});
+		const payload = mergePages(pages);
 		return buildResult({
 			accountId: identity.accountId,
 			userId: identity.userId,
@@ -761,8 +646,17 @@ export function syncAuthoredTweetsEffect({
 			nextToken: nextToken ?? null,
 			pageCount,
 			payload,
-			partial: capped,
-			...(capped ? { error: "max pages reached before sync completed" } : {}),
+			partial,
+			...(planResult.stopReason === "error"
+				? { error: formatError(planResult.error) }
+				: partial
+					? {
+							error:
+								planResult.stopReason === "repeated-cursor"
+									? "pagination stopped on a repeated cursor"
+									: "max pages reached before sync completed",
+						}
+					: {}),
 		});
 	});
 }

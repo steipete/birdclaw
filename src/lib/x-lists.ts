@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import {
-	getAuthenticatedBirdAccountEffect,
 	listOwnedXListsViaBirdEffect,
 	listXListMembersViaBirdEffect,
 } from "./bird";
+import { verifyBirdAccountMatchesEffect } from "./bird-account";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb, getReadDb } from "./db";
 import { runEffectPromise, toError, trySync } from "./effect-runtime";
@@ -11,9 +11,12 @@ import {
 	assertLiveAccountMatches,
 	createLiveTransportAdapter,
 	fetchWithTransportFallbackEffect,
+	parseLiveSyncMode,
+	type LiveSyncMode,
 	type LiveTransportAdapter,
 	resolveLiveSyncAccount,
 } from "./live-sync-engine";
+import type { PaginationStopReason } from "./sync-plan";
 import type { Database } from "./sqlite";
 import type {
 	XListPage,
@@ -28,7 +31,7 @@ import {
 	lookupAuthenticatedOAuth2UserEffect,
 } from "./xurl";
 
-export type XListSyncMode = "auto" | "bird" | "xurl";
+export type XListSyncMode = LiveSyncMode;
 export type XListMembershipStatus =
 	| "not_synced"
 	| "partial"
@@ -91,23 +94,21 @@ const MAX_MEMBER_LIMIT = 100;
 const MAX_MEMBER_PAGES = 100;
 
 function positiveInteger(name: string, value: number, maximum: number) {
-	if (!Number.isFinite(value) || value < 1 || value > maximum) {
+	if (!Number.isInteger(value) || value < 1 || value > maximum) {
 		throw new Error(`${name} must be between 1 and ${String(maximum)}`);
 	}
-	return Math.floor(value);
+	return value;
 }
 
 function nonNegativeInteger(name: string, value: number) {
-	if (!Number.isFinite(value) || value < 0) {
+	if (!Number.isInteger(value) || value < 0) {
 		throw new Error(`${name} must be a non-negative integer`);
 	}
-	return Math.floor(value);
+	return value;
 }
 
 function normalizedMode(value: XListSyncMode | undefined): XListSyncMode {
-	if (value === undefined) return "auto";
-	if (value === "auto" || value === "bird" || value === "xurl") return value;
-	throw new Error("--mode must be auto, bird, or xurl");
+	return parseLiveSyncMode(value, "auto");
 }
 
 function metaString(meta: Record<string, unknown> | undefined, key: string) {
@@ -144,18 +145,11 @@ function fetchOwnedListsEffect({
 	maxLists: number;
 }): Effect.Effect<XListPage, unknown> {
 	if (source === "bird") {
-		return Effect.gen(function* () {
-			const authenticated = yield* getAuthenticatedBirdAccountEffect();
-			yield* trySync(() =>
-				assertLiveAccountMatches({
-					source: "bird",
-					account,
-					liveUsername: authenticated.username,
-					liveExternalUserId: authenticated.id,
-				}),
-			);
-			return yield* listOwnedXListsViaBirdEffect({ maxResults: maxLists });
-		});
+		return verifyBirdAccountMatchesEffect(account).pipe(
+			Effect.flatMap(() =>
+				listOwnedXListsViaBirdEffect({ maxResults: maxLists }),
+			),
+		);
 	}
 
 	return Effect.gen(function* () {
@@ -203,55 +197,84 @@ function fetchListMembersEffect({
 	username: string;
 	memberLimit: number;
 	maxMemberPages: number;
-}): Effect.Effect<XurlFollowUsersResponse, unknown> {
+}): Effect.Effect<
+	{ payload: XurlFollowUsersResponse; stopReason: PaginationStopReason },
+	unknown
+> {
 	if (source === "bird") {
 		return listXListMembersViaBirdEffect({
 			listId: list.id,
 			maxResults: memberLimit,
 			maxPages: maxMemberPages,
-		});
+		}).pipe(
+			Effect.map((payload) => ({
+				payload,
+				stopReason:
+					payload.meta?.pagination_known_complete === true
+						? ("exhausted" as const)
+						: ("page-limit" as const),
+			})),
+		);
 	}
 
 	return Effect.gen(function* () {
 		const data: XurlMentionUser[] = [];
-		const seen = new Set<string>();
-		let paginationToken: string | undefined;
+		const seenUsers = new Set<string>();
+		const seenCursors = new Set<string>();
+		let cursor: string | undefined;
 		let pageCount = 0;
-		do {
+		let stopReason: PaginationStopReason = "page-limit";
+		while (pageCount < maxMemberPages) {
 			const page = yield* listXListMembersViaXurlEffect({
 				listId: list.id,
 				username,
 				maxResults: memberLimit,
-				paginationToken,
+				paginationToken: cursor,
 			});
 			pageCount += 1;
 			for (const user of page.data) {
-				if (seen.has(user.id)) continue;
-				seen.add(user.id);
+				if (seenUsers.has(user.id)) continue;
+				seenUsers.add(user.id);
 				data.push(user);
 			}
-			paginationToken = metaString(page.meta, "next_token");
-		} while (paginationToken && pageCount < maxMemberPages);
+			const nextCursor = metaString(page.meta, "next_token");
+			cursor = nextCursor;
+			if (!nextCursor) {
+				stopReason = "exhausted";
+				break;
+			}
+			if (seenCursors.has(nextCursor)) {
+				stopReason = "repeated-cursor";
+				break;
+			}
+			seenCursors.add(nextCursor);
+		}
 
 		return {
-			data,
-			meta: {
-				result_count: data.length,
-				page_count: pageCount,
-				next_token: paginationToken ?? null,
-				pagination_known_complete: !paginationToken,
+			payload: {
+				data,
+				meta: {
+					result_count: data.length,
+					page_count: pageCount,
+					next_token: cursor ?? null,
+					pagination_known_complete: stopReason === "exhausted",
+				},
 			},
-		} satisfies XurlFollowUsersResponse;
+			stopReason,
+		};
 	});
 }
 
 function membershipStatus({
 	list,
 	payload,
+	stopReason,
 }: {
 	list: XListRecord;
 	payload: XurlFollowUsersResponse;
+	stopReason: PaginationStopReason;
 }) {
+	if (stopReason === "repeated-cursor") return "partial";
 	if (payload.meta?.pagination_known_complete === true) return "complete";
 	if (payload.meta?.pagination_inferred_complete === true) return "inferred";
 	if (
@@ -415,7 +438,7 @@ export function syncXListsEffect(options: SyncXListsOptions = {}) {
 		const sources =
 			mode === "auto"
 				? (["bird", "xurl"] as const)
-				: ([mode] as readonly ("bird" | "xurl")[]);
+				: ([mode] as readonly Exclude<LiveSyncMode, "auto">[]);
 		const transports: Array<LiveTransportAdapter<"bird" | "xurl", XListPage>> =
 			sources.map((source) =>
 				createLiveTransportAdapter(
@@ -445,12 +468,13 @@ export function syncXListsEffect(options: SyncXListsOptions = {}) {
 					),
 				);
 				const now = new Date().toISOString();
+				const memberPayload = fetched.ok ? fetched.payload.payload : undefined;
 				const rateLimit = {
 					memberLimit,
 					maxMemberPages,
 					delayMs,
 					nextCursorStored: fetched.ok
-						? Boolean(metaString(fetched.payload.meta, "next_token"))
+						? Boolean(metaString(memberPayload?.meta, "next_token"))
 						: false,
 				};
 
@@ -475,14 +499,18 @@ export function syncXListsEffect(options: SyncXListsOptions = {}) {
 					continue;
 				}
 
-				const status = membershipStatus({ list, payload: fetched.payload });
+				const status = membershipStatus({
+					list,
+					payload: fetched.payload.payload,
+					stopReason: fetched.payload.stopReason,
+				});
 				yield* databaseWriteEffect((writeDb) =>
 					persistListResult({
 						db: writeDb,
 						accountId: account.accountId,
 						list,
 						source,
-						payload: fetched.payload,
+						payload: fetched.payload.payload,
 						status,
 						now,
 						rateLimit,
@@ -492,8 +520,8 @@ export function syncXListsEffect(options: SyncXListsOptions = {}) {
 					listId: list.id,
 					name: list.name,
 					status,
-					members: fetched.payload.data.length,
-					pages: metaNumber(fetched.payload.meta, "page_count") ?? 1,
+					members: fetched.payload.payload.data.length,
+					pages: metaNumber(fetched.payload.payload.meta, "page_count") ?? 1,
 				});
 			}
 

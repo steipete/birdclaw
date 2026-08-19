@@ -4,13 +4,15 @@ import { listThreadViaBirdEffect } from "./bird";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { resolveLiveSyncAccount } from "./live-sync-engine";
+import {
+	parseLiveSyncMode,
+	parseOptionalMaxPages,
+	resolveLiveSyncAccount,
+} from "./live-sync-engine";
 import { runSyncPlanEffect } from "./sync-plan";
 import type {
 	XurlMentionData,
 	XurlMentionsResponse,
-	XurlMentionUser,
-	XurlMediaItem,
 	XurlTweetsResponse,
 } from "./types";
 import {
@@ -18,6 +20,7 @@ import {
 	upsertTweetAccountEdge,
 } from "./tweet-account-edges";
 import { ingestTweetPayload } from "./tweet-repository";
+import { mergeTweetPages } from "./tweet-page";
 import { getTweetByIdEffect, searchRecentByConversationIdEffect } from "./xurl";
 
 const DEFAULT_LIMIT = 30;
@@ -63,29 +66,24 @@ interface ThreadFetchResult {
 	warnings: string[];
 }
 
-function assertPositiveInteger(value: number, name: string) {
-	if (!Number.isFinite(value) || value < 1) {
+function positiveInteger(value: number, name: string) {
+	if (!Number.isInteger(value) || value < 1) {
 		throw new Error(`${name} must be at least 1`);
 	}
-	return Math.floor(value);
+	return value;
 }
 
-function parseNonNegativeInteger(value: number | undefined, name: string) {
-	if (value === undefined) {
-		return undefined;
+function nonNegativeInteger(value: number, name: string) {
+	if (!Number.isInteger(value) || value < 0) {
+		throw new Error(`${name} must be a non-negative integer`);
 	}
-	if (!Number.isFinite(value) || value < 0) {
-		throw new Error(`${name} must be non-negative`);
-	}
-	return Math.floor(value);
+	return value;
 }
 
 function parseMode(value: string | undefined): MentionThreadsMode {
-	const mode = value ?? DEFAULT_MODE;
-	if (mode !== "bird" && mode !== "xurl") {
-		throw new Error("--mode must be bird or xurl");
-	}
-	return mode;
+	return parseLiveSyncMode(value, DEFAULT_MODE, {
+		allowAuto: false,
+	});
 }
 
 function getRemainingThreadTimeoutMs(
@@ -103,60 +101,6 @@ function getRemainingThreadTimeoutMs(
 function getReplyToId(tweet: XurlMentionData) {
 	return tweet.referenced_tweets?.find((entry) => entry.type === "replied_to")
 		?.id;
-}
-
-function mergePayloads(pages: XurlTweetsResponse[]): XurlMentionsResponse {
-	const tweets: XurlMentionData[] = [];
-	const seenTweetIds = new Set<string>();
-	const users: XurlMentionUser[] = [];
-	const seenUserIds = new Set<string>();
-	const media: XurlMediaItem[] = [];
-	const seenMediaKeys = new Set<string>();
-
-	for (const page of pages) {
-		for (const tweet of page.data) {
-			if (seenTweetIds.has(tweet.id)) {
-				continue;
-			}
-			seenTweetIds.add(tweet.id);
-			tweets.push(tweet);
-		}
-
-		for (const user of page.includes?.users ?? []) {
-			if (seenUserIds.has(user.id)) {
-				continue;
-			}
-			seenUserIds.add(user.id);
-			users.push(user);
-		}
-
-		for (const item of page.includes?.media ?? []) {
-			if (seenMediaKeys.has(item.media_key)) {
-				continue;
-			}
-			seenMediaKeys.add(item.media_key);
-			media.push(item);
-		}
-	}
-
-	const lastMeta = pages.at(-1)?.meta;
-	return {
-		data: tweets,
-		includes:
-			users.length > 0 || media.length > 0
-				? {
-						...(users.length > 0 ? { users } : {}),
-						...(media.length > 0 ? { media } : {}),
-					}
-				: undefined,
-		meta: {
-			...lastMeta,
-			result_count: tweets.length,
-			page_count: pages.length,
-			next_token:
-				typeof lastMeta?.next_token === "string" ? lastMeta.next_token : null,
-		},
-	};
 }
 
 function parseRawTweet(value: string | null | undefined) {
@@ -370,7 +314,7 @@ function fetchConversationViaRecentSearchEffect({
 					: undefined,
 			maxPages: all || maxPages !== undefined ? maxPages : 1,
 		});
-		const payload = mergePayloads(result.pages);
+		const payload = mergeTweetPages(result.pages);
 		const paginationRequested = all || maxPages !== undefined;
 		return {
 			payload,
@@ -460,7 +404,7 @@ function fetchParentChainViaXurlEffect({
 				: undefined;
 		}
 
-		const payload = mergePayloads(pages);
+		const payload = mergeTweetPages(pages);
 		return {
 			payload,
 			fallbackDepth,
@@ -573,7 +517,7 @@ function fetchThreadContextViaXurlEffect({
 					strategy: "conversation_search+parent_walk" as const,
 					pages: search.pages,
 					truncated: search.truncated,
-					payload: mergePayloads([search.payload, fallback.payload]),
+					payload: mergeTweetPages([search.payload, fallback.payload]),
 					fallbackDepth: fallback.fallbackDepth,
 					generalReadTweets:
 						search.generalReadTweets + fallback.generalReadTweets,
@@ -625,17 +569,15 @@ export function syncMentionThreadsEffect({
 }: SyncMentionThreadsOptions) {
 	return Effect.gen(function* () {
 		const parsedMode = yield* trySync(() => parseMode(mode));
-		const parsedLimit = yield* trySync(() =>
-			assertPositiveInteger(limit, "--limit"),
+		const parsedLimit = yield* trySync(() => positiveInteger(limit, "--limit"));
+		const parsedDelayMs = yield* trySync(() =>
+			nonNegativeInteger(delayMs, "--delay-ms"),
 		);
-		const parsedDelayMs =
-			(yield* trySync(() => parseNonNegativeInteger(delayMs, "--delay-ms"))) ??
-			0;
 		const parsedTimeoutMs = yield* trySync(() =>
-			assertPositiveInteger(timeoutMs, "--timeout-ms"),
+			positiveInteger(timeoutMs, "--timeout-ms"),
 		);
 		const parsedMaxPages = yield* trySync(() =>
-			parseNonNegativeInteger(maxPages, "--max-pages"),
+			parseOptionalMaxPages(maxPages, { allowZero: true }),
 		);
 		const db = yield* trySync(() => getNativeDb());
 		const resolvedAccount = yield* trySync(() =>

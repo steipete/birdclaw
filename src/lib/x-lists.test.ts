@@ -122,6 +122,22 @@ afterEach(() => {
 });
 
 describe("X List sync and local filtering", () => {
+	it("validates list-specific sync option boundaries", async () => {
+		setupAccount();
+		const { syncXLists } = await import("./x-lists");
+		await expect(syncXLists({ maxLists: 0 })).rejects.toThrow("--max-lists");
+		await expect(syncXLists({ memberLimit: 0 })).rejects.toThrow(
+			"--member-limit",
+		);
+		await expect(syncXLists({ maxMemberPages: 0 })).rejects.toThrow(
+			"--max-member-pages",
+		);
+		await expect(syncXLists({ delayMs: -1 })).rejects.toThrow("--delay-ms");
+		await expect(syncXLists({ mode: "invalid" as never })).rejects.toThrow(
+			"--mode",
+		);
+	});
+
 	it("syncs complete Bird membership and filters lexical search locally", async () => {
 		const { db, account } = setupAccount();
 		mocks.listOwnedXListsViaBird.mockResolvedValue(ownedList());
@@ -255,6 +271,39 @@ describe("X List sync and local filtering", () => {
 			["bob", false],
 			["alice", true],
 		]);
+	});
+
+	it("marks repeated xurl member cursors partial without looping", async () => {
+		setupAccount();
+		mocks.lookupAuthenticatedOAuth2User.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
+		mocks.listOwnedXListsViaXurl.mockResolvedValue(ownedList());
+		mocks.listXListMembersViaXurl
+			.mockResolvedValueOnce({
+				data: [member("1", "alice")],
+				meta: { next_token: "same-page" },
+			})
+			.mockResolvedValueOnce({
+				data: [member("2", "bob")],
+				meta: { next_token: "same-page" },
+			});
+		const { listStoredXLists, syncXLists } = await import("./x-lists");
+
+		const result = await syncXLists({
+			mode: "xurl",
+			maxLists: 1,
+			maxMemberPages: 10,
+			delayMs: 0,
+		});
+
+		expect(result).toMatchObject({ membershipPartialCount: 1 });
+		expect(mocks.listXListMembersViaXurl).toHaveBeenCalledTimes(2);
+		expect(listStoredXLists()[0]).toMatchObject({
+			membershipStatus: "partial",
+			memberPageCount: 2,
+		});
 	});
 
 	it("round-trips List metadata and membership through current-schema backup", async () => {

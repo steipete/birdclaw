@@ -46,6 +46,18 @@ function makeTempHome() {
 	return tempDir;
 }
 
+function mockRepeatedXurlDmPages() {
+	listDirectMessageEventsViaXurlMock
+		.mockResolvedValueOnce({
+			data: [{ id: "dm_repeated_1", event_type: "MessageCreate" }],
+			meta: { next_token: "same-page" },
+		})
+		.mockResolvedValueOnce({
+			data: [{ id: "dm_repeated_2", event_type: "MessageCreate" }],
+			meta: { next_token: "same-page" },
+		});
+}
+
 describe("cached live DMs", () => {
 	beforeEach(() => {
 		listDirectMessagesViaBirdMock.mockReset();
@@ -323,6 +335,70 @@ describe("cached live DMs", () => {
 		});
 	});
 
+	it("rejects repeated xurl DM cursors without persisting the partial snapshot", async () => {
+		makeTempHome();
+		mockRepeatedXurlDmPages();
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		await expect(
+			syncDirectMessagesViaCachedBird({
+				mode: "xurl",
+				limit: 5,
+				maxPages: 1,
+				refresh: true,
+			}),
+		).rejects.toThrow("xurl DM pagination stopped on a repeated cursor");
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from dm_messages where id like 'dm_repeated_%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		expect(
+			getNativeDb()
+				.prepare(
+					"select cache_key from sync_cache where cache_key like 'dms:xurl:%'",
+				)
+				.get(),
+		).toBeUndefined();
+	});
+
+	it("falls back to Bird when xurl DM pagination repeats", async () => {
+		makeTempHome();
+		mockRepeatedXurlDmPages();
+		listDirectMessagesViaBirdMock.mockResolvedValueOnce({
+			success: true,
+			conversations: [],
+			events: [],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+
+		await expect(
+			syncDirectMessagesViaCachedBird({
+				mode: "auto",
+				limit: 5,
+				maxPages: 1,
+				refresh: true,
+			}),
+		).resolves.toMatchObject({ source: "bird", messages: 0 });
+		expect(listDirectMessageEventsViaXurlMock).toHaveBeenCalledTimes(2);
+		expect(listDirectMessagesViaBirdMock).toHaveBeenCalledTimes(1);
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from dm_messages where id like 'dm_repeated_%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		const cache = getNativeDb()
+			.prepare(
+				"select value_json from sync_cache where cache_key like 'dms:auto:%'",
+			)
+			.get() as { value_json: string };
+		expect(cache.value_json).not.toContain("dm_repeated_");
+	});
+
 	it("reuses fresh cache without spending another bird call", async () => {
 		makeTempHome();
 		listDirectMessagesViaBirdMock.mockResolvedValue({
@@ -350,14 +426,14 @@ describe("cached live DMs", () => {
 		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
 
 		await expect(syncDirectMessagesViaCachedBird({ limit: 0 })).rejects.toThrow(
-			"bird DM mode requires --limit of at least 1",
+			"--limit must be at least 1",
 		);
 		await expect(
 			syncDirectMessagesViaCachedBird({ account: "missing", limit: 1 }),
 		).rejects.toThrow("Unknown account: missing");
 		await expect(
 			syncDirectMessagesViaCachedBird({ mode: "xurl", limit: 101 }),
-		).rejects.toThrow("xurl DM mode requires --limit between 1 and 100");
+		).rejects.toThrow("--limit must be between 1 and 100");
 		await expect(
 			syncDirectMessagesViaCachedBird({
 				mode: "xurl",
@@ -365,6 +441,9 @@ describe("cached live DMs", () => {
 				limit: 5,
 			}),
 		).rejects.toThrow("xurl DM mode cannot read the message-request inbox");
+		await expect(
+			syncDirectMessagesViaCachedBird({ mode: "invalid" as never }),
+		).rejects.toThrow("--mode");
 	});
 
 	it("falls back from xurl to bird in auto mode", async () => {

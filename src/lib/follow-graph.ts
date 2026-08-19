@@ -5,11 +5,15 @@ import { listFollowUsersViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
 import {
+	parseLiveSyncMode,
+	parseOptionalMaxPages,
+	parseLivePageSize,
 	resolveLiveSyncAccount,
 	type LiveSyncAccount,
+	type LiveSyncMode,
 } from "./live-sync-engine";
 import type { Database } from "./sqlite";
-import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { inspectSyncCache, writeSyncCache } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
 import type {
 	FollowEventKind,
@@ -43,7 +47,7 @@ export interface SyncFollowGraphOptions {
 	cacheTtlMs?: number;
 }
 
-type FollowGraphSyncMode = "auto" | "bird" | "xurl";
+type FollowGraphSyncMode = LiveSyncMode;
 type FollowGraphLiveSource = "bird" | "xurl";
 
 interface MergedFollowPayload {
@@ -55,14 +59,11 @@ interface MergedFollowPayload {
 }
 
 function parseLimit(value = DEFAULT_FOLLOW_PAGE_LIMIT) {
-	if (
-		!Number.isFinite(value) ||
-		value < MIN_FOLLOW_PAGE_LIMIT ||
-		value > MAX_FOLLOW_PAGE_LIMIT
-	) {
-		throw new Error("--limit must be between 1 and 1000 for follow sync");
-	}
-	return Math.floor(value);
+	return parseLivePageSize(value, {
+		min: MIN_FOLLOW_PAGE_LIMIT,
+		max: MAX_FOLLOW_PAGE_LIMIT,
+		message: "--limit must be between 1 and 1000 for follow sync",
+	});
 }
 
 function parseRowLimit(value: number) {
@@ -72,21 +73,12 @@ function parseRowLimit(value: number) {
 	return value;
 }
 
-function parseOptionalPositiveInteger(name: string, value?: number) {
-	if (value === undefined) {
-		return undefined;
+function parseOptionalResourceCap(value: number | undefined) {
+	if (value === undefined) return undefined;
+	if (!Number.isInteger(value) || value < 1) {
+		throw new Error("--max-resources must be at least 1");
 	}
-	if (!Number.isFinite(value) || value < 1) {
-		throw new Error(`${name} must be at least 1`);
-	}
-	return Math.floor(value);
-}
-
-function parseCacheTtlMs(value?: number) {
-	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-		return DEFAULT_FOLLOW_CACHE_TTL_MS;
-	}
-	return Math.floor(value);
+	return value;
 }
 
 function parseJsonField<T>(value: unknown, fallback: T): T {
@@ -166,7 +158,9 @@ function getLastSnapshot(
 function mergePages(
 	pages: XurlFollowUsersResponse[],
 	nextToken: string | undefined,
+	planComplete: boolean,
 	maxResources?: number,
+	resourceCapped = false,
 ): MergedFollowPayload {
 	const users: XurlMentionUser[] = [];
 	const seen = new Set<string>();
@@ -204,7 +198,12 @@ function mergePages(
 			next_token: nextToken ?? null,
 			truncated_by_max_resources: truncatedByMaxResources,
 		},
-		complete: !nextToken && !truncatedByMaxResources,
+		complete:
+			planComplete &&
+			!nextToken &&
+			lastPage?.meta?.pagination_known_complete !== false &&
+			!truncatedByMaxResources &&
+			!resourceCapped,
 		pageCount,
 		truncatedByMaxResources,
 	};
@@ -244,7 +243,13 @@ function fetchFollowGraphViaXurlEffect({
 			maxPages,
 		});
 
-		return mergePages(result.pages, result.nextCursor, maxResources);
+		return mergePages(
+			result.pages,
+			result.nextCursor,
+			result.complete,
+			maxResources,
+			result.stopReason === "item-limit",
+		);
 	});
 }
 
@@ -282,7 +287,9 @@ function fetchFollowGraphViaBirdEffect({
 			typeof payload.meta?.next_token === "string"
 				? String(payload.meta.next_token)
 				: undefined,
+			true,
 			maxResources,
+			maxResources !== undefined && payload.data.length >= maxResources,
 		);
 	});
 }
@@ -554,13 +561,15 @@ function makeDryRunResponse({
 	maxPages?: number;
 	maxResources?: number;
 	cacheKey: string;
-	cacheTtlMs: number;
+	cacheTtlMs?: number;
 }) {
-	const cached = readSyncCache<MergedFollowPayload>(cacheKey, db);
-	const cacheAgeMs = cached
-		? Date.now() - new Date(cached.updatedAt).getTime()
-		: Number.POSITIVE_INFINITY;
-	const wouldCallLive = !cached || cacheAgeMs > cacheTtlMs;
+	const cache = inspectSyncCache<MergedFollowPayload>(
+		cacheKey,
+		{ ttlMs: cacheTtlMs, defaultTtlMs: DEFAULT_FOLLOW_CACHE_TTL_MS },
+		db,
+	);
+	const cached = cache.entry;
+	const wouldCallLive = !cache.fresh;
 	return {
 		ok: true,
 		dryRun: true,
@@ -574,16 +583,14 @@ function makeDryRunResponse({
 			maxResultsPerPage: limit,
 			maxPages: maxPages ?? null,
 			maxResources: maxResources ?? null,
-			cacheTtlSeconds: Math.floor(cacheTtlMs / 1000),
+			cacheTtlSeconds: Math.floor(cache.ttlMs / 1000),
 		},
 		cache: {
 			key: cacheKey,
 			hit: Boolean(cached),
-			fresh: Boolean(cached && cacheAgeMs <= cacheTtlMs),
+			fresh: cache.fresh,
 			updatedAt: cached?.updatedAt ?? null,
-			ageSeconds: Number.isFinite(cacheAgeMs)
-				? Math.floor(cacheAgeMs / 1000)
-				: null,
+			ageSeconds: cache.ageMs !== null ? Math.floor(cache.ageMs / 1000) : null,
 			count: cached?.value.data.length ?? 0,
 		},
 		currentCount: readCurrentCount(db, account.accountId, direction),
@@ -593,10 +600,7 @@ function makeDryRunResponse({
 }
 
 function parseMode(value?: FollowGraphSyncMode) {
-	if (!value || value === "auto" || value === "bird" || value === "xurl") {
-		return value ?? "auto";
-	}
-	throw new Error("--mode must be auto, bird, or xurl");
+	return parseLiveSyncMode(value, "auto");
 }
 
 function errorMessage(error: unknown) {
@@ -609,12 +613,11 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 		const mode = yield* trySync(() => parseMode(options.mode));
 		const limit = yield* trySync(() => parseLimit(options.limit));
 		const maxPages = yield* trySync(() =>
-			parseOptionalPositiveInteger("--max-pages", options.maxPages),
+			parseOptionalMaxPages(options.maxPages),
 		);
 		const maxResources = yield* trySync(() =>
-			parseOptionalPositiveInteger("--max-resources", options.maxResources),
+			parseOptionalResourceCap(options.maxResources),
 		);
-		const cacheTtlMs = parseCacheTtlMs(options.cacheTtlMs);
 		const account = yield* trySync(() =>
 			resolveLiveSyncAccount(db, options.account),
 		);
@@ -638,20 +641,23 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 					maxPages,
 					maxResources,
 					cacheKey,
-					cacheTtlMs,
+					cacheTtlMs: options.cacheTtlMs,
 				}),
 			);
 		}
 
-		const cached = yield* trySync(() =>
-			readSyncCache<MergedFollowPayload>(cacheKey, db),
+		const cache = yield* trySync(() =>
+			inspectSyncCache<MergedFollowPayload>(
+				cacheKey,
+				{
+					ttlMs: options.cacheTtlMs,
+					defaultTtlMs: DEFAULT_FOLLOW_CACHE_TTL_MS,
+				},
+				db,
+			),
 		);
-		const cacheAgeMs = cached
-			? Date.now() - new Date(cached.updatedAt).getTime()
-			: Number.POSITIVE_INFINITY;
-		const useCache = Boolean(
-			!options.refresh && cached && cacheAgeMs <= cacheTtlMs,
-		);
+		const cached = cache.entry;
+		const useCache = Boolean(!options.refresh && cached && cache.fresh);
 
 		const liveResult = useCache
 			? undefined

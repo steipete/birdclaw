@@ -1597,13 +1597,13 @@ describe("mention thread sync", () => {
 			"--limit must be at least 1",
 		);
 		await expect(syncMentionThreads({ delayMs: -1 })).rejects.toThrow(
-			"--delay-ms must be non-negative",
+			"--delay-ms must be a non-negative integer",
 		);
 		await expect(syncMentionThreads({ timeoutMs: 0 })).rejects.toThrow(
 			"--timeout-ms must be at least 1",
 		);
 		await expect(syncMentionThreads({ maxPages: -1 })).rejects.toThrow(
-			"--max-pages must be non-negative",
+			"--max-pages must be at least 0",
 		);
 		await expect(syncMentionThreads({ mode: "auto" })).rejects.toThrow(
 			"--mode must be bird or xurl",

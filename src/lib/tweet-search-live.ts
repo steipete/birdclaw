@@ -4,16 +4,17 @@ import { searchTweetsViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise, toError, trySync } from "./effect-runtime";
 import {
-	normalizeCacheTtlMs,
 	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
+	type LiveSyncMode,
 } from "./live-sync-engine";
 import { runSyncPlanEffect } from "./sync-plan";
-import type { XurlMentionsResponse, XurlTweetsResponse } from "./types";
+import type { XurlMentionsResponse } from "./types";
 import { ingestTweetPayload } from "./tweet-repository";
+import { mergeTweetPages } from "./tweet-page";
 import { searchRecentTweetsEffect } from "./xurl";
 
-export type TweetSearchMode = "auto" | "bird" | "xurl" | "local";
+export type TweetSearchMode = LiveSyncMode | "local";
 
 export interface SyncTweetSearchOptions {
 	query: string;
@@ -88,51 +89,6 @@ function mergeTweetSearchIntoLocalStore(
 		edgeKind: "search",
 		source,
 	});
-}
-
-function toMentionsResponse(payload: XurlTweetsResponse): XurlMentionsResponse {
-	return {
-		data: payload.data,
-		includes: payload.includes,
-		meta: payload.meta,
-	};
-}
-
-function mergeResponses(
-	responses: XurlMentionsResponse[],
-): XurlMentionsResponse {
-	const seenTweetIds = new Set<string>();
-	const data = [];
-	const usersById = new Map();
-	const mediaByKey = new Map();
-	let pageCount = 0;
-
-	for (const response of responses) {
-		pageCount += Number(response.meta?.page_count ?? 1);
-		for (const user of response.includes?.users ?? []) {
-			usersById.set(user.id, user);
-		}
-		for (const media of response.includes?.media ?? []) {
-			mediaByKey.set(media.media_key, media);
-		}
-		for (const tweet of response.data) {
-			if (seenTweetIds.has(tweet.id)) continue;
-			seenTweetIds.add(tweet.id);
-			data.push(tweet);
-		}
-	}
-
-	return {
-		data,
-		includes: {
-			users: [...usersById.values()],
-			media: [...mediaByKey.values()],
-		},
-		meta: {
-			result_count: data.length,
-			page_count: pageCount,
-		},
-	};
 }
 
 function limitResponse(
@@ -213,7 +169,7 @@ function fetchXurlSearchEffect({
 					startTime: since,
 					endTime: until,
 					timeoutMs,
-				}).pipe(Effect.map(toMentionsResponse));
+				});
 			},
 			getItemCount: (page) => page.data.length,
 			getNextCursor: (page) =>
@@ -223,7 +179,7 @@ function fetchXurlSearchEffect({
 			maxItems: limit,
 			maxPages,
 		});
-		return mergeResponses(result.pages);
+		return mergeTweetPages(result.pages);
 	});
 }
 
@@ -238,7 +194,7 @@ function runModeEffect(
 		since?: string;
 		until?: string;
 		refresh: boolean;
-		cacheTtlMs: number;
+		cacheTtlMs?: number;
 		timeoutMs?: number;
 	},
 ): Effect.Effect<SyncTweetSearchResult, Error> {
@@ -254,6 +210,7 @@ function runModeEffect(
 			cacheKey: key,
 			refresh: options.refresh,
 			cacheTtlMs: options.cacheTtlMs,
+			defaultCacheTtlMs: DEFAULT_CACHE_TTL_MS,
 			transports: [
 				{
 					source: mode,
@@ -358,7 +315,6 @@ export function syncTweetSearchEffect({
 		const normalizedUntil = yield* trySync(() =>
 			normalizeTime(until, "--until"),
 		);
-		const ttlMs = normalizeCacheTtlMs(cacheTtlMs, DEFAULT_CACHE_TTL_MS);
 		const db = getNativeDb();
 		const resolvedAccount = yield* trySync(() =>
 			resolveLiveSyncAccount(db, account),
@@ -385,7 +341,7 @@ export function syncTweetSearchEffect({
 			since: normalizedSince,
 			until: normalizedUntil,
 			refresh,
-			cacheTtlMs: ttlMs,
+			cacheTtlMs,
 			timeoutMs,
 		};
 		if (mode === "bird" || mode === "xurl") {

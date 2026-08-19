@@ -19,6 +19,7 @@ export interface IngestTweetPayloadOptions {
 	source: string;
 	edgeKind?: TweetAccountEdgeKind;
 	collectionKind?: "likes" | "bookmarks";
+	collectionTweetIds?: ReadonlySet<string>;
 	markRepliesAsReplied?: boolean;
 	provenance?: {
 		sourceUrlByTweetId: ReadonlyMap<string, string>;
@@ -64,6 +65,7 @@ export function ingestTweetPayload(
 		source,
 		edgeKind,
 		collectionKind,
+		collectionTweetIds,
 		markRepliesAsReplied = false,
 		provenance,
 	}: IngestTweetPayloadOptions,
@@ -168,7 +170,10 @@ export function ingestTweetPayload(
 					rawJson: JSON.stringify(tweet),
 				});
 			}
-			if (isPrimaryTweet) {
+			if (
+				isPrimaryTweet &&
+				(!collectionTweetIds || collectionTweetIds.has(tweet.id))
+			) {
 				upsertCollection?.run(
 					accountId,
 					tweet.id,

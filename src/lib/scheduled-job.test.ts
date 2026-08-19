@@ -248,11 +248,20 @@ describe("scheduled job runtime", () => {
 		const observed = new Promise<void>((resolve) => {
 			markerObserved = resolve;
 		});
-		let markerHolders = 0;
+		let activeMarkerHolders = 0;
+		let maxConcurrentMarkerHolders = 0;
 		__test__.setAfterGuardReclaimMarker(async () => {
-			markerHolders += 1;
-			markerObserved();
-			await resumed;
+			activeMarkerHolders += 1;
+			maxConcurrentMarkerHolders = Math.max(
+				maxConcurrentMarkerHolders,
+				activeMarkerHolders,
+			);
+			try {
+				markerObserved();
+				await resumed;
+			} finally {
+				activeMarkerHolders -= 1;
+			}
 		});
 
 		const contenders = [
@@ -277,7 +286,7 @@ describe("scheduled job runtime", () => {
 			undefined,
 			undefined,
 		]);
-		expect(markerHolders).toBe(1);
+		expect(maxConcurrentMarkerHolders).toBe(1);
 		expect(
 			(JSON.parse(readFileSync(ownerPath, "utf8")) as { token: string }).token,
 		).toBe("fresh-guard");
