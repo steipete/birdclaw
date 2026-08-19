@@ -366,6 +366,14 @@ export function applyArchiveImportPlanEffect({
 				        where referencing_tweet.reply_to_id = tweets.id
 				          or referencing_tweet.quoted_tweet_id = tweets.id
 				      )
+				      and not exists (
+				        select 1 from (
+				          select tweet_id from tweet_sources
+				          union all select item_id from fxtwitter_observations where item_kind = 'tweet'
+				          union all select entity_id from ai_scores where entity_kind = 'tweet'
+				          union all select tweet_id from tweet_actions
+				        ) preserved where preserved.tweet_id = tweets.id
+				      )
 				  `);
 		const deleteOrphanTweetFts = db.prepare(`
 		    delete from tweets_fts
@@ -590,14 +598,10 @@ export function applyArchiveImportPlanEffect({
 			}
 		}
 		yield* databaseWriteEffect(() => {
-			if (restore && !selection) {
-				repository.clearArchiveImport();
-				repository.clearMentionSyncState();
-			}
-
-			if (restore && selection) {
+			if (restore) {
 				if (includeTweets) {
 					repository.clearAuthoredSyncCursors("acct_primary");
+					repository.clearMentionSyncState("acct_primary");
 					clearSelectedArchiveTweetEdges.run("acct_primary", localProfile.id);
 				}
 				if (includeLikes) {

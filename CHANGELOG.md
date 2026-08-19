@@ -20,6 +20,7 @@
 - Preserve endpoint-routing identity while redacting remote credentials, fail closed for live/cross-host lease owners, and bind recovery journals to repository and Git-directory inode identities.
 - Route authored and profile-analysis live ingestion through the canonical tweet repository so sparse media/profile refreshes, rich video metadata, included context, revisions, and FTS stay consistent across Xurl sources.
 - Make live pagination, cache freshness, account verification, collection saturation, and follow/list completeness conservative across timeline, mentions, authored tweets, saved collections, DMs, and follow graph syncs.
+- Scope full archive restores to archive-owned state for the primary account so other accounts, unrelated local datasets, and their live cursors survive replacement imports.
 
 ### Testing and maintenance
 

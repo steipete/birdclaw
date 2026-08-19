@@ -89,7 +89,7 @@ Explicit restore:
 
 - clears portable rows owned by the imported full or selected slices before replaying the archive
 - removes destination-only rows in those slices, so use it only when exact replacement is intended
-- remains identity-scoped for selected imports and preserves unselected slices
+- remains identity-scoped for full and selected imports and preserves unselected slices
 
 Typical targeted re-imports:
 
