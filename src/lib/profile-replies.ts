@@ -4,6 +4,7 @@ import { resolveOperationAccount } from "./account-selection";
 import { runEffectPromise } from "./effect-runtime";
 import { resolveProfileEffect } from "./moderation-target";
 import type { ProfileRepliesResponse, XurlReferencedTweet } from "./types";
+import { tweetContentFromXurl } from "./x-tweet-content";
 import { listUserTweetsEffect } from "./xurl";
 
 function getReplyTargetId(references?: XurlReferencedTweet[]) {
@@ -53,10 +54,11 @@ export function inspectProfileRepliesEffect(
 				if (!replyToTweetId) {
 					return null;
 				}
+				const content = tweetContentFromXurl(tweet);
 
 				return {
 					id: tweet.id,
-					text: tweet.text,
+					text: content.text,
 					createdAt: tweet.created_at,
 					conversationId: tweet.conversation_id,
 					replyToTweetId,

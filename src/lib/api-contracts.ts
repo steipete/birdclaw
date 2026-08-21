@@ -7,6 +7,7 @@ import type {
 	DmSearchMatchItem,
 	EmbeddedTweet,
 	LinkInsightItem,
+	NoteTweet,
 	ProfileAffiliation,
 	ProfileRecord,
 	TimelineItem,
@@ -139,9 +140,15 @@ export const tweetMediaSchema: z.ZodType<TweetMediaItem> = z.object({
 		.optional(),
 });
 
+export const noteTweetSchema: z.ZodType<NoteTweet> = z.object({
+	text: z.string(),
+	entities: tweetEntitiesSchema,
+});
+
 export const embeddedTweetSchema: z.ZodType<EmbeddedTweet> = z.object({
 	id: z.string(),
 	text: z.string(),
+	noteTweet: noteTweetSchema.optional(),
 	createdAt: z.string().default(""),
 	replyToId: z.string().nullable().optional(),
 	isReplied: z.boolean().optional(),
@@ -162,6 +169,7 @@ export const timelineItemSchema: z.ZodType<TimelineItem> = z.object({
 		.enum(["home", "mention", "authored", "search", "like", "bookmark"])
 		.default("home"),
 	text: z.string(),
+	noteTweet: noteTweetSchema.optional(),
 	searchSnippet: z.string().optional(),
 	createdAt: z.string().default(""),
 	replyToId: z.string().nullable().optional(),

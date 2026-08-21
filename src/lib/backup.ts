@@ -46,7 +46,7 @@ import {
 } from "./profile-identity";
 import { resolveLiveSyncAccount } from "./live-sync-engine";
 
-const BACKUP_SCHEMA_VERSION = 8;
+const BACKUP_SCHEMA_VERSION = 9;
 const MIN_SUPPORTED_BACKUP_SCHEMA_VERSION = 1;
 const DEFAULT_MAX_BACKUP_SHARD_BYTES = 48 * 1024 * 1024;
 const MANIFEST_PATH = "manifest.json";
@@ -3298,6 +3298,10 @@ function importBackupUnlockedEffect({
 				repository.insertRows(codec.merge.sql, rows, codec.merge.columns);
 				const fts = codec.merge.fts;
 				if (!fts) continue;
+				if (fts.target.table === "tweets_fts") {
+					repository.reindexTweets(rows, fts.idKey);
+					continue;
+				}
 				repository.insertFtsRows({
 					target: fts.target,
 					rows,

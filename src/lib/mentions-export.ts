@@ -1,6 +1,7 @@
 import { listTimelineItems } from "./timeline-read-model";
 import { renderTweetMarkdown, renderTweetPlainText } from "./tweet-render";
 import type {
+	NoteTweet,
 	ReplyFilter,
 	TimelineItem,
 	XurlMentionData,
@@ -17,6 +18,7 @@ export interface MentionExportItem {
 	isReplied: boolean;
 	author: TimelineItem["author"];
 	text: string;
+	noteTweet?: NoteTweet;
 	plainText: string;
 	markdown: string;
 	likeCount: number;
@@ -34,14 +36,14 @@ function toXurlUserId(profileId: string) {
 	return profileId;
 }
 
-function toXurlEntities(item: TimelineItem) {
-	const mentions = item.entities.mentions?.map((mention) => ({
+function toXurlEntities(entities: TimelineItem["entities"]) {
+	const mentions = entities.mentions?.map((mention) => ({
 		start: mention.start,
 		end: mention.end,
 		username: mention.profile?.handle ?? mention.username,
 		...(mention.id ? { id: toXurlUserId(mention.id) } : {}),
 	}));
-	const urls = item.entities.urls?.map((url) => ({
+	const urls = entities.urls?.map((url) => ({
 		start: url.start,
 		end: url.end,
 		url: url.url,
@@ -87,6 +89,7 @@ export function exportMentionItems({
 		isReplied: item.isReplied,
 		author: item.author,
 		text: item.text,
+		noteTweet: item.noteTweet,
 		plainText: renderTweetPlainText(item.text, item.entities),
 		markdown: renderTweetMarkdown(item.text, item.entities),
 		likeCount: item.likeCount,
@@ -123,9 +126,13 @@ export function serializeMentionItemsAsXurlCompatible(
 			id: item.id,
 			author_id: authorId,
 			text: item.text,
+			note_tweet: item.noteTweet && {
+				text: item.noteTweet.text,
+				entities: toXurlEntities(item.noteTweet.entities),
+			},
 			created_at: item.createdAt,
 			conversation_id: item.replyToTweet?.id ?? item.id,
-			entities: toXurlEntities(item),
+			entities: toXurlEntities(item.entities),
 			public_metrics: metrics,
 			edit_history_tweet_ids: [item.id],
 		};

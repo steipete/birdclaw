@@ -85,6 +85,7 @@ const AUTHORED_TWEET_FIELDS = [
 	"created_at",
 	"conversation_id",
 	"entities",
+	"note_tweet",
 	"attachments",
 	"public_metrics",
 	"referenced_tweets",

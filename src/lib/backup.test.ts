@@ -912,7 +912,7 @@ describe("text backup", () => {
 		expect(topologyQueries).toBe(0);
 	});
 
-	it("emits byte-identical schema-v8 data and hashes for the same database", async () => {
+	it("emits byte-identical current-schema data and hashes for the same database", async () => {
 		switchHome("birdclaw-backup-stable-src-");
 		seedBackupFixture();
 		const firstRepoPath = makeTempDir("birdclaw-backup-stable-first-");
@@ -921,7 +921,7 @@ describe("text backup", () => {
 		const first = await exportBackup({ repoPath: firstRepoPath });
 		const second = await exportBackup({ repoPath: secondRepoPath });
 
-		expect(first.manifest.schemaVersion).toBe(8);
+		expect(first.manifest.schemaVersion).toBe(9);
 		expect(second.manifest.files).toEqual(first.manifest.files);
 		expect(second.manifest.counts).toEqual(first.manifest.counts);
 		expect(second.manifest.backupHash).toBe(first.manifest.backupHash);

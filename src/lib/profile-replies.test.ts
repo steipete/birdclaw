@@ -121,6 +121,7 @@ describe("profile reply inspection", () => {
 					{
 						id: "tweet_1",
 						text: "@sam one",
+						note_tweet: { text: "@sam complete long-form reply" },
 						created_at: "2026-03-09T00:00:00.000Z",
 						conversation_id: "conv_1",
 						referenced_tweets: [{ type: "replied_to", id: "root_1" }],
@@ -159,7 +160,7 @@ describe("profile reply inspection", () => {
 			items: [
 				{
 					id: "tweet_1",
-					text: "@sam one",
+					text: "@sam complete long-form reply",
 					createdAt: "2026-03-09T00:00:00.000Z",
 					conversationId: "conv_1",
 					replyToTweetId: "root_1",
