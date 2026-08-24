@@ -43,6 +43,7 @@ export function EmbeddedTweetCard({
 			</header>
 			<TweetRichText
 				className={embeddedCardCopyClass}
+				collapsible={Boolean(item.noteTweet)}
 				entities={item.entities}
 				text={item.text}
 			/>

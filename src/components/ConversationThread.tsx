@@ -114,6 +114,7 @@ export function ConversationThread({
 								</header>
 								<TweetRichText
 									className="mt-1 whitespace-pre-wrap break-words text-[14px] leading-[1.45] text-[var(--ink)] [overflow-wrap:anywhere]"
+									collapsible={Boolean(tweet.noteTweet)}
 									entities={tweet.entities}
 									text={tweet.text}
 								/>
