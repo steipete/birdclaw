@@ -71,6 +71,25 @@ describe("TweetRichText", () => {
 		);
 	});
 
+	it("collapses Note Tweets at a word boundary and expands the full text", () => {
+		const preview = "word ".repeat(55).trimEnd();
+		const text = `${preview} crossingboundary tailmarker`;
+		const { container } = render(
+			<TweetRichText collapsible entities={{}} text={text} />,
+		);
+
+		expect(container.querySelector("p")).toHaveTextContent(preview);
+		expect(container).not.toHaveTextContent("crossingboundary");
+		expect(container).not.toHaveTextContent("tailmarker");
+
+		fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+
+		expect(container.querySelector("p")).toHaveTextContent(text);
+		expect(
+			screen.queryByRole("button", { name: "Show more" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("can show expanded url labels", () => {
 		const { container } = render(
 			<TweetRichText

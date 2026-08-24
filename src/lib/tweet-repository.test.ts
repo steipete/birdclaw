@@ -98,6 +98,21 @@ it("preserves Note Tweet content when a later payload omits it", () => {
 				{
 					id: "note-1",
 					author_id: "42",
+					text: "initial truncated preview",
+					created_at: "2026-07-01T09:00:00.000Z",
+				},
+			],
+			includes: { users },
+		},
+	});
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "note-1",
+					author_id: "42",
 					text: "truncated preview",
 					note_tweet: {
 						text: "full Note Tweet continuationneedle #longform",
