@@ -5,7 +5,7 @@ import {
 	lookupProfileViaBirdEffect,
 	lookupProfilesViaBirdEffect,
 } from "./bird";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import {
 	hydrateProfileAffiliationOrganizationsEffect,
@@ -27,17 +27,6 @@ interface CachedProfileLookup {
 	source: Exclude<ProfileLookupSource, "local" | "cache">;
 	user?: XurlMentionUser;
 	error?: string;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 export interface ResolveProfilesOptions {
@@ -88,6 +77,7 @@ function isPlaceholderProfile(profile: ProfileRecord) {
 	return (
 		profile.handle === `id${externalUserId}` ||
 		profile.handle === `user_${externalUserId}` ||
+		profile.handle.startsWith("birdclaw_stub_") ||
 		profile.displayName === `id${externalUserId}` ||
 		profile.displayName === `user_${externalUserId}` ||
 		profile.bio === `Imported from archive user ${externalUserId}` ||

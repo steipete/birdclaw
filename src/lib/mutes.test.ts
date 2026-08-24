@@ -227,7 +227,7 @@ describe("mutes", () => {
 		).toEqual([
 			{
 				account_id: "acct_primary",
-				profile_id: "profile_amelia",
+				profile_id: "profile_user_7",
 				source: "manual",
 			},
 		]);

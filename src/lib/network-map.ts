@@ -1,4 +1,5 @@
 import { getNativeDb } from "./db";
+import { resolveOperationAccount } from "./account-selection";
 import type { NetworkMapResponse } from "./api-contracts";
 import {
 	geocodeLocation,
@@ -93,22 +94,6 @@ function parseLimit(
 	if (!Number.isFinite(value) || value === undefined || value < min)
 		return fallback;
 	return Math.min(max, Math.floor(value));
-}
-
-function resolveAccountId(db: Database, accountId?: string) {
-	const row = accountId
-		? (db
-				.prepare("select id from accounts where id = ? or handle = ? limit 1")
-				.get(accountId, accountId.replace(/^@/, "")) as
-				| { id: string }
-				| undefined)
-		: (db
-				.prepare(
-					"select id from accounts order by is_default desc, created_at asc limit 1",
-				)
-				.get() as { id: string } | undefined);
-	if (!row) throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	return row.id;
 }
 
 function relationshipForRow(
@@ -310,7 +295,8 @@ export async function getNetworkMap(
 	options: NetworkMapOptions = {},
 	db = getNativeDb(),
 ): Promise<NetworkMapResponse> {
-	const accountId = resolveAccountId(db, options.account);
+	const account = resolveOperationAccount(options.account, db);
+	const accountId = account.id;
 	const type = options.type ?? "all";
 	const limit = parseLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const geocodeLimit = parseLimit(

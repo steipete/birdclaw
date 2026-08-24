@@ -3,19 +3,11 @@ import type { QueryEnvelope } from "./api-contracts";
 import type { Database } from "./sqlite";
 import { findArchivesCachedEffect } from "./archive-finder";
 import { getReadDb } from "./db";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import type { AccountRecord } from "./types";
 import { getTransportStatusEffect } from "./xurl";
 
 export type { QueryEnvelope } from "./api-contracts";
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({ try: try_, catch: toError });
-}
 
 function countTimelineEdges(db: Database, kind: "home" | "mention") {
 	const row = db

@@ -1152,6 +1152,24 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 		name: "retain FxTwitter fetch and positive observation provenance",
 		up: ensureFxTwitterProvenanceTables,
 	},
+	{
+		version: 9,
+		name: "index profile identity reconciliation candidates",
+		up: (db) => {
+			db.exec(`
+				create index if not exists idx_profiles_handle_lower
+					on profiles(lower(handle));
+				create index if not exists idx_profiles_raw_id
+					on profiles(case when json_valid(raw_json) then cast(json_extract(raw_json, '$.id') as text) end);
+				create index if not exists idx_profiles_raw_id_str
+					on profiles(case when json_valid(raw_json) then cast(json_extract(raw_json, '$.id_str') as text) end);
+				create index if not exists idx_profiles_raw_rest_id
+					on profiles(case when json_valid(raw_json) then cast(json_extract(raw_json, '$.rest_id') as text) end);
+				create index if not exists idx_profiles_raw_legacy_id_str
+					on profiles(case when json_valid(raw_json) then cast(json_extract(raw_json, '$.legacy.id_str') as text) end);
+			`);
+		},
+	},
 ];
 
 function ensureDemoData(db: Database) {

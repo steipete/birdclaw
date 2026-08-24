@@ -4,22 +4,14 @@ import type { Database } from "./sqlite";
 import { getReadDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import { getConversationThread } from "./dm-read-model";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { upsertTweetAccountEdge } from "./tweet-account-edges";
 import {
 	dmViaXurlEffect,
-	lookupAuthenticatedUserFresh,
+	lookupAuthenticatedUserFreshEffect,
 	postViaXurlEffect,
 	replyViaXurlEffect,
 } from "./xurl";
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({ try: try_, catch: toError });
-}
 
 function e2eFakeLiveWritesEnabled() {
 	return (
@@ -48,9 +40,7 @@ function verifySelectedXurlAccountEffect(accountId: string) {
 		if (!account) {
 			return yield* Effect.fail(new Error(`Unknown account: ${accountId}`));
 		}
-		const authenticated = yield* tryPromise(() =>
-			lookupAuthenticatedUserFresh(),
-		);
+		const authenticated = yield* lookupAuthenticatedUserFreshEffect();
 		const authenticatedId =
 			typeof authenticated?.id === "string" ? authenticated.id : "";
 		const authenticatedHandle =

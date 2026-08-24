@@ -12,11 +12,11 @@ vi.mock("./account-selection", () => ({
 }));
 
 vi.mock("./moderation-target", () => ({
-	resolveProfile: (...args: unknown[]) => resolveProfileMock(...args),
+	resolveProfileEffect: (...args: unknown[]) => resolveProfileMock(...args),
 }));
 
 vi.mock("./xurl", () => ({
-	listUserTweets: (...args: unknown[]) => listUserTweetsMock(...args),
+	listUserTweetsEffect: (...args: unknown[]) => listUserTweetsMock(...args),
 }));
 
 describe("profile reply inspection", () => {
@@ -32,28 +32,32 @@ describe("profile reply inspection", () => {
 	});
 
 	it("builds profile reply inspection effects lazily", async () => {
-		resolveProfileMock.mockResolvedValue({
-			profile: {
-				id: "profile_user_42",
-				handle: "jpctan",
-				displayName: "Jason Tan",
-				bio: "",
-				followersCount: 268,
-				avatarHue: 18,
-				createdAt: "2015-05-20T09:27:37.000Z",
-			},
-			externalUserId: "42",
-		});
-		listUserTweetsMock.mockResolvedValue({
-			items: [
-				{
-					id: "tweet_1",
-					text: "@sam one",
-					created_at: "2026-03-09T00:00:00.000Z",
-					referenced_tweets: [{ type: "replied_to", id: "root_1" }],
+		resolveProfileMock.mockReturnValue(
+			Effect.succeed({
+				profile: {
+					id: "profile_user_42",
+					handle: "jpctan",
+					displayName: "Jason Tan",
+					bio: "",
+					followersCount: 268,
+					avatarHue: 18,
+					createdAt: "2015-05-20T09:27:37.000Z",
 				},
-			],
-		});
+				externalUserId: "42",
+			}),
+		);
+		listUserTweetsMock.mockReturnValue(
+			Effect.succeed({
+				items: [
+					{
+						id: "tweet_1",
+						text: "@sam one",
+						created_at: "2026-03-09T00:00:00.000Z",
+						referenced_tweets: [{ type: "replied_to", id: "root_1" }],
+					},
+				],
+			}),
+		);
 		const { inspectProfileRepliesEffect } = await import("./profile-replies");
 
 		const effect = inspectProfileRepliesEffect("@jpctan", { limit: 1 });
@@ -71,18 +75,20 @@ describe("profile reply inspection", () => {
 	});
 
 	it("validates profile reply inspection effects only when run", async () => {
-		resolveProfileMock.mockResolvedValue({
-			profile: {
-				id: "profile_group_1",
-				handle: "group",
-				displayName: "Group",
-				bio: "",
-				followersCount: 0,
-				avatarHue: 0,
-				createdAt: "2026-03-09T00:00:00.000Z",
-			},
-			externalUserId: null,
-		});
+		resolveProfileMock.mockReturnValue(
+			Effect.succeed({
+				profile: {
+					id: "profile_group_1",
+					handle: "group",
+					displayName: "Group",
+					bio: "",
+					followersCount: 0,
+					avatarHue: 0,
+					createdAt: "2026-03-09T00:00:00.000Z",
+				},
+				externalUserId: null,
+			}),
+		);
 		const { inspectProfileRepliesEffect } = await import("./profile-replies");
 
 		const effect = inspectProfileRepliesEffect("group");
@@ -95,50 +101,54 @@ describe("profile reply inspection", () => {
 	});
 
 	it("filters recent authored tweets down to replies", async () => {
-		resolveProfileMock.mockResolvedValue({
-			profile: {
-				id: "profile_user_42",
-				handle: "jpctan",
-				displayName: "Jason Tan",
-				bio: "",
-				followersCount: 268,
-				avatarHue: 18,
-				createdAt: "2015-05-20T09:27:37.000Z",
-			},
-			externalUserId: "42",
-		});
-		listUserTweetsMock.mockResolvedValue({
-			items: [
-				{
-					id: "tweet_1",
-					text: "@sam one",
-					created_at: "2026-03-09T00:00:00.000Z",
-					conversation_id: "conv_1",
-					referenced_tweets: [{ type: "replied_to", id: "root_1" }],
-					public_metrics: { impression_count: 3 },
+		resolveProfileMock.mockReturnValue(
+			Effect.succeed({
+				profile: {
+					id: "profile_user_42",
+					handle: "jpctan",
+					displayName: "Jason Tan",
+					bio: "",
+					followersCount: 268,
+					avatarHue: 18,
+					createdAt: "2015-05-20T09:27:37.000Z",
 				},
-				{
-					id: "tweet_2",
-					text: "standalone post",
-					created_at: "2026-03-09T00:01:00.000Z",
-				},
-				{
-					id: "tweet_3",
-					text: "@ava two",
-					created_at: "2026-03-09T00:02:00.000Z",
-					referenced_tweets: [{ type: "replied_to", id: "root_2" }],
-					public_metrics: {
-						like_count: 1,
-						reply_count: 2,
-						retweet_count: 3,
-						quote_count: 4,
-						bookmark_count: 5,
-						impression_count: 6,
+				externalUserId: "42",
+			}),
+		);
+		listUserTweetsMock.mockReturnValue(
+			Effect.succeed({
+				items: [
+					{
+						id: "tweet_1",
+						text: "@sam one",
+						created_at: "2026-03-09T00:00:00.000Z",
+						conversation_id: "conv_1",
+						referenced_tweets: [{ type: "replied_to", id: "root_1" }],
+						public_metrics: { impression_count: 3 },
 					},
-				},
-			],
-			nextToken: "next",
-		});
+					{
+						id: "tweet_2",
+						text: "standalone post",
+						created_at: "2026-03-09T00:01:00.000Z",
+					},
+					{
+						id: "tweet_3",
+						text: "@ava two",
+						created_at: "2026-03-09T00:02:00.000Z",
+						referenced_tweets: [{ type: "replied_to", id: "root_2" }],
+						public_metrics: {
+							like_count: 1,
+							reply_count: 2,
+							retweet_count: 3,
+							quote_count: 4,
+							bookmark_count: 5,
+							impression_count: 6,
+						},
+					},
+				],
+				nextToken: "next",
+			}),
+		);
 		const { inspectProfileReplies } = await import("./profile-replies");
 
 		await expect(
@@ -186,19 +196,21 @@ describe("profile reply inspection", () => {
 	});
 
 	it("routes live reply inspection through the selected username", async () => {
-		resolveProfileMock.mockResolvedValue({
-			profile: {
-				id: "profile_user_42",
-				handle: "jpctan",
-				displayName: "Jason Tan",
-				bio: "",
-				followersCount: 268,
-				avatarHue: 18,
-				createdAt: "2015-05-20T09:27:37.000Z",
-			},
-			externalUserId: "42",
-		});
-		listUserTweetsMock.mockResolvedValue({ items: [] });
+		resolveProfileMock.mockReturnValue(
+			Effect.succeed({
+				profile: {
+					id: "profile_user_42",
+					handle: "jpctan",
+					displayName: "Jason Tan",
+					bio: "",
+					followersCount: 268,
+					avatarHue: 18,
+					createdAt: "2015-05-20T09:27:37.000Z",
+				},
+				externalUserId: "42",
+			}),
+		);
+		listUserTweetsMock.mockReturnValue(Effect.succeed({ items: [] }));
 		const { inspectProfileReplies } = await import("./profile-replies");
 
 		await inspectProfileReplies("@jpctan", {
@@ -215,18 +227,20 @@ describe("profile reply inspection", () => {
 	});
 
 	it("fails fast when a profile has no external id", async () => {
-		resolveProfileMock.mockResolvedValue({
-			profile: {
-				id: "profile_group_1",
-				handle: "group",
-				displayName: "Group",
-				bio: "",
-				followersCount: 0,
-				avatarHue: 0,
-				createdAt: "2026-03-09T00:00:00.000Z",
-			},
-			externalUserId: null,
-		});
+		resolveProfileMock.mockReturnValue(
+			Effect.succeed({
+				profile: {
+					id: "profile_group_1",
+					handle: "group",
+					displayName: "Group",
+					bio: "",
+					followersCount: 0,
+					avatarHue: 0,
+					createdAt: "2026-03-09T00:00:00.000Z",
+				},
+				externalUserId: null,
+			}),
+		);
 		const { inspectProfileReplies } = await import("./profile-replies");
 
 		await expect(inspectProfileReplies("group")).rejects.toThrow(
@@ -236,27 +250,31 @@ describe("profile reply inspection", () => {
 	});
 
 	it("caps the scan window and trims returned replies to the requested limit", async () => {
-		resolveProfileMock.mockResolvedValue({
-			profile: {
-				id: "profile_user_99",
-				handle: "patternbot",
-				displayName: "Pattern Bot",
-				bio: "",
-				followersCount: 12,
-				avatarHue: 120,
-				createdAt: "2026-03-09T00:00:00.000Z",
-			},
-			externalUserId: "99",
-		});
-		listUserTweetsMock.mockResolvedValue({
-			items: Array.from({ length: 4 }, (_, index) => ({
-				id: `tweet_${index + 1}`,
-				text: `@user_${index + 1} canned praise`,
-				created_at: `2026-03-09T00:0${index}:00.000Z`,
-				referenced_tweets: [{ type: "replied_to", id: `root_${index + 1}` }],
-			})),
-			nextToken: null,
-		});
+		resolveProfileMock.mockReturnValue(
+			Effect.succeed({
+				profile: {
+					id: "profile_user_99",
+					handle: "patternbot",
+					displayName: "Pattern Bot",
+					bio: "",
+					followersCount: 12,
+					avatarHue: 120,
+					createdAt: "2026-03-09T00:00:00.000Z",
+				},
+				externalUserId: "99",
+			}),
+		);
+		listUserTweetsMock.mockReturnValue(
+			Effect.succeed({
+				items: Array.from({ length: 4 }, (_, index) => ({
+					id: `tweet_${index + 1}`,
+					text: `@user_${index + 1} canned praise`,
+					created_at: `2026-03-09T00:0${index}:00.000Z`,
+					referenced_tweets: [{ type: "replied_to", id: `root_${index + 1}` }],
+				})),
+				nextToken: null,
+			}),
+		);
 		const { inspectProfileReplies } = await import("./profile-replies");
 
 		const result = await inspectProfileReplies("@patternbot", { limit: 2 });

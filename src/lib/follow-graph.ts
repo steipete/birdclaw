@@ -1,10 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
+import { resolveOperationAccount } from "./account-selection";
+import { listFollowUsersViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { liveTransportGateway } from "./live-transport-gateway";
+import {
+	parseLiveSyncMode,
+	parseOptionalMaxPages,
+	parseLivePageSize,
+	resolveLiveSyncAccount,
+	type LiveSyncAccount,
+	type LiveSyncMode,
+} from "./live-sync-engine";
 import type { Database } from "./sqlite";
-import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { inspectSyncCache, writeSyncCache } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
 import type {
 	FollowEventKind,
@@ -17,6 +26,7 @@ import type {
 	XurlPublicMetrics,
 } from "./types";
 import { upsertProfileFromXUser } from "./x-profile";
+import { listFollowUsersViaXurlEffect } from "./xurl";
 
 const DEFAULT_FOLLOW_CACHE_TTL_MS = 24 * 60 * 60_000;
 const DEFAULT_FOLLOW_PAGE_LIMIT = 1000;
@@ -37,14 +47,8 @@ export interface SyncFollowGraphOptions {
 	cacheTtlMs?: number;
 }
 
-type FollowGraphSyncMode = "auto" | "bird" | "xurl";
+type FollowGraphSyncMode = LiveSyncMode;
 type FollowGraphLiveSource = "bird" | "xurl";
-
-interface ResolvedAccount {
-	accountId: string;
-	username: string;
-	externalUserId?: string;
-}
 
 interface MergedFollowPayload {
 	data: XurlMentionUser[];
@@ -55,14 +59,11 @@ interface MergedFollowPayload {
 }
 
 function parseLimit(value = DEFAULT_FOLLOW_PAGE_LIMIT) {
-	if (
-		!Number.isFinite(value) ||
-		value < MIN_FOLLOW_PAGE_LIMIT ||
-		value > MAX_FOLLOW_PAGE_LIMIT
-	) {
-		throw new Error("--limit must be between 1 and 1000 for follow sync");
-	}
-	return Math.floor(value);
+	return parseLivePageSize(value, {
+		min: MIN_FOLLOW_PAGE_LIMIT,
+		max: MAX_FOLLOW_PAGE_LIMIT,
+		message: "--limit must be between 1 and 1000 for follow sync",
+	});
 }
 
 function parseRowLimit(value: number) {
@@ -72,21 +73,12 @@ function parseRowLimit(value: number) {
 	return value;
 }
 
-function parseOptionalPositiveInteger(name: string, value?: number) {
-	if (value === undefined) {
-		return undefined;
+function parseOptionalResourceCap(value: number | undefined) {
+	if (value === undefined) return undefined;
+	if (!Number.isInteger(value) || value < 1) {
+		throw new Error("--max-resources must be at least 1");
 	}
-	if (!Number.isFinite(value) || value < 1) {
-		throw new Error(`${name} must be at least 1`);
-	}
-	return Math.floor(value);
-}
-
-function parseCacheTtlMs(value?: number) {
-	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-		return DEFAULT_FOLLOW_CACHE_TTL_MS;
-	}
-	return Math.floor(value);
+	return value;
 }
 
 function parseJsonField<T>(value: unknown, fallback: T): T {
@@ -98,43 +90,6 @@ function parseJsonField<T>(value: unknown, fallback: T): T {
 	} catch {
 		return fallback;
 	}
-}
-
-function resolveAccount(db: Database, accountId?: string): ResolvedAccount {
-	const row = accountId
-		? (db
-				.prepare(
-					"select id, handle, external_user_id from accounts where id = ?",
-				)
-				.get(accountId) as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined)
-		: (db
-				.prepare(
-					`
-          select id, handle, external_user_id
-          from accounts
-          order by is_default desc, created_at asc
-          limit 1
-          `,
-				)
-				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined);
-
-	if (!row) {
-		throw new Error(`Unknown account: ${accountId ?? "default"}`);
-	}
-
-	return {
-		accountId: row.id,
-		username: row.handle.replace(/^@/, ""),
-		externalUserId:
-			typeof row.external_user_id === "string" &&
-			row.external_user_id.length > 0
-				? row.external_user_id
-				: undefined,
-	};
 }
 
 function buildCacheKey({
@@ -203,7 +158,9 @@ function getLastSnapshot(
 function mergePages(
 	pages: XurlFollowUsersResponse[],
 	nextToken: string | undefined,
+	planComplete: boolean,
 	maxResources?: number,
+	resourceCapped = false,
 ): MergedFollowPayload {
 	const users: XurlMentionUser[] = [];
 	const seen = new Set<string>();
@@ -241,7 +198,12 @@ function mergePages(
 			next_token: nextToken ?? null,
 			truncated_by_max_resources: truncatedByMaxResources,
 		},
-		complete: !nextToken && !truncatedByMaxResources,
+		complete:
+			planComplete &&
+			!nextToken &&
+			lastPage?.meta?.pagination_known_complete !== false &&
+			!truncatedByMaxResources &&
+			!resourceCapped,
 		pageCount,
 		truncatedByMaxResources,
 	};
@@ -265,7 +227,7 @@ function fetchFollowGraphViaXurlEffect({
 	return Effect.gen(function* () {
 		const result = yield* runSyncPlanEffect({
 			fetchPage: ({ cursor }) =>
-				liveTransportGateway.xurl.listFollowUsers({
+				listFollowUsersViaXurlEffect({
 					direction,
 					username,
 					userId,
@@ -281,7 +243,13 @@ function fetchFollowGraphViaXurlEffect({
 			maxPages,
 		});
 
-		return mergePages(result.pages, result.nextCursor, maxResources);
+		return mergePages(
+			result.pages,
+			result.nextCursor,
+			result.complete,
+			maxResources,
+			result.stopReason === "item-limit",
+		);
 	});
 }
 
@@ -307,7 +275,7 @@ function fetchFollowGraphViaBirdEffect({
 						maxPages ?? Number.POSITIVE_INFINITY,
 						Math.ceil(maxResources / birdLimit),
 					);
-		const payload = yield* liveTransportGateway.bird.listFollowUsers({
+		const payload = yield* listFollowUsersViaBirdEffect({
 			direction,
 			userId,
 			maxResults: Math.min(birdLimit, maxResources ?? birdLimit),
@@ -319,7 +287,9 @@ function fetchFollowGraphViaBirdEffect({
 			typeof payload.meta?.next_token === "string"
 				? String(payload.meta.next_token)
 				: undefined,
+			true,
 			maxResources,
+			maxResources !== undefined && payload.data.length >= maxResources,
 		);
 	});
 }
@@ -584,20 +554,22 @@ function makeDryRunResponse({
 	cacheTtlMs,
 }: {
 	db: Database;
-	account: ResolvedAccount;
+	account: LiveSyncAccount;
 	direction: FollowDirection;
 	mode: FollowGraphSyncMode;
 	limit: number;
 	maxPages?: number;
 	maxResources?: number;
 	cacheKey: string;
-	cacheTtlMs: number;
+	cacheTtlMs?: number;
 }) {
-	const cached = readSyncCache<MergedFollowPayload>(cacheKey, db);
-	const cacheAgeMs = cached
-		? Date.now() - new Date(cached.updatedAt).getTime()
-		: Number.POSITIVE_INFINITY;
-	const wouldCallLive = !cached || cacheAgeMs > cacheTtlMs;
+	const cache = inspectSyncCache<MergedFollowPayload>(
+		cacheKey,
+		{ ttlMs: cacheTtlMs, defaultTtlMs: DEFAULT_FOLLOW_CACHE_TTL_MS },
+		db,
+	);
+	const cached = cache.entry;
+	const wouldCallLive = !cache.fresh;
 	return {
 		ok: true,
 		dryRun: true,
@@ -611,16 +583,14 @@ function makeDryRunResponse({
 			maxResultsPerPage: limit,
 			maxPages: maxPages ?? null,
 			maxResources: maxResources ?? null,
-			cacheTtlSeconds: Math.floor(cacheTtlMs / 1000),
+			cacheTtlSeconds: Math.floor(cache.ttlMs / 1000),
 		},
 		cache: {
 			key: cacheKey,
 			hit: Boolean(cached),
-			fresh: Boolean(cached && cacheAgeMs <= cacheTtlMs),
+			fresh: cache.fresh,
 			updatedAt: cached?.updatedAt ?? null,
-			ageSeconds: Number.isFinite(cacheAgeMs)
-				? Math.floor(cacheAgeMs / 1000)
-				: null,
+			ageSeconds: cache.ageMs !== null ? Math.floor(cache.ageMs / 1000) : null,
 			count: cached?.value.data.length ?? 0,
 		},
 		currentCount: readCurrentCount(db, account.accountId, direction),
@@ -630,10 +600,7 @@ function makeDryRunResponse({
 }
 
 function parseMode(value?: FollowGraphSyncMode) {
-	if (!value || value === "auto" || value === "bird" || value === "xurl") {
-		return value ?? "auto";
-	}
-	throw new Error("--mode must be auto, bird, or xurl");
+	return parseLiveSyncMode(value, "auto");
 }
 
 function errorMessage(error: unknown) {
@@ -646,13 +613,14 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 		const mode = yield* trySync(() => parseMode(options.mode));
 		const limit = yield* trySync(() => parseLimit(options.limit));
 		const maxPages = yield* trySync(() =>
-			parseOptionalPositiveInteger("--max-pages", options.maxPages),
+			parseOptionalMaxPages(options.maxPages),
 		);
 		const maxResources = yield* trySync(() =>
-			parseOptionalPositiveInteger("--max-resources", options.maxResources),
+			parseOptionalResourceCap(options.maxResources),
 		);
-		const cacheTtlMs = parseCacheTtlMs(options.cacheTtlMs);
-		const account = yield* trySync(() => resolveAccount(db, options.account));
+		const account = yield* trySync(() =>
+			resolveLiveSyncAccount(db, options.account),
+		);
 		const cacheKey = buildCacheKey({
 			direction: options.direction,
 			accountId: account.accountId,
@@ -673,20 +641,23 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 					maxPages,
 					maxResources,
 					cacheKey,
-					cacheTtlMs,
+					cacheTtlMs: options.cacheTtlMs,
 				}),
 			);
 		}
 
-		const cached = yield* trySync(() =>
-			readSyncCache<MergedFollowPayload>(cacheKey, db),
+		const cache = yield* trySync(() =>
+			inspectSyncCache<MergedFollowPayload>(
+				cacheKey,
+				{
+					ttlMs: options.cacheTtlMs,
+					defaultTtlMs: DEFAULT_FOLLOW_CACHE_TTL_MS,
+				},
+				db,
+			),
 		);
-		const cacheAgeMs = cached
-			? Date.now() - new Date(cached.updatedAt).getTime()
-			: Number.POSITIVE_INFINITY;
-		const useCache = Boolean(
-			!options.refresh && cached && cacheAgeMs <= cacheTtlMs,
-		);
+		const cached = cache.entry;
+		const useCache = Boolean(!options.refresh && cached && cache.fresh);
 
 		const liveResult = useCache
 			? undefined
@@ -771,7 +742,7 @@ export function listTopFollowers({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const rows = db
 		.prepare(
 			`
@@ -791,11 +762,9 @@ export function listTopFollowers({
       limit ?
       `,
 		)
-		.all(resolved.accountId, parseRowLimit(limit)) as Array<
-		Record<string, unknown>
-	>;
+		.all(resolved.id, parseRowLimit(limit)) as Array<Record<string, unknown>>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map(toGraphProfile),
 	};
 }
@@ -808,7 +777,7 @@ export function listMutuals({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const rows = db
 		.prepare(
 			`
@@ -836,11 +805,9 @@ export function listMutuals({
       limit ?
       `,
 		)
-		.all(resolved.accountId, parseRowLimit(limit)) as Array<
-		Record<string, unknown>
-	>;
+		.all(resolved.id, parseRowLimit(limit)) as Array<Record<string, unknown>>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map(toGraphProfile),
 	};
 }
@@ -855,7 +822,7 @@ export function listNonMutualFollowing({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const orderBy =
 		sort === "handle"
 			? "lower(p.handle) asc"
@@ -888,11 +855,9 @@ export function listNonMutualFollowing({
       limit ?
       `,
 		)
-		.all(resolved.accountId, parseRowLimit(limit)) as Array<
-		Record<string, unknown>
-	>;
+		.all(resolved.id, parseRowLimit(limit)) as Array<Record<string, unknown>>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map(toGraphProfile),
 	};
 }
@@ -909,7 +874,7 @@ export function listUnfollowedSince({
 	limit?: number;
 }) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const since = date.includes("T") ? date : `${date}T00:00:00.000Z`;
 	const rows = db
 		.prepare(
@@ -935,11 +900,11 @@ export function listUnfollowedSince({
       limit ?
       `,
 		)
-		.all(resolved.accountId, direction, since, parseRowLimit(limit)) as Array<
+		.all(resolved.id, direction, since, parseRowLimit(limit)) as Array<
 		Record<string, unknown>
 	>;
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		direction,
 		since,
 		items: rows.map((row) => ({
@@ -965,9 +930,9 @@ export function listFollowEvents({
 	limit?: number;
 } = {}) {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
+	const resolved = resolveOperationAccount(account, db);
 	const where = ["ev.account_id = ?"];
-	const params: unknown[] = [resolved.accountId];
+	const params: unknown[] = [resolved.id];
 
 	if (direction) {
 		where.push("ev.direction = ?");
@@ -1013,7 +978,7 @@ export function listFollowEvents({
 		.all(...params) as Array<Record<string, unknown>>;
 
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		items: rows.map((row): FollowGraphEvent => ({
 			eventAt: String(row.event_at),
 			direction: row.direction as FollowDirection,
@@ -1028,9 +993,9 @@ export function getFollowGraphSummary({
 	account,
 }: { account?: string } = {}): FollowGraphSummary {
 	const db = getNativeDb();
-	const resolved = resolveAccount(db, account);
-	const followers = readCurrentCount(db, resolved.accountId, "followers");
-	const following = readCurrentCount(db, resolved.accountId, "following");
+	const resolved = resolveOperationAccount(account, db);
+	const followers = readCurrentCount(db, resolved.id, "followers");
+	const following = readCurrentCount(db, resolved.id, "following");
 	const mutualsRow = db
 		.prepare(
 			`
@@ -1047,41 +1012,21 @@ export function getFollowGraphSummary({
         and following.current = 1
       `,
 		)
-		.get(resolved.accountId) as { count: number };
+		.get(resolved.id) as { count: number };
 
 	return {
-		accountId: resolved.accountId,
+		accountId: resolved.id,
 		followers,
 		following,
 		mutuals: Number(mutualsRow.count),
 		nonMutualFollowing: following - Number(mutualsRow.count),
 		lastCompleteSnapshots: {
-			followers: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"followers",
-				"complete",
-			),
-			following: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"following",
-				"complete",
-			),
+			followers: getLastSnapshot(db, resolved.id, "followers", "complete"),
+			following: getLastSnapshot(db, resolved.id, "following", "complete"),
 		},
 		lastIncompleteSnapshots: {
-			followers: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"followers",
-				"incomplete",
-			),
-			following: getLastSnapshot(
-				db,
-				resolved.accountId,
-				"following",
-				"incomplete",
-			),
+			followers: getLastSnapshot(db, resolved.id, "followers", "incomplete"),
+			following: getLastSnapshot(db, resolved.id, "following", "incomplete"),
 		},
 	};
 }

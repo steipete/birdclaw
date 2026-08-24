@@ -41,10 +41,14 @@ function setupTempHome() {
 }
 
 function payload(ids: string[], nextToken?: string) {
+	const userId = (id: string) =>
+		String(
+			id.split("").reduce((sum, character) => sum + character.charCodeAt(0), 0),
+		);
 	return {
 		data: ids.map((id, index) => ({
 			id,
-			author_id: `user_${id}`,
+			author_id: userId(id),
 			text: `Search result ${id} about local-first systems`,
 			created_at: `2026-05-2${String(index)}T00:00:00.000Z`,
 			conversation_id: id,
@@ -54,7 +58,7 @@ function payload(ids: string[], nextToken?: string) {
 		})),
 		includes: {
 			users: ids.map((id) => ({
-				id: `user_${id}`,
+				id: userId(id),
 				username: `handle_${id}`,
 				name: `Handle ${id}`,
 				description: "Search profile",

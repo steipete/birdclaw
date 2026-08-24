@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { getAccountHandle, getDefaultAccountId } from "./moderation-target";
 import {
 	createModerationActions,
@@ -46,17 +46,6 @@ export function removeBlockEffect(
 
 function remoteBlockSyncDisabled() {
 	return process.env.BIRDCLAW_DISABLE_LIVE_WRITES === "1";
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 export function listBlocks({

@@ -17,7 +17,7 @@ import {
 	importTweetsViaFxTwitter,
 } from "#/lib/fxtwitter";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
-import { getQueryEnvelope } from "#/lib/queries";
+import { getQueryEnvelope } from "#/lib/query-status";
 import { seedDemoData } from "#/lib/seed";
 import { printError, type CliCommandContext } from "./command-context";
 
@@ -225,8 +225,11 @@ export function registerCoreCommands({
 			if (parsed) print(setActionsTransport(parsed), asJson());
 		});
 
-	program
-		.command("archive find")
+	const archiveCommand = program
+		.command("archive")
+		.description("Find and inspect Twitter archives");
+	archiveCommand
+		.command("find")
 		.description("Find likely Twitter archives on disk")
 		.action(async () => print(await findArchives(), asJson()));
 

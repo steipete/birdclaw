@@ -5,11 +5,10 @@ import {
 	unblockUserViaBirdEffect,
 	unmuteUserViaBirdEffect,
 } from "./bird-actions";
-import { getAuthenticatedBirdAccountEffect } from "./bird";
+import { verifyBirdAccountMatchesEffect } from "./bird-account";
 import { type ActionsTransport, resolveActionsTransport } from "./config";
 import { Effect } from "effect";
-import { runEffectPromise } from "./effect-runtime";
-import { assertLiveAccountMatches } from "./live-sync-engine";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { profileHandleKey } from "./profile-row";
 import type {
 	ModerationAction,
@@ -38,17 +37,6 @@ export interface ExpectedActionAccount {
 	id: string;
 	handle: string;
 	externalUserId?: string | null;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 function normalizeFailure(transport: ModerationTransportKind, output: string) {
@@ -104,20 +92,11 @@ function runBirdActionEffect(
 ): Effect.Effect<ActionTransportResult, unknown> {
 	return Effect.gen(function* () {
 		if (expectedAccount && !liveWritesDisabled()) {
-			const authenticated = yield* getAuthenticatedBirdAccountEffect();
-			yield* trySync(() =>
-				assertLiveAccountMatches({
-					source: "bird",
-					account: {
-						accountId: expectedAccount.id,
-						username: profileHandleKey(expectedAccount.handle),
-						externalUserId: expectedAccount.externalUserId ?? undefined,
-						isDefault: false,
-					},
-					liveUsername: authenticated.username,
-					liveExternalUserId: authenticated.id,
-				}),
-			);
+			yield* verifyBirdAccountMatchesEffect({
+				accountId: expectedAccount.id,
+				username: profileHandleKey(expectedAccount.handle),
+				externalUserId: expectedAccount.externalUserId ?? undefined,
+			});
 		}
 		const result = yield* action === "block"
 			? blockUserViaBirdEffect(query)

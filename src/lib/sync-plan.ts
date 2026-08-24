@@ -127,10 +127,10 @@ export function runSyncPlanEffect<Page, FetchError, PageError = never>({
 				stopReason = "boundary";
 			} else if (fetched >= itemLimit) {
 				stopReason = "item-limit";
-			} else if (pages.length >= pageLimit) {
-				stopReason = "page-limit";
 			} else if (seenCursors.has(nextCursor)) {
 				stopReason = "repeated-cursor";
+			} else if (pages.length >= pageLimit) {
+				stopReason = "page-limit";
 			}
 
 			const context: SyncPlanPageContext<Page> = {

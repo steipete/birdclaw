@@ -190,6 +190,110 @@ describe("account sync job", () => {
 		});
 	});
 
+	it("fails when all sync steps succeed but backup returns a failure", async () => {
+		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+		const logPath = path.join(tempDir, "audit.jsonl");
+		const lockPath = path.join(tempDir, "sync.lock");
+		syncMentionsMock.mockResolvedValue({
+			source: "xurl",
+			count: 3,
+		});
+		maybeAutoSyncBackupMock.mockResolvedValue({
+			ok: false,
+			enabled: true,
+			skipped: false,
+			repoPath: "/tmp/backup-birdclaw",
+			error: "backup export failed",
+		});
+
+		const result = await runAccountSyncJob({
+			steps: ["mentions"],
+			logPath,
+			lockPath,
+			db: {} as never,
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			steps: [{ kind: "mentions", ok: true, count: 3, source: "xurl" }],
+			backup: {
+				ok: false,
+				enabled: true,
+				skipped: false,
+				repoPath: "/tmp/backup-birdclaw",
+				error: "backup export failed",
+			},
+		});
+		const entry = JSON.parse(readFileSync(logPath, "utf8").trim()) as unknown;
+		expect(entry).toMatchObject(result);
+	});
+
+	it("succeeds when all sync steps and a disabled backup skip succeed", async () => {
+		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+		const logPath = path.join(tempDir, "audit.jsonl");
+		const lockPath = path.join(tempDir, "sync.lock");
+		syncMentionsMock.mockResolvedValue({
+			source: "xurl",
+			count: 3,
+		});
+		maybeAutoSyncBackupMock.mockResolvedValue({
+			ok: true,
+			enabled: false,
+			skipped: true,
+			reason: "backup auto-sync is not configured",
+		});
+
+		const result = await runAccountSyncJob({
+			steps: ["mentions"],
+			logPath,
+			lockPath,
+			db: {} as never,
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			steps: [{ kind: "mentions", ok: true, count: 3, source: "xurl" }],
+			backup: {
+				ok: true,
+				enabled: false,
+				skipped: true,
+				reason: "backup auto-sync is not configured",
+			},
+		});
+	});
+
+	it("fails when a sync step fails even though backup succeeds", async () => {
+		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+		const logPath = path.join(tempDir, "audit.jsonl");
+		const lockPath = path.join(tempDir, "sync.lock");
+		syncMentionsMock.mockRejectedValue(new Error("mentions failed"));
+		maybeAutoSyncBackupMock.mockResolvedValue({
+			ok: true,
+			enabled: true,
+			skipped: false,
+		});
+
+		const result = await runAccountSyncJob({
+			steps: ["mentions"],
+			logPath,
+			lockPath,
+			db: {} as never,
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			steps: [
+				{
+					kind: "mentions",
+					ok: false,
+					count: 0,
+					error: "mentions failed",
+				},
+			],
+			backup: { ok: true, enabled: true, skipped: false },
+		});
+	});
+
 	it("refuses Bird-backed non-default account sync without an assertion", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");

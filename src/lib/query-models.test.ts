@@ -7,24 +7,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listInboxItems } from "./inbox";
+import { getConversationThread, listDmConversations } from "./dm-read-model";
 import {
 	applyDmRequestMutationToLocalStore,
-	buildTimelineItemsQuery,
 	createDmReply,
 	createDmReplyEffect,
 	createPost,
 	createPostEffect,
 	createTweetReply,
 	createTweetReplyEffect,
-	getConversationThread,
-	getQueryEnvelope,
-	getQueryEnvelopeEffect,
+} from "./query-actions";
+import { queryResource } from "./query-resource";
+import { getQueryEnvelope, getQueryEnvelopeEffect } from "./query-status";
+import {
+	buildTimelineItemsQuery,
 	getTweetConversation,
-	listDmConversations,
 	listTimelineItems,
-	queryResource,
 	TimelineCandidateLimitError,
-} from "./queries";
+} from "./timeline-read-model";
 
 const mocks = vi.hoisted(() => ({
 	findArchives: vi.fn(),
@@ -56,6 +56,7 @@ vi.mock("./archive-finder", async () => {
 
 vi.mock("./xurl", async () => {
 	const { Effect } = await import("effect");
+	const { effectFromMock } = await import("../test/effect-mocks");
 	const toError = (error: unknown) =>
 		error instanceof Error ? error : new Error(String(error));
 	return {
@@ -85,6 +86,9 @@ vi.mock("./xurl", async () => {
 			}),
 		lookupAuthenticatedUser: mocks.lookupAuthenticatedUser,
 		lookupAuthenticatedUserFresh: mocks.lookupAuthenticatedUser,
+		lookupAuthenticatedUserFreshEffect: effectFromMock(
+			mocks.lookupAuthenticatedUser,
+		),
 	};
 });
 
@@ -181,7 +185,7 @@ afterEach(() => {
 	}
 });
 
-describe("birdclaw queries", () => {
+describe("query models", () => {
 	beforeEach(() => {
 		mocks.findArchives.mockResolvedValue([
 			{

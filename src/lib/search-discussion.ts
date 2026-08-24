@@ -9,7 +9,11 @@ import {
 	streamHybridAnalysisEffect,
 } from "./analysis-runtime";
 import { prefetchCachedAvatarsForProfileIdsEffect } from "./avatar-cache";
-import { runEffectBackground, runEffectPromise } from "./effect-runtime";
+import {
+	runEffectBackground,
+	runEffectPromise,
+	trySync,
+} from "./effect-runtime";
 import { getNativeDb } from "./db";
 import { listDmConversations } from "./dm-read-model";
 import {
@@ -144,17 +148,6 @@ const DEFAULT_LIMIT = 20_000;
 const DEFAULT_MAX_PAGES = 200;
 const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySearchSync<T>(try_: () => T): Effect.Effect<T, Error> {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
-}
 
 function tweetUrl(handle: string, id: string) {
 	return `https://x.com/${handle}/status/${id}`;
@@ -688,7 +681,7 @@ function completeOpenAIStreamEffect(
 	handlers: SearchDiscussionStreamHandlers,
 ): Effect.Effect<SearchDiscussionRunResult, Error> {
 	return Effect.gen(function* () {
-		const updatedAt = yield* trySearchSync(() =>
+		const updatedAt = yield* trySync(() =>
 			writeSyncCache(cacheKey(context, options), {
 				discussion: stream.value,
 				markdown: stream.markdown,
@@ -741,7 +734,7 @@ export function streamSearchDiscussionEffect(
 				),
 			);
 		}
-		const context = yield* trySearchSync(() =>
+		const context = yield* trySync(() =>
 			collectSearchDiscussionContext({
 				...options,
 				source: options.source ?? "search",
@@ -753,7 +746,7 @@ export function streamSearchDiscussionEffect(
 		}
 		const cached = options.refresh
 			? null
-			: yield* trySearchSync(() =>
+			: yield* trySync(() =>
 					readSyncCache<{
 						discussion: SearchDiscussion;
 						markdown: string;
@@ -763,7 +756,7 @@ export function streamSearchDiscussionEffect(
 					}>(cacheKey(context, options)),
 				);
 		if (cached) {
-			const result: SearchDiscussionRunResult = yield* trySearchSync(() => ({
+			const result: SearchDiscussionRunResult = yield* trySync(() => ({
 				context,
 				discussion: SearchDiscussionSchema.parse(cached.value.discussion),
 				markdown: cached.value.markdown,

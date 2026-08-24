@@ -7,6 +7,10 @@ import {
 	assertLiveAccountMatches,
 	createLiveTransportAdapter,
 	fetchWithTransportFallbackEffect,
+	parseLiveSyncMode,
+	parseOptionalPageDelayMs,
+	parseOptionalMaxPages,
+	parseLivePageSize,
 	resolveLiveSyncAccount,
 	runCachedLiveSyncEffect,
 } from "./live-sync-engine";
@@ -21,6 +25,20 @@ function setupDatabase() {
 }
 
 describe("live sync engine", () => {
+	it("rejects invalid programmatic sync modes and numeric options", () => {
+		expect(() => parseLiveSyncMode("invalid", "auto")).toThrow("--mode");
+		expect(() =>
+			parseLiveSyncMode("auto", "bird", { allowAuto: false }),
+		).toThrow("--mode must be bird or xurl");
+		for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5]) {
+			expect(() => parseLivePageSize(value)).toThrow("--limit");
+			expect(() => parseOptionalMaxPages(value)).toThrow("--max-pages");
+			expect(() => parseOptionalPageDelayMs(value)).toThrow("--delay-ms");
+		}
+		expect(parseOptionalMaxPages(0, { allowZero: true })).toBe(0);
+		expect(parseOptionalPageDelayMs(0)).toBe(0);
+	});
+
 	it("resolves default and selected accounts", () => {
 		const db = setupDatabase();
 		insertTestAccount(db, {
@@ -111,6 +129,7 @@ describe("live sync engine", () => {
 				cacheKey: "timeline:test",
 				refresh: false,
 				cacheTtlMs: 60_000,
+				defaultCacheTtlMs: 60_000,
 				transports: [{ source: "bird", fetch: Effect.sync(fetch) }],
 				persistLive: () => undefined,
 			}),
@@ -133,6 +152,7 @@ describe("live sync engine", () => {
 					cacheKey: "timeline:test",
 					refresh: true,
 					cacheTtlMs: 0,
+					defaultCacheTtlMs: 0,
 					transports: [
 						{ source: "bird", fetch: Effect.succeed({ value: "live" }) },
 					],

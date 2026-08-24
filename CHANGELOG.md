@@ -2,6 +2,32 @@
 
 ## 0.12.2 - Unreleased
 
+### Fixed
+
+- Register `archive find` and `db stats` as strict nested CLI commands, reject unknown subcommands, and return a structured HTTP 400 for invalid `/api/query` resources.
+- Apply the shared account-selection policy to follow-graph and network-map reads so IDs, `@handle` selectors, and bare handles resolve consistently.
+- Preserve newer numeric profile identities and handle ownership when backup sync merges a prior valid generation after live profile updates.
+- Report scheduled account syncs as failed when their configured backup export fails, so launchd records a nonzero exit.
+- Make numeric X user IDs the durable live-profile identity, preserving history and dependent references across proven legacy rekeys, handle reuse, case-fold collisions, handoffs, and swaps.
+- Serialize backup repositories with renewable token-owned leases and reliable token-checked release, validate NUL-safe fetched and staged generations before checkout mutation, prove Git ownership before finalizing journal recovery, and protect fsynced pending-push receipts from later export generations.
+- Adopt validated non-Git exports into empty backup remotes without weakening inventory checks, and preserve sparse handle-less DM avatar enrichment without fabricating public handles.
+- Validate recovery journals and every referenced transaction/index path before filesystem mutation, and preserve rich display names when sparse Bird/DM payloads omit names.
+- Normalize shadow external IDs during target-absent profile canonicalization, and renew scheduled-job leases with fsynced atomic token-checked replacement.
+- Normalize stale shadow IDs already attached to canonical profiles, and restore only managed backup index entries during crash recovery so unrelated staging survives.
+- Reclaim stale lock guards with marker-owned revalidation, validate receipt roots before discovery/removal, and probe transaction-root writability before fallback selection.
+- Roll back invocation-created Git state after failed non-Git backup promotion unless a push receipt/remote commit requires retention, and bound profile reconciliation to indexed identity candidates.
+- Propagate explicit selected-account identity proof through Bird, Xurl, and local DM hydration, and compare pending-push remotes using credential-free canonical endpoint identity.
+- Preserve endpoint-routing identity while redacting remote credentials, fail closed for live/cross-host lease owners, and bind recovery journals to repository and Git-directory inode identities.
+- Route authored and profile-analysis live ingestion through the canonical tweet repository so sparse media/profile refreshes, rich video metadata, included context, revisions, and FTS stay consistent across Xurl sources.
+- Make live pagination, cache freshness, account verification, collection saturation, and follow/list completeness conservative across timeline, mentions, authored tweets, saved collections, DMs, and follow graph syncs.
+- Scope full archive restores to archive-owned state for the primary account so other accounts, unrelated local datasets, and their live cursors survive replacement imports.
+
+### Testing and maintenance
+
+- Remove obsolete query compatibility facades and internal Promise transport wrappers in favor of their owning read-model, action, and Effect modules.
+- Remove the static live-transport forwarding facade and zero-consumer low-level Xurl Promise mirrors so consumers and tests use the owning Effect functions directly.
+- Add synthetic regressions for profile identity collisions and canonicalization, atomic mention cursor writes, backup lease takeover, fsynced publication recovery, hidden data, large shards, malicious paths, read-only freshness, receipt-owned push retries, corrupt remotes, and diverged histories.
+
 ## 0.12.1 - 2026-08-08
 
 ### Changed

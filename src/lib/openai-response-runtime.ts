@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { tryPromise } from "./effect-runtime";
+import { toError, tryPromise } from "./effect-runtime";
 import {
 	defaultRuntimeServices,
 	type RuntimeServices,
@@ -22,10 +22,6 @@ export interface OpenAIStreamResult {
 	rawText: string;
 	responseId?: string;
 	usage?: unknown;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
 }
 
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";

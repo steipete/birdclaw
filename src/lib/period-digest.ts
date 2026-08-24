@@ -10,7 +10,7 @@ import {
 	streamHybridAnalysisEffect,
 } from "./analysis-runtime";
 import { maybeAutoSyncBackupEffect } from "./backup";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { getLinkInsights } from "./link-insights";
 import { syncMentionThreadsEffect } from "./mention-threads-live";
 import { syncMentionsEffect } from "./mentions-live";
@@ -231,17 +231,6 @@ const DEFAULT_LIVE_THREAD_TIMEOUT_MS = 5_000;
 const DEFAULT_DIGEST_FRESHNESS_MS = 5 * 60_000;
 const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function tryDigestSync<T>(try_: () => T): Effect.Effect<T, Error> {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
-}
 
 function localDateStart(date: Date) {
 	return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -1175,11 +1164,11 @@ function completeOpenAIStreamEffect(
 	handlers: PeriodDigestStreamHandlers,
 ): Effect.Effect<PeriodDigestRunResult, Error> {
 	return Effect.gen(function* () {
-		const enrichedContext = yield* tryDigestSync(() =>
+		const enrichedContext = yield* trySync(() =>
 			enrichContextWithCitedTweets(context, stream.value),
 		);
 		const cacheKey = digestCacheKey(context, options);
-		const updatedAt = yield* tryDigestSync(() =>
+		const updatedAt = yield* trySync(() =>
 			writeSyncCache(cacheKey, {
 				digest: stream.value,
 				markdown: stream.markdown,
@@ -1200,7 +1189,7 @@ function completeOpenAIStreamEffect(
 			cached: false,
 			updatedAt,
 		};
-		yield* tryDigestSync(() =>
+		yield* trySync(() =>
 			writeSyncCache(latestDigestCacheKey(options), {
 				context: result.context,
 				digest: result.digest,
@@ -1249,12 +1238,12 @@ export function streamPeriodDigestEffect(
 	return Effect.gen(function* () {
 		const resolvedOptions = {
 			...options,
-			language: yield* tryDigestSync(() => languageFromOptions(options)),
+			language: yield* trySync(() => languageFromOptions(options)),
 		};
 		const latestCached = resolvedOptions.refresh
 			? null
 			: !resolvedOptions.liveSync
-				? yield* tryDigestSync(() =>
+				? yield* trySync(() =>
 						readSyncCache<CachedPeriodDigestValue>(
 							latestDigestCacheKey(resolvedOptions),
 						),
@@ -1266,7 +1255,7 @@ export function streamPeriodDigestEffect(
 			latestContext &&
 			isFreshDigestCache(latestCached.value.updatedAt ?? latestCached.updatedAt)
 		) {
-			const result = yield* tryDigestSync(() =>
+			const result = yield* trySync(() =>
 				cachedDigestResult(latestCached, latestContext),
 			);
 			emitCachedDigest(result, handlers);
@@ -1278,21 +1267,17 @@ export function streamPeriodDigestEffect(
 			{ threads: false },
 			handlers,
 		).pipe(Effect.catchAll(() => Effect.void));
-		let context = yield* tryDigestSync(() =>
+		let context = yield* trySync(() =>
 			collectPeriodDigestContext(resolvedOptions),
 		);
 		let cacheKey = digestCacheKey(context, resolvedOptions);
 		const cached = resolvedOptions.refresh
 			? null
-			: yield* tryDigestSync(() =>
-					readSyncCache<CachedPeriodDigestValue>(cacheKey),
-				);
+			: yield* trySync(() => readSyncCache<CachedPeriodDigestValue>(cacheKey));
 
 		if (cached) {
-			const result = yield* tryDigestSync(() =>
-				cachedDigestResult(cached, context),
-			);
-			yield* tryDigestSync(() =>
+			const result = yield* trySync(() => cachedDigestResult(cached, context));
+			yield* trySync(() =>
 				writeSyncCache(latestDigestCacheKey(resolvedOptions), {
 					context: result.context,
 					digest: result.digest,
@@ -1319,9 +1304,7 @@ export function streamPeriodDigestEffect(
 			},
 			handlers,
 		).pipe(Effect.catchAll(() => Effect.void));
-		context = yield* tryDigestSync(() =>
-			collectPeriodDigestContext(resolvedOptions),
-		);
+		context = yield* trySync(() => collectPeriodDigestContext(resolvedOptions));
 		cacheKey = digestCacheKey(context, resolvedOptions);
 
 		handlers.onEvent?.({ type: "start", context, cached: false });

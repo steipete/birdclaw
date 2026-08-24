@@ -195,7 +195,7 @@ const definitions = {
     `,
 		...fixedShard("data/profiles.jsonl", "profiles"),
 		merge: {
-			order: 3,
+			order: 1,
 			sql: `
       insert into profiles (
         id, handle, display_name, bio, followers_count, following_count,
@@ -264,19 +264,17 @@ const definitions = {
         first_seen_at, last_seen_at, raw_json, updated_at
       ) values (?, ?, ?, ?, ?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, coalesce(?, '{}'), ?)
       on conflict(subject_profile_id, organization_profile_id) do update set
-        organization_name = coalesce(excluded.organization_name, profile_affiliations.organization_name),
-        organization_handle = coalesce(excluded.organization_handle, profile_affiliations.organization_handle),
-        badge_url = coalesce(excluded.badge_url, profile_affiliations.badge_url),
-        url = coalesce(excluded.url, profile_affiliations.url),
-        label = coalesce(excluded.label, profile_affiliations.label),
-        source = excluded.source,
-        is_active = excluded.is_active,
+        organization_name = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.organization_name else profile_affiliations.organization_name end, ''), profile_affiliations.organization_name, excluded.organization_name),
+        organization_handle = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.organization_handle else profile_affiliations.organization_handle end, ''), profile_affiliations.organization_handle, excluded.organization_handle),
+        badge_url = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.badge_url else profile_affiliations.badge_url end, ''), profile_affiliations.badge_url, excluded.badge_url),
+        url = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.url else profile_affiliations.url end, ''), profile_affiliations.url, excluded.url),
+        label = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.label else profile_affiliations.label end, ''), profile_affiliations.label, excluded.label),
+        source = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.source else profile_affiliations.source end, ''), profile_affiliations.source, excluded.source),
+        is_active = case when excluded.updated_at > profile_affiliations.updated_at then excluded.is_active else profile_affiliations.is_active end,
+        first_seen_at = min(profile_affiliations.first_seen_at, excluded.first_seen_at),
         last_seen_at = max(profile_affiliations.last_seen_at, excluded.last_seen_at),
-        raw_json = case
-          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
-          else profile_affiliations.raw_json
-        end,
-        updated_at = excluded.updated_at
+        raw_json = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.raw_json else profile_affiliations.raw_json end, '{}'), nullif(profile_affiliations.raw_json, '{}'), nullif(excluded.raw_json, '{}'), '{}'),
+        updated_at = max(profile_affiliations.updated_at, excluded.updated_at)
       `,
 			columns: [
 				"subject_profile_id",
@@ -305,7 +303,7 @@ const definitions = {
     `,
 		...fixedShard("data/profile_snapshots.jsonl", "profile_snapshots"),
 		merge: {
-			order: 1,
+			order: 2,
 			sql: `
       insert into profile_snapshots (
         profile_id, snapshot_hash, observed_at, last_seen_at, source, handle,
@@ -313,12 +311,20 @@ const definitions = {
         following_count, affiliations_json, raw_json
       ) values (?, ?, ?, ?, coalesce(?, 'backup'), ?, ?, ?, ?, ?, ?, coalesce(?, 0), coalesce(?, 0), coalesce(?, '[]'), coalesce(?, '{}'))
       on conflict(profile_id, snapshot_hash) do update set
+        observed_at = min(profile_snapshots.observed_at, excluded.observed_at),
         last_seen_at = max(profile_snapshots.last_seen_at, excluded.last_seen_at),
-        source = excluded.source,
+        source = case
+          when excluded.last_seen_at > profile_snapshots.last_seen_at
+            or (excluded.last_seen_at = profile_snapshots.last_seen_at
+              and (excluded.source || char(0) || excluded.raw_json) >
+                (profile_snapshots.source || char(0) || profile_snapshots.raw_json))
+          then excluded.source else profile_snapshots.source end,
         raw_json = case
-          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
-          else profile_snapshots.raw_json
-        end
+          when excluded.last_seen_at > profile_snapshots.last_seen_at
+            or (excluded.last_seen_at = profile_snapshots.last_seen_at
+              and (excluded.source || char(0) || excluded.raw_json) >
+                (profile_snapshots.source || char(0) || profile_snapshots.raw_json))
+          then excluded.raw_json else profile_snapshots.raw_json end
       `,
 			columns: [
 				"profile_id",
@@ -348,19 +354,17 @@ const definitions = {
     `,
 		...fixedShard("data/profile_bio_entities.jsonl", "profile_bio_entities"),
 		merge: {
-			order: 2,
+			order: 3,
 			sql: `
       insert into profile_bio_entities (
         profile_id, kind, value, source, is_active, first_seen_at, last_seen_at, raw_json
       ) values (?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, coalesce(?, '{}'))
       on conflict(profile_id, kind, value) do update set
-        source = excluded.source,
-        is_active = excluded.is_active,
+        source = coalesce(nullif(case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.source else profile_bio_entities.source end, ''), profile_bio_entities.source, excluded.source),
+        is_active = case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.is_active else profile_bio_entities.is_active end,
+        first_seen_at = min(profile_bio_entities.first_seen_at, excluded.first_seen_at),
         last_seen_at = max(profile_bio_entities.last_seen_at, excluded.last_seen_at),
-        raw_json = case
-          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
-          else profile_bio_entities.raw_json
-        end
+        raw_json = coalesce(nullif(case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.raw_json else profile_bio_entities.raw_json end, '{}'), nullif(profile_bio_entities.raw_json, '{}'), nullif(excluded.raw_json, '{}'), '{}')
       `,
 			columns: [
 				"profile_id",

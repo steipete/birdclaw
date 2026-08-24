@@ -6,7 +6,7 @@ import {
 import type { ActionsTransport } from "./config";
 import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise, tryPromise, trySync } from "./effect-runtime";
 import {
 	getAccountHandle,
 	getDefaultAccountId,
@@ -132,17 +132,6 @@ type ModerationRemoveResult<K extends ModerationKind> =
 		action: RemoveAction<K>;
 		transport: ActionTransportResult;
 	};
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
-}
 
 export function listModerationState<K extends ModerationKind>(
 	kind: K,

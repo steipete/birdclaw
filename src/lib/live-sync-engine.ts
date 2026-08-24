@@ -3,7 +3,9 @@ import { findOperationAccount } from "./account-selection";
 import { databaseWriteEffect } from "./database-writer";
 import { toError } from "./effect-runtime";
 import type { Database } from "./sqlite";
-import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { inspectSyncCache, writeSyncCache } from "./sync-cache";
+
+export type LiveSyncMode = "auto" | "bird" | "xurl";
 
 export interface LiveTransportAdapter<Source extends string, Payload> {
 	source: Source;
@@ -17,11 +19,19 @@ export interface LiveSyncAccount {
 	isDefault: boolean;
 }
 
+export interface LiveAccountIdentity {
+	accountId: string;
+	username: string;
+	externalUserId?: string;
+	isDefault?: boolean;
+}
+
 interface CachedLiveSyncOptions<Source extends string, Payload, Persisted> {
 	db: Database;
 	cacheKey: string;
 	refresh: boolean;
-	cacheTtlMs: number;
+	cacheTtlMs?: number;
+	defaultCacheTtlMs: number;
 	transports: readonly LiveTransportAdapter<Source, Payload>[];
 	persistLive: (db: Database, payload: Payload, source: Source) => Persisted;
 	persistCached?: (db: Database, payload: Payload) => Persisted;
@@ -87,7 +97,7 @@ export function assertLiveAccountMatches({
 	liveExternalUserId,
 }: {
 	source: string;
-	account: LiveSyncAccount;
+	account: LiveAccountIdentity;
 	liveUsername: string;
 	liveExternalUserId?: string;
 }) {
@@ -110,14 +120,76 @@ export function assertLiveAccountMatches({
 	}
 }
 
-export function normalizeCacheTtlMs(
-	value: number | undefined,
-	defaultValue: number,
-) {
-	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-		return defaultValue;
+export function parseLiveSyncMode(
+	value: unknown,
+	defaultMode: Exclude<LiveSyncMode, "auto">,
+	options: { allowAuto: false },
+): Exclude<LiveSyncMode, "auto">;
+export function parseLiveSyncMode(
+	value: unknown,
+	defaultMode: LiveSyncMode,
+	options?: { allowAuto?: true },
+): LiveSyncMode;
+export function parseLiveSyncMode(
+	value: unknown,
+	defaultMode: LiveSyncMode,
+	{ allowAuto = true }: { allowAuto?: boolean } = {},
+): LiveSyncMode {
+	if (value === undefined) return defaultMode;
+	if (value === "bird" || value === "xurl" || (allowAuto && value === "auto")) {
+		return value;
 	}
-	return Math.floor(value);
+	throw new Error(
+		allowAuto
+			? "--mode must be auto, bird, or xurl"
+			: "--mode must be bird or xurl",
+	);
+}
+
+export function parseLivePageSize(
+	value: number,
+	{
+		min = 1,
+		max,
+		name = "--limit",
+		message,
+	}: { min?: number; max?: number; name?: string; message?: string } = {},
+) {
+	if (
+		!Number.isInteger(value) ||
+		value < min ||
+		(max !== undefined && value > max)
+	) {
+		if (message) throw new Error(message);
+		throw new Error(
+			max === undefined
+				? `${name} must be at least ${String(min)}`
+				: `${name} must be between ${String(min)} and ${String(max)}`,
+		);
+	}
+	return value;
+}
+
+export function parseOptionalMaxPages(
+	value: number | undefined,
+	{ allowZero = false }: { allowZero?: boolean } = {},
+) {
+	if (value === undefined) return undefined;
+	return parseLivePageSize(value, {
+		min: allowZero ? 0 : 1,
+		name: "--max-pages",
+	});
+}
+
+export function parseOptionalPageDelayMs(
+	value: number | undefined,
+	name = "--delay-ms",
+) {
+	if (value === undefined) return undefined;
+	if (!Number.isInteger(value) || value < 0) {
+		throw new Error(`${name} must be a non-negative integer`);
+	}
+	return value;
 }
 
 export function fetchWithTransportFallbackEffect<
@@ -149,6 +221,7 @@ export function runCachedLiveSyncEffect<
 	cacheKey,
 	refresh,
 	cacheTtlMs,
+	defaultCacheTtlMs,
 	transports,
 	persistLive,
 	persistCached,
@@ -157,14 +230,17 @@ export function runCachedLiveSyncEffect<
 	Error
 > {
 	return Effect.gen(function* () {
-		const cached = yield* Effect.try({
-			try: () => readSyncCache<Payload>(cacheKey, db),
+		const cache = yield* Effect.try({
+			try: () =>
+				inspectSyncCache<Payload>(
+					cacheKey,
+					{ ttlMs: cacheTtlMs, defaultTtlMs: defaultCacheTtlMs },
+					db,
+				),
 			catch: toError,
 		});
-		const cacheAgeMs = cached
-			? Date.now() - new Date(cached.updatedAt).getTime()
-			: Number.POSITIVE_INFINITY;
-		if (!refresh && cached && cacheAgeMs <= cacheTtlMs) {
+		const cached = cache.entry;
+		if (!refresh && cached && cache.fresh) {
 			const persisted = persistCached
 				? yield* databaseWriteEffect((writeDb) =>
 						persistCached(writeDb, cached.value),

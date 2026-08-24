@@ -3,7 +3,7 @@ import {
 	BirdCommandExecutionError,
 	runBirdCommandEffect,
 } from "./bird-command";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import type { XurlMentionUser } from "./types";
 
 function liveWritesDisabled() {
@@ -53,17 +53,12 @@ function normalizeOutput(stdout?: string, stderr?: string) {
 	return stripAnsi(stdout || stderr || "ok").trim();
 }
 
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
 function runBirdJsonCommandEffect(args: string[]) {
 	return Effect.gen(function* () {
 		const { stdout } = yield* runBirdCommandEffect(args);
-		return yield* Effect.try({
-			try: () => JSON.parse(stripAnsi(stdout)) as Record<string, unknown>,
-			catch: toError,
-		});
+		return yield* trySync(
+			() => JSON.parse(stripAnsi(stdout)) as Record<string, unknown>,
+		);
 	});
 }
 
@@ -80,10 +75,7 @@ function safeBirdProfileArg(query: string) {
 
 export function readBirdStatusViaBirdEffect(query: string) {
 	return Effect.gen(function* () {
-		const safeQuery = yield* Effect.try({
-			try: () => safeBirdProfileArg(query),
-			catch: toError,
-		});
+		const safeQuery = yield* trySync(() => safeBirdProfileArg(query));
 		return yield* runBirdJsonCommandEffect(["status", safeQuery, "--json"]);
 	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
@@ -154,10 +146,7 @@ function toBirdLookupUser(payload: Record<string, unknown>): XurlMentionUser {
 
 export function lookupProfileViaBirdEffect(query: string) {
 	return Effect.gen(function* () {
-		const safeQuery = yield* Effect.try({
-			try: () => safeBirdProfileArg(query),
-			catch: toError,
-		});
+		const safeQuery = yield* trySync(() => safeBirdProfileArg(query));
 		const payload = yield* runBirdJsonCommandEffect([
 			"user",
 			safeQuery,
@@ -165,10 +154,7 @@ export function lookupProfileViaBirdEffect(query: string) {
 			"1",
 			"--json",
 		]);
-		return yield* Effect.try({
-			try: () => toBirdLookupUser(payload),
-			catch: toError,
-		});
+		return yield* trySync(() => toBirdLookupUser(payload));
 	}).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
@@ -188,10 +174,7 @@ function runVerifiedBirdMutationEffect({
 	expectedValue: boolean;
 }) {
 	return Effect.gen(function* () {
-		const safeQuery = yield* Effect.try({
-			try: () => safeBirdProfileArg(query),
-			catch: toError,
-		});
+		const safeQuery = yield* trySync(() => safeBirdProfileArg(query));
 		if (liveWritesDisabled()) {
 			if (e2eFakeLiveWritesEnabled()) {
 				return { ok: true, output: "e2e fake live write" };

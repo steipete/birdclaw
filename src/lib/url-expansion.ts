@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { getNativeDb } from "./db";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise, tryPromise, trySync } from "./effect-runtime";
 import {
 	resolvePublicAddresses,
 	safePreviewFetchEffect,
@@ -47,17 +47,6 @@ function isFresh(updatedAt: string, maxAgeMs: number) {
 
 function trimTrailingPunctuation(url: string) {
 	return url.replace(/[.,;:!?]+$/g, "");
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 function cancelBodyEffect(response: Response) {

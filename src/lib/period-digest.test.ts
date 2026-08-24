@@ -13,7 +13,7 @@ import {
 	streamPeriodDigest,
 	streamPeriodDigestEffect,
 } from "./period-digest";
-import { getTweetsByIds } from "./queries";
+import { getTweetsByIds } from "./timeline-read-model";
 
 const tempRoots: string[] = [];
 

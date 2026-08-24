@@ -4,7 +4,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise, tryPromise, trySync } from "./effect-runtime";
 import { assertSafePreviewUrl } from "./url-safety";
 
 const AVATAR_SIZE_SUFFIX =
@@ -103,17 +103,6 @@ function getAvatarUrlForProfile(profileId: string) {
 		.prepare("select avatar_url from profiles where id = ?")
 		.get(profileId) as { avatar_url: string | null } | undefined;
 	return row?.avatar_url ?? null;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 function assertSafeRemoteAvatarUrl(avatarUrl: string) {

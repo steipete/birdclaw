@@ -42,6 +42,20 @@ describe("runSyncPlanEffect", () => {
 		expect(result.pages).toHaveLength(2);
 	});
 
+	it("reports a repeated cursor before a coincident page limit", async () => {
+		const result = await runEffectPromise(
+			runSyncPlanEffect({
+				initialCursor: "same",
+				maxPages: 1,
+				fetchPage: () => Effect.succeed({ next: "same" }),
+				getNextCursor: (page) => page.next,
+			}),
+		);
+
+		expect(result.stopReason).toBe("repeated-cursor");
+		expect(result.nextCursor).toBe("same");
+	});
+
 	it("persists each page and reports page-limit cursors", async () => {
 		type Page = { items: Array<string | undefined>; next: string };
 		const persistPage = vi.fn(

@@ -15,36 +15,19 @@ export function findOperationAccount(
 	db: Database,
 	selector?: string,
 ): OperationAccount | undefined {
-	const hasSelector = selector !== undefined;
-	const normalized = hasSelector
-		? normalizedAccountSelector(selector)
-		: undefined;
-	if (hasSelector && !normalized) return undefined;
-	const row = hasSelector
-		? (db
-				.prepare(
-					`select id, handle, external_user_id
-					 from accounts
-					 where id = ?
-					    or lower(replace(handle, '@', '')) = lower(?)
-					 order by case when id = ? then 0 else 1 end,
-					          is_default desc,
-					          created_at asc
-					 limit 1`,
-				)
-				.get(selector.trim(), normalized, selector.trim()) as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined)
-		: (db
-				.prepare(
-					`select id, handle, external_user_id
+	const row =
+		selector === undefined
+			? (db
+					.prepare(
+						`select id, handle, external_user_id
 					 from accounts
 					 order by is_default desc, created_at asc
 					 limit 1`,
-				)
-				.get() as
-				| { id: string; handle: string; external_user_id: string | null }
-				| undefined);
+					)
+					.get() as
+					| { id: string; handle: string; external_user_id: string | null }
+					| undefined)
+			: findSelectedAccount(db, selector);
 
 	return row
 		? {
@@ -57,8 +40,34 @@ export function findOperationAccount(
 		: undefined;
 }
 
-export function resolveOperationAccount(selector?: string): OperationAccount {
-	const account = findOperationAccount(getNativeDb(), selector);
+function findSelectedAccount(db: Database, selector: string) {
+	const trimmed = selector.trim();
+	const normalized = normalizedAccountSelector(selector);
+	if (!normalized) return undefined;
+	const byId = db
+		.prepare("select id, handle, external_user_id from accounts where id = ?")
+		.get(trimmed) as
+		| { id: string; handle: string; external_user_id: string | null }
+		| undefined;
+	if (byId) return byId;
+	return db
+		.prepare(
+			`select id, handle, external_user_id
+			 from accounts
+			 where lower(replace(handle, '@', '')) = lower(?)
+			 order by is_default desc, created_at asc
+			 limit 1`,
+		)
+		.get(normalized) as
+		| { id: string; handle: string; external_user_id: string | null }
+		| undefined;
+}
+
+export function resolveOperationAccount(
+	selector?: string,
+	db = getNativeDb(),
+): OperationAccount {
+	const account = findOperationAccount(db, selector);
 	if (!account) {
 		throw new Error(`Unknown account: ${selector?.trim() || "default"}`);
 	}

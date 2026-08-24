@@ -3,7 +3,13 @@ import { Effect } from "effect";
 import { normalizeAvatarUrl } from "./avatar-cache";
 import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { getNativeDb } from "./db";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
+import {
+	getProvenSelectedAccountLegacyProfileIds,
+	getProfileRawIdentityEvidence,
+	markProfileIdentityConflict,
+	profileIdentityHasConflict,
+} from "./profile-identity";
 import {
 	assertLiveAccountMatches,
 	resolveLiveSyncAccount,
@@ -14,7 +20,12 @@ import {
 	lookupAuthenticatedUserUnscopedEffect,
 	lookupUsersByIdsEffect,
 } from "./xurl";
-import { upsertProfileFromXUser } from "./x-profile";
+import type { XurlMentionUser } from "./types";
+import {
+	canonicalizeProvenXProfileIdentity,
+	upsertSparseProfileFromXUser,
+	upsertProfileFromXUser,
+} from "./x-profile";
 
 export type HydrateProfilesResult = {
 	ok: true;
@@ -32,17 +43,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function toInt(value: unknown) {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 const SEEDED_ACCOUNT_HANDLE = "steipete";
@@ -71,6 +71,34 @@ function hydrateAccountFromBirdEffect(
 					liveExternalUserId: externalUserId ?? undefined,
 				});
 				return db.transaction(() => {
+					const provenLegacyProfileIds =
+						externalUserId && /^[0-9]+$/.test(externalUserId)
+							? getProvenSelectedAccountLegacyProfileIds(
+									db,
+									selected,
+									externalUserId,
+								)
+							: undefined;
+					const profileId =
+						externalUserId && /^[0-9]+$/.test(externalUserId)
+							? (canonicalizeProvenXProfileIdentity(
+									db,
+									externalUserId,
+									handle,
+									{
+										provenLegacyProfileIds,
+									},
+								),
+								upsertSparseProfileFromXUser(
+									db,
+									{
+										id: externalUserId,
+										username: handle,
+										name: name ?? undefined,
+									},
+									{ provenLegacyProfileIds },
+								).profile.id)
+							: undefined;
 					db.prepare(
 						`update accounts
 						 set name = coalesce(?, name),
@@ -81,8 +109,8 @@ function hydrateAccountFromBirdEffect(
 					db.prepare(
 						`update profiles
 						 set display_name = coalesce(?, display_name)
-						 where lower(handle) = lower(?)`,
-					).run(name, selected.username);
+						 where id = coalesce(?, id) and lower(handle) = lower(?)`,
+					).run(name, profileId ?? null, selected.username);
 					return true;
 				})();
 			});
@@ -102,6 +130,9 @@ function hydrateAccountFromBirdEffect(
 					  }
 					| undefined;
 				if (!current) return false;
+				const profileMe = db
+					.prepare("select raw_json from profiles where id = 'profile_me'")
+					.get() as { raw_json: string } | undefined;
 
 				const storedHandle = current?.handle?.replace(/^@/, "") ?? null;
 				const handleMatches =
@@ -121,39 +152,58 @@ function hydrateAccountFromBirdEffect(
 				if (!identityMatches && !isSeededPlaceholder) return false;
 				const identityChanged = !identityMatches;
 
-				// On an identity change the seeded avatar belongs to a different
-				// person, and bird whoami can't supply a replacement, so clear it and
-				// let the UI fall back to initials rather than showing the previous
-				// user's photo. Likewise clear a stale external_user_id when the new
-				// identity has no id of its own.
+				// Bird whoami is sparse evidence. Resolve profile ownership entirely
+				// against the pre-update account/profile state, then switch the account.
+				let profileId = "profile_me";
+				if (externalUserId && /^[0-9]+$/.test(externalUserId)) {
+					const evidence = getProfileRawIdentityEvidence(profileMe?.raw_json);
+					const rawProvesProfileMe =
+						evidence.kind === "consistent" &&
+						evidence.externalUserId === externalUserId;
+					const preUpdateAccountProvesProfileMe = Boolean(
+						profileMe &&
+						evidence.kind === "none" &&
+						current.external_user_id === externalUserId &&
+						!profileIdentityHasConflict(profileMe.raw_json, externalUserId),
+					);
+					if (
+						profileMe &&
+						!rawProvesProfileMe &&
+						!preUpdateAccountProvesProfileMe
+					) {
+						markProfileIdentityConflict(db, "profile_me", externalUserId);
+					}
+					canonicalizeProvenXProfileIdentity(db, externalUserId, handle, {
+						provenLegacyProfileIds:
+							rawProvesProfileMe || preUpdateAccountProvesProfileMe
+								? new Set(["profile_me"])
+								: undefined,
+					});
+					profileId = upsertSparseProfileFromXUser(db, {
+						id: externalUserId,
+						username: handle,
+						name: name ?? undefined,
+					}).profile.id;
+				}
+				if (!externalUserId) {
+					db.prepare(
+						`update profiles set handle = ?,
+						 display_name = coalesce(?, display_name),
+						 avatar_url = case when ? then null else avatar_url end
+						 where id = ?`,
+					).run(handle, name, identityChanged ? 1 : 0, profileId);
+				}
 				if (identityChanged) {
 					db.prepare(
-						`update profiles
-						 set handle = ?,
-						     display_name = coalesce(?, display_name),
-						     avatar_url = null
-						 where id = 'profile_me'`,
-					).run(handle, name);
-					db.prepare(
 						`update accounts
-						 set handle = ?,
-						     name = coalesce(?, name),
-						     transport = 'bird',
+						 set handle = ?, name = coalesce(?, name), transport = 'bird',
 						     external_user_id = ?
 						 where id = 'acct_primary'`,
 					).run(`@${handle}`, name, externalUserId);
 				} else {
 					db.prepare(
-						`update profiles
-						 set handle = ?,
-						     display_name = coalesce(?, display_name)
-						 where id = 'profile_me'`,
-					).run(handle, name);
-					db.prepare(
 						`update accounts
-						 set handle = ?,
-						     name = coalesce(?, name),
-						     transport = 'bird',
+						 set handle = ?, name = coalesce(?, name), transport = 'bird',
 						     external_user_id = coalesce(?, external_user_id)
 						 where id = 'acct_primary'`,
 					).run(`@${handle}`, name, externalUserId);
@@ -201,7 +251,7 @@ export function hydrateProfilesFromXEffect({
       select id
       from profiles
       where id like 'profile_user_%'
-        and (followers_count = 0 or bio like 'Imported from archive user %' or handle like 'id%')
+		and (followers_count = 0 or bio like 'Imported from archive user %' or handle like 'id%' or handle like 'birdclaw_stub_%')
       order by id asc
       `,
 				)
@@ -278,7 +328,19 @@ export function hydrateProfilesFromXEffect({
 						const profileId = `profile_user_${String(user.id ?? "")}`;
 						if (profileId === "profile_user_") continue;
 
-						const resolved = upsertProfileFromXUser(db, user);
+						const userExternalId = String(user.id ?? "");
+						const provenLegacyProfileIds =
+							selectedAccount &&
+							userExternalId === selectedAccount.externalUserId
+								? getProvenSelectedAccountLegacyProfileIds(
+										db,
+										selectedAccount,
+										userExternalId,
+									)
+								: undefined;
+						const resolved = upsertProfileFromXUser(db, user, {
+							provenLegacyProfileIds,
+						});
 						updateConversationTitle.run(
 							resolved.profile.displayName || resolved.profile.handle,
 							resolved.profile.id,
@@ -300,6 +362,24 @@ export function hydrateProfilesFromXEffect({
 			yield* trySync(() => {
 				db.transaction(() => {
 					const accountId = selectedAccount?.accountId ?? "acct_primary";
+					const meExternalUserId =
+						typeof me.id === "string" && /^[0-9]+$/.test(me.id)
+							? me.id
+							: undefined;
+					const provenLegacyProfileIds =
+						selectedAccount && meExternalUserId
+							? getProvenSelectedAccountLegacyProfileIds(
+									db,
+									selectedAccount,
+									meExternalUserId,
+								)
+							: undefined;
+					const canonicalMe =
+						meExternalUserId && typeof me.username === "string" && me.username
+							? upsertProfileFromXUser(db, me as unknown as XurlMentionUser, {
+									provenLegacyProfileIds,
+								})
+							: undefined;
 					const localProfile = db
 						.prepare(
 							"select id from profiles where lower(handle) = lower(?) limit 1",
@@ -307,9 +387,9 @@ export function hydrateProfilesFromXEffect({
 						.get(selectedAccount?.username ?? "steipete") as
 						| { id: string }
 						| undefined;
-					const localProfileId = selectedAccount
-						? localProfile?.id
-						: "profile_me";
+					const localProfileId =
+						canonicalMe?.profile.id ??
+						(selectedAccount ? localProfile?.id : "profile_me");
 					if (localProfileId) {
 						updateLocalProfile.run(
 							String(me.username ?? "steipete").replace(/^@/, ""),

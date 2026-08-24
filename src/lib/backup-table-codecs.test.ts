@@ -49,6 +49,15 @@ describe("backup table codecs", () => {
 				(left, right) => left - right,
 			),
 		).toEqual(Array.from({ length: 28 }, (_, index) => index));
+		const mergeOrder = new Map(
+			BACKUP_TABLE_CODECS.map((codec) => [codec.name, codec.merge.order]),
+		);
+		expect(mergeOrder.get("profiles")).toBeLessThan(
+			mergeOrder.get("profile_snapshots")!,
+		);
+		expect(mergeOrder.get("profiles")).toBeLessThan(
+			mergeOrder.get("profile_bio_entities")!,
+		);
 
 		const sample = { created_at: "2026-01-02T00:00:00.000Z", kind: "likes" };
 		for (const codec of BACKUP_TABLE_CODECS) {

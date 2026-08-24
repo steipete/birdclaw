@@ -1,35 +1,27 @@
 import type { Database } from "./sqlite";
-import {
-	editHistoryIdsFromPayload,
-	reconcileTweetTombstones,
-	recordTweetRevision,
-} from "./tweet-retention";
 import { Effect } from "effect";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
-import { liveTransportGateway } from "./live-transport-gateway";
-import { resolveLiveSyncAccount } from "./live-sync-engine";
+import {
+	parseOptionalMaxPages,
+	parseLivePageSize,
+	resolveLiveSyncAccount,
+} from "./live-sync-engine";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
-import { tweetEntitiesFromXurl } from "./tweet-render";
-import type {
-	TweetEntities,
-	TweetMediaItem,
-	XurlMedia,
-	XurlMentionData,
-	XurlMentionUser,
-	XurlTweetData,
-	XurlTweetIncludes,
-	XurlUserTweet,
-	XurlUserTweetsResponse,
-} from "./types";
-import { upsertTweetAccountEdge } from "./tweet-account-edges";
+import type { XurlMentionData } from "./types";
+import { ingestTweetPayload } from "./tweet-repository";
 import {
-	buildExternalProfileId,
-	ensureStubProfileForXUser,
-	upsertProfileFromXUser,
-} from "./x-profile";
+	adaptUserTimelinePage,
+	mergeTweetPages,
+	type TweetPage,
+} from "./tweet-page";
+import {
+	getTransportStatusEffect,
+	listUserTweetsEffect,
+	lookupAuthenticatedUserEffect,
+} from "./xurl";
 
 export type AuthoredSyncMode = "xurl";
 
@@ -74,7 +66,7 @@ type AuthoredCursorState =
 
 interface AuthoredPayload {
 	data: XurlMentionData[];
-	includes?: XurlTweetIncludes;
+	includes?: TweetPage["includes"];
 	meta: {
 		result_count: number;
 		page_count: number;
@@ -114,37 +106,6 @@ const AUTHORED_USER_FIELDS = [
 	"verified",
 	"verified_type",
 ];
-const AUTHORED_MEDIA_FIELDS = [
-	"media_key",
-	"type",
-	"url",
-	"preview_image_url",
-	"width",
-	"height",
-	"alt_text",
-];
-
-function assertXurlLimit(limit: number) {
-	if (
-		!Number.isFinite(limit) ||
-		limit < MIN_XURL_LIMIT ||
-		limit > MAX_XURL_LIMIT
-	) {
-		throw new Error("xurl mode requires --limit between 5 and 100");
-	}
-	return Math.floor(limit);
-}
-
-function parseMaxPages(value?: number) {
-	if (value === undefined) {
-		return null;
-	}
-	if (!Number.isFinite(value) || value < 1) {
-		throw new Error("--max-pages must be at least 1");
-	}
-	return Math.floor(value);
-}
-
 function cursorKey(accountId: string) {
 	return `${AUTHORED_CURSOR_PREFIX}:${accountId}:cursor`;
 }
@@ -183,19 +144,6 @@ function normalizeCursor(value: unknown): AuthoredCursorState {
 			token: record.token,
 			untilId: record.untilId,
 			...(requestedSinceId !== undefined ? { requestedSinceId } : {}),
-		};
-	}
-	const legacyToken =
-		typeof record.paginationToken === "string" ? record.paginationToken : null;
-	if (legacyToken) {
-		return {
-			state: "pending-forward",
-			sinceId,
-			token: legacyToken,
-			pendingNewestId:
-				typeof record.pendingNewestId === "string"
-					? record.pendingNewestId
-					: null,
 		};
 	}
 	return { state: "committed", sinceId };
@@ -373,7 +321,7 @@ function persistAccountExternalUserId(
 
 function userFromAuthenticatedPayload(
 	payload: Record<string, unknown> | null,
-): XurlMentionUser | undefined {
+): { id: string; username: string } | undefined {
 	if (!payload || typeof payload.id !== "string") {
 		return undefined;
 	}
@@ -387,7 +335,6 @@ function userFromAuthenticatedPayload(
 	return {
 		id: payload.id,
 		username,
-		name: typeof payload.name === "string" ? payload.name : username,
 	};
 }
 
@@ -399,7 +346,7 @@ function resolveAuthoredIdentityEffect({
 	db: Database;
 }) {
 	return Effect.gen(function* () {
-		const status = yield* liveTransportGateway.xurl.getTransportStatus();
+		const status = yield* getTransportStatusEffect();
 		if (status.availableTransport !== "xurl") {
 			return yield* Effect.fail(new AuthoredSyncError(status.statusText, 4));
 		}
@@ -409,14 +356,13 @@ function resolveAuthoredIdentityEffect({
 		);
 		if (resolvedAccount.externalUserId) {
 			return {
-				...resolvedAccount,
+				accountId: resolvedAccount.accountId,
+				username: resolvedAccount.username,
 				userId: resolvedAccount.externalUserId,
-				authenticatedUser: undefined,
 			};
 		}
 
-		const authenticated =
-			yield* liveTransportGateway.xurl.lookupAuthenticatedUser();
+		const authenticated = yield* lookupAuthenticatedUserEffect();
 		const authenticatedUser = userFromAuthenticatedPayload(authenticated);
 		if (!authenticatedUser?.id) {
 			return yield* Effect.fail(
@@ -448,324 +394,27 @@ function resolveAuthoredIdentityEffect({
 		);
 
 		return {
-			...resolvedAccount,
+			accountId: resolvedAccount.accountId,
+			username: resolvedAccount.username,
 			userId: authenticatedUser.id,
-			authenticatedUser,
 		};
 	});
 }
 
-function toFallbackUser({
-	userId,
-	username,
-	authenticatedUser,
-}: {
-	userId: string;
-	username: string;
-	authenticatedUser?: XurlMentionUser;
-}): XurlMentionUser {
-	if (authenticatedUser?.id === userId) {
-		return authenticatedUser;
-	}
+function mergePages(pages: readonly TweetPage[]): AuthoredPayload {
+	const merged = mergeTweetPages(pages);
+	const newestId = getNewestTweetId(merged.data);
+	const oldestId = getOldestTweetId(merged.data);
 	return {
-		id: userId,
-		username: username || `user_${userId}`,
-		name: username || `user_${userId}`,
-	};
-}
-
-function toMentionData(tweet: XurlUserTweet, fallbackAuthorId: string) {
-	return {
-		...tweet,
-		author_id: tweet.author_id ?? fallbackAuthorId,
-	} satisfies XurlMentionData;
-}
-
-function toLocalEntities(tweet: XurlMentionData): TweetEntities {
-	return tweetEntitiesFromXurl(tweet.entities);
-}
-
-function toMediaType(type: string): TweetMediaItem["type"] {
-	if (type === "photo" || type === "image") {
-		return "image";
-	}
-	if (type === "animated_gif" || type === "gif") {
-		return "gif";
-	}
-	return type === "video" ? "video" : "unknown";
-}
-
-function toLocalMedia(
-	tweet: XurlMentionData,
-	mediaByKey: Map<string, XurlMedia>,
-) {
-	const mediaKeys = tweet.attachments?.media_keys ?? [];
-	const seen = new Set<string>();
-	return mediaKeys
-		.map((mediaKey) => mediaByKey.get(mediaKey))
-		.filter((media): media is XurlMedia => Boolean(media))
-		.map((media) => {
-			const url = media.url ?? media.preview_image_url ?? "";
-			const thumbnailUrl = media.preview_image_url ?? media.url ?? "";
-			return {
-				url,
-				type: toMediaType(media.type),
-				...(typeof media.alt_text === "string"
-					? { altText: media.alt_text }
-					: {}),
-				...(typeof media.width === "number" ? { width: media.width } : {}),
-				...(typeof media.height === "number" ? { height: media.height } : {}),
-				...(thumbnailUrl ? { thumbnailUrl } : {}),
-			};
-		})
-		.filter((media) => {
-			const key = media.url || media.thumbnailUrl;
-			if (!key || seen.has(key)) {
-				return false;
-			}
-			seen.add(key);
-			return true;
-		});
-}
-
-function getMediaCount(tweet: XurlMentionData, media: TweetMediaItem[]) {
-	if (media.length > 0) {
-		return media.length;
-	}
-	if (tweet.attachments?.media_keys?.length) {
-		return tweet.attachments.media_keys.length;
-	}
-	const urls = Array.isArray(tweet.entities?.urls) ? tweet.entities.urls : [];
-	return urls.filter(
-		(url) =>
-			url &&
-			typeof url === "object" &&
-			typeof (url as Record<string, unknown>).media_key === "string",
-	).length;
-}
-
-function getReferencedTweetId(tweet: XurlMentionData, type: string) {
-	return (
-		tweet.referenced_tweets?.find((item) => item.type === type)?.id ?? null
-	);
-}
-
-function replaceTweetFts(db: Database, tweetId: string, text: string) {
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
-	const row = db
-		.prepare("select deleted_at, superseded_at from tweets where id = ?")
-		.get(tweetId) as
-		| { deleted_at: string | null; superseded_at: string | null }
-		| undefined;
-	if (row?.deleted_at || row?.superseded_at) return;
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
-function findExistingProfileIdForUser(db: Database, user: XurlMentionUser) {
-	const username = String(user.username ?? "").replace(/^@/, "");
-	const row = db
-		.prepare(
-			`
-      select id
-      from profiles
-      where id = ? or handle = ?
-      limit 1
-      `,
-		)
-		.get(buildExternalProfileId(user.id), username) as
-		| { id: string }
-		| undefined;
-	return row?.id ?? null;
-}
-
-function mergeAuthoredPayloadIntoLocalStore({
-	db,
-	accountId,
-	payload,
-	sourceUser,
-}: {
-	db: Database;
-	accountId: string;
-	payload: AuthoredPayload;
-	sourceUser: XurlMentionUser;
-}) {
-	const usersById = new Map(
-		(payload.includes?.users ?? []).map((user) => [user.id, user]),
-	);
-	const fallbackUserIds = new Set<string>();
-	if (!usersById.has(sourceUser.id)) {
-		usersById.set(sourceUser.id, sourceUser);
-		fallbackUserIds.add(sourceUser.id);
-	}
-	const mediaByKey = new Map(
-		(payload.includes?.media ?? []).map((media) => [media.media_key, media]),
-	);
-	const upsertTweet = db.prepare(
-		`
-    insert into tweets (
-      id, author_profile_id, text, created_at, is_replied, reply_to_id,
-      like_count, media_count, entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    on conflict(id) do update set
-      author_profile_id = excluded.author_profile_id,
-      text = excluded.text,
-      created_at = excluded.created_at,
-      like_count = excluded.like_count,
-      media_count = excluded.media_count,
-      entities_json = excluded.entities_json,
-      media_json = excluded.media_json,
-      is_replied = max(tweets.is_replied, excluded.is_replied),
-      reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
-      quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id)
-    `,
-	);
-	const observedAt = new Date().toISOString();
-	const touchedTweetIds = new Set<string>();
-
-	const writeTweet = (tweet: XurlMentionData) => {
-		touchedTweetIds.add(tweet.id);
-		const author =
-			usersById.get(tweet.author_id) ??
-			({
-				id: tweet.author_id,
-				username: `user_${tweet.author_id}`,
-				name: `user_${tweet.author_id}`,
-			} as const);
-		const profileId =
-			usersById.has(tweet.author_id) && !fallbackUserIds.has(tweet.author_id)
-				? upsertProfileFromXUser(db, author).profile.id
-				: ((fallbackUserIds.has(tweet.author_id)
-						? findExistingProfileIdForUser(db, author)
-						: null) ??
-					ensureStubProfileForXUser(db, tweet.author_id).profile.id);
-		const replyToId = getReferencedTweetId(tweet, "replied_to");
-		const quotedTweetId = getReferencedTweetId(tweet, "quoted");
-		const media = toLocalMedia(tweet, mediaByKey);
-		upsertTweet.run(
-			tweet.id,
-			profileId,
-			tweet.text,
-			tweet.created_at,
-			replyToId ? 1 : 0,
-			replyToId,
-			Number(tweet.public_metrics?.like_count ?? 0),
-			getMediaCount(tweet, media),
-			JSON.stringify(toLocalEntities(tweet)),
-			JSON.stringify(media),
-			quotedTweetId,
-		);
-		recordTweetRevision(db, {
-			tweetId: tweet.id,
-			editHistoryIds: editHistoryIdsFromPayload(tweet.id, tweet),
-			payloadJson: JSON.stringify(tweet),
-			source: "xurl",
-			observedAt,
-		});
-		replaceTweetFts(db, tweet.id, tweet.text);
-	};
-
-	db.transaction(() => {
-		const seenAt = observedAt;
-		for (const includedTweet of payload.includes?.tweets ?? []) {
-			writeTweet(includedTweet);
-		}
-		for (const tweet of payload.data) {
-			writeTweet(tweet);
-			upsertTweetAccountEdge(db, {
-				accountId,
-				tweetId: tweet.id,
-				kind: "authored",
-				source: "xurl",
-				seenAt,
-				rawJson: JSON.stringify(tweet),
-			});
-		}
-		reconcileTweetTombstones(db, Array.from(touchedTweetIds));
-	})();
-}
-
-function appendUniqueById<T extends { id: string }>(
-	target: T[],
-	seenIds: Set<string>,
-	items: T[] | undefined,
-) {
-	for (const item of items ?? []) {
-		if (seenIds.has(item.id)) {
-			continue;
-		}
-		seenIds.add(item.id);
-		target.push(item);
-	}
-}
-
-function appendUniqueMedia(
-	target: XurlMedia[],
-	seenIds: Set<string>,
-	items: XurlMedia[] | undefined,
-) {
-	for (const item of items ?? []) {
-		if (seenIds.has(item.media_key)) {
-			continue;
-		}
-		seenIds.add(item.media_key);
-		target.push(item);
-	}
-}
-
-function mergePages({
-	pages,
-	userId,
-	nextToken,
-}: {
-	pages: XurlUserTweetsResponse[];
-	userId: string;
-	nextToken: string | null;
-}): AuthoredPayload {
-	const tweets: XurlMentionData[] = [];
-	const users: XurlMentionUser[] = [];
-	const includedTweets: XurlTweetData[] = [];
-	const media: XurlMedia[] = [];
-	const seenTweetIds = new Set<string>();
-	const seenUserIds = new Set<string>();
-	const seenIncludedTweetIds = new Set<string>();
-	const seenMediaKeys = new Set<string>();
-
-	for (const page of pages) {
-		for (const tweet of page.items) {
-			const normalized = toMentionData(tweet, userId);
-			if (seenTweetIds.has(normalized.id)) {
-				continue;
-			}
-			seenTweetIds.add(normalized.id);
-			tweets.push(normalized);
-		}
-		appendUniqueById(users, seenUserIds, page.includes?.users);
-		appendUniqueById(
-			includedTweets,
-			seenIncludedTweetIds,
-			page.includes?.tweets,
-		);
-		appendUniqueMedia(media, seenMediaKeys, page.includes?.media);
-	}
-
-	const newestId = getNewestTweetId(tweets);
-	const oldestId = getOldestTweetId(tweets);
-	const includes = {
-		...(users.length > 0 ? { users } : {}),
-		...(includedTweets.length > 0 ? { tweets: includedTweets } : {}),
-		...(media.length > 0 ? { media } : {}),
-	};
-
-	return {
-		data: tweets,
-		...(Object.keys(includes).length > 0 ? { includes } : {}),
+		...merged,
 		meta: {
-			result_count: tweets.length,
+			...merged.meta,
+			result_count: merged.data.length,
 			page_count: pages.length,
-			next_token: nextToken,
+			next_token:
+				typeof merged.meta?.next_token === "string"
+					? merged.meta.next_token
+					: null,
 			...(newestId ? { newest_id: newestId } : {}),
 			...(oldestId ? { oldest_id: oldestId } : {}),
 		},
@@ -834,8 +483,12 @@ export function syncAuthoredTweetsEffect({
 			);
 		}
 
-		const pageLimit = yield* trySync(() => assertXurlLimit(limit));
-		const parsedMaxPages = yield* trySync(() => parseMaxPages(maxPages));
+		const pageLimit = yield* trySync(() =>
+			parseLivePageSize(limit, { min: MIN_XURL_LIMIT, max: MAX_XURL_LIMIT }),
+		);
+		const parsedMaxPages = yield* trySync(() =>
+			parseOptionalMaxPages(maxPages),
+		);
 		const db = yield* trySync(() => getNativeDb());
 		const identity = yield* resolveAuthoredIdentityEffect({ account, db });
 		const cursor = yield* trySync(() =>
@@ -881,18 +534,12 @@ export function syncAuthoredTweetsEffect({
 		let newestSeenId = usePersistedForward
 			? maxTweetId(cursor.sinceId, cursor.pendingNewestId)
 			: cursor.sinceId;
-		const sourceUser = toFallbackUser({
-			userId: identity.userId,
-			username: identity.username,
-			authenticatedUser: identity.authenticatedUser,
-		});
-
 		const planResult = yield* runSyncPlanEffect({
 			allowPartialFailure: true,
 			initialCursor: initialToken,
 			maxPages: parsedMaxPages ?? undefined,
 			fetchPage: ({ cursor: paginationToken }) =>
-				liveTransportGateway.xurl.listUserTweets(identity.userId, {
+				listUserTweetsEffect(identity.userId, {
 					maxResults: pageLimit,
 					paginationToken,
 					excludeRetweets: false,
@@ -901,79 +548,69 @@ export function syncAuthoredTweetsEffect({
 					tweetFields: AUTHORED_TWEET_FIELDS,
 					expansions: AUTHORED_EXPANSIONS,
 					userFields: AUTHORED_USER_FIELDS,
-					mediaFields: AUTHORED_MEDIA_FIELDS,
 					auth: "oauth2",
 					username: identity.username,
-				}),
+				}).pipe(
+					Effect.map((page) => ({
+						payload: adaptUserTimelinePage(page, identity.userId),
+						nextToken: page.nextToken,
+					})),
+				),
 			getNextCursor: (page) => page.nextToken,
-			persistPage: ({ page, nextCursor: pendingToken }) => {
-				const pagePayload = mergePages({
-					pages: [page],
-					userId: identity.userId,
-					nextToken: page.nextToken,
-				});
+			persistPage: ({ page }) => {
 				return databaseWriteEffect((writeDb) =>
-					mergeAuthoredPayloadIntoLocalStore({
-						db: writeDb,
+					ingestTweetPayload(writeDb, {
 						accountId: identity.accountId,
-						payload: pagePayload,
-						sourceUser,
+						payload: page.payload,
+						source: "xurl",
+						edgeKind: "authored",
+						markRepliesAsReplied: true,
 					}),
 				).pipe(
-					Effect.flatMap(() =>
-						trySync(() => {
+					Effect.tap(() =>
+						Effect.sync(() => {
 							newestSeenId = maxTweetId(
 								newestSeenId,
-								pagePayload.meta.newest_id,
+								getNewestTweetId(page.payload.data),
 							);
-							if (pendingToken && untilId) {
-								writePendingUntilCursor(db, identity.accountId, {
-									sinceId: cursor.sinceId,
-									token: pendingToken,
-									untilId,
-									requestedSinceId: effectiveSinceId,
-								});
-							} else if (pendingToken) {
-								writePendingForwardCursor(db, identity.accountId, {
-									sinceId: effectiveSinceId,
-									token: pendingToken,
-									pendingNewestId: newestSeenId,
-								});
-							}
 						}),
 					),
 				);
 			},
 		});
-		const pages = planResult.pages;
+		const pages = planResult.pages.map((page) => page.payload);
 		const pageCount = pages.length;
-		const nextToken = planResult.nextCursor;
-		if (planResult.stopReason === "error") {
-			const payload = mergePages({
-				pages,
-				userId: identity.userId,
-				nextToken: nextToken ?? null,
-			});
-			return buildResult({
-				accountId: identity.accountId,
-				userId: identity.userId,
-				effectiveSinceId,
-				nextSinceId: untilId ? cursor.sinceId : effectiveSinceId,
-				nextToken: nextToken ?? null,
-				pageCount,
-				payload,
-				partial: true,
-				error: formatError(planResult.error),
-			});
-		}
-
-		const capped = Boolean(nextToken);
+		const nextToken =
+			planResult.stopReason === "page-limit" ||
+			planResult.stopReason === "error"
+				? planResult.nextCursor
+				: undefined;
+		const partial = !planResult.complete;
 		const nextSinceId = untilId
 			? cursor.sinceId
-			: capped
+			: partial
 				? effectiveSinceId
 				: maxTweetId(newestSeenId, effectiveSinceId, cursor.sinceId);
-		if (untilId && capped && nextToken) {
+		if (planResult.stopReason === "error") {
+			if (nextToken && untilId) {
+				yield* trySync(() =>
+					writePendingUntilCursor(db, identity.accountId, {
+						sinceId: cursor.sinceId,
+						token: nextToken,
+						untilId,
+						requestedSinceId: effectiveSinceId,
+					}),
+				);
+			} else if (nextToken) {
+				yield* trySync(() =>
+					writePendingForwardCursor(db, identity.accountId, {
+						sinceId: effectiveSinceId,
+						token: nextToken,
+						pendingNewestId: newestSeenId,
+					}),
+				);
+			}
+		} else if (untilId && nextToken) {
 			yield* trySync(() =>
 				writePendingUntilCursor(db, identity.accountId, {
 					sinceId: cursor.sinceId,
@@ -986,7 +623,7 @@ export function syncAuthoredTweetsEffect({
 			yield* trySync(() =>
 				writeCommittedCursor(db, identity.accountId, cursor.sinceId),
 			);
-		} else if (capped && nextToken) {
+		} else if (nextToken) {
 			yield* trySync(() =>
 				writePendingForwardCursor(db, identity.accountId, {
 					sinceId: nextSinceId,
@@ -1000,11 +637,7 @@ export function syncAuthoredTweetsEffect({
 			);
 		}
 
-		const payload = mergePages({
-			pages,
-			userId: identity.userId,
-			nextToken: nextToken ?? null,
-		});
+		const payload = mergePages(pages);
 		return buildResult({
 			accountId: identity.accountId,
 			userId: identity.userId,
@@ -1013,8 +646,17 @@ export function syncAuthoredTweetsEffect({
 			nextToken: nextToken ?? null,
 			pageCount,
 			payload,
-			partial: capped,
-			...(capped ? { error: "max pages reached before sync completed" } : {}),
+			partial,
+			...(planResult.stopReason === "error"
+				? { error: formatError(planResult.error) }
+				: partial
+					? {
+							error:
+								planResult.stopReason === "repeated-cursor"
+									? "pagination stopped on a repeated cursor"
+									: "max pages reached before sync completed",
+						}
+					: {}),
 		});
 	});
 }

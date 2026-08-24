@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
-import { listTimelineItems } from "./queries";
+import { listTimelineItems } from "./timeline-read-model";
 
 const listMentionsViaBirdMock = vi.fn();
 const listMentionsViaXurlMock = vi.fn();
@@ -14,35 +14,22 @@ const lookupUsersByHandlesMock = vi.fn();
 const getAuthenticatedBirdAccountMock = vi.fn();
 
 vi.mock("./bird", async () => {
-	const { Effect } = await import("effect");
+	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
-		listMentionsViaBird: (...args: unknown[]) =>
-			listMentionsViaBirdMock(...args),
-		listMentionsViaBirdEffect: (...args: unknown[]) =>
-			Effect.tryPromise({
-				try: () => listMentionsViaBirdMock(...args),
-				catch: (error) => error,
-			}),
-		getAuthenticatedBirdAccountEffect: () =>
-			Effect.tryPromise({
-				try: () => getAuthenticatedBirdAccountMock(),
-				catch: (error) => error,
-			}),
+		listMentionsViaBirdEffect: effectFromMock(listMentionsViaBirdMock),
+		getAuthenticatedBirdAccountEffect: effectFromMock(
+			getAuthenticatedBirdAccountMock,
+		),
 	};
 });
 
-vi.mock("./xurl", () => ({
-	listMentionsViaXurlEffect: (...args: unknown[]) =>
-		Effect.tryPromise({
-			try: () => listMentionsViaXurlMock(...args),
-			catch: (error) => error,
-		}),
-	lookupUsersByHandlesEffect: (...args: unknown[]) =>
-		Effect.tryPromise({
-			try: () => lookupUsersByHandlesMock(...args),
-			catch: (error) => error,
-		}),
-}));
+vi.mock("./xurl", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		listMentionsViaXurlEffect: effectFromMock(listMentionsViaXurlMock),
+		lookupUsersByHandlesEffect: effectFromMock(lookupUsersByHandlesMock),
+	};
+});
 
 const tempDirs: string[] = [];
 
@@ -128,6 +115,27 @@ describe("cached live mentions", () => {
 		}
 	});
 
+	it("rejects a mismatched explicit Bird account before mention persistence", async () => {
+		makeTempHome();
+		getAuthenticatedBirdAccountMock.mockResolvedValue({
+			id: "999",
+			username: "wrong",
+		});
+		const { syncMentions } = await import("./mentions-live");
+
+		await expect(
+			syncMentions({ mode: "bird", limit: 5, refresh: true }),
+		).rejects.toThrow("refusing to sync");
+		expect(listMentionsViaBirdMock).not.toHaveBeenCalled();
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from sync_cache where cache_key like 'mentions:%'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+	});
+
 	it("builds mention sync effects lazily", async () => {
 		makeTempHome();
 		insertLocalMentionBaseline();
@@ -173,6 +181,9 @@ describe("cached live mentions", () => {
 			"xurl mode requires --limit between 5 and 100",
 		);
 		expect(listMentionsViaXurlMock).not.toHaveBeenCalled();
+		await expect(
+			Effect.runPromise(syncMentionsEffect({ mode: "invalid" })),
+		).rejects.toThrow("--mode");
 	});
 
 	it("reports bird mention sync progress", async () => {
@@ -644,6 +655,125 @@ describe("cached live mentions", () => {
 		);
 	});
 
+	it("keys automatic result caches by the resolved high-water boundary", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		insertLocalMentionBaseline({ tweetId: "1000" });
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "1100",
+						author_id: "42",
+						text: "first page-size result",
+						created_at: "2026-03-09T02:00:00.000Z",
+					},
+				],
+				meta: { result_count: 1 },
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "1200",
+						author_id: "43",
+						text: "second page-size result",
+						created_at: "2026-03-09T02:01:00.000Z",
+					},
+				],
+				meta: { result_count: 1 },
+			})
+			.mockResolvedValueOnce({ data: [], meta: { result_count: 0 } });
+		const { syncMentions } = await import("./mentions-live");
+
+		await syncMentions({ mode: "xurl", limit: 5 });
+		await syncMentions({ mode: "xurl", limit: 10 });
+		await syncMentions({ mode: "xurl", limit: 5 });
+
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(3);
+		expect(listMentionsViaXurlMock).toHaveBeenNthCalledWith(
+			3,
+			expect.objectContaining({ maxResults: 5, sinceId: "1200" }),
+		);
+	});
+
+	it("rolls back a mention page and high-water together, then retries the same page", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		insertLocalMentionBaseline({ tweetId: "5000" });
+		const page = {
+			data: [
+				{
+					id: "5100",
+					author_id: "4242",
+					text: "synthetic atomic mention",
+					created_at: "2026-03-09T02:10:00.000Z",
+				},
+			],
+			includes: {
+				users: [{ id: "4242", username: "atomic_user", name: "Atomic User" }],
+			},
+			meta: { result_count: 1, newest_id: "5100" },
+		};
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce(page)
+			.mockResolvedValueOnce(page);
+		const db = getNativeDb();
+		db.exec(`
+			create trigger synthetic_high_water_failure
+			before insert on sync_cache
+			when new.cache_key like 'mentions:sync:high-water:%'
+			begin
+				select raise(abort, 'synthetic high-water failure');
+			end;
+		`);
+		const { syncMentions } = await import("./mentions-live");
+
+		await expect(
+			syncMentions({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				refresh: true,
+			}),
+		).rejects.toThrow("synthetic high-water failure");
+		expect(
+			db.prepare("select id from tweets where id = '5100'").get(),
+		).toBeUndefined();
+		expect(
+			db
+				.prepare(
+					"select cache_key from sync_cache where cache_key like 'mentions:sync:high-water:%'",
+				)
+				.all(),
+		).toEqual([]);
+
+		db.exec("drop trigger synthetic_high_water_failure");
+		await expect(
+			syncMentions({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				refresh: true,
+			}),
+		).resolves.toMatchObject({ count: 1, source: "xurl" });
+		expect(db.prepare("select id from tweets where id = '5100'").get()).toEqual(
+			{
+				id: "5100",
+			},
+		);
+		expect(
+			db
+				.prepare(
+					"select value_json from sync_cache where cache_key like 'mentions:sync:high-water:%'",
+				)
+				.get(),
+		).toEqual({ value_json: '{"sinceId":"5100"}' });
+		expect(listMentionsViaXurlMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ sinceId: "5000" }),
+		);
+	});
+
 	it("does not seed first-run xurl mention sync from live-only mention edges", async () => {
 		makeTempHome();
 		clearLocalMentionRows();
@@ -963,7 +1093,7 @@ describe("cached live mentions", () => {
 		).toEqual({ kind: "mention" });
 	});
 
-	it("does not reuse stale scoped partial cache after start_time resume completes", async () => {
+	it("replaces a partial start-time scan with its completed resume result", async () => {
 		makeTempHome();
 		clearLocalMentionRows();
 		listMentionsViaXurlMock
@@ -1019,20 +1149,14 @@ describe("cached live mentions", () => {
 			startTime: "2026-03-01T00:00:00Z",
 		});
 
-		const thirdCall = listMentionsViaXurlMock.mock.calls[2]?.[0] as Record<
-			string,
-			unknown
-		>;
-		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(3);
-		expect(thirdResult.source).toBe("xurl");
-		expect(thirdCall).toMatchObject({
-			paginationToken: undefined,
-			startTime: "2026-03-01T00:00:00Z",
-		});
-		expect(thirdCall).not.toHaveProperty("sinceId");
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(2);
+		expect(thirdResult.source).toBe("cache");
+		expect(thirdResult.payload.data.map((tweet) => tweet.id)).toEqual([
+			"partial_start_page_2",
+		]);
 	});
 
-	it("clears completed scoped result cache when refresh writes a cursor", async () => {
+	it("reuses the stable result cache after a refresh cursor completes", async () => {
 		makeTempHome();
 		clearLocalMentionRows();
 		listMentionsViaXurlMock
@@ -1105,78 +1229,63 @@ describe("cached live mentions", () => {
 			startTime: "2026-03-01T00:00:00Z",
 		});
 
-		const fourthCall = listMentionsViaXurlMock.mock.calls[3]?.[0] as Record<
-			string,
-			unknown
-		>;
-		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(4);
-		expect(fourthResult.source).toBe("xurl");
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(3);
+		expect(fourthResult.source).toBe("cache");
 		expect(fourthResult.payload.data.map((tweet) => tweet.id)).toEqual([
-			"fresh_after_refresh_resume",
+			"refreshed_start_page_2",
 		]);
-		expect(fourthCall).toMatchObject({
-			paginationToken: undefined,
-			startTime: "2026-03-01T00:00:00Z",
-		});
-		expect(fourthCall).not.toHaveProperty("sinceId");
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from sync_cache where cache_key like 'mentions:sync:result:v2:%boundary=start%2026-03-01T00%3A00%3A00Z%'",
+				)
+				.get(),
+		).toEqual({ count: 1 });
 	});
 
-	it("resumes legacy mention cursors instead of reseeding from newest local mention", async () => {
+	it("does not persist a repeated mention cursor as resumable", async () => {
 		makeTempHome();
 		clearLocalMentionRows();
-		insertLocalMentionBaseline({ tweetId: "100" });
-		insertLocalMentionBaseline({ tweetId: "250" });
-		const db = getNativeDb();
-		const legacyCursorKey =
-			"mentions:sync:xurl:acct_primary:20:single:all-pages:no-since:no-start";
-		db.prepare(
-			`
-      insert into sync_cache (cache_key, value_json, updated_at)
-      values (?, ?, ?)
-      `,
-		).run(
-			legacyCursorKey,
-			JSON.stringify({
-				data: [],
-				meta: { result_count: 0, next_token: "legacy-page-2" },
-			}),
-			"2026-03-09T02:00:00.000Z",
-		);
-		listMentionsViaXurlMock.mockResolvedValueOnce({
-			data: [
-				{
-					id: "180",
-					author_id: "9",
-					text: "legacy cursor page two mention",
-					created_at: "2026-03-09T01:58:00.000Z",
-				},
-			],
-			meta: { result_count: 1 },
-		});
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "300",
+						author_id: "9",
+						text: "first repeated page",
+						created_at: "2026-03-09T02:00:00.000Z",
+					},
+				],
+				meta: { next_token: "same-page" },
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "250",
+						author_id: "9",
+						text: "second repeated page",
+						created_at: "2026-03-09T01:59:00.000Z",
+					},
+				],
+				meta: { next_token: "same-page" },
+			});
 		const { syncMentions } = await import("./mentions-live");
 
-		await syncMentions({ mode: "xurl" });
+		const result = await syncMentions({ mode: "xurl", sinceId: "100" });
 
-		const call = listMentionsViaXurlMock.mock.calls[0]?.[0] as Record<
-			string,
-			unknown
-		>;
-		expect(call).toMatchObject({
-			paginationToken: "legacy-page-2",
+		expect(result).toMatchObject({
+			partial: true,
+			payload: {
+				meta: { next_token: "same-page" },
+			},
 		});
-		expect(call).not.toHaveProperty("sinceId");
 		expect(
-			db
+			getNativeDb()
 				.prepare(
-					"select kind from tweet_account_edges where tweet_id = ? and kind = 'mention'",
+					"select count(*) as count from sync_cache where cache_key like 'mentions:sync:cursor:v2:%'",
 				)
-				.get("180"),
-		).toEqual({ kind: "mention" });
-		expect(
-			db
-				.prepare("select cache_key from sync_cache where cache_key = ?")
-				.get(legacyCursorKey),
-		).toBeUndefined();
+				.get(),
+		).toEqual({ count: 0 });
 	});
 
 	it("keeps seeded sync mentions cache separate from unseeded exports", async () => {
@@ -1434,7 +1543,7 @@ describe("cached live mentions", () => {
 				mediaCount: 1,
 				author: expect.objectContaining({
 					id: "profile_user_999",
-					handle: "user_999",
+					handle: expect.stringMatching(/^birdclaw_stub_/),
 				}),
 			}),
 		]);

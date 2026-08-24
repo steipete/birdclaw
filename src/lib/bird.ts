@@ -723,12 +723,6 @@ export const listMentionsViaBirdEffect = Effect.fn("bird.listMentions")(
 	},
 );
 
-export function listMentionsViaBird(options: {
-	maxResults: number;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listMentionsViaBirdEffect(options));
-}
-
 const listTweetsViaBirdCommandEffect = Effect.fn("bird.listTweets")(function* ({
 	command,
 	maxResults,
@@ -763,14 +757,6 @@ export function listLikedTweetsViaBirdEffect(options: {
 	});
 }
 
-export function listLikedTweetsViaBird(options: {
-	maxResults: number;
-	all?: boolean;
-	maxPages?: number;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listLikedTweetsViaBirdEffect(options));
-}
-
 export function listBookmarkedTweetsViaBirdEffect(options: {
 	maxResults: number;
 	all?: boolean;
@@ -780,14 +766,6 @@ export function listBookmarkedTweetsViaBirdEffect(options: {
 		command: "bookmarks",
 		...options,
 	});
-}
-
-export function listBookmarkedTweetsViaBird(options: {
-	maxResults: number;
-	all?: boolean;
-	maxPages?: number;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listBookmarkedTweetsViaBirdEffect(options));
 }
 
 export const searchTweetsViaBirdEffect = Effect.fn("bird.searchTweets")(
@@ -812,17 +790,6 @@ export const searchTweetsViaBirdEffect = Effect.fn("bird.searchTweets")(
 	},
 );
 
-export function searchTweetsViaBird(
-	query: string,
-	options: {
-		maxResults: number;
-		all?: boolean;
-		maxPages?: number;
-	},
-): Promise<XurlMentionsResponse> {
-	return runEffectPromise(searchTweetsViaBirdEffect(query, options));
-}
-
 export const lookupTweetsByIdsViaBirdEffect = Effect.fn(
 	"bird.lookupTweetsByIds",
 )(function* (ids: string[]): Effect.fn.Return<XurlTweetsResponse, unknown> {
@@ -842,12 +809,6 @@ export const lookupTweetsByIdsViaBirdEffect = Effect.fn(
 	return normalizeBirdTweets(tweets);
 });
 
-export function lookupTweetsByIdsViaBird(
-	ids: string[],
-): Promise<XurlTweetsResponse> {
-	return runEffectPromise(lookupTweetsByIdsViaBirdEffect(ids));
-}
-
 export const listHomeTimelineViaBirdEffect = Effect.fn("bird.listHomeTimeline")(
 	function* ({
 		maxResults,
@@ -865,13 +826,6 @@ export const listHomeTimelineViaBirdEffect = Effect.fn("bird.listHomeTimeline")(
 		return yield* normalizeBirdTweetsPayloadEffect(payload, "home");
 	},
 );
-
-export function listHomeTimelineViaBird(options: {
-	maxResults: number;
-	following?: boolean;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listHomeTimelineViaBirdEffect(options));
-}
 
 function normalizeBirdFollowUsers(
 	payload: unknown,
@@ -952,16 +906,6 @@ export const listFollowUsersViaBirdEffect = Effect.fn("bird.listFollowUsers")(
 	},
 );
 
-export function listFollowUsersViaBird(options: {
-	direction: "followers" | "following";
-	userId?: string;
-	maxResults: number;
-	all?: boolean;
-	maxPages?: number;
-}): Promise<XurlFollowUsersResponse> {
-	return runEffectPromise(listFollowUsersViaBirdEffect(options));
-}
-
 function normalizeBirdLists(payload: unknown): XListPage {
 	if (!Array.isArray(payload)) {
 		throw new Error("bird lists returned unexpected JSON");
@@ -1010,10 +954,6 @@ export const listOwnedXListsViaBirdEffect = Effect.fn("bird.listOwnedXLists")(
 	},
 );
 
-export function listOwnedXListsViaBird(options: { maxResults: number }) {
-	return runEffectPromise(listOwnedXListsViaBirdEffect(options));
-}
-
 export const listXListMembersViaBirdEffect = Effect.fn("bird.listXListMembers")(
 	function* ({
 		listId,
@@ -1046,14 +986,6 @@ export const listXListMembersViaBirdEffect = Effect.fn("bird.listXListMembers")(
 	},
 );
 
-export function listXListMembersViaBird(options: {
-	listId: string;
-	maxResults: number;
-	maxPages?: number;
-}) {
-	return runEffectPromise(listXListMembersViaBirdEffect(options));
-}
-
 export const listThreadViaBirdEffect = Effect.fn("bird.listThread")(function* ({
 	tweetId,
 	all,
@@ -1076,15 +1008,6 @@ export const listThreadViaBirdEffect = Effect.fn("bird.listThread")(function* ({
 	const payload = yield* parseBirdJsonEffect(stdout);
 	return yield* normalizeBirdTweetsPayloadEffect(payload, "thread");
 });
-
-export function listThreadViaBird(options: {
-	tweetId: string;
-	all?: boolean;
-	maxPages?: number;
-	timeoutMs?: number;
-}): Promise<XurlMentionsResponse> {
-	return runEffectPromise(listThreadViaBirdEffect(options));
-}
 
 function normalizeBirdDmsPayloadEffect(payload: unknown) {
 	return Effect.try({
@@ -1182,16 +1105,6 @@ export const listDirectMessagesViaBirdEffect = Effect.fn(
 	return yield* normalizeBirdDmsPayloadEffect(payload);
 });
 
-export function listDirectMessagesViaBird(options: {
-	maxResults: number;
-	inbox?: "all" | "accepted" | "requests";
-	maxPages?: number;
-	allPages?: boolean;
-	pageDelayMs?: number;
-}): Promise<BirdDmsResponse> {
-	return runEffectPromise(listDirectMessagesViaBirdEffect(options));
-}
-
 export const runDirectMessageRequestMutationViaBirdEffect = Effect.fn(
 	"bird.runDirectMessageRequestMutation",
 )(function* ({
@@ -1274,12 +1187,6 @@ export const lookupProfileViaBirdEffect = Effect.fn("bird.lookupProfile")(
 		return toXurlMentionUser(payload.user);
 	},
 );
-
-export function lookupProfileViaBird(
-	usernameOrId: string,
-): Promise<XurlMentionUser | null> {
-	return runEffectPromise(lookupProfileViaBirdEffect(usernameOrId));
-}
 
 function toXurlMentionUser(
 	user: BirdUserOverviewPayload["user"],
@@ -1396,14 +1303,6 @@ export const lookupProfilesViaBirdEffect = Effect.fn("bird.lookupProfiles")((
 		}),
 	);
 });
-
-export function lookupProfilesViaBird(
-	usernameOrIds: string[],
-): Promise<
-	Array<{ target: string; user: XurlMentionUser | null; error?: string }>
-> {
-	return runEffectPromise(lookupProfilesViaBirdEffect(usernameOrIds));
-}
 
 export const __test__ = {
 	toIsoTimestamp,

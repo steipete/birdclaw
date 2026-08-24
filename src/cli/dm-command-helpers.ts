@@ -1,6 +1,6 @@
 import type { DirectMessagesSyncMode } from "#/lib/dms-live";
 import { resolveProfilesForIds } from "#/lib/profile-resolver";
-import { listDmConversations } from "#/lib/queries";
+import { listDmConversations } from "#/lib/dm-read-model";
 import { expandUrlsFromTexts } from "#/lib/url-expansion";
 import { printError } from "./command-context";
 

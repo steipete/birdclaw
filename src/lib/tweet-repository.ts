@@ -1,5 +1,5 @@
 import type { Database } from "./sqlite";
-import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
+import { buildTweetMedia, indexMediaIncludes } from "./media-includes";
 import { tweetEntitiesFromXurl } from "./tweet-render";
 import type { XurlMentionData, XurlMentionsResponse } from "./types";
 import {
@@ -19,6 +19,7 @@ export interface IngestTweetPayloadOptions {
 	source: string;
 	edgeKind?: TweetAccountEdgeKind;
 	collectionKind?: "likes" | "bookmarks";
+	collectionTweetIds?: ReadonlySet<string>;
 	markRepliesAsReplied?: boolean;
 	provenance?: {
 		sourceUrlByTweetId: ReadonlyMap<string, string>;
@@ -64,6 +65,7 @@ export function ingestTweetPayload(
 		source,
 		edgeKind,
 		collectionKind,
+		collectionTweetIds,
 		markRepliesAsReplied = false,
 		provenance,
 	}: IngestTweetPayloadOptions,
@@ -71,6 +73,7 @@ export function ingestTweetPayload(
 	const usersById = new Map(
 		(payload.includes?.users ?? []).map((user) => [user.id, user]),
 	);
+	const mediaByKey = indexMediaIncludes(payload.includes?.media);
 	const upsertTweet = db.prepare(`
     insert into tweets (
       id, author_profile_id, text, created_at, is_replied, reply_to_id,
@@ -126,6 +129,7 @@ export function ingestTweetPayload(
 				: ensureStubProfileForXUser(db, tweet.author_id);
 			const replyToId = getReferencedTweetId(tweet, "replied_to");
 			const quotedTweetId = getReferencedTweetId(tweet, "quoted");
+			const media = buildTweetMedia(tweet, mediaByKey);
 			// Included tweets are reference data, not members of the caller's result set.
 			const shouldMarkReplied =
 				isPrimaryTweet && markRepliesAsReplied && Boolean(replyToId);
@@ -137,9 +141,9 @@ export function ingestTweetPayload(
 				shouldMarkReplied ? 1 : 0,
 				replyToId,
 				Number(tweet.public_metrics?.like_count ?? 0),
-				countTweetMedia(tweet),
+				media.count,
 				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
-				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
+				media.json,
 				quotedTweetId,
 				!isPrimaryTweet && tweet.public_metrics?.like_count === undefined
 					? 1
@@ -166,7 +170,10 @@ export function ingestTweetPayload(
 					rawJson: JSON.stringify(tweet),
 				});
 			}
-			if (isPrimaryTweet) {
+			if (
+				isPrimaryTweet &&
+				(!collectionTweetIds || collectionTweetIds.has(tweet.id))
+			) {
 				upsertCollection?.run(
 					accountId,
 					tweet.id,

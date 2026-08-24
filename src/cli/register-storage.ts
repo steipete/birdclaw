@@ -6,7 +6,7 @@ import {
 } from "#/lib/backup";
 import { getBirdclawPaths } from "#/lib/config";
 import { getDatabaseRuntimeMetrics } from "#/lib/database-metrics";
-import { getQueryEnvelope } from "#/lib/queries";
+import { getQueryEnvelope } from "#/lib/query-status";
 import type { CliCommandContext } from "./command-context";
 
 export function registerStorageCommands({
@@ -15,8 +15,9 @@ export function registerStorageCommands({
 	asJson,
 	autoUpdateBeforeRead,
 }: CliCommandContext) {
-	program
-		.command("db stats")
+	const dbCommand = program.command("db").description("Inspect local storage");
+	dbCommand
+		.command("stats")
 		.description("Show local storage and dataset stats")
 		.action(async () => {
 			await autoUpdateBeforeRead();

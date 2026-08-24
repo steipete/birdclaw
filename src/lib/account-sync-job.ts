@@ -391,7 +391,7 @@ export async function runAccountSyncJob({
 		const backup = await maybeAutoSyncBackup(database);
 		const entry: AccountSyncAuditEntry = {
 			job: "account-sync",
-			ok: stepResults.every((step) => step.ok),
+			ok: stepResults.every((step) => step.ok) && backup.ok,
 			...run.finish(),
 			options,
 			steps: stepResults,

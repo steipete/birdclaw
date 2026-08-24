@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { runEffectPromise as run } from "./effect-runtime";
 
 const execFileAsyncMock = vi.fn();
 const execFile = vi.fn();
@@ -43,7 +43,7 @@ const VIDEO_MEDIA = {
 } as const;
 const AUTH_STATUS_STEIPETE = "default\n  oauth2: steipete\n";
 
-describe("xurl transport wrapper", () => {
+describe("xurl transport", () => {
 	beforeEach(() => {
 		vi.resetModules();
 		execFile.mockReset();
@@ -56,9 +56,9 @@ describe("xurl transport wrapper", () => {
 
 	it("falls back to local mode when xurl is missing", async () => {
 		execFileAsyncMock.mockRejectedValue(new Error("missing"));
-		const { getTransportStatus } = await import("./xurl");
+		const { getTransportStatusEffect } = await import("./xurl");
 
-		const result = await getTransportStatus();
+		const result = await run(getTransportStatusEffect());
 
 		expect(result.availableTransport).toBe("local");
 		expect(result.installed).toBe(false);
@@ -71,9 +71,9 @@ describe("xurl transport wrapper", () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: "xurl 1.0", stderr: "" })
 			.mockResolvedValueOnce({ stdout: "ok", stderr: "" });
-		const { getTransportStatus } = await import("./xurl");
+		const { getTransportStatusEffect } = await import("./xurl");
 
-		const result = await getTransportStatus();
+		const result = await run(getTransportStatusEffect());
 
 		expect(result).toMatchObject({
 			installed: true,
@@ -91,7 +91,7 @@ describe("xurl transport wrapper", () => {
 
 		const effect = getTransportStatusEffect();
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
-		await expect(Effect.runPromise(effect)).resolves.toMatchObject({
+		await expect(run(effect)).resolves.toMatchObject({
 			installed: true,
 			availableTransport: "xurl",
 			rawStatus: "ok",
@@ -106,9 +106,9 @@ describe("xurl transport wrapper", () => {
 					"No apps registered. Use 'xurl auth apps add' to register one.\n",
 				stderr: "",
 			});
-		const { getTransportStatus } = await import("./xurl");
+		const { getTransportStatusEffect } = await import("./xurl");
 
-		const result = await getTransportStatus();
+		const result = await run(getTransportStatusEffect());
 
 		expect(result.installed).toBe(true);
 		expect(result.availableTransport).toBe("local");
@@ -125,9 +125,9 @@ describe("xurl transport wrapper", () => {
 				stdout: "No authenticated user. Run xurl auth login.\n",
 				stderr: "",
 			});
-		const { getTransportStatus } = await import("./xurl");
+		const { getTransportStatusEffect } = await import("./xurl");
 
-		const result = await getTransportStatus();
+		const result = await run(getTransportStatusEffect());
 
 		expect(result.installed).toBe(true);
 		expect(result.availableTransport).toBe("local");
@@ -141,10 +141,10 @@ describe("xurl transport wrapper", () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: "xurl 1.0", stderr: "" })
 			.mockResolvedValueOnce({ stdout: "ok", stderr: "" });
-		const { getTransportStatus } = await import("./xurl");
+		const { getTransportStatusEffect } = await import("./xurl");
 
-		const first = await getTransportStatus();
-		const second = await getTransportStatus();
+		const first = await run(getTransportStatusEffect());
+		const second = await run(getTransportStatusEffect());
 
 		expect(first).toEqual(second);
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(2);
@@ -154,9 +154,9 @@ describe("xurl transport wrapper", () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: "xurl 1.0", stderr: "" })
 			.mockRejectedValueOnce(new Error("auth unavailable"));
-		const { getTransportStatus } = await import("./xurl");
+		const { getTransportStatusEffect } = await import("./xurl");
 
-		const result = await getTransportStatus();
+		const result = await run(getTransportStatusEffect());
 
 		expect(result.installed).toBe(true);
 		expect(result.availableTransport).toBe("local");
@@ -168,9 +168,9 @@ describe("xurl transport wrapper", () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: "xurl 1.0", stderr: "" })
 			.mockRejectedValueOnce("bad auth");
-		const { getTransportStatus } = await import("./xurl");
+		const { getTransportStatusEffect } = await import("./xurl");
 
-		const result = await getTransportStatus();
+		const result = await run(getTransportStatusEffect());
 
 		expect(result.availableTransport).toBe("local");
 		expect(result.statusText).toContain("unknown error");
@@ -187,13 +187,13 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: { id: "1", username: "steipete" } }),
 				stderr: "",
 			});
-		const { lookupAuthenticatedUser, lookupUsersByIds } =
+		const { lookupAuthenticatedUserEffect, lookupUsersByIdsEffect } =
 			await import("./xurl");
 
-		await expect(lookupUsersByIds(["42"])).resolves.toEqual([
+		await expect(run(lookupUsersByIdsEffect(["42"]))).resolves.toEqual([
 			{ id: "42", username: "sam" },
 		]);
-		await expect(lookupAuthenticatedUser()).resolves.toEqual({
+		await expect(run(lookupAuthenticatedUserEffect())).resolves.toEqual({
 			id: "1",
 			username: "steipete",
 		});
@@ -207,7 +207,7 @@ describe("xurl transport wrapper", () => {
 		});
 		const { lookupAuthenticatedUserUnscopedEffect } = await import("./xurl");
 
-		await Effect.runPromise(lookupAuthenticatedUserUnscopedEffect());
+		await run(lookupAuthenticatedUserUnscopedEffect());
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", ["whoami"]);
 	});
@@ -227,12 +227,10 @@ describe("xurl transport wrapper", () => {
 
 		const usersEffect = lookupUsersByIdsEffect(["42"]);
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
-		await expect(Effect.runPromise(usersEffect)).resolves.toEqual([
+		await expect(run(usersEffect)).resolves.toEqual([
 			{ id: "42", username: "sam" },
 		]);
-		await expect(
-			Effect.runPromise(lookupAuthenticatedUserEffect()),
-		).resolves.toEqual({
+		await expect(run(lookupAuthenticatedUserEffect())).resolves.toEqual({
 			id: "1",
 			username: "steipete",
 		});
@@ -243,9 +241,9 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: { id: "42" } }),
 			stderr: "",
 		});
-		const { lookupUsersByIds } = await import("./xurl");
+		const { lookupUsersByIdsEffect } = await import("./xurl");
 
-		await expect(lookupUsersByIds(["42"])).resolves.toEqual([]);
+		await expect(run(lookupUsersByIdsEffect(["42"]))).resolves.toEqual([]);
 	});
 
 	it("looks up users by handle", async () => {
@@ -253,11 +251,11 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: [{ id: "7", username: "amelia" }] }),
 			stderr: "",
 		});
-		const { lookupUsersByHandles } = await import("./xurl");
+		const { lookupUsersByHandlesEffect } = await import("./xurl");
 
-		await expect(lookupUsersByHandles(["@amelia"])).resolves.toEqual([
-			{ id: "7", username: "amelia" },
-		]);
+		await expect(run(lookupUsersByHandlesEffect(["@amelia"]))).resolves.toEqual(
+			[{ id: "7", username: "amelia" }],
+		);
 	});
 
 	it("lists mentions via the xurl users mentions endpoint", async () => {
@@ -288,13 +286,15 @@ describe("xurl transport wrapper", () => {
 				}),
 				stderr: "",
 			});
-		const { listMentionsViaXurl } = await import("./xurl");
+		const { listMentionsViaXurlEffect } = await import("./xurl");
 
 		await expect(
-			listMentionsViaXurl({
-				maxResults: 5,
-				username: "steipete",
-			}),
+			run(
+				listMentionsViaXurlEffect({
+					maxResults: 5,
+					username: "steipete",
+				}),
+			),
 		).resolves.toEqual({
 			data: [
 				{
@@ -327,14 +327,16 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listMentionsViaXurl } = await import("./xurl");
+		const { listMentionsViaXurlEffect } = await import("./xurl");
 
 		await expect(
-			listMentionsViaXurl({
-				maxResults: 100,
-				userId: "25401953",
-				paginationToken: "next-page",
-			}),
+			run(
+				listMentionsViaXurlEffect({
+					maxResults: 100,
+					userId: "25401953",
+					paginationToken: "next-page",
+				}),
+			),
 		).resolves.toEqual({
 			data: [],
 			meta: { next_token: "next-page" },
@@ -354,14 +356,16 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listHomeTimelineViaXurl } = await import("./xurl");
+		const { listHomeTimelineViaXurlEffect } = await import("./xurl");
 
 		await expect(
-			listHomeTimelineViaXurl({
-				maxResults: 100,
-				userId: "25401953",
-				paginationToken: "cursor",
-			}),
+			run(
+				listHomeTimelineViaXurlEffect({
+					maxResults: 100,
+					userId: "25401953",
+					paginationToken: "cursor",
+				}),
+			),
 		).resolves.toEqual({
 			data: [{ id: "tweet_1", author_id: "42", text: "home" }],
 			meta: { next_token: "next" },
@@ -383,13 +387,15 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [] }),
 				stderr: "",
 			});
-		const { listHomeTimelineViaXurl } = await import("./xurl");
+		const { listHomeTimelineViaXurlEffect } = await import("./xurl");
 
-		await listHomeTimelineViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-			username: "steipete",
-		});
+		await run(
+			listHomeTimelineViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+				username: "steipete",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
 			"--auth",
@@ -416,13 +422,15 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [] }),
 				stderr: "",
 			});
-		const { listHomeTimelineViaXurl } = await import("./xurl");
+		const { listHomeTimelineViaXurlEffect } = await import("./xurl");
 
-		await listHomeTimelineViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-			username: "steipete",
-		});
+		await run(
+			listHomeTimelineViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+				username: "steipete",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
 			"auth",
@@ -467,13 +475,15 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [] }),
 				stderr: "",
 			});
-		const { listHomeTimelineViaXurl } = await import("./xurl");
+		const { listHomeTimelineViaXurlEffect } = await import("./xurl");
 
-		await listHomeTimelineViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-			username: "steipete",
-		});
+		await run(
+			listHomeTimelineViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+				username: "steipete",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
 			"--app",
@@ -521,13 +531,15 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [] }),
 				stderr: "",
 			});
-		const { listHomeTimelineViaXurl } = await import("./xurl");
+		const { listHomeTimelineViaXurlEffect } = await import("./xurl");
 
-		await listHomeTimelineViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-			username: "steipete",
-		});
+		await run(
+			listHomeTimelineViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+				username: "steipete",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
 			"--app",
@@ -565,11 +577,13 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: [] }),
 			stderr: "",
 		});
-		const { searchRecentTweets } = await import("./xurl");
+		const { searchRecentTweetsEffect } = await import("./xurl");
 
-		await searchRecentTweets("openclaw", {
-			maxResults: 10,
-		});
+		await run(
+			searchRecentTweetsEffect("openclaw", {
+				maxResults: 10,
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
@@ -585,12 +599,14 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: [] }),
 			stderr: "",
 		});
-		const { searchRecentByConversationId } = await import("./xurl");
+		const { searchRecentByConversationIdEffect } = await import("./xurl");
 
-		await searchRecentByConversationId("123", {
-			maxResults: 100,
-			auth: "oauth2",
-		});
+		await run(
+			searchRecentByConversationIdEffect("123", {
+				maxResults: 100,
+				auth: "oauth2",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
@@ -606,12 +622,14 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: [] }),
 			stderr: "",
 		});
-		const { lookupUsersByHandles } = await import("./xurl");
+		const { lookupUsersByHandlesEffect } = await import("./xurl");
 
-		await lookupUsersByHandles(["vincent_koc"], {
-			auth: "oauth2",
-			useConfiguredCandidate: false,
-		});
+		await run(
+			lookupUsersByHandlesEffect(["vincent_koc"], {
+				auth: "oauth2",
+				useConfiguredCandidate: false,
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
@@ -627,13 +645,15 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: [] }),
 			stderr: "",
 		});
-		const { listUserTweets } = await import("./xurl");
+		const { listUserTweetsEffect } = await import("./xurl");
 
-		await listUserTweets("42", {
-			auth: "oauth2",
-			maxResults: 5,
-			useConfiguredCandidate: false,
-		});
+		await run(
+			listUserTweetsEffect("42", {
+				auth: "oauth2",
+				maxResults: 5,
+				useConfiguredCandidate: false,
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
@@ -650,13 +670,15 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listMentionsViaXurl } = await import("./xurl");
+		const { listMentionsViaXurlEffect } = await import("./xurl");
 
-		await listMentionsViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-			startTime: "2026-03-01T00:00:00Z",
-		});
+		await run(
+			listMentionsViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+				startTime: "2026-03-01T00:00:00Z",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
@@ -684,10 +706,10 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listDirectMessageEventsViaXurl } = await import("./xurl");
+		const { listDirectMessageEventsViaXurlEffect } = await import("./xurl");
 
 		await expect(
-			listDirectMessageEventsViaXurl({ maxResults: 5 }),
+			run(listDirectMessageEventsViaXurlEffect({ maxResults: 5 })),
 		).resolves.toEqual({
 			data: [
 				{
@@ -715,12 +737,14 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: [], meta: { result_count: 0 } }),
 			stderr: "",
 		});
-		const { listDirectMessageEventsViaXurl } = await import("./xurl");
+		const { listDirectMessageEventsViaXurlEffect } = await import("./xurl");
 
-		await listDirectMessageEventsViaXurl({
-			maxResults: 100,
-			paginationToken: "next-page-token",
-		});
+		await run(
+			listDirectMessageEventsViaXurlEffect({
+				maxResults: 100,
+				paginationToken: "next-page-token",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"--auth",
@@ -739,12 +763,14 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [], meta: { result_count: 0 } }),
 				stderr: "",
 			});
-		const { listDirectMessageEventsViaXurl } = await import("./xurl");
+		const { listDirectMessageEventsViaXurlEffect } = await import("./xurl");
 
-		await listDirectMessageEventsViaXurl({
-			maxResults: 10,
-			username: "@steipete",
-		});
+		await run(
+			listDirectMessageEventsViaXurlEffect({
+				maxResults: 10,
+				username: "@steipete",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(2, "xurl", [
 			"--auth",
@@ -760,9 +786,9 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: "not-an-object" }),
 			stderr: "",
 		});
-		const { lookupAuthenticatedUser } = await import("./xurl");
+		const { lookupAuthenticatedUserEffect } = await import("./xurl");
 
-		await expect(lookupAuthenticatedUser()).resolves.toBeNull();
+		await expect(run(lookupAuthenticatedUserEffect())).resolves.toBeNull();
 	});
 
 	it("looks up the authenticated OAuth2 user with the same auth mode as DM reads", async () => {
@@ -772,9 +798,7 @@ describe("xurl transport wrapper", () => {
 		});
 		const { lookupAuthenticatedOAuth2UserEffect } = await import("./xurl");
 
-		await expect(
-			Effect.runPromise(lookupAuthenticatedOAuth2UserEffect()),
-		).resolves.toEqual({
+		await expect(run(lookupAuthenticatedOAuth2UserEffect())).resolves.toEqual({
 			id: "1",
 			username: "steipete",
 		});
@@ -798,7 +822,7 @@ describe("xurl transport wrapper", () => {
 		const { lookupAuthenticatedOAuth2UserEffect } = await import("./xurl");
 
 		await expect(
-			Effect.runPromise(lookupAuthenticatedOAuth2UserEffect("@steipete")),
+			run(lookupAuthenticatedOAuth2UserEffect("@steipete")),
 		).resolves.toEqual({
 			id: "1",
 			username: "steipete",
@@ -817,11 +841,11 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: { id: "1", username: "steipete" } }),
 			stderr: "",
 		});
-		const { lookupAuthenticatedUser, resetAuthenticatedUserCache } =
+		const { lookupAuthenticatedUserEffect, resetAuthenticatedUserCache } =
 			await import("./xurl");
 
-		const first = await lookupAuthenticatedUser();
-		const second = await lookupAuthenticatedUser();
+		const first = await run(lookupAuthenticatedUserEffect());
+		const second = await run(lookupAuthenticatedUserEffect());
 
 		expect(first).toEqual({ id: "1", username: "steipete" });
 		expect(second).toEqual(first);
@@ -832,7 +856,7 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: { id: "2", username: "other" } }),
 			stderr: "",
 		});
-		await expect(lookupAuthenticatedUser()).resolves.toEqual({
+		await expect(run(lookupAuthenticatedUserEffect())).resolves.toEqual({
 			id: "2",
 			username: "other",
 		});
@@ -847,9 +871,9 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listBlockedUsers } = await import("./xurl");
+		const { listBlockedUsersEffect } = await import("./xurl");
 
-		await expect(listBlockedUsers("1")).resolves.toEqual({
+		await expect(run(listBlockedUsersEffect("1"))).resolves.toEqual({
 			items: [{ id: "7", username: "amelia" }],
 			nextToken: "next",
 		});
@@ -872,13 +896,15 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listUserTweets } = await import("./xurl");
+		const { listUserTweetsEffect } = await import("./xurl");
 
 		await expect(
-			listUserTweets("42", {
-				maxResults: 12,
-				excludeRetweets: true,
-			}),
+			run(
+				listUserTweetsEffect("42", {
+					maxResults: 12,
+					excludeRetweets: true,
+				}),
+			),
 		).resolves.toEqual({
 			items: [
 				{
@@ -913,9 +939,9 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { lookupTweetsByIds } = await import("./xurl");
+		const { lookupTweetsByIdsEffect } = await import("./xurl");
 
-		await expect(lookupTweetsByIds(["tweet_1"])).resolves.toEqual({
+		await expect(run(lookupTweetsByIdsEffect(["tweet_1"]))).resolves.toEqual({
 			data: [
 				{
 					id: "tweet_1",
@@ -955,14 +981,16 @@ describe("xurl transport wrapper", () => {
 				}),
 				stderr: "",
 			});
-		const { getTweetById, searchRecentByConversationId } =
+		const { getTweetByIdEffect, searchRecentByConversationIdEffect } =
 			await import("./xurl");
 
-		await searchRecentByConversationId("123", {
-			maxResults: 100,
-			paginationToken: "cursor",
-		});
-		await getTweetById("tweet_1");
+		await run(
+			searchRecentByConversationIdEffect("123", {
+				maxResults: 100,
+				paginationToken: "cursor",
+			}),
+		);
+		await run(getTweetByIdEffect("tweet_1"));
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
 			`/2/tweets/search/recent?query=conversation_id%3A123&max_results=100&expansions=${AUTHOR_MEDIA_EXPANSIONS}&tweet.fields=${THREAD_TWEET_FIELDS}&media.fields=${MEDIA_FIELDS}&user.fields=${RICH_USER_FIELDS}&pagination_token=cursor`,
 		]);
@@ -984,17 +1012,19 @@ describe("xurl transport wrapper", () => {
 				}),
 				stderr: "",
 			});
-		const { searchRecentTweets } = await import("./xurl");
+		const { searchRecentTweetsEffect } = await import("./xurl");
 
 		await expect(
-			searchRecentTweets("Codex from:steipete", {
-				maxResults: 100,
-				paginationToken: "cursor",
-				startTime: "2026-05-23T00:00:00Z",
-				endTime: "2026-05-24T00:00:00Z",
-				username: "steipete",
-				timeoutMs: 1000,
-			}),
+			run(
+				searchRecentTweetsEffect("Codex from:steipete", {
+					maxResults: 100,
+					paginationToken: "cursor",
+					startTime: "2026-05-23T00:00:00Z",
+					endTime: "2026-05-24T00:00:00Z",
+					username: "steipete",
+					timeoutMs: 1000,
+				}),
+			),
 		).resolves.toEqual({
 			data: [{ id: "tweet_1", author_id: "42", text: "hello" }],
 			meta: { next_token: "next" },
@@ -1028,14 +1058,14 @@ describe("xurl transport wrapper", () => {
 						});
 					}),
 			);
-			const { getTweetById } = await import("./xurl");
+			const { getTweetByIdEffect } = await import("./xurl");
 
 			let rejected: unknown;
-			const result = getTweetById("tweet_1", { timeoutMs: 1000 }).catch(
-				(error: unknown) => {
-					rejected = error;
-				},
-			);
+			const result = run(
+				getTweetByIdEffect("tweet_1", { timeoutMs: 1000 }),
+			).catch((error: unknown) => {
+				rejected = error;
+			});
 			await vi.advanceTimersByTimeAsync(1000);
 
 			await result;
@@ -1060,11 +1090,11 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ status: 429 }),
 			}),
 		);
-		const { getTweetById } = await import("./xurl");
+		const { getTweetByIdEffect } = await import("./xurl");
 
-		await expect(getTweetById("tweet_1", { timeoutMs: 1000 })).rejects.toThrow(
-			"rate limited",
-		);
+		await expect(
+			run(getTweetByIdEffect("tweet_1", { timeoutMs: 1000 })),
+		).rejects.toThrow("rate limited");
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 	});
 
@@ -1088,7 +1118,7 @@ describe("xurl transport wrapper", () => {
 
 			const effect = getTweetByIdEffect("tweet_1", { timeoutMs: 1000 });
 			await vi.advanceTimersByTimeAsync(5000);
-			const result = Effect.runPromise(effect);
+			const result = run(effect);
 			await vi.advanceTimersByTimeAsync(500);
 
 			await expect(result).resolves.toEqual({
@@ -1119,7 +1149,7 @@ describe("xurl transport wrapper", () => {
 			const { searchRecentByConversationIdEffect } = await import("./xurl");
 			const attempts: Array<{ attempt: number; status: string }> = [];
 
-			const result = Effect.runPromise(
+			const result = run(
 				searchRecentByConversationIdEffect("conversation_1", {
 					maxResults: 10,
 					timeoutMs: 2000,
@@ -1151,11 +1181,11 @@ describe("xurl transport wrapper", () => {
 		const muteEffect = muteUserViaXurlEffect("1", "2");
 		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 
-		await expect(Effect.runPromise(dmEffect)).resolves.toEqual({
+		await expect(run(dmEffect)).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
-		await expect(Effect.runPromise(muteEffect)).resolves.toEqual({
+		await expect(run(muteEffect)).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
@@ -1197,14 +1227,16 @@ describe("xurl transport wrapper", () => {
 				}),
 				stderr: "",
 			});
-		const { listBookmarkedTweetsViaXurl, listLikedTweetsViaXurl } =
+		const { listBookmarkedTweetsViaXurlEffect, listLikedTweetsViaXurlEffect } =
 			await import("./xurl");
 
 		await expect(
-			listLikedTweetsViaXurl({
-				maxResults: 5,
-				username: "steipete",
-			}),
+			run(
+				listLikedTweetsViaXurlEffect({
+					maxResults: 5,
+					username: "steipete",
+				}),
+			),
 		).resolves.toEqual({
 			data: [
 				{
@@ -1221,11 +1253,13 @@ describe("xurl transport wrapper", () => {
 			meta: { result_count: 1 },
 		});
 		await expect(
-			listBookmarkedTweetsViaXurl({
-				maxResults: 100,
-				userId: "25401953",
-				paginationToken: "next",
-			}),
+			run(
+				listBookmarkedTweetsViaXurlEffect({
+					maxResults: 100,
+					userId: "25401953",
+					paginationToken: "next",
+				}),
+			),
 		).resolves.toEqual({
 			data: [{ id: "bookmark_1", author_id: "43", text: "saved" }],
 			meta: { next_token: "next" },
@@ -1258,22 +1292,28 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [] }),
 				stderr: "",
 			});
-		const { listBookmarkedTweetsViaXurl, listLikedTweetsViaXurl } =
+		const { listBookmarkedTweetsViaXurlEffect, listLikedTweetsViaXurlEffect } =
 			await import("./xurl");
 
-		await listBookmarkedTweetsViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-			isPaginatedWalk: true,
-		});
-		await listBookmarkedTweetsViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-		});
-		await listLikedTweetsViaXurl({
-			maxResults: 100,
-			userId: "25401953",
-		});
+		await run(
+			listBookmarkedTweetsViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+				isPaginatedWalk: true,
+			}),
+		);
+		await run(
+			listBookmarkedTweetsViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+			}),
+		);
+		await run(
+			listLikedTweetsViaXurlEffect({
+				maxResults: 100,
+				userId: "25401953",
+			}),
+		);
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
 			"--auth",
@@ -1300,15 +1340,17 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listFollowUsersViaXurl } = await import("./xurl");
+		const { listFollowUsersViaXurlEffect } = await import("./xurl");
 
 		await expect(
-			listFollowUsersViaXurl({
-				direction: "followers",
-				userId: "25401953",
-				maxResults: 1000,
-				paginationToken: "cursor",
-			}),
+			run(
+				listFollowUsersViaXurlEffect({
+					direction: "followers",
+					userId: "25401953",
+					maxResults: 1000,
+					paginationToken: "cursor",
+				}),
+			),
 		).resolves.toEqual({
 			data: [{ id: "42", username: "sam" }],
 			meta: { next_token: "next-page" },
@@ -1343,25 +1385,29 @@ describe("xurl transport wrapper", () => {
 				}),
 				stderr: "",
 			});
-		const { listOwnedXListsViaXurl, listXListMembersViaXurl } =
+		const { listOwnedXListsViaXurlEffect, listXListMembersViaXurlEffect } =
 			await import("./xurl");
 
 		await expect(
-			listOwnedXListsViaXurl({
-				userId: "25401953",
-				maxResults: 20,
-				paginationToken: "list-cursor",
-			}),
+			run(
+				listOwnedXListsViaXurlEffect({
+					userId: "25401953",
+					maxResults: 20,
+					paginationToken: "list-cursor",
+				}),
+			),
 		).resolves.toMatchObject({
 			data: [{ id: "list_1", name: "Builders", memberCount: 1 }],
 			meta: { next_token: "next-list" },
 		});
 		await expect(
-			listXListMembersViaXurl({
-				listId: "list_1",
-				maxResults: 100,
-				paginationToken: "member-cursor",
-			}),
+			run(
+				listXListMembersViaXurlEffect({
+					listId: "list_1",
+					maxResults: 100,
+					paginationToken: "member-cursor",
+				}),
+			),
 		).resolves.toEqual({
 			data: [{ id: "42", username: "sam", name: "Sam" }],
 			meta: { next_token: "next-member" },
@@ -1392,14 +1438,16 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: null, meta: null }),
 				stderr: "",
 			});
-		const { listFollowUsersViaXurl } = await import("./xurl");
+		const { listFollowUsersViaXurlEffect } = await import("./xurl");
 
 		await expect(
-			listFollowUsersViaXurl({
-				direction: "following",
-				username: "@amelia",
-				maxResults: 50,
-			}),
+			run(
+				listFollowUsersViaXurlEffect({
+					direction: "following",
+					username: "@amelia",
+					maxResults: 50,
+				}),
+			),
 		).resolves.toEqual({
 			data: [],
 			meta: undefined,
@@ -1423,13 +1471,15 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [] }),
 				stderr: "",
 			});
-		const { listFollowUsersViaXurl } = await import("./xurl");
+		const { listFollowUsersViaXurlEffect } = await import("./xurl");
 
 		await expect(
-			listFollowUsersViaXurl({
-				direction: "followers",
-				maxResults: 10,
-			}),
+			run(
+				listFollowUsersViaXurlEffect({
+					direction: "followers",
+					maxResults: 10,
+				}),
+			),
 		).resolves.toEqual({
 			data: [],
 			meta: undefined,
@@ -1446,14 +1496,16 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: null, meta: null }),
 			stderr: "",
 		});
-		const { listUserTweets } = await import("./xurl");
+		const { listUserTweetsEffect } = await import("./xurl");
 
 		await expect(
-			listUserTweets("42", {
-				maxResults: 50,
-				paginationToken: "next-page",
-				excludeRetweets: false,
-			}),
+			run(
+				listUserTweetsEffect("42", {
+					maxResults: 50,
+					paginationToken: "next-page",
+					excludeRetweets: false,
+				}),
+			),
 		).resolves.toEqual({
 			items: [],
 			nextToken: null,
@@ -1475,21 +1527,23 @@ describe("xurl transport wrapper", () => {
 			}),
 			stderr: "",
 		});
-		const { listUserTweets } = await import("./xurl");
+		const { listUserTweetsEffect } = await import("./xurl");
 
 		await expect(
-			listUserTweets("42", {
-				maxResults: 100,
-				paginationToken: "page",
-				excludeRetweets: false,
-				sinceId: "10",
-				untilId: "20",
-				tweetFields: ["author_id", "created_at"],
-				expansions: ["author_id", "attachments.media_keys"],
-				userFields: ["id", "username"],
-				mediaFields: ["media_key", "type"],
-				auth: "oauth2",
-			}),
+			run(
+				listUserTweetsEffect("42", {
+					maxResults: 100,
+					paginationToken: "page",
+					excludeRetweets: false,
+					sinceId: "10",
+					untilId: "20",
+					tweetFields: ["author_id", "created_at"],
+					expansions: ["author_id", "attachments.media_keys"],
+					userFields: ["id", "username"],
+					mediaFields: ["media_key", "type"],
+					auth: "oauth2",
+				}),
+			),
 		).resolves.toEqual({
 			items: [{ id: "tweet_1", author_id: "42", text: "hello" }],
 			nextToken: "next",
@@ -1510,9 +1564,11 @@ describe("xurl transport wrapper", () => {
 			stdout: JSON.stringify({ data: null, meta: null }),
 			stderr: "",
 		});
-		const { listBlockedUsers } = await import("./xurl");
+		const { listBlockedUsersEffect } = await import("./xurl");
 
-		await expect(listBlockedUsers("1", "next-page")).resolves.toEqual({
+		await expect(
+			run(listBlockedUsersEffect("1", "next-page")),
+		).resolves.toEqual({
 			items: [],
 			nextToken: null,
 		});
@@ -1536,9 +1592,9 @@ describe("xurl transport wrapper", () => {
 				stdout: JSON.stringify({ data: [{ id: "7", username: "amelia" }] }),
 				stderr: "",
 			});
-		const { listBlockedUsers } = await import("./xurl");
+		const { listBlockedUsersEffect } = await import("./xurl");
 
-		await expect(listBlockedUsers("1")).resolves.toEqual({
+		await expect(run(listBlockedUsersEffect("1"))).resolves.toEqual({
 			items: [{ id: "7", username: "amelia" }],
 			nextToken: null,
 		});
@@ -1547,9 +1603,11 @@ describe("xurl transport wrapper", () => {
 
 	it("does not retry non-rate-limited json failures", async () => {
 		execFileAsyncMock.mockRejectedValueOnce(new Error("bad json"));
-		const { lookupUsersByIds } = await import("./xurl");
+		const { lookupUsersByIdsEffect } = await import("./xurl");
 
-		await expect(lookupUsersByIds(["42"])).rejects.toThrow("bad json");
+		await expect(run(lookupUsersByIdsEffect(["42"]))).rejects.toThrow(
+			"bad json",
+		);
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 	});
 
@@ -1560,9 +1618,9 @@ describe("xurl transport wrapper", () => {
 				stderr: "run xurl auth oauth2",
 			}),
 		);
-		const { lookupAuthenticatedUser } = await import("./xurl");
+		const { lookupAuthenticatedUserEffect } = await import("./xurl");
 
-		await expect(lookupAuthenticatedUser()).rejects.toThrow(
+		await expect(run(lookupAuthenticatedUserEffect())).rejects.toThrow(
 			'Command failed: xurl whoami\n{"title":"Unauthorized","detail":"OAuth token expired"}\nrun xurl auth oauth2',
 		);
 	});
@@ -1574,11 +1632,11 @@ describe("xurl transport wrapper", () => {
 				stderr: "run xurl auth oauth2",
 			}),
 		);
-		const { lookupAuthenticatedUser } = await import("./xurl");
+		const { lookupAuthenticatedUserEffect } = await import("./xurl");
 
 		let rejected: unknown;
 		try {
-			await lookupAuthenticatedUser();
+			await run(lookupAuthenticatedUserEffect());
 		} catch (error) {
 			rejected = error;
 		}
@@ -1596,9 +1654,11 @@ describe("xurl transport wrapper", () => {
 				stdout: "prefix {not json} suffix",
 			}),
 		);
-		const { lookupTweetsByIds } = await import("./xurl");
+		const { lookupTweetsByIdsEffect } = await import("./xurl");
 
-		await expect(lookupTweetsByIds(["tweet_1"])).rejects.toThrow("wrapped");
+		await expect(run(lookupTweetsByIdsEffect(["tweet_1"]))).rejects.toThrow(
+			"wrapped",
+		);
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
 
 		process.env.BIRDCLAW_XURL_RETRY_BASE_MS = "0";
@@ -1609,7 +1669,7 @@ describe("xurl transport wrapper", () => {
 			}),
 		);
 
-		await expect(lookupTweetsByIds(["tweet_1"])).rejects.toThrow(
+		await expect(run(lookupTweetsByIdsEffect(["tweet_1"]))).rejects.toThrow(
 			"still limited",
 		);
 		expect(execFileAsyncMock).toHaveBeenCalledTimes(6);
@@ -1630,55 +1690,61 @@ describe("xurl transport wrapper", () => {
 				stderr: "",
 			});
 		const {
-			listBookmarkedTweetsViaXurl,
-			listFollowUsersViaXurl,
-			listMentionsViaXurl,
+			listBookmarkedTweetsViaXurlEffect,
+			listFollowUsersViaXurlEffect,
+			listMentionsViaXurlEffect,
 		} = await import("./xurl");
 
 		await expect(
-			listMentionsViaXurl({ username: "missing", maxResults: 5 }),
+			run(listMentionsViaXurlEffect({ username: "missing", maxResults: 5 })),
 		).rejects.toThrow("Could not resolve Twitter user id for @missing");
 		await expect(
-			listBookmarkedTweetsViaXurl({ maxResults: 5 }),
+			run(listBookmarkedTweetsViaXurlEffect({ maxResults: 5 })),
 		).rejects.toThrow("Could not resolve authenticated Twitter user id");
 		await expect(
-			listFollowUsersViaXurl({ maxResults: 5, direction: "followers" }),
+			run(
+				listFollowUsersViaXurlEffect({ maxResults: 5, direction: "followers" }),
+			),
 		).rejects.toThrow("Could not resolve authenticated Twitter user id");
 		await expect(
-			listFollowUsersViaXurl({
-				username: "missing",
-				maxResults: 5,
-				direction: "followers",
-			}),
+			run(
+				listFollowUsersViaXurlEffect({
+					username: "missing",
+					maxResults: 5,
+					direction: "followers",
+				}),
+			),
 		).rejects.toThrow("Could not resolve Twitter user id for @missing");
 	});
 
 	it("returns an empty handle list when asked to resolve nothing", async () => {
-		const { lookupUsersByHandles } = await import("./xurl");
+		const { lookupUsersByHandlesEffect } = await import("./xurl");
 
-		await expect(lookupUsersByHandles([])).resolves.toEqual([]);
+		await expect(run(lookupUsersByHandlesEffect([]))).resolves.toEqual([]);
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
 	});
 
 	it("returns an empty user list when asked to hydrate nothing", async () => {
-		const { lookupUsersByIds } = await import("./xurl");
+		const { lookupUsersByIdsEffect } = await import("./xurl");
 
-		await expect(lookupUsersByIds([])).resolves.toEqual([]);
+		await expect(run(lookupUsersByIdsEffect([]))).resolves.toEqual([]);
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
 	});
 
 	it("returns an empty tweet lookup response when asked to hydrate no tweets", async () => {
-		const { lookupTweetsByIds } = await import("./xurl");
+		const { lookupTweetsByIdsEffect } = await import("./xurl");
 
-		await expect(lookupTweetsByIds([])).resolves.toEqual({ data: [] });
+		await expect(run(lookupTweetsByIdsEffect([]))).resolves.toEqual({
+			data: [],
+		});
 		expect(execFileAsyncMock).not.toHaveBeenCalled();
 	});
 
 	it("formats dm handles with @", async () => {
 		execFileAsyncMock.mockResolvedValue({ stdout: "", stderr: "sent" });
-		const { dmViaXurl } = await import("./xurl");
+		const { dmViaXurlEffect } = await import("./xurl");
 
-		const result = await dmViaXurl("sam", "hello");
+		const result = await run(dmViaXurlEffect("sam", "hello"));
 
 		expect(execFileAsyncMock).toHaveBeenCalledWith("xurl", [
 			"dm",
@@ -1695,12 +1761,15 @@ describe("xurl transport wrapper", () => {
 			.mockResolvedValueOnce({ stdout: '{"data":{"id":"1"}}', stderr: "" })
 			.mockResolvedValueOnce({ stdout: "posted", stderr: "" })
 			.mockResolvedValueOnce({ stdout: "blocked", stderr: "" });
-		const { blockUserViaXurl, lookupAuthenticatedUserFresh, postViaXurl } =
-			await import("./xurl");
+		const {
+			blockUserViaXurlEffect,
+			lookupAuthenticatedUserFreshEffect,
+			postViaXurlEffect,
+		} = await import("./xurl");
 
-		await lookupAuthenticatedUserFresh();
-		await postViaXurl("ship");
-		await blockUserViaXurl("1", "2");
+		await run(lookupAuthenticatedUserFreshEffect());
+		await run(postViaXurlEffect("ship"));
+		await run(blockUserViaXurlEffect("1", "2"));
 
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
 			"--app",
@@ -1736,17 +1805,18 @@ describe("xurl transport wrapper", () => {
 
 	it("passes through existing @ handles and reports shortcut failures", async () => {
 		execFileAsyncMock.mockRejectedValue(new Error("bad shortcut"));
-		const { dmViaXurl, postViaXurl, replyViaXurl } = await import("./xurl");
+		const { dmViaXurlEffect, postViaXurlEffect, replyViaXurlEffect } =
+			await import("./xurl");
 
-		await expect(dmViaXurl("@sam", "hello")).resolves.toEqual({
+		await expect(run(dmViaXurlEffect("@sam", "hello"))).resolves.toEqual({
 			ok: false,
 			output: "bad shortcut",
 		});
-		await expect(postViaXurl("ship")).resolves.toEqual({
+		await expect(run(postViaXurlEffect("ship"))).resolves.toEqual({
 			ok: false,
 			output: "bad shortcut",
 		});
-		await expect(replyViaXurl("tweet_1", "reply")).resolves.toEqual({
+		await expect(run(replyViaXurlEffect("tweet_1", "reply"))).resolves.toEqual({
 			ok: false,
 			output: "bad shortcut",
 		});
@@ -1760,40 +1830,40 @@ describe("xurl transport wrapper", () => {
 	it("suppresses live write shortcuts when disabled", async () => {
 		process.env.BIRDCLAW_DISABLE_LIVE_WRITES = "1";
 		const {
-			blockUserViaXurl,
-			dmViaXurl,
-			muteUserViaXurl,
-			postViaXurl,
-			replyViaXurl,
-			unblockUserViaXurl,
-			unmuteUserViaXurl,
+			blockUserViaXurlEffect,
+			dmViaXurlEffect,
+			muteUserViaXurlEffect,
+			postViaXurlEffect,
+			replyViaXurlEffect,
+			unblockUserViaXurlEffect,
+			unmuteUserViaXurlEffect,
 		} = await import("./xurl");
 
-		await expect(postViaXurl("ship")).resolves.toEqual({
+		await expect(run(postViaXurlEffect("ship"))).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
-		await expect(replyViaXurl("tweet_1", "reply")).resolves.toEqual({
+		await expect(run(replyViaXurlEffect("tweet_1", "reply"))).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
-		await expect(dmViaXurl("@sam", "hello")).resolves.toEqual({
+		await expect(run(dmViaXurlEffect("@sam", "hello"))).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
-		await expect(blockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(blockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
-		await expect(unblockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(unblockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
-		await expect(muteUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(muteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
-		await expect(unmuteUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(unmuteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "live writes disabled",
 		});
@@ -1804,13 +1874,14 @@ describe("xurl transport wrapper", () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: '{"data":true}', stderr: "" })
 			.mockResolvedValueOnce({ stdout: "", stderr: "deleted" });
-		const { blockUserViaXurl, unblockUserViaXurl } = await import("./xurl");
+		const { blockUserViaXurlEffect, unblockUserViaXurlEffect } =
+			await import("./xurl");
 
-		await expect(blockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(blockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
 			output: '{"data":true}',
 		});
-		await expect(unblockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(unblockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
 			output: "deleted",
 		});
@@ -1831,25 +1902,25 @@ describe("xurl transport wrapper", () => {
 	it("reports block transport failures", async () => {
 		execFileAsyncMock.mockRejectedValue(new Error("transport down"));
 		const {
-			blockUserViaXurl,
-			muteUserViaXurl,
-			unblockUserViaXurl,
-			unmuteUserViaXurl,
+			blockUserViaXurlEffect,
+			muteUserViaXurlEffect,
+			unblockUserViaXurlEffect,
+			unmuteUserViaXurlEffect,
 		} = await import("./xurl");
 
-		await expect(blockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(blockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "transport down",
 		});
-		await expect(unblockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(unblockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "transport down",
 		});
-		await expect(muteUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(muteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "transport down",
 		});
-		await expect(unmuteUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(unmuteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output: "transport down",
 		});
@@ -1862,9 +1933,9 @@ describe("xurl transport wrapper", () => {
 			stderr: "verbose trace",
 		});
 		execFileAsyncMock.mockRejectedValue(error);
-		const { blockUserViaXurl } = await import("./xurl");
+		const { blockUserViaXurlEffect } = await import("./xurl");
 
-		await expect(blockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(blockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: false,
 			output:
 				'Command failed: xurl\n{"title":"Forbidden","detail":"You are not permitted to use OAuth2 on this endpoint"}\nverbose trace',
@@ -1875,13 +1946,14 @@ describe("xurl transport wrapper", () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: "", stderr: "" })
 			.mockResolvedValueOnce({ stdout: "", stderr: "" });
-		const { blockUserViaXurl, muteUserViaXurl } = await import("./xurl");
+		const { blockUserViaXurlEffect, muteUserViaXurlEffect } =
+			await import("./xurl");
 
-		await expect(blockUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(blockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
 			output: "ok",
 		});
-		await expect(muteUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(muteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
 			output: "ok",
 		});
@@ -1891,13 +1963,14 @@ describe("xurl transport wrapper", () => {
 		execFileAsyncMock
 			.mockResolvedValueOnce({ stdout: '{"data":true}', stderr: "" })
 			.mockResolvedValueOnce({ stdout: "", stderr: "deleted" });
-		const { muteUserViaXurl, unmuteUserViaXurl } = await import("./xurl");
+		const { muteUserViaXurlEffect, unmuteUserViaXurlEffect } =
+			await import("./xurl");
 
-		await expect(muteUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(muteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
 			output: '{"data":true}',
 		});
-		await expect(unmuteUserViaXurl("1", "2")).resolves.toEqual({
+		await expect(run(unmuteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
 			output: "deleted",
 		});

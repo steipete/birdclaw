@@ -9,30 +9,25 @@ import {
 	resolveAnalysisModelSettings,
 } from "./analysis-runtime";
 import { getNativeDb } from "./db";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
-import { buildMediaJsonFromIncludes, countTweetMedia } from "./media-includes";
-import type { Database } from "./sqlite";
 import {
-	editHistoryIdsFromPayload,
-	reconcileTweetTombstones,
-	recordTweetRevision,
-} from "./tweet-retention";
-import { readSyncCache, writeSyncCache } from "./sync-cache";
+	runEffectPromise,
+	toError,
+	tryPromise,
+	trySync,
+} from "./effect-runtime";
+import type { Database } from "./sqlite";
+import { inspectSyncCache, readSyncCache, writeSyncCache } from "./sync-cache";
 import { tweetEntitiesFromXurl } from "./tweet-render";
 import type {
 	ProfileRecord,
 	TweetEntities,
-	XurlMediaItem,
 	XurlMentionUser,
 	XurlTweetData,
 	XurlTweetsResponse,
-	XurlUserTweet,
-	XurlUserTweetsResponse,
 } from "./types";
-import {
-	type TweetAccountEdgeKind,
-	upsertTweetAccountEdge,
-} from "./tweet-account-edges";
+import { ingestTweetPayload } from "./tweet-repository";
+import { adaptUserTimelinePage, mergeTweetPages } from "./tweet-page";
+import type { TweetAccountEdgeKind } from "./tweet-account-edges";
 import { buildExternalProfileId, upsertProfileFromXUser } from "./x-profile";
 import { recordXurlRateLimitEventSafe } from "./xurl-rate-limits";
 import type { XurlJsonCommandAttempt } from "./xurl";
@@ -162,10 +157,6 @@ const XURL_PAGE_SIZE = 100;
 const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
 
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
 function isXurlRateLimitError(error: Error) {
 	// Structured classification from the transport (tag check, so it also works
 	// across module instances); message heuristics stay as a fallback for 429s
@@ -179,10 +170,6 @@ function isXurlRateLimitError(error: Error) {
 		error.message.includes('"status":429') ||
 		/\b429\b/.test(error.message)
 	);
-}
-
-function tryProfileSync<T>(try_: () => T): Effect.Effect<T, Error> {
-	return Effect.try({ try: try_, catch: toError });
 }
 
 function tryProfilePromise<T>(
@@ -212,14 +199,6 @@ function normalizePositiveInteger(
 	if (value === undefined) return defaultValue;
 	if (!Number.isFinite(value) || value < 1) {
 		throw new Error(`${optionName} must be at least 1`);
-	}
-	return Math.floor(value);
-}
-
-function normalizeCacheTtlMs(value: number | undefined) {
-	if (value === undefined) return DEFAULT_CACHE_TTL_MS;
-	if (!Number.isFinite(value) || value < 0) {
-		return DEFAULT_CACHE_TTL_MS;
 	}
 	return Math.floor(value);
 }
@@ -318,175 +297,24 @@ function tweetUrl(handle: string, id: string) {
 	return `https://x.com/${handle}/status/${id}`;
 }
 
-function replaceTweetFts(db: Database, tweetId: string, text: string) {
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(tweetId);
-	const row = db
-		.prepare("select deleted_at, superseded_at from tweets where id = ?")
-		.get(tweetId) as
-		| { deleted_at: string | null; superseded_at: string | null }
-		| undefined;
-	if (row?.deleted_at || row?.superseded_at) return;
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
-function refreshTweetFts(
-	db: Database,
-	tweetId: string,
-	text: string,
-	previousText: string | null,
-) {
-	if (previousText === text) return;
-	if (previousText !== null) {
-		replaceTweetFts(db, tweetId, text);
-		return;
-	}
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		tweetId,
-		text,
-	);
-}
-
-function mergeXurlTweetsIntoLocalStore(
+function ingestProfileAnalysisPayload(
 	db: Database,
 	accountId: string,
 	payload: XurlTweetsResponse,
 	edgeKind: TweetAccountEdgeKind,
-	source: "xurl" | "cache",
 ) {
-	const usersById = new Map(
-		(payload.includes?.users ?? []).map((user) => [user.id, user]),
+	const authorIds = new Set(
+		(payload.includes?.users ?? []).map((user) => user.id),
 	);
-	const upsertTweet = db.prepare(
-		`
-    insert into tweets (
-      id, author_profile_id, text, created_at, is_replied, reply_to_id,
-      like_count, media_count, entities_json, media_json, quoted_tweet_id
-    ) values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
-    on conflict(id) do update set
-      author_profile_id = excluded.author_profile_id,
-      text = excluded.text,
-      created_at = excluded.created_at,
-      reply_to_id = coalesce(tweets.reply_to_id, excluded.reply_to_id),
-      like_count = excluded.like_count,
-      media_count = max(tweets.media_count, excluded.media_count),
-      entities_json = excluded.entities_json,
-      media_json = case
-        when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
-        else tweets.media_json
-      end,
-      quoted_tweet_id = coalesce(tweets.quoted_tweet_id, excluded.quoted_tweet_id)
-    `,
-	);
-	const existingTweet = db.prepare("select text from tweets where id = ?");
-	const seenAt = new Date().toISOString();
-	const touchedTweetIds: string[] = [];
-	db.transaction(() => {
-		for (const tweet of payload.data) {
-			const authorId = tweet.author_id;
-			if (!authorId) continue;
-			const author = usersById.get(authorId);
-			if (!author) continue;
-			touchedTweetIds.push(tweet.id);
-			const profile = upsertProfileFromXUser(db, author);
-			const replyToId =
-				tweet.referenced_tweets?.find((item) => item.type === "replied_to")
-					?.id ?? null;
-			const quotedTweetId =
-				tweet.referenced_tweets?.find((item) => item.type === "quoted")?.id ??
-				null;
-			const previousTweet = existingTweet.get(tweet.id) as
-				| { text: string | null }
-				| undefined;
-			const previousText =
-				previousTweet && typeof previousTweet.text === "string"
-					? previousTweet.text
-					: null;
-			upsertTweet.run(
-				tweet.id,
-				profile.profile.id,
-				tweet.text,
-				tweet.created_at,
-				replyToId,
-				Number(tweet.public_metrics?.like_count ?? 0),
-				countTweetMedia(tweet),
-				JSON.stringify(tweetEntitiesFromXurl(tweet.entities)),
-				buildMediaJsonFromIncludes(tweet, payload.includes?.media),
-				quotedTweetId,
-			);
-			recordTweetRevision(db, {
-				tweetId: tweet.id,
-				editHistoryIds: editHistoryIdsFromPayload(tweet.id, tweet),
-				payloadJson: JSON.stringify(tweet),
-				source,
-				observedAt: seenAt,
-			});
-			upsertTweetAccountEdge(db, {
-				accountId,
-				tweetId: tweet.id,
-				kind: edgeKind,
-				source,
-				seenAt,
-				rawJson: JSON.stringify(tweet),
-			});
-			refreshTweetFts(db, tweet.id, tweet.text, previousText);
-		}
-		reconcileTweetTombstones(db, touchedTweetIds);
-	})();
-}
-
-function toTweetData(
-	tweet: XurlUserTweet,
-	fallbackAuthorId: string,
-): XurlTweetData {
-	return {
-		...tweet,
-		author_id: tweet.author_id ?? fallbackAuthorId,
-	};
-}
-
-function userTimelineToTweetsResponse(
-	response: XurlUserTweetsResponse,
-	fallbackAuthorId: string,
-): XurlTweetsResponse {
-	return {
-		data: response.items.map((tweet) => toTweetData(tweet, fallbackAuthorId)),
-		includes: response.includes,
-		meta: {
-			result_count: response.items.length,
-			...(response.nextToken ? { next_token: response.nextToken } : {}),
+	ingestTweetPayload(db, {
+		accountId,
+		payload: {
+			...payload,
+			data: payload.data.filter((tweet) => authorIds.has(tweet.author_id)),
 		},
-	};
-}
-
-function mergeResponses(responses: XurlTweetsResponse[]): XurlTweetsResponse {
-	const seenTweetIds = new Set<string>();
-	const usersById = new Map<string, XurlMentionUser>();
-	const mediaByKey = new Map<string, XurlMediaItem>();
-	const data: XurlTweetData[] = [];
-	for (const response of responses) {
-		for (const user of response.includes?.users ?? []) {
-			usersById.set(user.id, user);
-		}
-		for (const media of response.includes?.media ?? []) {
-			mediaByKey.set(media.media_key, media);
-		}
-		for (const tweet of response.data) {
-			if (seenTweetIds.has(tweet.id)) continue;
-			seenTweetIds.add(tweet.id);
-			data.push(tweet);
-		}
-	}
-	return {
-		data,
-		includes: {
-			users: [...usersById.values()],
-			media: [...mediaByKey.values()],
-		},
-		meta: { result_count: data.length },
-	};
+		edgeKind,
+		source: "xurl",
+	});
 }
 
 function compactProfileTweet(
@@ -638,8 +466,8 @@ function buildContextFromPayloads({
 	conversationPages: number;
 	fetchCached: boolean;
 }): ProfileAnalysisContext {
-	const tweetPayload = mergeResponses(tweetResponses);
-	const conversationPayload = mergeResponses(conversationResponses);
+	const tweetPayload = mergeTweetPages(tweetResponses);
+	const conversationPayload = mergeTweetPages(conversationResponses);
 	const profileTweets = tweetPayload.data
 		.map((tweet) => compactProfileTweet(tweet, handle))
 		.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -693,7 +521,7 @@ function emitStatus(
 }
 
 function abortIfRequestedEffect(signal: AbortSignal | undefined) {
-	return tryProfileSync(() => {
+	return trySync(() => {
 		if (signal?.aborted) {
 			throw new Error("Profile analysis aborted");
 		}
@@ -728,32 +556,30 @@ export function collectProfileAnalysisContextEffect(
 ): Effect.Effect<ProfileAnalysisContext, Error> {
 	return Effect.gen(function* () {
 		const db = getNativeDb();
-		const handle = yield* tryProfileSync(() => normalizeHandle(options.handle));
-		const account = yield* tryProfileSync(() =>
-			resolveAccount(db, options.account),
-		);
-		const maxTweets = yield* tryProfileSync(() =>
+		const handle = yield* trySync(() => normalizeHandle(options.handle));
+		const account = yield* trySync(() => resolveAccount(db, options.account));
+		const maxTweets = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxTweets,
 				DEFAULT_MAX_TWEETS,
 				"--max-tweets",
 			),
 		);
-		const maxPages = yield* tryProfileSync(() =>
+		const maxPages = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxPages,
 				DEFAULT_MAX_PAGES,
 				"--max-pages",
 			),
 		);
-		const maxConversations = yield* tryProfileSync(() =>
+		const maxConversations = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxConversations,
 				DEFAULT_MAX_CONVERSATIONS,
 				"--max-conversations",
 			),
 		);
-		const maxConversationPages = yield* tryProfileSync(() =>
+		const maxConversationPages = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxConversationPages,
 				DEFAULT_MAX_CONVERSATION_PAGES,
@@ -763,7 +589,6 @@ export function collectProfileAnalysisContextEffect(
 		const conversationDelayMs = conversationDelayMsFromOptions(options);
 		const rateLimitRetryMs = rateLimitRetryMsFromOptions(options);
 		const rateLimitMaxRetries = rateLimitMaxRetriesFromOptions(options);
-		const cacheTtlMs = normalizeCacheTtlMs(options.cacheTtlMs);
 		const contextKey = contextCacheKey({
 			accountId: account.id,
 			handle,
@@ -772,13 +597,18 @@ export function collectProfileAnalysisContextEffect(
 			maxConversations,
 			maxConversationPages,
 		});
-		const cached = yield* tryProfileSync(() =>
-			readSyncCache<ProfileAnalysisContext>(contextKey, db),
+		const cache = yield* trySync(() =>
+			inspectSyncCache<ProfileAnalysisContext>(
+				contextKey,
+				{
+					ttlMs: options.cacheTtlMs,
+					defaultTtlMs: DEFAULT_CACHE_TTL_MS,
+				},
+				db,
+			),
 		);
-		const ageMs = cached
-			? Date.now() - new Date(cached.updatedAt).getTime()
-			: Number.POSITIVE_INFINITY;
-		if (!options.refresh && cached && ageMs <= cacheTtlMs) {
+		const cached = cache.entry;
+		if (!options.refresh && cached && cache.fresh) {
 			emitStatus(handlers, "Using cached profile backfill", `@${handle}`);
 			return { ...cached.value, fetchCached: true };
 		}
@@ -811,9 +641,7 @@ export function collectProfileAnalysisContextEffect(
 		if (!user) {
 			return yield* Effect.fail(new Error(`Could not resolve @${handle}`));
 		}
-		const resolved = yield* tryProfileSync(() =>
-			upsertProfileFromXUser(db, user),
-		);
+		const resolved = yield* trySync(() => upsertProfileFromXUser(db, user));
 
 		const tweetResponses: XurlTweetsResponse[] = [];
 		let nextToken: string | undefined;
@@ -869,7 +697,7 @@ export function collectProfileAnalysisContextEffect(
 			tweetPages += 1;
 			fetchedTweets += limitedResponse.items.length;
 			tweetResponses.push(
-				userTimelineToTweetsResponse(limitedResponse, resolved.externalUserId),
+				adaptUserTimelinePage(limitedResponse, resolved.externalUserId),
 			);
 			nextToken =
 				fetchedTweets < maxTweets
@@ -877,15 +705,9 @@ export function collectProfileAnalysisContextEffect(
 					: undefined;
 			if (!nextToken || limitedResponse.items.length === 0) break;
 		}
-		const profilePayload = mergeResponses(tweetResponses);
-		yield* tryProfileSync(() =>
-			mergeXurlTweetsIntoLocalStore(
-				db,
-				account.id,
-				profilePayload,
-				"profile",
-				"xurl",
-			),
+		const profilePayload = mergeTweetPages(tweetResponses);
+		yield* trySync(() =>
+			ingestProfileAnalysisPayload(db, account.id, profilePayload, "profile"),
 		);
 
 		const conversationRoots = topConversationIds(
@@ -972,14 +794,13 @@ export function collectProfileAnalysisContextEffect(
 				if (!conversationNextToken || response.data.length === 0) break;
 			}
 		}
-		const conversationPayload = mergeResponses(conversationResponses);
-		yield* tryProfileSync(() =>
-			mergeXurlTweetsIntoLocalStore(
+		const conversationPayload = mergeTweetPages(conversationResponses);
+		yield* trySync(() =>
+			ingestProfileAnalysisPayload(
 				db,
 				account.id,
 				conversationPayload,
 				"thread_context",
-				"xurl",
 			),
 		);
 
@@ -996,7 +817,7 @@ export function collectProfileAnalysisContextEffect(
 			fetchCached: false,
 		});
 		if (!conversationRateLimited) {
-			yield* tryProfileSync(() => writeSyncCache(contextKey, context, db));
+			yield* trySync(() => writeSyncCache(contextKey, context, db));
 		}
 		return context;
 	});
@@ -1140,7 +961,7 @@ export function streamProfileAnalysisEffect(
 		);
 		const cached = options.refresh
 			? null
-			: yield* tryProfileSync(() =>
+			: yield* trySync(() =>
 					readSyncCache<{
 						analysis: ProfileAnalysis;
 						markdown: string;
@@ -1150,7 +971,7 @@ export function streamProfileAnalysisEffect(
 					}>(resultCacheKey(context, options)),
 				);
 		if (cached) {
-			const result: ProfileAnalysisRunResult = yield* tryProfileSync(() => ({
+			const result: ProfileAnalysisRunResult = yield* trySync(() => ({
 				context,
 				analysis: ProfileAnalysisSchema.parse(cached.value.analysis),
 				markdown: cached.value.markdown,
@@ -1176,7 +997,7 @@ export function streamProfileAnalysisEffect(
 			fallback: (markdown) => fallbackAnalysis(context, markdown),
 			delimiterPattern: DELIMITER_PATTERN,
 		});
-		const updatedAt = yield* tryProfileSync(() =>
+		const updatedAt = yield* trySync(() =>
 			writeSyncCache(resultCacheKey(context, options), {
 				analysis: analysisResponse.value,
 				markdown: analysisResponse.markdown,

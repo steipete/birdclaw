@@ -61,28 +61,6 @@ export class ImportRepository {
 		}
 	}
 
-	clearArchiveImport() {
-		this.db.exec(`
-      delete from ai_scores;
-      delete from tweet_actions;
-      delete from tweet_account_edges;
-      delete from tweet_collections;
-      delete from link_occurrences;
-      delete from url_expansions;
-      delete from dm_fts;
-      delete from tweets_fts;
-      delete from dm_messages;
-      delete from dm_conversations;
-	  delete from tweet_subordinate_tombstones;
-	  delete from tweet_revision_edges;
-	  delete from tweet_revisions;
-      delete from tweets;
-      delete from profiles;
-      delete from accounts;
-    `);
-		this.clearAuthoredSyncCursors();
-	}
-
 	clearAuthoredSyncCursors(accountId?: string) {
 		if (accountId) {
 			this.db
@@ -97,10 +75,23 @@ export class ImportRepository {
 			.run();
 	}
 
-	clearMentionSyncState() {
+	clearMentionSyncState(accountId: string) {
+		const encodedAccountId = encodeURIComponent(accountId);
+		const accountPattern = encodedAccountId.replace(/[\\%_]/g, "\\$&");
 		this.db
-			.prepare("delete from sync_cache where cache_key like 'mentions:sync:%'")
-			.run();
+			.prepare(`
+				delete from sync_cache
+				where cache_key = ?
+				   or cache_key like ? escape '\\'
+				   or cache_key like ? escape '\\'
+				   or cache_key like ? escape '\\'
+			`)
+			.run(
+				`mentions:sync:high-water:v1:mode=xurl:account=${encodedAccountId}`,
+				`mentions:sync:cursor:v2:mode=xurl:account=${accountPattern}:page=%:boundary=%`,
+				`mentions:sync:result:v2:mode=xurl:account=${accountPattern}:page=%:boundary=%`,
+				`mentions:sync:result:v2:mode=bird:account=${accountPattern}:page=%:boundary=%`,
+			);
 	}
 
 	clearBackupImport() {

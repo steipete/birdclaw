@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { lookupProfileViaBirdEffect } from "./bird-actions";
 import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, trySync } from "./effect-runtime";
 import { normalizeProfileHandle, profileFromDbRow } from "./profile-row";
 import type { ProfileRecord, XurlMentionUser } from "./types";
 import { getExternalUserId, upsertProfileFromXUser } from "./x-profile";
@@ -16,17 +16,6 @@ import {
 export interface ResolvedModerationProfile {
 	profile: ProfileRecord;
 	externalUserId: string | null;
-}
-
-function toError(error: unknown) {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
-function trySync<T>(try_: () => T) {
-	return Effect.try({
-		try: try_,
-		catch: toError,
-	});
 }
 
 export function normalizeProfileQuery(value: string) {

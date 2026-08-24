@@ -429,7 +429,7 @@ describe("database init", () => {
 			{ name: "fxtwitter_fetches" },
 			{ name: "fxtwitter_observations" },
 		]);
-		expect(db.pragma("user_version", { simple: true })).toBe(8);
+		expect(db.pragma("user_version", { simple: true })).toBe(9);
 	});
 
 	it("adds revision edges without rewriting v6 revision rows", () => {
@@ -452,7 +452,7 @@ describe("database init", () => {
 		resetDatabaseForTests();
 
 		const migrated = getNativeDb({ seedDemoData: false });
-		expect(migrated.pragma("user_version", { simple: true })).toBe(8);
+		expect(migrated.pragma("user_version", { simple: true })).toBe(9);
 		expect(
 			migrated
 				.prepare(
@@ -628,7 +628,7 @@ describe("database init", () => {
 
 	it.each([
 		{ kind: "stale", version: 4 },
-		{ kind: "future", version: 9 },
+		{ kind: "future", version: 10 },
 	])(
 		"rejects a $kind schema and closes its provisional reader",
 		({ version }) => {
@@ -663,10 +663,10 @@ describe("database init", () => {
 
 		const writer = getNativeDb({ seedDemoData: false });
 		getReadDb({ seedDemoData: false });
-		writer.pragma("user_version = 9");
+		writer.pragma("user_version = 10");
 
 		expect(() => getStrictReadDb()).toThrow(
-			/schema 9 is not ready for version 8/,
+			/schema 10 is not ready for version 9/,
 		);
 	});
 

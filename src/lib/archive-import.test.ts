@@ -22,12 +22,9 @@ import { __test__, importArchive, importArchiveEffect } from "./archive-import";
 import { getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
 import { listFollowEvents, listUnfollowedSince } from "./follow-graph";
-import {
-	getConversationThread,
-	getQueryEnvelope,
-	listDmConversations,
-	listTimelineItems,
-} from "./queries";
+import { getConversationThread, listDmConversations } from "./dm-read-model";
+import { getQueryEnvelope } from "./query-status";
+import { listTimelineItems } from "./timeline-read-model";
 
 const testHome = useTestHome({ prefix: "birdclaw-home-" });
 
@@ -948,7 +945,7 @@ describe("archive import", () => {
 
 	it("imports tweets, dms, profiles, and envelope stats from a zip archive", async () => {
 		const archivePath = makeArchive();
-		const staleDb = getNativeDb();
+		const staleDb = getNativeDb({ seedDemoData: false });
 		staleDb.exec(`
       insert into url_expansions (
         short_url, expanded_url, final_url, status, source, updated_at
@@ -963,7 +960,7 @@ describe("archive import", () => {
     `);
 
 		const result = await importArchive(archivePath, { restore: true });
-		const db = getNativeDb();
+		const db = getNativeDb({ seedDemoData: false });
 		const envelope = await getQueryEnvelope({ includeArchives: false });
 		const tweets = listTimelineItems({ resource: "home", limit: 10 });
 		const liked = listTimelineItems({ resource: "home", likedOnly: true });
@@ -1015,6 +1012,252 @@ describe("archive import", () => {
 		expect(archivedTweet?.quotedTweet?.text).toBe("Longer archive note");
 		expect(liked.map((item) => item.text)).toEqual(["liked archive item"]);
 		expect(bookmarked.map((item) => item.text)).toEqual(["saved archive item"]);
+	}, 30000);
+
+	it("scopes a full restore to archive-owned state for the primary account", async () => {
+		await importArchive(makeArchive({ following: ["700"] }));
+		const db = getNativeDb({ seedDemoData: false });
+		insertTestAccount(db, {
+			id: "acct_other",
+			name: "Other",
+			handle: "@other",
+			externalUserId: "other",
+			transport: "xurl",
+			isDefault: 0,
+		});
+		insertTestProfile(db, {
+			id: "profile_other",
+			handle: "other",
+			displayName: "Other",
+		});
+		insertTestDmConversation(db, {
+			id: "dm-other",
+			accountId: "acct_other",
+			participantProfileId: "profile_other",
+			title: "Other account DM",
+		});
+		insertTestDmMessage(db, {
+			id: "m-other",
+			conversationId: "dm-other",
+			senderProfileId: "profile_other",
+			text: "keep other dm",
+			direction: "incoming",
+		});
+		db.exec(`
+			insert into dm_fts (message_id, text) values ('m-other', 'keep other dm');
+			insert into tweet_account_edges (
+				account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
+				source, raw_json, updated_at
+			) values (
+				'acct_other', '100', 'home', '2026-01-01T00:00:00.000Z',
+				'2026-01-01T00:00:00.000Z', 1, 'xurl', '{}', '2026-01-01T00:00:00.000Z'
+			);
+			insert into tweet_collections (
+				account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
+			) values (
+				'acct_other', '100', 'likes', '2026-01-01T00:00:00.000Z',
+				'xurl', '{}', '2026-01-01T00:00:00.000Z'
+			);
+			insert into follow_snapshots (
+				id, account_id, direction, source, status, page_count, result_count,
+				started_at, completed_at, raw_meta_json
+			) values (
+				'follow-other', 'acct_other', 'followers', 'xurl', 'complete', 1, 1,
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '{}'
+			);
+			insert into follow_snapshot_members (snapshot_id, profile_id, external_user_id, position)
+			values ('follow-other', 'profile_other', 'other', 0);
+			insert into follow_edges (
+				account_id, direction, profile_id, external_user_id, source, current,
+				first_seen_at, last_seen_at, ended_at, updated_at
+			) values (
+				'acct_other', 'followers', 'profile_other', 'other', 'xurl', 1,
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', null,
+				'2026-01-01T00:00:00.000Z'
+			);
+			insert into follow_events (
+				id, account_id, direction, profile_id, external_user_id, kind, event_at, snapshot_id
+			) values (
+				'follow-event-other', 'acct_other', 'followers', 'profile_other', 'other',
+				'started', '2026-01-01T00:00:00.000Z', 'follow-other'
+			);
+			insert into x_lists (
+				account_id, list_id, name, source, membership_status, lists_synced_at, updated_at
+			) values (
+				'acct_other', 'list-other', 'Other list', 'xurl', 'complete',
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+			);
+			insert into x_list_members (
+				account_id, list_id, profile_id, external_user_id, source, current,
+				first_seen_at, last_seen_at, updated_at
+			) values (
+				'acct_other', 'list-other', 'profile_other', 'other', 'xurl', 1,
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+				'2026-01-01T00:00:00.000Z'
+			);
+			insert into blocks (account_id, profile_id, source, created_at) values
+				('acct_primary', 'profile_other', 'local', '2026-01-01T00:00:00.000Z'),
+				('acct_other', 'profile_me', 'xurl', '2026-01-01T00:00:00.000Z');
+			insert into mutes (account_id, profile_id, source, created_at) values
+				('acct_primary', 'profile_other', 'local', '2026-01-01T00:00:00.000Z'),
+				('acct_other', 'profile_me', 'xurl', '2026-01-01T00:00:00.000Z');
+			insert into url_expansions (
+				short_url, expanded_url, final_url, status, source, updated_at
+			) values (
+				'https://t.co/keep', 'https://example.com/keep', 'https://example.com/keep',
+				'hit', 'network', '2026-01-01T00:00:00.000Z'
+			);
+			insert into tweet_sources (tweet_id, source, source_url, observed_at) values
+				('5', 'fxtwitter', 'https://api.fxtwitter.com/status/5', '2026-01-01T00:00:00.000Z');
+			insert into fxtwitter_fetches (
+				id, endpoint_family, request_key, source_url, retrieved_at, partial_reasons_json,
+				pages_fetched, items_observed
+			) values (
+				'fetch-keep', 'search', 'keep', 'https://api.fxtwitter.com/search',
+				'2026-01-01T00:00:00.000Z', '[]', 1, 1
+			);
+			insert into fxtwitter_observations (
+				endpoint_family, request_key, item_kind, item_id, source_url,
+				first_seen_at, last_seen_at, seen_count, last_fetch_id
+			) values (
+				'search', 'keep', 'tweet', '5', 'https://api.fxtwitter.com/status/5',
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 1, 'fetch-keep'
+			);
+			insert into ai_scores (
+				entity_kind, entity_id, model, score, summary, reasoning, updated_at
+			) values (
+				'tweet', '5', 'test', 42, 'keep', 'unrelated', '2026-01-01T00:00:00.000Z'
+			);
+			insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (
+				'action-keep', 'acct_primary', '5', 'reply', 'keep', '2026-01-01T00:00:00.000Z'
+			);
+		`);
+
+		await importArchive(makeRootDataArchive(), { restore: true });
+
+		expect(
+			db.prepare("select id from accounts where id = 'acct_other'").get(),
+		).toEqual({ id: "acct_other" });
+		expect(
+			db.prepare("select id from profiles where id = 'profile_other'").get(),
+		).toEqual({ id: "profile_other" });
+		expect(
+			db
+				.prepare(
+					"select id from dm_conversations where account_id = 'acct_other'",
+				)
+				.all(),
+		).toEqual([{ id: "dm-other" }]);
+		expect(
+			db
+				.prepare("select message_id from dm_fts where message_id = 'm-other'")
+				.get(),
+		).toEqual({ message_id: "m-other" });
+		expect(
+			db
+				.prepare(
+					"select account_id, kind from tweet_account_edges where tweet_id = '100'",
+				)
+				.all(),
+		).toEqual([{ account_id: "acct_other", kind: "home" }]);
+		expect(
+			db
+				.prepare(
+					"select account_id from tweet_collections where tweet_id = '100'",
+				)
+				.all(),
+		).toEqual([{ account_id: "acct_other" }]);
+		expect(
+			db
+				.prepare(
+					"select id from follow_snapshots where account_id = 'acct_other'",
+				)
+				.all(),
+		).toEqual([{ id: "follow-other" }]);
+		expect(
+			db
+				.prepare("select list_id from x_lists where account_id = 'acct_other'")
+				.all(),
+		).toEqual([{ list_id: "list-other" }]);
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from x_list_members where account_id = 'acct_other'",
+				)
+				.get(),
+		).toEqual({ count: 1 });
+		expect(db.prepare("select count(*) as count from blocks").get()).toEqual({
+			count: 2,
+		});
+		expect(db.prepare("select count(*) as count from mutes").get()).toEqual({
+			count: 2,
+		});
+		for (const table of ["url_expansions", "fxtwitter_fetches"]) {
+			expect(
+				db.prepare(`select count(*) as count from ${table}`).get(),
+			).toEqual({
+				count: 1,
+			});
+		}
+		expect(
+			db
+				.prepare(`
+					select 'tweet_sources' as source, tweet_sources.tweet_id
+					from tweet_sources join tweets on tweets.id = tweet_sources.tweet_id
+					union all
+					select 'fxtwitter_observations', item_id
+					from fxtwitter_observations join tweets on tweets.id = item_id
+					where item_kind = 'tweet'
+					union all
+					select 'ai_scores', entity_id
+					from ai_scores join tweets on tweets.id = entity_id
+					where entity_kind = 'tweet'
+					union all
+					select 'tweet_actions', tweet_actions.tweet_id
+					from tweet_actions join tweets on tweets.id = tweet_actions.tweet_id
+					order by source
+				`)
+				.all(),
+		).toEqual([
+			{ source: "ai_scores", tweet_id: "5" },
+			{ source: "fxtwitter_observations", tweet_id: "5" },
+			{ source: "tweet_actions", tweet_id: "5" },
+			{ source: "tweet_sources", tweet_id: "5" },
+		]);
+		expect(
+			db
+				.prepare(
+					"select id from dm_conversations where account_id = 'acct_primary'",
+				)
+				.all(),
+		).toEqual([{ id: "root-dm" }]);
+		expect(
+			db
+				.prepare(
+					"select tweet_id, kind from tweet_account_edges where account_id = 'acct_primary'",
+				)
+				.all(),
+		).toEqual([
+			{ tweet_id: "root-1", kind: "authored" },
+			{ tweet_id: "root-1", kind: "home" },
+		]);
+		expect(
+			db
+				.prepare(
+					"select tweet_id from tweet_collections where account_id = 'acct_primary'",
+				)
+				.all(),
+		).toEqual([]);
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from follow_edges where account_id = 'acct_primary' and source = 'archive'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		expect(
+			db.prepare("select id from tweets where id in ('5', '6')").all(),
+		).toEqual([{ id: "5" }]);
 	}, 30000);
 
 	it("extracts archive media files into media originals", async () => {
@@ -1180,26 +1423,32 @@ describe("archive import", () => {
 		});
 	});
 
-	it("clears mention sync state on an explicit full archive restore", async () => {
+	it("clears only primary mention sync state when restoring tweets", async () => {
 		const archivePath = makeArchive();
-		const db = getNativeDb();
-		db.prepare(
-			"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
-		).run(
-			"mentions:sync:high-water:v1:mode=xurl:account=acct_primary",
-			'{"sinceId":"2000"}',
-			"2026-05-01T00:00:00.000Z",
+		const db = getNativeDb({ seedDemoData: false });
+		const insertSyncCache = db.prepare(
+			"insert into sync_cache (cache_key, value_json, updated_at) values (?, '{}', ?)",
 		);
+		for (const accountId of ["acct_primary", "acct_other"]) {
+			insertSyncCache.run(
+				`mentions:sync:high-water:v1:mode=xurl:account=${accountId}`,
+				"2026-05-01T00:00:00.000Z",
+			);
+		}
 
-		await importArchive(archivePath, { restore: true });
+		await importArchive(archivePath, { select: ["tweets"], restore: true });
 
 		expect(
 			db
 				.prepare(
-					"select count(*) as count from sync_cache where cache_key like 'mentions:sync:%'",
+					"select cache_key from sync_cache where cache_key like 'mentions:sync:%' order by cache_key",
 				)
-				.get(),
-		).toEqual({ count: 0 });
+				.all(),
+		).toEqual([
+			{
+				cache_key: "mentions:sync:high-water:v1:mode=xurl:account=acct_other",
+			},
+		]);
 	});
 
 	it("imports only selected archive slices", async () => {
@@ -2831,7 +3080,7 @@ describe("archive import", () => {
 					"select id from profiles where id in ('profile_user_101', 'profile_user_102') order by id",
 				)
 				.all(),
-		).toEqual([]);
+		).toEqual([{ id: "profile_user_101" }, { id: "profile_user_102" }]);
 	});
 
 	it("preserves live follower source when an overlapping archive is later absent", async () => {

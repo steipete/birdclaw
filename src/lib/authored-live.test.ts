@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
-import { listTimelineItems } from "./queries";
+import { listTimelineItems } from "./timeline-read-model";
 
 const mocks = vi.hoisted(() => ({
 	getTransportStatus: vi.fn(),
@@ -207,10 +207,13 @@ describe("live authored tweet sync", () => {
 		const effect = syncAuthoredTweetsEffect({ limit: 4 });
 
 		await expect(Effect.runPromise(effect)).rejects.toThrow(
-			"xurl mode requires --limit between 5 and 100",
+			"--limit must be between 5 and 100",
 		);
 		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
 		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+		await expect(
+			Effect.runPromise(syncAuthoredTweetsEffect({ mode: "auto" as never })),
+		).rejects.toThrow("only supports --mode xurl");
 	});
 
 	it("handles an empty authored response without moving the cursor", async () => {
@@ -370,6 +373,24 @@ describe("live authored tweet sync", () => {
 		makeTempHome();
 		const db = getNativeDb();
 		db.prepare(
+			`insert into profiles (
+				id, handle, display_name, bio, followers_count, avatar_hue,
+				raw_json, created_at
+			) values (?, ?, ?, ?, ?, ?, ?, ?)
+			on conflict(id) do update set
+				bio = excluded.bio,
+				followers_count = excluded.followers_count`,
+		).run(
+			"profile_user_25401953",
+			"hydrated_25401953",
+			"Hydrated canonical profile",
+			"Hydrated canonical bio",
+			456,
+			18,
+			'{"id":"25401953"}',
+			"2009-03-19T22:54:05.000Z",
+		);
+		db.prepare(
 			"update profiles set bio = ?, followers_count = ? where id = ?",
 		).run("Hydrated archive bio", 123, "profile_me");
 		mocks.listUserTweets.mockResolvedValueOnce({
@@ -399,9 +420,145 @@ describe("live authored tweet sync", () => {
 		});
 		expect(
 			db
+				.prepare(
+					"select bio, followers_count from profiles where id = 'profile_user_25401953'",
+				)
+				.get(),
+		).toEqual({
+			bio: "Hydrated canonical bio",
+			followers_count: 456,
+		});
+		expect(
+			db
 				.prepare("select author_profile_id from tweets where id = ?")
 				.get("101"),
-		).toEqual({ author_profile_id: "profile_me" });
+		).toEqual({ author_profile_id: "profile_user_25401953" });
+	});
+
+	it("preserves incomplete media refreshes and stores rich video metadata", async () => {
+		makeTempHome();
+		insertLocalAuthoredHomeTweet({ id: "media-refresh" });
+		const db = getNativeDb();
+		const existingMedia = JSON.stringify([
+			{
+				url: "https://pbs.twimg.com/media/existing.jpg",
+				type: "image",
+			},
+		]);
+		db.prepare(
+			"update tweets set media_count = 2, media_json = ? where id = ?",
+		).run(existingMedia, "media-refresh");
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [
+				{
+					...authoredTweet("media-refresh"),
+					attachments: { media_keys: ["missing-media"] },
+				},
+				{
+					...authoredTweet("video-rich"),
+					attachments: { media_keys: ["video-1"] },
+				},
+			],
+			includes: {
+				media: [
+					{
+						media_key: "video-1",
+						type: "video",
+						preview_image_url:
+							"https://pbs.twimg.com/ext_tw_video_thumb/video-1.jpg",
+						duration_ms: 12_345,
+						variants: [
+							{
+								url: "https://video.twimg.com/video-1.m3u8",
+								content_type: "application/x-mpegURL",
+							},
+							{
+								url: "https://video.twimg.com/video-1.mp4",
+								content_type: "video/mp4",
+								bit_rate: 2_176_000,
+							},
+						],
+					},
+				],
+			},
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		expect(
+			db
+				.prepare(
+					"select media_count, media_json from tweets where id = 'media-refresh'",
+				)
+				.get(),
+		).toEqual({ media_count: 2, media_json: existingMedia });
+		const video = db
+			.prepare(
+				"select media_count, media_json from tweets where id = 'video-rich'",
+			)
+			.get() as { media_count: number; media_json: string };
+		expect(video.media_count).toBe(1);
+		expect(JSON.parse(video.media_json)).toEqual([
+			expect.objectContaining({
+				type: "video",
+				durationMs: 12_345,
+				variants: [
+					{
+						url: "https://video.twimg.com/video-1.mp4",
+						contentType: "video/mp4",
+						bitRate: 2_176_000,
+					},
+				],
+			}),
+		]);
+	});
+
+	it("keeps authored semantics off included reply context", async () => {
+		makeTempHome();
+		insertLocalAuthoredHomeTweet({ id: "quote-context" });
+		const db = getNativeDb();
+		db.prepare("update tweets set like_count = 77 where id = ?").run(
+			"quote-context",
+		);
+		mocks.listUserTweets.mockResolvedValueOnce({
+			items: [
+				{
+					...authoredTweet("primary-reply"),
+					referenced_tweets: [
+						{ type: "replied_to", id: "reply-parent" },
+						{ type: "quoted", id: "quote-context" },
+					],
+				},
+			],
+			includes: {
+				tweets: [
+					{
+						...authoredTweet("quote-context", "included reply context"),
+						author_id: "42",
+						referenced_tweets: [{ type: "replied_to", id: "context-parent" }],
+					},
+				],
+			},
+			nextToken: null,
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5 });
+
+		expect(
+			db
+				.prepare(
+					"select id, is_replied, like_count from tweets where id in ('primary-reply', 'quote-context') order by id",
+				)
+				.all(),
+		).toEqual([
+			{ id: "primary-reply", is_replied: 1, like_count: 0 },
+			{ id: "quote-context", is_replied: 0, like_count: 77 },
+		]);
+		expect(authoredEdgeCount("primary-reply")).toEqual({ count: 1 });
+		expect(authoredEdgeCount("quote-context")).toEqual({ count: 0 });
 	});
 
 	it("paginates authored tweets and deduplicates users", async () => {
@@ -509,6 +666,30 @@ describe("live authored tweet sync", () => {
 			nextToken: "page-2",
 		});
 		expect(authoredEdgeCount("250")).toEqual({ count: 1 });
+	});
+
+	it("does not commit a cursor when the first authored fetch fails", async () => {
+		makeTempHome();
+		const savedCursor = {
+			state: "pending-forward",
+			sinceId: "600",
+			token: "saved-page",
+			pendingNewestId: "700",
+		};
+		getNativeDb()
+			.prepare(
+				"insert into sync_cache (cache_key, value_json, updated_at) values (?, ?, ?)",
+			)
+			.run(
+				"authored:xurl:acct_primary:cursor",
+				JSON.stringify(savedCursor),
+				"2026-05-12T12:00:00.000Z",
+			);
+		mocks.listUserTweets.mockRejectedValueOnce(new Error("offline"));
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await expect(syncAuthoredTweets({ limit: 5 })).rejects.toThrow("offline");
+		expect(authoredCursor()).toEqual(savedCursor);
 	});
 
 	it("uses an explicit account external id without calling whoami", async () => {
@@ -1000,7 +1181,7 @@ describe("live authored tweet sync", () => {
 		});
 	});
 
-	it("migrates legacy paginationToken cursors to pending-forward on read", async () => {
+	it("ignores legacy paginationToken cursor fields", async () => {
 		makeTempHome();
 		getNativeDb()
 			.prepare(
@@ -1025,9 +1206,29 @@ describe("live authored tweet sync", () => {
 		expect(requestOptions).toEqual(
 			expect.objectContaining({
 				sinceId: "600",
-				paginationToken: "legacy-page",
+				paginationToken: undefined,
 			}),
 		);
+	});
+
+	it("does not persist a repeated authored cursor as resumable", async () => {
+		makeTempHome();
+		mocks.listUserTweets
+			.mockResolvedValueOnce(authoredPage("700", "same-page"))
+			.mockResolvedValueOnce(authoredPage("650", "same-page"));
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		const result = await syncAuthoredTweets({ limit: 5, sinceId: "600" });
+
+		expect(result).toMatchObject({
+			partial: true,
+			nextToken: null,
+			cursor: { paginationToken: null, pending: false },
+			payload: {
+				meta: { next_token: "same-page" },
+			},
+		});
+		expect(authoredCursor()).toEqual({ state: "committed", sinceId: "600" });
 	});
 
 	it("passes until_id without preserving a stale pending pagination token", async () => {
@@ -1177,6 +1378,51 @@ describe("live authored tweet sync", () => {
 				.prepare("select count(*) as count from tweets_fts where tweet_id = ?")
 				.get("300"),
 		).toEqual({ count: 1 });
+	});
+
+	it("keeps superseded and tombstoned authored revisions out of FTS", async () => {
+		makeTempHome();
+		mocks.listUserTweets
+			.mockResolvedValueOnce({
+				items: [authoredTweet("edit-1", "original authored revision")],
+				nextToken: null,
+			})
+			.mockResolvedValue({
+				items: [
+					{
+						...authoredTweet("edit-2", "edited authored revision"),
+						edit_history_tweet_ids: ["edit-1", "edit-2"],
+					},
+				],
+				nextToken: null,
+			});
+		const { syncAuthoredTweets } = await import("./authored-live");
+
+		await syncAuthoredTweets({ limit: 5, sinceId: "0" });
+		await syncAuthoredTweets({ limit: 5, sinceId: "0" });
+		const db = getNativeDb();
+		db.prepare("update tweets set deleted_at = ? where id = 'edit-2'").run(
+			"2026-05-12T00:00:00.000Z",
+		);
+		await syncAuthoredTweets({ limit: 5, sinceId: "0" });
+
+		expect(
+			db
+				.prepare(
+					"select id, superseded_at is not null as superseded, deleted_at is not null as deleted from tweets where id in ('edit-1', 'edit-2') order by id",
+				)
+				.all(),
+		).toEqual([
+			{ id: "edit-1", superseded: 1, deleted: 1 },
+			{ id: "edit-2", superseded: 0, deleted: 1 },
+		]);
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets_fts where tweet_id in ('edit-1', 'edit-2')",
+				)
+				.get(),
+		).toEqual({ count: 0 });
 	});
 
 	it("keeps retweets in authored sync and preserves their referenced_tweets marker", async () => {
