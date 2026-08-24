@@ -69,11 +69,21 @@ export function registerDirectMessageCommands({
 				options.pageDelayMs,
 				"--page-delay-ms",
 			);
+			const minFollowers = parseNonNegativeIntegerOption(
+				options.minFollowers,
+				"--min-followers",
+			);
+			const maxFollowers = parseNonNegativeIntegerOption(
+				options.maxFollowers,
+				"--max-followers",
+			);
 			if (
 				inbox === undefined ||
 				mode === undefined ||
 				maxPages === undefined ||
-				pageDelayMs === undefined
+				pageDelayMs === undefined ||
+				(options.minFollowers !== undefined && minFollowers === undefined) ||
+				(options.maxFollowers !== undefined && maxFollowers === undefined)
 			)
 				return;
 			if (options.refresh) {
@@ -97,12 +107,8 @@ export function registerDirectMessageCommands({
 					account: options.account,
 					...(inbox !== "all" ? { inbox } : {}),
 					participant: options.participant,
-					minFollowers: options.minFollowers
-						? Number(options.minFollowers)
-						: undefined,
-					maxFollowers: options.maxFollowers
-						? Number(options.maxFollowers)
-						: undefined,
+					minFollowers,
+					maxFollowers,
 					minInfluenceScore: options.minInfluenceScore
 						? Number(options.minInfluenceScore)
 						: undefined,

@@ -2779,6 +2779,110 @@ describe("cli", () => {
 		consoleErrorMock.mockRestore();
 	});
 
+	it.each([
+		[
+			"search dms --min-followers",
+			["search", "dms", "query"],
+			"--min-followers",
+			listDmConversationsMock,
+		],
+		[
+			"search dms --max-followers",
+			["search", "dms", "query"],
+			"--max-followers",
+			listDmConversationsMock,
+		],
+		[
+			"dms list --min-followers",
+			["dms", "list"],
+			"--min-followers",
+			listDmConversationsMock,
+		],
+		[
+			"dms list --max-followers",
+			["dms", "list"],
+			"--max-followers",
+			listDmConversationsMock,
+		],
+		["inbox --min-score", ["inbox"], "--min-score", listInboxItemsMock],
+		["inbox --limit", ["inbox"], "--limit", listInboxItemsMock],
+	])(
+		"rejects invalid %s values before reading",
+		async (_name, args, option, readModelMock) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, option, "abc"]);
+
+			expect(consoleErrorMock).toHaveBeenCalledWith(
+				JSON.stringify({
+					error: `${option} must be a non-negative integer`,
+				}),
+			);
+			expect(process.exitCode).toBe(1);
+			expect(readModelMock).not.toHaveBeenCalled();
+			consoleErrorMock.mockRestore();
+		},
+	);
+
+	it.each([
+		[
+			"search dms --min-followers",
+			["search", "dms", "query"],
+			"--min-followers",
+			{ minFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"search dms --max-followers",
+			["search", "dms", "query"],
+			"--max-followers",
+			{ maxFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"dms list --min-followers",
+			["dms", "list"],
+			"--min-followers",
+			{ minFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"dms list --max-followers",
+			["dms", "list"],
+			"--max-followers",
+			{ maxFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"inbox --min-score",
+			["inbox"],
+			"--min-score",
+			{ minScore: 17 },
+			listInboxItemsMock,
+		],
+		[
+			"inbox --limit",
+			["inbox"],
+			"--limit",
+			{ limit: 17 },
+			listInboxItemsMock,
+		],
+	])(
+		"passes valid %s values to the read model",
+		async (_name, args, option, expected, readModelMock) => {
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, option, "17"]);
+
+			expect(readModelMock).toHaveBeenCalledWith(
+				expect.objectContaining(expected),
+			);
+		},
+	);
+
 	it("dispatches blocklist commands", async () => {
 		const { runCli } = await loadCli();
 
