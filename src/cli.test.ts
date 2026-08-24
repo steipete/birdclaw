@@ -2863,13 +2863,7 @@ describe("cli", () => {
 			{ minScore: 17 },
 			listInboxItemsMock,
 		],
-		[
-			"inbox --limit",
-			["inbox"],
-			"--limit",
-			{ limit: 17 },
-			listInboxItemsMock,
-		],
+		["inbox --limit", ["inbox"], "--limit", { limit: 17 }, listInboxItemsMock],
 	])(
 		"passes valid %s values to the read model",
 		async (_name, args, option, expected, readModelMock) => {
