@@ -142,7 +142,7 @@ export function registerSearchCommands({
 				"--min-likes",
 			);
 			if (options.minLikes !== undefined && minLikes === undefined) return;
-			const limit = parsePositiveIntegerOption(options.limit, "--limit");
+			const limit = parseNonNegativeIntegerOption(options.limit, "--limit");
 			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const selectedList =
@@ -214,7 +214,7 @@ export function registerSearchCommands({
 		.option("--unreplied", "Only unreplied threads")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (query, options) => {
-			const limit = parsePositiveIntegerOption(options.limit, "--limit");
+			const limit = parseNonNegativeIntegerOption(options.limit, "--limit");
 			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const context = parseNonNegativeIntegerOption(
@@ -277,7 +277,7 @@ export function registerSearchCommands({
 		.option("--media <type>", "image, video, or gif")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (query, options) => {
-			const limit = parsePositiveIntegerOption(options.limit, "--limit");
+			const limit = parseNonNegativeIntegerOption(options.limit, "--limit");
 			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const items = searchLinks(query, {
@@ -441,7 +441,7 @@ export function registerSearchCommands({
 		.option("--context <n>", "DM messages before and after each match", "4")
 		.option("--limit <n>", "Limit candidates", "10")
 		.action(async (query, options) => {
-			const limit = parsePositiveIntegerOption(options.limit, "--limit");
+			const limit = parseNonNegativeIntegerOption(options.limit, "--limit");
 			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const context = parseNonNegativeIntegerOption(

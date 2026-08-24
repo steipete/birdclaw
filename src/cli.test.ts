@@ -2809,6 +2809,31 @@ describe("cli", () => {
 		},
 	);
 
+	it.each([
+		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock, 0],
+		["dms", ["search", "dms", "query"], listDmConversationsMock, 0],
+		["links", ["search", "links", "query"], searchLinksMock, 1],
+		["whois", ["whois", "query"], runWhoisMock, 1],
+	])(
+		"accepts a zero %s limit and passes it to the read model",
+		async (_name, args, queryMock, optionsIndex) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, "--limit", "0"]);
+
+			const consoleErrors = [...consoleErrorMock.mock.calls];
+			const exitCode = process.exitCode;
+			const queryOptions = queryMock.mock.calls[0]?.[optionsIndex];
+			consoleErrorMock.mockRestore();
+			expect(consoleErrors).toEqual([]);
+			expect(exitCode).not.toBe(1);
+			expect(queryOptions).toEqual(expect.objectContaining({ limit: 0 }));
+		},
+	);
+
 	it("passes valid search limits to each read model", async () => {
 		const { runCli } = await loadCli();
 
