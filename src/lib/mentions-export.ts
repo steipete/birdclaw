@@ -50,14 +50,20 @@ function toXurlEntities(entities: TimelineItem["entities"]) {
 		expanded_url: url.expandedUrl,
 		display_url: url.displayUrl,
 	}));
+	const hashtags = entities.hashtags?.map((hashtag) => ({
+		start: hashtag.start,
+		end: hashtag.end,
+		tag: hashtag.tag,
+	}));
 
-	if (!mentions?.length && !urls?.length) {
+	if (!mentions?.length && !urls?.length && !hashtags?.length) {
 		return undefined;
 	}
 
 	return {
 		...(mentions?.length ? { mentions } : {}),
 		...(urls?.length ? { urls } : {}),
+		...(hashtags?.length ? { hashtags } : {}),
 	};
 }
 
