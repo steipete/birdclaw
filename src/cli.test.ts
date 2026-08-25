@@ -2779,6 +2779,41 @@ describe("cli", () => {
 		consoleErrorMock.mockRestore();
 	});
 
+	it("accepts legacy Number() spellings for search limits", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		// These spellings worked through Number() before the PR and must keep working.
+		for (const [limit, expected] of [
+			["+1", 1],
+			["1e3", 1000],
+			["0x10", 16],
+		] as const) {
+			process.exitCode = 0;
+			consoleErrorMock.mockClear();
+			listTimelineItemsMock.mockClear();
+
+			await runCli([
+				"node",
+				"birdclaw",
+				"search",
+				"tweets",
+				"query",
+				"--limit",
+				limit,
+			]);
+
+			expect(consoleErrorMock).not.toHaveBeenCalled();
+			expect(process.exitCode).not.toBe(1);
+			expect(listTimelineItemsMock).toHaveBeenCalledWith(
+				expect.objectContaining({ limit: expected }),
+			);
+		}
+		consoleErrorMock.mockRestore();
+	});
+
 	it.each([
 		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock],
 		["dms", ["search", "dms", "query"], listDmConversationsMock],
