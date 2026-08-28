@@ -24,6 +24,7 @@
 
 ### Testing and maintenance
 
+- Refresh application and development dependencies, including Supercluster 9 and Nano ID 6, and update pinned checkout, cache, and Node setup actions while retaining the verified Bun canary and Node 26 compatibility floor.
 - Remove obsolete query compatibility facades and internal Promise transport wrappers in favor of their owning read-model, action, and Effect modules.
 - Remove the static live-transport forwarding facade and zero-consumer low-level Xurl Promise mirrors so consumers and tests use the owning Effect functions directly.
 - Add synthetic regressions for profile identity collisions and canonicalization, atomic mention cursor writes, backup lease takeover, fsynced publication recovery, hidden data, large shards, malicious paths, read-only freshness, receipt-owned push retries, corrupt remotes, and diverged histories.
