@@ -2817,7 +2817,6 @@ describe("cli", () => {
 	it.each([
 		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock],
 		["dms", ["search", "dms", "query"], listDmConversationsMock],
-		["links", ["search", "links", "query"], searchLinksMock],
 		["whois", ["whois", "query"], runWhoisMock],
 	])(
 		"rejects invalid %s limits before querying",
@@ -2843,6 +2842,31 @@ describe("cli", () => {
 			consoleErrorMock.mockRestore();
 		},
 	);
+
+	it("preserves lenient link search limit coercion", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"query",
+			"--limit",
+			"2.7",
+		]);
+
+		expect(consoleErrorMock).not.toHaveBeenCalled();
+		expect(process.exitCode).not.toBe(1);
+		expect(searchLinksMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 2.7 }),
+		);
+		consoleErrorMock.mockRestore();
+	});
 
 	it.each([
 		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock, 0],

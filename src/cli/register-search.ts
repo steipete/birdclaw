@@ -278,8 +278,6 @@ export function registerSearchCommands({
 		.option("--media <type>", "image, video, or gif")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (query, options) => {
-			const limit = parseLimitOption(options.limit, "--limit");
-			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const items = searchLinks(query, {
 				account: options.account,
@@ -304,7 +302,7 @@ export function registerSearchCommands({
 					options.media === "gif"
 						? options.media
 						: undefined,
-				limit,
+				limit: Number(options.limit),
 			});
 			if (asJson()) print(items, true);
 			else console.log(formatLinkSearchItems(items));
