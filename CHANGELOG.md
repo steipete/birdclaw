@@ -24,6 +24,7 @@
 
 ### Testing and maintenance
 
+- Refresh Zod to 4.5.4 and Lucide to 1.37.0, including the refined check-circle icon used for completed and replied states.
 - Refresh application and development dependencies, including Supercluster 9 and Nano ID 6, and update pinned checkout, cache, and Node setup actions while retaining the verified Bun canary and Node 26 compatibility floor.
 - Remove obsolete query compatibility facades and internal Promise transport wrappers in favor of their owning read-model, action, and Effect modules.
 - Remove the static live-transport forwarding facade and zero-consumer low-level Xurl Promise mirrors so consumers and tests use the owning Effect functions directly.
