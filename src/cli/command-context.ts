@@ -16,6 +16,14 @@ export interface CliCommandContext {
 		value: string | undefined,
 		option: string,
 	) => number | undefined;
+	parseFiniteNumberOption: (
+		value: string | undefined,
+		option: string,
+	) => number | undefined;
+	parseLimitOption: (
+		value: string | undefined,
+		option: string,
+	) => number | undefined;
 	parsePositiveIntegerOption: (
 		value: string | undefined,
 		option: string,
@@ -111,6 +119,35 @@ export function parseNonNegativeIntegerOption(
 	return parsed;
 }
 
+export function parseFiniteNumberOption(
+	value: string | undefined,
+	option: string,
+) {
+	if (value === undefined) return undefined;
+	// Thresholds already accept fractional values and Number() spellings.
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) {
+		printError(`${option} must be a finite number`);
+		process.exitCode = 1;
+		return undefined;
+	}
+	return parsed;
+}
+
+export function parseLimitOption(value: string | undefined, option: string) {
+	if (value === undefined) return undefined;
+	// `--limit` accepted any spelling `Number()` understands before this validation
+	// existed, so keep that grammar and validate the result instead. This still
+	// rejects fractional, negative, non-numeric and unsafe values.
+	const parsed = Number(value);
+	if (!Number.isSafeInteger(parsed) || parsed < 0) {
+		printError(`${option} must be a non-negative integer`);
+		process.exitCode = 1;
+		return undefined;
+	}
+	return parsed;
+}
+
 export function parsePositiveIntegerOption(
 	value: string | undefined,
 	option: string,
@@ -155,6 +192,8 @@ export function createCommandContext(program: Command): CliCommandContext {
 		autoSyncAfterWrite,
 		autoUpdateBeforeRead,
 		parseNonNegativeIntegerOption,
+		parseFiniteNumberOption,
+		parseLimitOption,
 		parsePositiveIntegerOption,
 	};
 }

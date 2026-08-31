@@ -56,6 +56,8 @@ Without `OPENAI_API_KEY`:
 
 ## Filters
 
+`--min-score` accepts finite numeric thresholds, including fractions. `--limit` must resolve to a non-negative safe integer; zero and numeric spellings such as `1e3` remain accepted. Invalid values return a structured error and exit 1 before backup refresh, scoring, or archive reads.
+
 - `--limit <n>` — max items to return
 - `--kind mentions|dms|mixed`
 - `--replied` / `--unreplied`

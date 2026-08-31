@@ -2814,15 +2814,18 @@ describe("cli", () => {
 				.mockImplementation(() => {});
 			const { runCli } = await loadCli();
 
-			await runCli(["node", "birdclaw", ...args, option, "abc"]);
-
-			expect(consoleErrorMock).toHaveBeenCalledWith(
-				JSON.stringify({
-					error: `${option} must be a non-negative integer`,
-				}),
-			);
-			expect(process.exitCode).toBe(1);
-			expect(readModelMock).not.toHaveBeenCalled();
+			for (const value of ["abc", "NaN", "Infinity", "-Infinity", "1e999"]) {
+				process.exitCode = 0;
+				consoleErrorMock.mockClear();
+				await runCli(["node", "birdclaw", ...args, option, value]);
+				expect(consoleErrorMock).toHaveBeenCalledWith(
+					JSON.stringify({
+						error: `${option} must be ${option === "--limit" ? "a non-negative integer" : "a finite number"}`,
+					}),
+				);
+				expect(process.exitCode).toBe(1);
+				expect(readModelMock).not.toHaveBeenCalled();
+			}
 			consoleErrorMock.mockRestore();
 		},
 	);
@@ -2869,11 +2872,45 @@ describe("cli", () => {
 		async (_name, args, option, expected, readModelMock) => {
 			const { runCli } = await loadCli();
 
-			await runCli(["node", "birdclaw", ...args, option, "17"]);
+			const values = ["17", "0", "+1", "1e3", "0x10"];
+			if (option !== "--limit") values.push("3.5", "-1");
+			for (const value of values) {
+				process.exitCode = 0;
+				readModelMock.mockClear();
+				await runCli(["node", "birdclaw", ...args, option, value]);
+				expect(process.exitCode).toBe(0);
+				expect(readModelMock).toHaveBeenCalledWith(
+					expect.objectContaining({
+						[Object.keys(expected)[0]!]: Number(value),
+					}),
+				);
+			}
+		},
+	);
 
-			expect(readModelMock).toHaveBeenCalledWith(
-				expect.objectContaining(expected),
-			);
+	it.each(["-1", "3.5", "9007199254740992"])(
+		"rejects invalid inbox limit %s before backup or scoring",
+		async (limit) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+			try {
+				await runCli([
+					"node",
+					"birdclaw",
+					"inbox",
+					"--score",
+					"--limit",
+					limit,
+				]);
+				expect(process.exitCode).toBe(1);
+				expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+				expect(scoreInboxMock).not.toHaveBeenCalled();
+				expect(listInboxItemsMock).not.toHaveBeenCalled();
+			} finally {
+				consoleErrorMock.mockRestore();
+			}
 		},
 	);
 

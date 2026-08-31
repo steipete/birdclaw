@@ -32,6 +32,7 @@ export function registerSearchCommands({
 	autoSyncAfterWrite,
 	autoUpdateBeforeRead,
 	parseNonNegativeIntegerOption,
+	parseFiniteNumberOption,
 	parsePositiveIntegerOption,
 }: CliCommandContext) {
 	const searchCommand = program
@@ -212,13 +213,13 @@ export function registerSearchCommands({
 		.option("--unreplied", "Only unreplied threads")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (query, options) => {
-			const minFollowers = parseNonNegativeIntegerOption(
+			const minFollowers = parseFiniteNumberOption(
 				options.minFollowers,
 				"--min-followers",
 			);
 			if (options.minFollowers !== undefined && minFollowers === undefined)
 				return;
-			const maxFollowers = parseNonNegativeIntegerOption(
+			const maxFollowers = parseFiniteNumberOption(
 				options.maxFollowers,
 				"--max-followers",
 			);

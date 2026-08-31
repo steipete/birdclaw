@@ -85,6 +85,8 @@ links and separates ecosystem mentions from likely staff/company matches.
 
 ## Influence score
 
+The CLI rejects non-finite `--min-followers` and `--max-followers` values before refreshing or reading DMs. Existing finite thresholds, including fractions and numeric spellings such as `1e3`, retain their filtering behavior in both `dms list` and `search dms`.
+
 Influence is a derived ranking signal that starts with follower count and folds in:
 
 - verified status

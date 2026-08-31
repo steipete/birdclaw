@@ -20,6 +20,7 @@ export function registerDirectMessageCommands({
 	autoSyncAfterWrite,
 	autoUpdateBeforeRead,
 	parseNonNegativeIntegerOption,
+	parseFiniteNumberOption,
 }: CliCommandContext) {
 	const dmsCommand = program.command("dms").description("Direct messages");
 
@@ -69,11 +70,11 @@ export function registerDirectMessageCommands({
 				options.pageDelayMs,
 				"--page-delay-ms",
 			);
-			const minFollowers = parseNonNegativeIntegerOption(
+			const minFollowers = parseFiniteNumberOption(
 				options.minFollowers,
 				"--min-followers",
 			);
-			const maxFollowers = parseNonNegativeIntegerOption(
+			const maxFollowers = parseFiniteNumberOption(
 				options.maxFollowers,
 				"--max-followers",
 			);
