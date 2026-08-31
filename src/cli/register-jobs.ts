@@ -14,7 +14,11 @@ function collectRuntimeArg(value: string, previous: string[]) {
 	return [...previous, value];
 }
 
-export function registerJobCommands({ program, print }: CliCommandContext) {
+export function registerJobCommands({
+	program,
+	print,
+	parsePositiveIntegerOption,
+}: CliCommandContext) {
 	const jobsCommand = program
 		.command("jobs")
 		.description("Run and install background Birdclaw jobs");
@@ -94,9 +98,14 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--launch-agents-dir <path>", "LaunchAgents directory")
 		.option("--no-load", "Write plist without loading it")
 		.action(async (options) => {
+			const intervalSeconds = parsePositiveIntegerOption(
+				options.intervalSeconds,
+				"--interval-seconds",
+			);
+			if (intervalSeconds === undefined) return;
 			const result = await installAccountSyncLaunchAgent({
 				label: options.label,
-				intervalSeconds: Number(options.intervalSeconds),
+				intervalSeconds,
 				program: options.program,
 				runtime: options.runtime,
 				runtimeArgs: options.runtimeArg,
@@ -176,10 +185,15 @@ export function registerJobCommands({ program, print }: CliCommandContext) {
 		.option("--launch-agents-dir <path>", "LaunchAgents directory")
 		.option("--no-load", "Write plist without loading it")
 		.action(async (options) => {
+			const intervalSeconds = parsePositiveIntegerOption(
+				options.intervalSeconds,
+				"--interval-seconds",
+			);
+			if (intervalSeconds === undefined) return;
 			const result = await installBookmarkSyncLaunchAgent({
 				account: options.account,
 				label: options.label,
-				intervalSeconds: Number(options.intervalSeconds),
+				intervalSeconds,
 				program: options.program,
 				runtime: options.runtime,
 				runtimeArgs: options.runtimeArg,

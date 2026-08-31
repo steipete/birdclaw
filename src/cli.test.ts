@@ -72,6 +72,8 @@ const removeBlockMock = vi.fn();
 const removeMuteMock = vi.fn();
 const maybeAutoUpdateBackupMock = vi.fn();
 const maybeAutoSyncBackupMock = vi.fn();
+const installAccountSyncLaunchAgentMock = vi.fn();
+const installBookmarkSyncLaunchAgentMock = vi.fn();
 const exportBackupMock = vi.fn();
 const importBackupMock = vi.fn();
 const syncBackupMock = vi.fn();
@@ -186,6 +188,24 @@ vi.mock("#/lib/backup", async (importOriginal) => {
 		maybeAutoSyncBackup: () => maybeAutoSyncBackupMock(),
 		syncBackup: (...args: unknown[]) => syncBackupMock(...args),
 		validateBackup: (...args: unknown[]) => validateBackupMock(...args),
+	};
+});
+
+vi.mock("#/lib/account-sync-job", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("#/lib/account-sync-job")>();
+	return {
+		...actual,
+		installAccountSyncLaunchAgent: (...args: unknown[]) =>
+			installAccountSyncLaunchAgentMock(...args),
+	};
+});
+
+vi.mock("#/lib/bookmark-sync-job", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("#/lib/bookmark-sync-job")>();
+	return {
+		...actual,
+		installBookmarkSyncLaunchAgent: (...args: unknown[]) =>
+			installBookmarkSyncLaunchAgentMock(...args),
 	};
 });
 
@@ -429,6 +449,8 @@ describe("cli", () => {
 		removeMuteMock.mockReset();
 		maybeAutoUpdateBackupMock.mockReset();
 		maybeAutoSyncBackupMock.mockReset();
+		installAccountSyncLaunchAgentMock.mockReset();
+		installBookmarkSyncLaunchAgentMock.mockReset();
 		exportBackupMock.mockReset();
 		importBackupMock.mockReset();
 		syncBackupMock.mockReset();
@@ -767,6 +789,75 @@ describe("cli", () => {
 			).rejects.toMatchObject({ code: "commander.unknownCommand" });
 		}
 	});
+
+	it.each([
+		[
+			"account",
+			["jobs", "install-account-launchd"],
+			installAccountSyncLaunchAgentMock,
+		],
+		[
+			"bookmark",
+			["jobs", "install-bookmarks-launchd"],
+			installBookmarkSyncLaunchAgentMock,
+		],
+	])(
+		"rejects an invalid %s sync interval before installing a plist",
+		async (_name, args, installerMock) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			await runCli([
+				"node",
+				"birdclaw",
+				...args,
+				"--interval-seconds",
+				"abc",
+			]);
+
+			expect(consoleErrorMock).toHaveBeenCalledWith(
+				JSON.stringify({
+					error: "--interval-seconds must be a non-negative integer",
+				}),
+			);
+			expect(process.exitCode).toBe(1);
+			expect(installerMock).not.toHaveBeenCalled();
+			consoleErrorMock.mockRestore();
+		},
+	);
+
+	it.each([
+		[
+			"account",
+			["jobs", "install-account-launchd"],
+			installAccountSyncLaunchAgentMock,
+		],
+		[
+			"bookmark",
+			["jobs", "install-bookmarks-launchd"],
+			installBookmarkSyncLaunchAgentMock,
+		],
+	])(
+		"passes a valid %s sync interval to the installer",
+		async (_name, args, installerMock) => {
+			const { runCli } = await loadCli();
+
+			await runCli([
+				"node",
+				"birdclaw",
+				...args,
+				"--interval-seconds",
+				"7200",
+			]);
+
+			expect(process.exitCode).toBe(0);
+			expect(installerMock).toHaveBeenCalledWith(
+				expect.objectContaining({ intervalSeconds: 7200 }),
+			);
+		},
+	);
 
 	it("exits nonzero when account sync backup returns a failure", async () => {
 		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-cli-job-"));
