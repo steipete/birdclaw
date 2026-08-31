@@ -7,6 +7,8 @@ export function registerInboxCommand({
 	asJson,
 	autoSyncAfterWrite,
 	autoUpdateBeforeRead,
+	parseFiniteNumberOption,
+	parseLimitOption,
 }: CliCommandContext) {
 	program
 		.command("inbox")
@@ -16,6 +18,10 @@ export function registerInboxCommand({
 		.option("--score", "Score top items with OpenAI before listing")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (options) => {
+			const minScore = parseFiniteNumberOption(options.minScore, "--min-score");
+			if (minScore === undefined) return;
+			const limit = parseLimitOption(options.limit, "--limit");
+			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const kind =
 				options.kind === "mentions" || options.kind === "dms"
@@ -24,16 +30,16 @@ export function registerInboxCommand({
 			if (options.score) {
 				await scoreInbox({
 					kind,
-					limit: Number(options.limit),
+					limit,
 				});
 				await autoSyncAfterWrite();
 			}
 			print(
 				listInboxItems({
 					kind,
-					minScore: Number(options.minScore),
+					minScore,
 					hideLowSignal: Boolean(options.hideLowSignal),
-					limit: Number(options.limit),
+					limit,
 				}),
 				asJson(),
 			);

@@ -32,6 +32,7 @@ export function registerSearchCommands({
 	autoSyncAfterWrite,
 	autoUpdateBeforeRead,
 	parseNonNegativeIntegerOption,
+	parseFiniteNumberOption,
 	parseLimitOption,
 	parsePositiveIntegerOption,
 }: CliCommandContext) {
@@ -215,6 +216,18 @@ export function registerSearchCommands({
 		.option("--unreplied", "Only unreplied threads")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (query, options) => {
+			const minFollowers = parseFiniteNumberOption(
+				options.minFollowers,
+				"--min-followers",
+			);
+			if (options.minFollowers !== undefined && minFollowers === undefined)
+				return;
+			const maxFollowers = parseFiniteNumberOption(
+				options.maxFollowers,
+				"--max-followers",
+			);
+			if (options.maxFollowers !== undefined && maxFollowers === undefined)
+				return;
 			const limit = parseLimitOption(options.limit, "--limit");
 			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
@@ -235,12 +248,8 @@ export function registerSearchCommands({
 					search: query,
 					...(inbox !== "all" ? { inbox } : {}),
 					participant: options.participant,
-					minFollowers: options.minFollowers
-						? Number(options.minFollowers)
-						: undefined,
-					maxFollowers: options.maxFollowers
-						? Number(options.maxFollowers)
-						: undefined,
+					minFollowers,
+					maxFollowers,
 					minInfluenceScore: options.minInfluenceScore
 						? Number(options.minInfluenceScore)
 						: undefined,
