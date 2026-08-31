@@ -5,6 +5,7 @@
 ### Fixed
 
 - Reject non-finite DM follower filters and inbox scores before reading or scoring, and validate inbox limits while preserving existing numeric spellings and fractional thresholds. (#133 — thanks @devYRPauli)
+- Reject invalid local tweet-search, DM-search, and `whois` limits before reading the archive while preserving zero, legacy numeric spellings, and link-search coercion. (#132 — thanks @devYRPauli)
 - Register `archive find` and `db stats` as strict nested CLI commands, reject unknown subcommands, and return a structured HTTP 400 for invalid `/api/query` resources.
 - Apply the shared account-selection policy to follow-graph and network-map reads so IDs, `@handle` selectors, and bare handles resolve consistently.
 - Preserve newer numeric profile identities and handle ownership when backup sync merges a prior valid generation after live profile updates.
@@ -25,6 +26,8 @@
 
 ### Testing and maintenance
 
+- Refresh Zod to 4.5.4 and Lucide to 1.37.0, including the refined check-circle icon used for completed and replied states.
+- Refresh application and development dependencies, including Supercluster 9 and Nano ID 6, and update pinned checkout, cache, and Node setup actions while retaining the verified Bun canary and Node 26 compatibility floor.
 - Remove obsolete query compatibility facades and internal Promise transport wrappers in favor of their owning read-model, action, and Effect modules.
 - Remove the static live-transport forwarding facade and zero-consumer low-level Xurl Promise mirrors so consumers and tests use the owning Effect functions directly.
 - Add synthetic regressions for profile identity collisions and canonicalization, atomic mention cursor writes, backup lease takeover, fsynced publication recovery, hidden data, large shards, malicious paths, read-only freshness, receipt-owned push retries, corrupt remotes, and diverged histories.

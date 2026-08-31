@@ -2779,6 +2779,168 @@ describe("cli", () => {
 		consoleErrorMock.mockRestore();
 	});
 
+	it("accepts legacy Number() spellings for search limits", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		// These spellings worked through Number() before the PR and must keep working.
+		for (const [limit, expected] of [
+			["+1", 1],
+			["1e3", 1000],
+			["0x10", 16],
+		] as const) {
+			process.exitCode = 0;
+			consoleErrorMock.mockClear();
+			listTimelineItemsMock.mockClear();
+
+			await runCli([
+				"node",
+				"birdclaw",
+				"search",
+				"tweets",
+				"query",
+				"--limit",
+				limit,
+			]);
+
+			expect(consoleErrorMock).not.toHaveBeenCalled();
+			expect(process.exitCode).not.toBe(1);
+			expect(listTimelineItemsMock).toHaveBeenCalledWith(
+				expect.objectContaining({ limit: expected }),
+			);
+		}
+		consoleErrorMock.mockRestore();
+	});
+
+	it.each([
+		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock],
+		["dms", ["search", "dms", "query"], listDmConversationsMock],
+		["whois", ["whois", "query"], runWhoisMock],
+	])(
+		"rejects invalid %s limits before querying",
+		async (_name, args, queryMock) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			for (const limit of ["3.5", "abc", "-1"]) {
+				process.exitCode = 0;
+				consoleErrorMock.mockClear();
+				queryMock.mockClear();
+
+				await runCli(["node", "birdclaw", ...args, "--limit", limit]);
+
+				expect(consoleErrorMock).toHaveBeenCalledWith(
+					JSON.stringify({ error: "--limit must be a non-negative integer" }),
+				);
+				expect(process.exitCode).toBe(1);
+				expect(queryMock).not.toHaveBeenCalled();
+			}
+			consoleErrorMock.mockRestore();
+		},
+	);
+
+	it("preserves lenient link search limit coercion", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"query",
+			"--limit",
+			"2.7",
+		]);
+
+		expect(consoleErrorMock).not.toHaveBeenCalled();
+		expect(process.exitCode).not.toBe(1);
+		expect(searchLinksMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 2.7 }),
+		);
+		consoleErrorMock.mockRestore();
+	});
+
+	it.each([
+		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock, 0],
+		["dms", ["search", "dms", "query"], listDmConversationsMock, 0],
+		["links", ["search", "links", "query"], searchLinksMock, 1],
+		["whois", ["whois", "query"], runWhoisMock, 1],
+	])(
+		"accepts a zero %s limit and passes it to the read model",
+		async (_name, args, queryMock, optionsIndex) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, "--limit", "0"]);
+
+			const consoleErrors = [...consoleErrorMock.mock.calls];
+			const exitCode = process.exitCode;
+			const queryOptions = queryMock.mock.calls[0]?.[optionsIndex];
+			consoleErrorMock.mockRestore();
+			expect(consoleErrors).toEqual([]);
+			expect(exitCode).not.toBe(1);
+			expect(queryOptions).toEqual(expect.objectContaining({ limit: 0 }));
+		},
+	);
+
+	it("passes valid search limits to each read model", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"tweets",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"dms",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli(["node", "birdclaw", "whois", "query", "--limit", "5"]);
+
+		expect(listTimelineItemsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(listDmConversationsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(searchLinksMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(runWhoisMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 5 }),
+		);
+	});
+
 	it.each([
 		[
 			"search dms --min-followers",

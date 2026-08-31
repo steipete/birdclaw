@@ -7,6 +7,8 @@ description: "FTS5 search across archived and live-synced tweets and DMs."
 
 birdclaw indexes every tweet and DM in SQLite FTS5. Search runs locally, returns instantly, and works offline.
 
+Local `search tweets`, `search dms`, and `whois` require `--limit` to resolve to a non-negative safe integer. Zero and numeric spellings such as `+1`, `1e3`, and `0x10` remain accepted. Invalid values return a structured error and exit 1 before archive reads. `search links` retains its existing limit coercion.
+
 ## Search tweets
 
 ```bash
