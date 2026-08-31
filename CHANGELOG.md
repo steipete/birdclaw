@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Reject invalid local tweet-search, DM-search, and `whois` limits before reading the archive while preserving zero, legacy numeric spellings, and link-search coercion. (#132 — thanks @devYRPauli)
 - Register `archive find` and `db stats` as strict nested CLI commands, reject unknown subcommands, and return a structured HTTP 400 for invalid `/api/query` resources.
 - Apply the shared account-selection policy to follow-graph and network-map reads so IDs, `@handle` selectors, and bare handles resolve consistently.
 - Preserve newer numeric profile identities and handle ownership when backup sync merges a prior valid generation after live profile updates.
