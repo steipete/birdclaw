@@ -17,7 +17,7 @@ function collectRuntimeArg(value: string, previous: string[]) {
 export function registerJobCommands({
 	program,
 	print,
-	parsePositiveIntegerOption,
+	parsePositiveLimitOption,
 }: CliCommandContext) {
 	const jobsCommand = program
 		.command("jobs")
@@ -98,7 +98,7 @@ export function registerJobCommands({
 		.option("--launch-agents-dir <path>", "LaunchAgents directory")
 		.option("--no-load", "Write plist without loading it")
 		.action(async (options) => {
-			const intervalSeconds = parsePositiveIntegerOption(
+			const intervalSeconds = parsePositiveLimitOption(
 				options.intervalSeconds,
 				"--interval-seconds",
 			);
@@ -185,7 +185,7 @@ export function registerJobCommands({
 		.option("--launch-agents-dir <path>", "LaunchAgents directory")
 		.option("--no-load", "Write plist without loading it")
 		.action(async (options) => {
-			const intervalSeconds = parsePositiveIntegerOption(
+			const intervalSeconds = parsePositiveLimitOption(
 				options.intervalSeconds,
 				"--interval-seconds",
 			);

@@ -849,6 +849,31 @@ describe("cli", () => {
 		},
 	);
 
+	it.each([
+		[
+			"account",
+			["jobs", "install-account-launchd"],
+			installAccountSyncLaunchAgentMock,
+		],
+		[
+			"bookmark",
+			["jobs", "install-bookmarks-launchd"],
+			installBookmarkSyncLaunchAgentMock,
+		],
+	])(
+		"keeps Number-compatible %s sync interval spellings",
+		async (_name, args, installerMock) => {
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, "--interval-seconds", "1e3"]);
+
+			expect(process.exitCode).toBe(0);
+			expect(installerMock).toHaveBeenCalledWith(
+				expect.objectContaining({ intervalSeconds: 1000 }),
+			);
+		},
+	);
+
 	it("exits nonzero when account sync backup returns a failure", async () => {
 		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-cli-job-"));
 		try {
