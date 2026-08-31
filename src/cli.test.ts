@@ -192,7 +192,8 @@ vi.mock("#/lib/backup", async (importOriginal) => {
 });
 
 vi.mock("#/lib/account-sync-job", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("#/lib/account-sync-job")>();
+	const actual =
+		await importOriginal<typeof import("#/lib/account-sync-job")>();
 	return {
 		...actual,
 		installAccountSyncLaunchAgent: (...args: unknown[]) =>
@@ -201,7 +202,8 @@ vi.mock("#/lib/account-sync-job", async (importOriginal) => {
 });
 
 vi.mock("#/lib/bookmark-sync-job", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("#/lib/bookmark-sync-job")>();
+	const actual =
+		await importOriginal<typeof import("#/lib/bookmark-sync-job")>();
 	return {
 		...actual,
 		installBookmarkSyncLaunchAgent: (...args: unknown[]) =>
@@ -809,13 +811,7 @@ describe("cli", () => {
 				.mockImplementation(() => {});
 			const { runCli } = await loadCli();
 
-			await runCli([
-				"node",
-				"birdclaw",
-				...args,
-				"--interval-seconds",
-				"abc",
-			]);
+			await runCli(["node", "birdclaw", ...args, "--interval-seconds", "abc"]);
 
 			expect(consoleErrorMock).toHaveBeenCalledWith(
 				JSON.stringify({
@@ -844,13 +840,7 @@ describe("cli", () => {
 		async (_name, args, installerMock) => {
 			const { runCli } = await loadCli();
 
-			await runCli([
-				"node",
-				"birdclaw",
-				...args,
-				"--interval-seconds",
-				"7200",
-			]);
+			await runCli(["node", "birdclaw", ...args, "--interval-seconds", "7200"]);
 
 			expect(process.exitCode).toBe(0);
 			expect(installerMock).toHaveBeenCalledWith(
