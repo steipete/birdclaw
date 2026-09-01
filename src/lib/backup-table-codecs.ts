@@ -110,11 +110,24 @@ function sanitizeJsonTextUrls(
 }
 
 function sanitizeImportedTweets(rows: BackupJsonRecord[]) {
-	return rows.map((row) => ({
-		...row,
-		entities_json: sanitizeJsonTextUrls(row.entities_json, {}),
-		media_json: sanitizeJsonTextUrls(row.media_json, []),
-	}));
+	return rows.map((row) => {
+		const entitiesJson = sanitizeJsonTextUrls(row.entities_json, {});
+		const noteTweetJson = sanitizeJsonTextUrls(row.note_tweet_json, {});
+		const noteTweet =
+			typeof noteTweetJson === "string"
+				? (JSON.parse(noteTweetJson) as BackupJsonRecord)
+				: undefined;
+		const hasNoteTweet = typeof noteTweet?.text === "string";
+		return {
+			...row,
+			text: hasNoteTweet ? noteTweet.text : row.text,
+			entities_json: hasNoteTweet
+				? JSON.stringify(noteTweet.entities ?? {})
+				: entitiesJson,
+			note_tweet_json: hasNoteTweet ? noteTweetJson : null,
+			media_json: sanitizeJsonTextUrls(row.media_json, []),
+		};
+	});
 }
 
 function sanitizeImportedTweetRevisions(rows: BackupJsonRecord[]) {
@@ -482,7 +495,8 @@ const definitions = {
 	tweets: {
 		exportSql: `
       select id, author_profile_id, text, created_at, is_replied, reply_to_id,
-        like_count, media_count, entities_json, media_json, quoted_tweet_id,
+		like_count, media_count, entities_json, note_tweet_json, media_json,
+		quoted_tweet_id,
 		deleted_at, deletion_source, deletion_reason, superseded_at, superseded_by_id
       from tweets
       order by created_at, id
@@ -497,21 +511,29 @@ const definitions = {
 			sql: `
       insert into tweets (
         id, author_profile_id, text, created_at, is_replied, reply_to_id,
-        like_count, media_count, entities_json, media_json, quoted_tweet_id,
+		like_count, media_count, entities_json, note_tweet_json, media_json,
+		quoted_tweet_id,
 		deleted_at, deletion_source, deletion_reason, superseded_at, superseded_by_id
-	  ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	  ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       on conflict(id) do update set
         author_profile_id = coalesce(nullif(excluded.author_profile_id, ''), tweets.author_profile_id),
-        text = coalesce(nullif(excluded.text, ''), tweets.text),
+		text = case
+		  when excluded.note_tweet_json is not null then excluded.text
+		  when tweets.note_tweet_json is not null then tweets.text
+		  else coalesce(nullif(excluded.text, ''), tweets.text)
+		end,
         created_at = min(tweets.created_at, excluded.created_at),
         is_replied = max(tweets.is_replied, excluded.is_replied),
         reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
         like_count = max(tweets.like_count, excluded.like_count),
         media_count = max(tweets.media_count, excluded.media_count),
-        entities_json = case
-          when excluded.entities_json not in ('', '{}', 'null') then excluded.entities_json
-          else tweets.entities_json
-        end,
+		entities_json = case
+		  when excluded.note_tweet_json is not null then excluded.entities_json
+		  when tweets.note_tweet_json is not null then tweets.entities_json
+		  when excluded.entities_json not in ('', '{}', 'null') then excluded.entities_json
+		  else tweets.entities_json
+		end,
+		note_tweet_json = coalesce(excluded.note_tweet_json, tweets.note_tweet_json),
         media_json = case
           when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
           else tweets.media_json
@@ -555,6 +577,7 @@ const definitions = {
 				"like_count",
 				"media_count",
 				"entities_json",
+				"note_tweet_json",
 				"media_json",
 				"quoted_tweet_id",
 				"deleted_at",

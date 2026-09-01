@@ -188,6 +188,23 @@ function clearData() {
 	`);
 }
 
+function setNoteTweet(
+	db: Database,
+	id: string,
+	text: string,
+	entities: object,
+) {
+	const entitiesJson = JSON.stringify(entities);
+	db.prepare(
+		"update tweets set text = ?, entities_json = ?, note_tweet_json = ? where id = ?",
+	).run(text, entitiesJson, JSON.stringify({ text, entities }), id);
+	db.prepare("delete from tweets_fts where tweet_id = ?").run(id);
+	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
+		id,
+		text,
+	);
+}
+
 function writeBackupConfig(
 	home: string,
 	backup: {
@@ -830,6 +847,42 @@ describe("text backup", () => {
 		expect(validation.ok).toBe(true);
 	}, 20000);
 
+	it("round-trips Note Tweets and their FTS content through backups", async () => {
+		switchHome("birdclaw-backup-note-src-");
+		seedBackupFixture();
+		const text = "Full backup Note Tweet backuptailneedle #longform";
+		const entities = {
+			hashtags: [{ tag: "longform", start: 45, end: 54 }],
+		};
+		setNoteTweet(getNativeDb(), "tweet_2024", text, entities);
+		const repoPath = makeTempDir("birdclaw-backup-note-store-");
+		await exportBackup({ repoPath });
+
+		switchHome("birdclaw-backup-note-dst-");
+		await importBackup({ repoPath, mode: "replace" });
+		const db = getNativeDb({ seedDemoData: false });
+		const row = db
+			.prepare(
+				"select text, entities_json, note_tweet_json from tweets where id = 'tweet_2024'",
+			)
+			.get() as {
+			text: string;
+			entities_json: string;
+			note_tweet_json: string;
+		};
+
+		expect(row.text).toBe(text);
+		expect(JSON.parse(row.entities_json)).toEqual(entities);
+		expect(JSON.parse(row.note_tweet_json)).toEqual({ text, entities });
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets_fts where tweets_fts match 'backuptailneedle'",
+				)
+				.get(),
+		).toEqual({ count: 1 });
+	}, 20000);
+
 	it("exports and syncs a fresh empty store with a staged data directory", async () => {
 		const remotePath = path.join(
 			makeTempDir("birdclaw-empty-remote-"),
@@ -912,7 +965,7 @@ describe("text backup", () => {
 		expect(topologyQueries).toBe(0);
 	});
 
-	it("emits byte-identical schema-v8 data and hashes for the same database", async () => {
+	it("emits byte-identical current-schema data and hashes for the same database", async () => {
 		switchHome("birdclaw-backup-stable-src-");
 		seedBackupFixture();
 		const firstRepoPath = makeTempDir("birdclaw-backup-stable-first-");
@@ -921,7 +974,7 @@ describe("text backup", () => {
 		const first = await exportBackup({ repoPath: firstRepoPath });
 		const second = await exportBackup({ repoPath: secondRepoPath });
 
-		expect(first.manifest.schemaVersion).toBe(8);
+		expect(first.manifest.schemaVersion).toBe(9);
 		expect(second.manifest.files).toEqual(first.manifest.files);
 		expect(second.manifest.counts).toEqual(first.manifest.counts);
 		expect(second.manifest.backupHash).toBe(first.manifest.backupHash);
@@ -989,6 +1042,56 @@ describe("text backup", () => {
 				.get(),
 		).toEqual({ inbox_kind: "request" });
 	});
+
+	it("merges backup tweets using the richer Note Tweet representation", async () => {
+		switchHome("birdclaw-backup-note-merge-src-");
+		seedBackupFixture();
+		const incomingText = "Incoming backup Note Tweet incomingnoteneedle";
+		const incomingEntities = {
+			hashtags: [{ tag: "incoming", start: 21, end: 30 }],
+		};
+		setNoteTweet(getNativeDb(), "tweet_2024", incomingText, incomingEntities);
+		const repoPath = makeTempDir("birdclaw-backup-note-merge-store-");
+		await exportBackup({ repoPath });
+
+		switchHome("birdclaw-backup-note-merge-dst-");
+		seedBackupFixture();
+		const db = getNativeDb({ seedDemoData: false });
+		const localText = "Local Note Tweet localnoteneedle";
+		const localEntities = {
+			hashtags: [{ tag: "local", start: 17, end: 23 }],
+		};
+		setNoteTweet(db, "tweet_2025", localText, localEntities);
+
+		await importBackup({ repoPath });
+
+		const rows = db
+			.prepare(
+				"select id, text, entities_json, note_tweet_json from tweets where id in ('tweet_2024', 'tweet_2025') order by id",
+			)
+			.all() as Array<{
+			id: string;
+			text: string;
+			entities_json: string;
+			note_tweet_json: string;
+		}>;
+		expect(rows.map((row) => row.text)).toEqual([incomingText, localText]);
+		expect(rows.map((row) => JSON.parse(row.entities_json))).toEqual([
+			incomingEntities,
+			localEntities,
+		]);
+		expect(rows.map((row) => JSON.parse(row.note_tweet_json))).toEqual([
+			{ text: incomingText, entities: incomingEntities },
+			{ text: localText, entities: localEntities },
+		]);
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets_fts where tweets_fts match 'incomingnoteneedle OR localnoteneedle'",
+				)
+				.get(),
+		).toEqual({ count: 2 });
+	}, 20000);
 
 	it("merges backup rows without deleting local-only tweets", async () => {
 		switchHome("birdclaw-backup-src-");

@@ -5,6 +5,7 @@ import type { Database } from "./sqlite";
 import { displayUrlForLink, enrichFallbackUrlEntities } from "./tweet-render";
 import type {
 	EmbeddedTweet,
+	NoteTweet,
 	ProfileRecord,
 	ReplyFilter,
 	TimelineItem,
@@ -164,6 +165,18 @@ type UrlExpansionCache = Map<
 	| null
 >;
 
+function buildNoteTweet(
+	row: Record<string, unknown>,
+	prefix: string,
+	entities: TweetEntities,
+): NoteTweet | undefined {
+	const noteTweet = parseJsonField<NoteTweet | undefined>(
+		row[`${prefix}note_tweet_json`],
+		undefined,
+	);
+	return noteTweet && { text: noteTweet.text, entities };
+}
+
 function getUrlExpansion(
 	db: Database,
 	cache: UrlExpansionCache,
@@ -252,9 +265,19 @@ function buildEmbeddedTweet(
 	});
 
 	const text = String(row[`${prefix}text`] ?? "");
+	const profiles = { [author.id]: author };
+	const entities = enrichTimelineEntities(
+		db,
+		urlExpansionCache,
+		text,
+		parseJsonField<TweetEntities>(row[`${prefix}entities_json`], {}),
+		profiles,
+		resolveProfileByHandle,
+	);
 	return {
 		id: String(row[`${prefix}id`]),
 		text,
+		noteTweet: buildNoteTweet(row, prefix, entities),
 		createdAt: String(row[`${prefix}created_at`] ?? new Date(0).toISOString()),
 		replyToId:
 			typeof row[`${prefix}reply_to_id`] === "string"
@@ -276,16 +299,7 @@ function buildEmbeddedTweet(
 			? {}
 			: { liked: Boolean(row[`${prefix}liked`]) }),
 		author,
-		entities: enrichTimelineEntities(
-			db,
-			urlExpansionCache,
-			text,
-			parseJsonField<TweetEntities>(row[`${prefix}entities_json`], {}),
-			{
-				[author.id]: author,
-			},
-			resolveProfileByHandle,
-		),
+		entities,
 		media: parseJsonField<TweetMediaItem[]>(row[`${prefix}media_json`], []),
 	};
 }
@@ -797,6 +811,7 @@ export function buildTimelineItemsQuery(
         e.kind,
         e.raw_json as edge_raw_json,
         t.text,
+		t.note_tweet_json,
         t.created_at,
         t.reply_to_id,
         t.is_replied,
@@ -838,6 +853,7 @@ export function buildTimelineItemsQuery(
         p.created_at as profile_created_at,
         rt.id as reply_id,
         rt.text as reply_text,
+		rt.note_tweet_json as reply_note_tweet_json,
         rt.created_at as reply_created_at,
         rt.reply_to_id as reply_reply_to_id,
         rt.entities_json as reply_entities_json,
@@ -853,6 +869,7 @@ export function buildTimelineItemsQuery(
         rp.created_at as reply_profile_created_at,
         qt.id as quoted_id,
         qt.text as quoted_text,
+		qt.note_tweet_json as quoted_note_tweet_json,
         qt.created_at as quoted_created_at,
         qt.reply_to_id as quoted_reply_to_id,
         qt.entities_json as quoted_entities_json,
@@ -1100,6 +1117,7 @@ export function listTimelineItems(
 			accountHandle: String(row.account_handle),
 			kind: row.kind as TimelineItem["kind"],
 			text,
+			noteTweet: buildNoteTweet(row, "", entities),
 			...(typeof row.search_snippet === "string"
 				? { searchSnippet: row.search_snippet }
 				: {}),
@@ -1200,6 +1218,7 @@ function conversationTweetSelect(
   select
     t.id,
     t.text,
+	t.note_tweet_json,
     t.created_at,
     t.reply_to_id,
     t.is_replied,

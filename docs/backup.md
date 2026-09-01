@@ -97,6 +97,12 @@ Git operations are rooted at the configured `repoPath`. If that directory sits i
 
 This is what makes birdclaw safe across multiple machines: each machine can sync independently, and the merge step preserves rows that only one side has.
 
+### Schema upgrades
+
+Each Birdclaw release reads its current backup schema and earlier schemas. Schema v9 requires Birdclaw 0.12.2 or newer.
+
+Before the first schema-v9 export or sync, upgrade every Birdclaw installation that shares the backup repository. If an older installation encounters a schema-v9 backup, upgrade it and rerun the import or sync; the last schema-v8 generation remains available in the repository's Git history for recovery.
+
 ## `backup import`
 
 ```bash

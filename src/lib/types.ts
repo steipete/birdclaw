@@ -116,6 +116,11 @@ export interface TweetEntities {
 	article?: TweetArticle;
 }
 
+export interface NoteTweet {
+	text: string;
+	entities: TweetEntities;
+}
+
 export interface TweetMediaItem {
 	url: string;
 	type: "image" | "video" | "gif" | "unknown";
@@ -134,6 +139,7 @@ export interface TweetMediaItem {
 export interface EmbeddedTweet {
 	id: string;
 	text: string;
+	noteTweet?: NoteTweet;
 	createdAt: string;
 	replyToId?: string | null;
 	isReplied?: boolean;
@@ -172,6 +178,7 @@ export interface TimelineItem {
 	accountHandle: string;
 	kind: "home" | "mention" | "authored" | "search" | "like" | "bookmark";
 	text: string;
+	noteTweet?: NoteTweet;
 	searchSnippet?: string;
 	createdAt: string;
 	replyToId?: string | null;
@@ -490,6 +497,7 @@ export interface XurlMentionData {
 	id: string;
 	author_id: string;
 	text: string;
+	note_tweet?: XurlNoteTweet;
 	created_at: string;
 	conversation_id?: string;
 	in_reply_to_user_id?: string;
@@ -509,6 +517,7 @@ export interface XurlUserTweet {
 	id: string;
 	author_id?: string;
 	text: string;
+	note_tweet?: XurlNoteTweet;
 	created_at: string;
 	conversation_id?: string;
 	attachments?: XurlTweetAttachments;
@@ -522,6 +531,7 @@ export interface XurlTweetData {
 	id: string;
 	author_id: string;
 	text: string;
+	note_tweet?: XurlNoteTweet;
 	created_at: string;
 	conversation_id?: string;
 	in_reply_to_user_id?: string;
@@ -530,6 +540,11 @@ export interface XurlTweetData {
 	referenced_tweets?: XurlReferencedTweet[];
 	public_metrics?: XurlPublicMetrics;
 	edit_history_tweet_ids?: string[];
+}
+
+export interface XurlNoteTweet {
+	text: string;
+	entities?: Record<string, unknown>;
 }
 
 export interface XurlTweetAttachments {

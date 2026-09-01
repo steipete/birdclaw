@@ -126,6 +126,7 @@ const BASE_SCHEMA_SQL = `
     bookmarked integer not null default 0,
     liked integer not null default 0,
     entities_json text not null default '{}',
+	  note_tweet_json text,
     media_json text not null default '[]',
     quoted_tweet_id text,
     deleted_at text,
@@ -500,6 +501,13 @@ function ensureTweetMetadataColumns(db: Database) {
 	}
 	if (!columnNames.has("quoted_tweet_id")) {
 		db.exec("alter table tweets add column quoted_tweet_id text");
+	}
+}
+
+function ensureTweetNoteColumn(db: Database) {
+	const columnNames = getColumnNames(db, "tweets");
+	if (!columnNames.has("note_tweet_json")) {
+		db.exec("alter table tweets add column note_tweet_json text");
 	}
 }
 
@@ -1169,6 +1177,11 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 					on profiles(case when json_valid(raw_json) then cast(json_extract(raw_json, '$.legacy.id_str') as text) end);
 			`);
 		},
+	},
+	{
+		version: 10,
+		name: "retain long-form tweet content",
+		up: ensureTweetNoteColumn,
 	},
 ];
 

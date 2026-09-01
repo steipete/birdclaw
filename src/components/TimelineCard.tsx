@@ -250,6 +250,7 @@ function TweetPresentation({
 		<>
 			<TweetRichText
 				className={feedRowTextClass}
+				collapsible={Boolean(tweet.noteTweet)}
 				entities={tweet.entities}
 				hiddenUrlRanges={hiddenUrlRanges}
 				text={tweet.text}

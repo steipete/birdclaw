@@ -115,6 +115,7 @@ function insertTestTweet(
 		likeCount?: number;
 		mediaCount?: number;
 		entitiesJson?: string;
+		noteTweetJson?: string;
 		mediaJson?: string;
 		quotedTweetId?: string | null;
 	},
@@ -122,8 +123,9 @@ function insertTestTweet(
 	db.prepare(`
 		insert into tweets (
 			id, author_profile_id, text, created_at, is_replied, reply_to_id,
-			like_count, media_count, entities_json, media_json, quoted_tweet_id
-		) values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+			like_count, media_count, entities_json, note_tweet_json, media_json,
+			quoted_tweet_id
+		) values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
 	`).run(
 		options.id,
 		options.authorProfileId ?? "profile_me",
@@ -133,6 +135,7 @@ function insertTestTweet(
 		options.likeCount ?? 0,
 		options.mediaCount ?? 0,
 		options.entitiesJson ?? "{}",
+		options.noteTweetJson ?? null,
 		options.mediaJson ?? "[]",
 		options.quotedTweetId ?? null,
 	);
@@ -1598,6 +1601,69 @@ describe("query models", () => {
 		expect(quotedItem?.quotedTweet?.id).toBe("tweet_001");
 		expect(quotedItem?.quotedTweet?.text).toContain("local-first");
 		expect(quotedItem?.author.avatarUrl).toMatch(/^data:image\/svg\+xml/);
+	});
+
+	it("hydrates Note Tweets across timeline and conversation contexts", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const noteTweet = (text: string) => JSON.stringify({ text, entities: {} });
+
+		insertTestTweet(db, {
+			id: "note_parent",
+			text: "Full parent Note Tweet",
+			createdAt: "2026-03-10T09:00:00.000Z",
+			noteTweetJson: noteTweet("Full parent Note Tweet"),
+		});
+		insertTestTweet(db, {
+			id: "note_quote",
+			text: "Full quoted Note Tweet",
+			createdAt: "2026-03-10T09:01:00.000Z",
+			noteTweetJson: noteTweet("Full quoted Note Tweet"),
+		});
+		insertTestTweet(db, {
+			id: "note_primary",
+			text: "Full primary Note Tweet",
+			createdAt: "2026-03-10T09:02:00.000Z",
+			replyToId: "note_parent",
+			quotedTweetId: "note_quote",
+			noteTweetJson: noteTweet("Full primary Note Tweet"),
+		});
+		insertTestEdge(db, "note_primary", "2026-03-10T09:02:00.000Z");
+		insertTestTweet(db, {
+			id: "note_retweet",
+			text: "RT @steipete: Full quoted Note Tweet",
+			createdAt: "2026-03-10T09:03:00.000Z",
+		});
+		insertTestEdge(
+			db,
+			"note_retweet",
+			"2026-03-10T09:03:00.000Z",
+			"home",
+			'{"referenced_tweets":[{"type":"retweeted","id":"note_quote"}]}',
+		);
+
+		const items = listTimelineItems({ resource: "home", limit: 20 });
+		const primary = items.find((item) => item.id === "note_primary");
+		const retweet = items.find((item) => item.id === "note_retweet");
+		const conversation = getTweetConversation("note_primary");
+
+		expect(primary?.noteTweet).toEqual({
+			text: "Full primary Note Tweet",
+			entities: { urls: [] },
+		});
+		expect(primary?.replyToTweet?.noteTweet?.text).toBe(
+			"Full parent Note Tweet",
+		);
+		expect(primary?.quotedTweet?.noteTweet?.text).toBe(
+			"Full quoted Note Tweet",
+		);
+		expect(retweet?.retweetedTweet?.noteTweet?.text).toBe(
+			"Full quoted Note Tweet",
+		);
+		expect(
+			conversation?.items.find((item) => item.id === "note_primary")?.noteTweet
+				?.text,
+		).toBe("Full primary Note Tweet");
 	});
 
 	it("returns an archived tweet conversation from the root", () => {

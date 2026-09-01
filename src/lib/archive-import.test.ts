@@ -1260,6 +1260,52 @@ describe("archive import", () => {
 		).toEqual([{ id: "5" }]);
 	}, 30000);
 
+	it("preserves Note Tweet content during archive merges", async () => {
+		const archivePath = makeArchive();
+		const db = getNativeDb();
+		const noteEntities = {
+			hashtags: [{ tag: "longform", start: 33, end: 42 }],
+		};
+		const noteText = "full live Note Tweet archiveguardneedle #longform";
+		insertTestProfile(db);
+		insertTestTweet(db, {
+			id: "100",
+			text: noteText,
+			entitiesJson: JSON.stringify(noteEntities),
+		});
+		db.prepare("update tweets set note_tweet_json = ? where id = '100'").run(
+			JSON.stringify({ text: noteText, entities: noteEntities }),
+		);
+		db.prepare("insert into tweets_fts (tweet_id, text) values ('100', ?)").run(
+			noteText,
+		);
+
+		await importArchive(archivePath, { select: ["tweets"] });
+
+		const row = db
+			.prepare(
+				"select text, entities_json, note_tweet_json from tweets where id = '100'",
+			)
+			.get() as {
+			text: string;
+			entities_json: string;
+			note_tweet_json: string;
+		};
+		expect(row.text).toBe(noteText);
+		expect(JSON.parse(row.entities_json)).toEqual(noteEntities);
+		expect(JSON.parse(row.note_tweet_json)).toEqual({
+			text: noteText,
+			entities: noteEntities,
+		});
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets_fts where tweets_fts match 'archiveguardneedle'",
+				)
+				.get(),
+		).toEqual({ count: 1 });
+	});
+
 	it("extracts archive media files into media originals", async () => {
 		const archivePath = makeMediaArchive();
 

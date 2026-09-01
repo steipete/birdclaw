@@ -26,7 +26,7 @@ const RICH_USER_FIELDS =
 const DM_EVENT_FIELDS =
 	"attachments,created_at,dm_conversation_id,entities,event_type,id,participant_ids,referenced_tweets,sender_id,text";
 const THREAD_TWEET_FIELDS =
-	"created_at,conversation_id,entities,public_metrics,referenced_tweets,in_reply_to_user_id,attachments";
+	"created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets,in_reply_to_user_id,attachments";
 // X bookmarks pagination truncates above 90 until this bug is fixed:
 // https://devcommunity.x.com/t/bookmarks-api-v2-stops-paginating-after-3-pages-no-next-token-returned/257339
 const BOOKMARKS_MAX_RESULTS_CAP = 90;
@@ -946,7 +946,8 @@ export const listMentionsViaXurlEffect = Effect.fn("xurl.listMentions")(
 		const query = new URLSearchParams({
 			max_results: String(maxResults),
 			expansions: AUTHOR_MEDIA_EXPANSIONS,
-			"tweet.fields": "created_at,conversation_id,entities,public_metrics",
+			"tweet.fields":
+				"created_at,conversation_id,entities,note_tweet,public_metrics",
 			"media.fields": MEDIA_FIELDS,
 			"user.fields":
 				"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
@@ -988,7 +989,7 @@ export const listHomeTimelineViaXurlEffect = Effect.fn("xurl.listHomeTimeline")(
 			max_results: String(maxResults),
 			expansions: AUTHOR_MEDIA_EXPANSIONS,
 			"tweet.fields":
-				"created_at,conversation_id,entities,public_metrics,referenced_tweets",
+				"created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets",
 			"media.fields": MEDIA_FIELDS,
 			"user.fields": RICH_USER_FIELDS,
 		});
@@ -1052,7 +1053,7 @@ const listTimelineCollectionViaXurlEffect = Effect.fn(
 		max_results: String(requestMaxResults),
 		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields":
-			"created_at,conversation_id,entities,public_metrics,referenced_tweets",
+			"created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets",
 		"media.fields": MEDIA_FIELDS,
 		"user.fields":
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
@@ -1247,7 +1248,7 @@ export const listUserTweetsEffect = Effect.fn("xurl.listUserTweets")((
 		expansions: MEDIA_EXPANSION,
 		"tweet.fields":
 			tweetFields?.join(",") ??
-			"created_at,conversation_id,public_metrics,referenced_tweets",
+			"created_at,conversation_id,note_tweet,public_metrics,referenced_tweets",
 		"media.fields": MEDIA_FIELDS,
 	});
 	if (expansions && expansions.length > 0) {
@@ -1335,7 +1336,7 @@ export const lookupTweetsByIdsEffect = Effect.fn("xurl.lookupTweetsByIds")((
 		ids: ids.join(","),
 		expansions: AUTHOR_MEDIA_EXPANSIONS,
 		"tweet.fields":
-			"created_at,conversation_id,entities,public_metrics,referenced_tweets",
+			"created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets",
 		"media.fields": MEDIA_FIELDS,
 		"user.fields":
 			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",

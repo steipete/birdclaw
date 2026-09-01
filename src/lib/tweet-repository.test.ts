@@ -79,6 +79,94 @@ it("marks only primary replies as replied", () => {
 	]);
 });
 
+it("preserves Note Tweet content when a later payload omits it", () => {
+	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	const db = getNativeDb({ seedDemoData: false });
+	const users = [{ id: "42", username: "sam", name: "Sam" }];
+	const noteEntities = {
+		hashtags: [{ tag: "longform", start: 32, end: 41 }],
+	};
+
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "note-1",
+					author_id: "42",
+					text: "initial truncated preview",
+					created_at: "2026-07-01T09:00:00.000Z",
+				},
+			],
+			includes: { users },
+		},
+	});
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "note-1",
+					author_id: "42",
+					text: "truncated preview",
+					note_tweet: {
+						text: "full Note Tweet continuationneedle #longform",
+						entities: noteEntities,
+					},
+					created_at: "2026-07-01T09:00:00.000Z",
+				},
+			],
+			includes: { users },
+		},
+	});
+	ingestTweetPayload(db, {
+		accountId: "acct_primary",
+		source: "xurl",
+		payload: {
+			data: [
+				{
+					id: "note-1",
+					author_id: "42",
+					text: "later truncated preview",
+					entities: {
+						hashtags: [{ tag: "preview", start: 6, end: 14 }],
+					},
+					created_at: "2026-07-01T09:00:00.000Z",
+				},
+			],
+			includes: { users },
+		},
+	});
+
+	const row = db
+		.prepare(
+			"select text, entities_json, note_tweet_json from tweets where id = 'note-1'",
+		)
+		.get() as {
+		text: string;
+		entities_json: string;
+		note_tweet_json: string;
+	};
+	expect(row.text).toBe("full Note Tweet continuationneedle #longform");
+	expect(JSON.parse(row.entities_json)).toEqual(noteEntities);
+	expect(JSON.parse(row.note_tweet_json)).toEqual({
+		text: row.text,
+		entities: noteEntities,
+	});
+	expect(
+		db
+			.prepare(
+				"select count(*) as count from tweets_fts where tweets_fts match 'continuationneedle'",
+			)
+			.get(),
+	).toEqual({ count: 1 });
+});
+
 it("records observable edit chains without re-indexing a tombstoned tweet", () => {
 	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
 	process.env.BIRDCLAW_HOME = tempRoot;

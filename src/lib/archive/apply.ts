@@ -131,21 +131,25 @@ export function applyArchiveImportPlanEffect({
 		        when tweets.author_profile_id = 'profile_unknown' then excluded.author_profile_id
 		        else tweets.author_profile_id
 		      end,
-			      text = case
-			        when ? = 1 and tweets.text <> ''
-			          then tweets.text
-			        when excluded.text <> '' then excluded.text
-			        else tweets.text
-			      end,
-			      created_at = case
-			        when ? = 1 then tweets.created_at
-			        else excluded.created_at
-			      end,
+		      text = case
+		        when tweets.note_tweet_json is not null then tweets.text
+		        when ? = 1 and tweets.text <> '' then tweets.text
+		        when excluded.text <> '' then excluded.text
+		        else tweets.text
+		      end,
+		      created_at = case
+		        when ? = 1 then tweets.created_at
+		        else excluded.created_at
+		      end,
 		      is_replied = max(tweets.is_replied, excluded.is_replied),
 		      reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
 		      like_count = max(tweets.like_count, excluded.like_count),
 		      media_count = max(tweets.media_count, excluded.media_count),
-		      entities_json = case when excluded.entities_json <> '{}' then excluded.entities_json else tweets.entities_json end,
+		      entities_json = case
+		        when tweets.note_tweet_json is not null then tweets.entities_json
+		        when excluded.entities_json <> '{}' then excluded.entities_json
+		        else tweets.entities_json
+		      end,
 		      media_json = case when excluded.media_json <> '[]' then excluded.media_json else tweets.media_json end,
 		      quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
 		      deleted_at = case

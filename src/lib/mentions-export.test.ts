@@ -107,6 +107,7 @@ describe("mention export", () => {
 	});
 
 	it("serializes local mention items into xurl-compatible payloads", async () => {
+		const hashtag = { tag: "longform", start: 16, end: 25 };
 		listTimelineItemsMock.mockReturnValueOnce([
 			{
 				id: "tweet_live_1",
@@ -114,6 +115,10 @@ describe("mention export", () => {
 				accountHandle: "@steipete",
 				kind: "mentions",
 				text: "Hello @sam https://t.co/demo",
+				noteTweet: {
+					text: "Full Note Tweet #longform",
+					entities: { hashtags: [hashtag] },
+				},
 				createdAt: "2026-03-09T00:00:00.000Z",
 				isReplied: true,
 				likeCount: 7,
@@ -170,6 +175,10 @@ describe("mention export", () => {
 					id: "tweet_live_1",
 					author_id: "42",
 					text: "Hello @sam https://t.co/demo",
+					note_tweet: {
+						text: "Full Note Tweet #longform",
+						entities: { hashtags: [hashtag] },
+					},
 					created_at: "2026-03-09T00:00:00.000Z",
 					conversation_id: "tweet_live_1",
 					entities: {
