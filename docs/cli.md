@@ -385,6 +385,7 @@ tail -n 20 ~/.birdclaw/audit/account-sync.jsonl | jq .
 
 - writes `~/Library/LaunchAgents/com.steipete.birdclaw.account-sync.plist`
 - runs `jobs sync-account` every 30 minutes by default
+- `--interval-seconds <seconds>` requires a positive safe integer; invalid values exit nonzero before writing a plist
 - uses `launchctl load -w` unless `--no-load` is passed
 - `--steps <steps>` narrows the scheduled surfaces
 - `--env-path <path>` sources account-specific `bird` cookies for launchd
@@ -420,6 +421,7 @@ tail -n 20 ~/.birdclaw/audit/bookmarks-sync.jsonl | jq .
 
 - writes `~/Library/LaunchAgents/com.steipete.birdclaw.bookmarks-sync.plist`
 - runs `jobs sync-bookmarks` every 3 hours by default
+- `--interval-seconds <seconds>` requires a positive safe integer; invalid values exit nonzero before writing a plist
 - uses `launchctl load -w` unless `--no-load` is passed
 - writes launchd stdout/stderr to `~/.birdclaw/logs/bookmarks-sync.*.log`
 - `--env-path <path>` sources an export-only shell env file inside the scheduled process, useful when `bird` needs `AUTH_TOKEN`/`CT0` outside an interactive browser session

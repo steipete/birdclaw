@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Reject invalid account and bookmark LaunchAgent intervals before writing a plist while preserving existing numeric spellings. (#137 — thanks @devYRPauli)
 - Reject non-finite DM follower filters and inbox scores before reading or scoring, and validate inbox limits while preserving existing numeric spellings and fractional thresholds. (#133 — thanks @devYRPauli)
 - Reject invalid local tweet-search, DM-search, and `whois` limits before reading the archive while preserving zero, legacy numeric spellings, and link-search coercion. (#132 — thanks @devYRPauli)
 - Register `archive find` and `db stats` as strict nested CLI commands, reject unknown subcommands, and return a structured HTTP 400 for invalid `/api/query` resources.
