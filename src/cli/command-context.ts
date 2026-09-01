@@ -24,6 +24,10 @@ export interface CliCommandContext {
 		value: string | undefined,
 		option: string,
 	) => number | undefined;
+	parsePositiveLimitOption: (
+		value: string | undefined,
+		option: string,
+	) => number | undefined;
 	parsePositiveIntegerOption: (
 		value: string | undefined,
 		option: string,
@@ -148,6 +152,22 @@ export function parseLimitOption(value: string | undefined, option: string) {
 	return parsed;
 }
 
+export function parsePositiveLimitOption(
+	value: string | undefined,
+	option: string,
+) {
+	// Mirrors parsePositiveIntegerOption but keeps the Number() grammar that
+	// parseLimitOption preserves, so spellings such as 1e3 and 0x10 still work.
+	const parsed = parseLimitOption(value, option);
+	if (parsed === undefined) return undefined;
+	if (parsed < 1) {
+		printError(`${option} must be at least 1`);
+		process.exitCode = 1;
+		return undefined;
+	}
+	return parsed;
+}
+
 export function parsePositiveIntegerOption(
 	value: string | undefined,
 	option: string,
@@ -194,6 +214,7 @@ export function createCommandContext(program: Command): CliCommandContext {
 		parseNonNegativeIntegerOption,
 		parseFiniteNumberOption,
 		parseLimitOption,
+		parsePositiveLimitOption,
 		parsePositiveIntegerOption,
 	};
 }
