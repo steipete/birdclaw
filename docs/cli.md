@@ -492,6 +492,11 @@ Fetch live keyword matches through `bird` or `xurl`, store them as local
 `search` tweets, then stream an OpenAI Markdown summary and discussion. DMs stay
 out unless explicitly requested.
 
+Xurl search stores each successful page before requesting the next. If a later
+request fails, earlier pages remain locally searchable, but the command still
+fails without caching a complete search or producing a partial AI summary.
+Use `--limit` and `--max-pages` to bound paid API reads; neither is a dollar budget.
+
 Flags:
 
 - `--account <account-id>`
