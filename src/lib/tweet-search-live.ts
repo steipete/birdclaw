@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import { searchTweetsViaBirdEffect } from "./bird";
 import { getNativeDb } from "./db";
+import { databaseWriteEffect } from "./database-writer";
 import { runEffectPromise, toError, trySync } from "./effect-runtime";
 import {
 	resolveLiveSyncAccount,
@@ -145,6 +146,7 @@ function fetchBirdSearchEffect({
 }
 
 function fetchXurlSearchEffect({
+	accountId,
 	query,
 	limit,
 	maxPages,
@@ -152,6 +154,7 @@ function fetchXurlSearchEffect({
 	since,
 	until,
 }: {
+	accountId: string;
 	query: string;
 	limit: number;
 	maxPages: number;
@@ -171,6 +174,18 @@ function fetchXurlSearchEffect({
 					timeoutMs,
 				});
 			},
+			persistPage: ({ page, fetched }) =>
+				databaseWriteEffect((db) =>
+					mergeTweetSearchIntoLocalStore(
+						db,
+						accountId,
+						limitResponse(
+							page,
+							Math.max(0, limit - fetched + page.data.length),
+						),
+						"xurl",
+					),
+				).pipe(Effect.asVoid),
 			getItemCount: (page) => page.data.length,
 			getNextCursor: (page) =>
 				typeof page.meta?.next_token === "string"
