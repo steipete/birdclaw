@@ -329,6 +329,7 @@ Common flags:
 - `--mode auto|xurl|bird`
 - `--all`
 - `--max-pages <n>`
+- `--pagination-token <token>` (on `sync likes` and `sync bookmarks` in `xurl` mode)
 - `--early-stop` (on `sync likes` and `sync bookmarks`)
 - `--refresh`
 - `--cache-ttl <seconds>`
@@ -339,6 +340,7 @@ Examples:
 birdclaw sync authored --mode xurl --limit 100 --json
 birdclaw sync likes --mode auto --limit 100 --refresh --json
 birdclaw sync likes --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
+birdclaw sync likes --mode xurl --limit 100 --max-pages 70 --pagination-token "$NEXT_TOKEN" --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --refresh --json
 birdclaw sync bookmarks --mode auto --limit 100 --max-pages 5 --early-stop --refresh --json
 birdclaw sync bookmarks --mode bird --all --max-pages 5 --limit 100 --refresh --json

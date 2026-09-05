@@ -2,6 +2,10 @@
 
 ## 0.12.2 - Unreleased
 
+### Added
+
+- Resume bounded Xurl Likes and Bookmarks backfills from an explicit pagination token without reusing the head-page cache. (#126 — thanks @eferm)
+
 ### Fixed
 
 - Preserve completed Xurl search pages when a later request fails, keeping fetched tweets locally searchable without treating an interrupted discussion as complete. (#138 — thanks @sid-ravikumar)

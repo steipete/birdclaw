@@ -529,6 +529,33 @@ describe("live timeline collection sync", () => {
 		);
 	});
 
+	it("marks a resumed bookmark page as paginated for the max_results cap", async () => {
+		setupTempHome();
+		mocks.listBookmarkedTweetsViaXurl.mockResolvedValue({
+			data: [],
+			meta: {},
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		await syncTimelineCollection({
+			kind: "bookmarks",
+			mode: "xurl",
+			limit: 100,
+			paginationToken: "resume-page",
+			refresh: true,
+		});
+
+		expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenCalledOnce();
+		expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenCalledWith(
+			expect.objectContaining({
+				maxResults: 100,
+				isPaginatedWalk: true,
+				paginationToken: "resume-page",
+			}),
+		);
+	});
+
 	it("stops xurl collection paging when a page is fully existing rows", async () => {
 		setupTempHome();
 		insertCollectionRow({ tweetId: "liked_existing" });
@@ -1001,6 +1028,52 @@ describe("live timeline collection sync", () => {
 		).toEqual({
 			avatar_url: "https://pbs.twimg.com/profile_images/99/avatar.jpg",
 		});
+	});
+
+	it("keeps the head cache separate from a supplied head pagination token", async () => {
+		setupTempHome();
+		mocks.listLikedTweetsViaXurl
+			.mockResolvedValueOnce({
+				data: [makeTweet("liked_from_head")],
+				includes: { users: [makeUser()] },
+				meta: { result_count: 1 },
+			})
+			.mockResolvedValueOnce({
+				data: [makeTweet("liked_from_head_token")],
+				includes: { users: [makeUser()] },
+				meta: { result_count: 1 },
+			});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+
+		const head = await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+			cacheTtlMs: 15_000,
+		});
+		const resumed = await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			paginationToken: "head",
+			cacheTtlMs: 15_000,
+		});
+
+		expect(head).toMatchObject({ source: "xurl", count: 1 });
+		expect(resumed).toMatchObject({
+			source: "xurl",
+			count: 1,
+			payload: {
+				data: [expect.objectContaining({ id: "liked_from_head_token" })],
+			},
+		});
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenCalledTimes(2);
+		expect(mocks.listLikedTweetsViaXurl).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ paginationToken: "head" }),
+		);
 	});
 
 	it("validates collection sync options before fetching", async () => {
