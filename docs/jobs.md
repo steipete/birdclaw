@@ -7,6 +7,8 @@ description: "Scheduler-friendly bookmark sync with launchd integration, audit l
 
 `birdclaw jobs` is the scheduler-friendly subset of sync: short defaults, JSONL audit logs, lock files to prevent overlap, and launchd installers for macOS.
 
+Both LaunchAgent installers accept `--interval-seconds <seconds>` as a positive safe integer. Zero, negative, fractional, non-numeric, and unsafe values exit nonzero before writing a plist. Existing numeric spellings such as `1e3` (1,000 seconds) and `0x10` (16 seconds) remain accepted.
+
 ## `jobs sync-account`
 
 ```bash

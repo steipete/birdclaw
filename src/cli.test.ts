@@ -72,6 +72,8 @@ const removeBlockMock = vi.fn();
 const removeMuteMock = vi.fn();
 const maybeAutoUpdateBackupMock = vi.fn();
 const maybeAutoSyncBackupMock = vi.fn();
+const installAccountSyncLaunchAgentMock = vi.fn();
+const installBookmarkSyncLaunchAgentMock = vi.fn();
 const exportBackupMock = vi.fn();
 const importBackupMock = vi.fn();
 const syncBackupMock = vi.fn();
@@ -186,6 +188,26 @@ vi.mock("#/lib/backup", async (importOriginal) => {
 		maybeAutoSyncBackup: () => maybeAutoSyncBackupMock(),
 		syncBackup: (...args: unknown[]) => syncBackupMock(...args),
 		validateBackup: (...args: unknown[]) => validateBackupMock(...args),
+	};
+});
+
+vi.mock("#/lib/account-sync-job", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("#/lib/account-sync-job")>();
+	return {
+		...actual,
+		installAccountSyncLaunchAgent: (...args: unknown[]) =>
+			installAccountSyncLaunchAgentMock(...args),
+	};
+});
+
+vi.mock("#/lib/bookmark-sync-job", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("#/lib/bookmark-sync-job")>();
+	return {
+		...actual,
+		installBookmarkSyncLaunchAgent: (...args: unknown[]) =>
+			installBookmarkSyncLaunchAgentMock(...args),
 	};
 });
 
@@ -429,6 +451,8 @@ describe("cli", () => {
 		removeMuteMock.mockReset();
 		maybeAutoUpdateBackupMock.mockReset();
 		maybeAutoSyncBackupMock.mockReset();
+		installAccountSyncLaunchAgentMock.mockReset();
+		installBookmarkSyncLaunchAgentMock.mockReset();
 		exportBackupMock.mockReset();
 		importBackupMock.mockReset();
 		syncBackupMock.mockReset();
@@ -767,6 +791,88 @@ describe("cli", () => {
 			).rejects.toMatchObject({ code: "commander.unknownCommand" });
 		}
 	});
+
+	it.each([
+		[
+			"account",
+			["jobs", "install-account-launchd"],
+			installAccountSyncLaunchAgentMock,
+		],
+		[
+			"bookmark",
+			["jobs", "install-bookmarks-launchd"],
+			installBookmarkSyncLaunchAgentMock,
+		],
+	])(
+		"rejects an invalid %s sync interval before installing a plist",
+		async (_name, args, installerMock) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, "--interval-seconds", "abc"]);
+
+			expect(consoleErrorMock).toHaveBeenCalledWith(
+				JSON.stringify({
+					error: "--interval-seconds must be a non-negative integer",
+				}),
+			);
+			expect(process.exitCode).toBe(1);
+			expect(installerMock).not.toHaveBeenCalled();
+			consoleErrorMock.mockRestore();
+		},
+	);
+
+	it.each([
+		[
+			"account",
+			["jobs", "install-account-launchd"],
+			installAccountSyncLaunchAgentMock,
+		],
+		[
+			"bookmark",
+			["jobs", "install-bookmarks-launchd"],
+			installBookmarkSyncLaunchAgentMock,
+		],
+	])(
+		"passes a valid %s sync interval to the installer",
+		async (_name, args, installerMock) => {
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, "--interval-seconds", "7200"]);
+
+			expect(process.exitCode).toBe(0);
+			expect(installerMock).toHaveBeenCalledWith(
+				expect.objectContaining({ intervalSeconds: 7200 }),
+			);
+		},
+	);
+
+	it.each([
+		[
+			"account",
+			["jobs", "install-account-launchd"],
+			installAccountSyncLaunchAgentMock,
+		],
+		[
+			"bookmark",
+			["jobs", "install-bookmarks-launchd"],
+			installBookmarkSyncLaunchAgentMock,
+		],
+	])(
+		"keeps Number-compatible %s sync interval spellings",
+		async (_name, args, installerMock) => {
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, "--interval-seconds", "1e3"]);
+
+			expect(process.exitCode).toBe(0);
+			expect(installerMock).toHaveBeenCalledWith(
+				expect.objectContaining({ intervalSeconds: 1000 }),
+			);
+		},
+	);
 
 	it("exits nonzero when account sync backup returns a failure", async () => {
 		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-cli-job-"));
@@ -2778,6 +2884,303 @@ describe("cli", () => {
 		expect(listTimelineItemsMock).not.toHaveBeenCalled();
 		consoleErrorMock.mockRestore();
 	});
+
+	it("accepts legacy Number() spellings for search limits", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		// These spellings worked through Number() before the PR and must keep working.
+		for (const [limit, expected] of [
+			["+1", 1],
+			["1e3", 1000],
+			["0x10", 16],
+		] as const) {
+			process.exitCode = 0;
+			consoleErrorMock.mockClear();
+			listTimelineItemsMock.mockClear();
+
+			await runCli([
+				"node",
+				"birdclaw",
+				"search",
+				"tweets",
+				"query",
+				"--limit",
+				limit,
+			]);
+
+			expect(consoleErrorMock).not.toHaveBeenCalled();
+			expect(process.exitCode).not.toBe(1);
+			expect(listTimelineItemsMock).toHaveBeenCalledWith(
+				expect.objectContaining({ limit: expected }),
+			);
+		}
+		consoleErrorMock.mockRestore();
+	});
+
+	it.each([
+		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock],
+		["dms", ["search", "dms", "query"], listDmConversationsMock],
+		["whois", ["whois", "query"], runWhoisMock],
+	])(
+		"rejects invalid %s limits before querying",
+		async (_name, args, queryMock) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			for (const limit of ["3.5", "abc", "-1"]) {
+				process.exitCode = 0;
+				consoleErrorMock.mockClear();
+				queryMock.mockClear();
+
+				await runCli(["node", "birdclaw", ...args, "--limit", limit]);
+
+				expect(consoleErrorMock).toHaveBeenCalledWith(
+					JSON.stringify({ error: "--limit must be a non-negative integer" }),
+				);
+				expect(process.exitCode).toBe(1);
+				expect(queryMock).not.toHaveBeenCalled();
+			}
+			consoleErrorMock.mockRestore();
+		},
+	);
+
+	it("preserves lenient link search limit coercion", async () => {
+		const consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"query",
+			"--limit",
+			"2.7",
+		]);
+
+		expect(consoleErrorMock).not.toHaveBeenCalled();
+		expect(process.exitCode).not.toBe(1);
+		expect(searchLinksMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 2.7 }),
+		);
+		consoleErrorMock.mockRestore();
+	});
+
+	it.each([
+		["tweets local", ["search", "tweets", "query"], listTimelineItemsMock, 0],
+		["dms", ["search", "dms", "query"], listDmConversationsMock, 0],
+		["links", ["search", "links", "query"], searchLinksMock, 1],
+		["whois", ["whois", "query"], runWhoisMock, 1],
+	])(
+		"accepts a zero %s limit and passes it to the read model",
+		async (_name, args, queryMock, optionsIndex) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			await runCli(["node", "birdclaw", ...args, "--limit", "0"]);
+
+			const consoleErrors = [...consoleErrorMock.mock.calls];
+			const exitCode = process.exitCode;
+			const queryOptions = queryMock.mock.calls[0]?.[optionsIndex];
+			consoleErrorMock.mockRestore();
+			expect(consoleErrors).toEqual([]);
+			expect(exitCode).not.toBe(1);
+			expect(queryOptions).toEqual(expect.objectContaining({ limit: 0 }));
+		},
+	);
+
+	it("passes valid search limits to each read model", async () => {
+		const { runCli } = await loadCli();
+
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"tweets",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"dms",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"links",
+			"query",
+			"--limit",
+			"5",
+		]);
+		await runCli(["node", "birdclaw", "whois", "query", "--limit", "5"]);
+
+		expect(listTimelineItemsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(listDmConversationsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(searchLinksMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 5 }),
+		);
+		expect(runWhoisMock).toHaveBeenCalledWith(
+			"query",
+			expect.objectContaining({ limit: 5 }),
+		);
+	});
+
+	it.each([
+		[
+			"search dms --min-followers",
+			["search", "dms", "query"],
+			"--min-followers",
+			listDmConversationsMock,
+		],
+		[
+			"search dms --max-followers",
+			["search", "dms", "query"],
+			"--max-followers",
+			listDmConversationsMock,
+		],
+		[
+			"dms list --min-followers",
+			["dms", "list"],
+			"--min-followers",
+			listDmConversationsMock,
+		],
+		[
+			"dms list --max-followers",
+			["dms", "list"],
+			"--max-followers",
+			listDmConversationsMock,
+		],
+		["inbox --min-score", ["inbox"], "--min-score", listInboxItemsMock],
+		["inbox --limit", ["inbox"], "--limit", listInboxItemsMock],
+	])(
+		"rejects invalid %s values before reading",
+		async (_name, args, option, readModelMock) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+
+			for (const value of ["abc", "NaN", "Infinity", "-Infinity", "1e999"]) {
+				process.exitCode = 0;
+				consoleErrorMock.mockClear();
+				await runCli(["node", "birdclaw", ...args, option, value]);
+				expect(consoleErrorMock).toHaveBeenCalledWith(
+					JSON.stringify({
+						error: `${option} must be ${option === "--limit" ? "a non-negative integer" : "a finite number"}`,
+					}),
+				);
+				expect(process.exitCode).toBe(1);
+				expect(readModelMock).not.toHaveBeenCalled();
+			}
+			consoleErrorMock.mockRestore();
+		},
+	);
+
+	it.each([
+		[
+			"search dms --min-followers",
+			["search", "dms", "query"],
+			"--min-followers",
+			{ minFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"search dms --max-followers",
+			["search", "dms", "query"],
+			"--max-followers",
+			{ maxFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"dms list --min-followers",
+			["dms", "list"],
+			"--min-followers",
+			{ minFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"dms list --max-followers",
+			["dms", "list"],
+			"--max-followers",
+			{ maxFollowers: 17 },
+			listDmConversationsMock,
+		],
+		[
+			"inbox --min-score",
+			["inbox"],
+			"--min-score",
+			{ minScore: 17 },
+			listInboxItemsMock,
+		],
+		["inbox --limit", ["inbox"], "--limit", { limit: 17 }, listInboxItemsMock],
+	])(
+		"passes valid %s values to the read model",
+		async (_name, args, option, expected, readModelMock) => {
+			const { runCli } = await loadCli();
+
+			const values = ["17", "0", "+1", "1e3", "0x10"];
+			if (option !== "--limit") values.push("3.5", "-1");
+			for (const value of values) {
+				process.exitCode = 0;
+				readModelMock.mockClear();
+				await runCli(["node", "birdclaw", ...args, option, value]);
+				expect(process.exitCode).toBe(0);
+				expect(readModelMock).toHaveBeenCalledWith(
+					expect.objectContaining({
+						[Object.keys(expected)[0]!]: Number(value),
+					}),
+				);
+			}
+		},
+	);
+
+	it.each(["-1", "3.5", "9007199254740992"])(
+		"rejects invalid inbox limit %s before backup or scoring",
+		async (limit) => {
+			const consoleErrorMock = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => {});
+			const { runCli } = await loadCli();
+			try {
+				await runCli([
+					"node",
+					"birdclaw",
+					"inbox",
+					"--score",
+					"--limit",
+					limit,
+				]);
+				expect(process.exitCode).toBe(1);
+				expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+				expect(scoreInboxMock).not.toHaveBeenCalled();
+				expect(listInboxItemsMock).not.toHaveBeenCalled();
+			} finally {
+				consoleErrorMock.mockRestore();
+			}
+		},
+	);
 
 	it("dispatches blocklist commands", async () => {
 		const { runCli } = await loadCli();

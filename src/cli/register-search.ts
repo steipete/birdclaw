@@ -32,6 +32,8 @@ export function registerSearchCommands({
 	autoSyncAfterWrite,
 	autoUpdateBeforeRead,
 	parseNonNegativeIntegerOption,
+	parseFiniteNumberOption,
+	parseLimitOption,
 	parsePositiveIntegerOption,
 }: CliCommandContext) {
 	const searchCommand = program
@@ -142,6 +144,8 @@ export function registerSearchCommands({
 				"--min-likes",
 			);
 			if (options.minLikes !== undefined && minLikes === undefined) return;
+			const limit = parseLimitOption(options.limit, "--limit");
+			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const selectedList =
 				options.list || options.listId
@@ -177,7 +181,7 @@ export function registerSearchCommands({
 					includeQualityReason: Boolean(options.qualityReason),
 					likedOnly: Boolean(options.liked),
 					bookmarkedOnly: Boolean(options.bookmarked),
-					limit: Number(options.limit),
+					limit,
 				}),
 				asJson(),
 			);
@@ -212,6 +216,20 @@ export function registerSearchCommands({
 		.option("--unreplied", "Only unreplied threads")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (query, options) => {
+			const minFollowers = parseFiniteNumberOption(
+				options.minFollowers,
+				"--min-followers",
+			);
+			if (options.minFollowers !== undefined && minFollowers === undefined)
+				return;
+			const maxFollowers = parseFiniteNumberOption(
+				options.maxFollowers,
+				"--max-followers",
+			);
+			if (options.maxFollowers !== undefined && maxFollowers === undefined)
+				return;
+			const limit = parseLimitOption(options.limit, "--limit");
+			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const context = parseNonNegativeIntegerOption(
 				options.context,
@@ -230,12 +248,8 @@ export function registerSearchCommands({
 					search: query,
 					...(inbox !== "all" ? { inbox } : {}),
 					participant: options.participant,
-					minFollowers: options.minFollowers
-						? Number(options.minFollowers)
-						: undefined,
-					maxFollowers: options.maxFollowers
-						? Number(options.maxFollowers)
-						: undefined,
+					minFollowers,
+					maxFollowers,
 					minInfluenceScore: options.minInfluenceScore
 						? Number(options.minInfluenceScore)
 						: undefined,
@@ -248,7 +262,7 @@ export function registerSearchCommands({
 							: "recent",
 					replyFilter,
 					context,
-					limit: Number(options.limit),
+					limit,
 				},
 				{
 					resolveProfiles: Boolean(options.resolveProfiles),
@@ -435,6 +449,8 @@ export function registerSearchCommands({
 		.option("--context <n>", "DM messages before and after each match", "4")
 		.option("--limit <n>", "Limit candidates", "10")
 		.action(async (query, options) => {
+			const limit = parseLimitOption(options.limit, "--limit");
+			if (limit === undefined) return;
 			await autoUpdateBeforeRead();
 			const context = parseNonNegativeIntegerOption(
 				options.context,
@@ -454,7 +470,7 @@ export function registerSearchCommands({
 				currentAffiliation: options.currentAffiliation,
 				excludeDomainOnly: Boolean(options.excludeDomainOnly),
 				context,
-				limit: Number(options.limit),
+				limit,
 			});
 			print(asJson() ? result : formatWhois(result), asJson());
 		});
