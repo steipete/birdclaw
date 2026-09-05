@@ -49,7 +49,7 @@ Vitest runs under both runtimes. Bun needs `zod` inlined through Vitest's depend
 
 Bun uses JavaScriptCore, so the primary Bun coverage gate uses Istanbul. The same suite reports 79.08% Istanbul branch coverage versus 80.20% under Node/V8 because the providers count generated/default branches differently. Birdclaw keeps the original 80% Node/V8 branch gate and an explicit 79% Bun/Istanbul gate rather than disguising the provider change; line, statement, and function thresholds remain 85%. Coverage runs get a 30-second per-test ceiling for instrumentation overhead, while ordinary tests retain the tighter 10-second ceiling.
 
-Playwright 1.62.1 is not generally documented as a Bun-supported runtime, but its full Birdclaw Chromium suite passes on this exact canary. CI pins that observed combination and tests the built production server, rather than claiming compatibility with arbitrary Bun versions.
+Playwright 1.63.0 is not generally documented as a Bun-supported runtime, but its full Birdclaw Chromium suite passes on this exact canary. CI pins that observed combination and tests the built production server, rather than claiming compatibility with arbitrary Bun versions.
 
 ### Environment and telemetry
 

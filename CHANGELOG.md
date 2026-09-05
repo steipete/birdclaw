@@ -2,42 +2,25 @@
 
 ## 0.12.2 - Unreleased
 
-### Added
+### Highlights
 
-- Resume bounded Xurl Likes and Bookmarks backfills from an explicit pagination token without reusing the head-page cache. (#126 — thanks @eferm)
+- Keep local archives intact across interrupted live searches, account-scoped restores, profile identity changes, and recoverable Git backup failures.
 
-### Fixed
+### Changes
 
 - Preserve completed Xurl search pages when a later request fails, keeping fetched tweets locally searchable without treating an interrupted discussion as complete. (#138 — thanks @sid-ravikumar)
-
-- Reject invalid account and bookmark LaunchAgent intervals before writing a plist while preserving existing numeric spellings. (#137 — thanks @devYRPauli)
-- Reject non-finite DM follower filters and inbox scores before reading or scoring, and validate inbox limits while preserving existing numeric spellings and fractional thresholds. (#133 — thanks @devYRPauli)
-- Reject invalid local tweet-search, DM-search, and `whois` limits before reading the archive while preserving zero, legacy numeric spellings, and link-search coercion. (#132 — thanks @devYRPauli)
-- Register `archive find` and `db stats` as strict nested CLI commands, reject unknown subcommands, and return a structured HTTP 400 for invalid `/api/query` resources.
-- Apply the shared account-selection policy to follow-graph and network-map reads so IDs, `@handle` selectors, and bare handles resolve consistently.
-- Preserve newer numeric profile identities and handle ownership when backup sync merges a prior valid generation after live profile updates.
-- Report scheduled account syncs as failed when their configured backup export fails, so launchd records a nonzero exit.
-- Make numeric X user IDs the durable live-profile identity, preserving history and dependent references across proven legacy rekeys, handle reuse, case-fold collisions, handoffs, and swaps.
-- Serialize backup repositories with renewable token-owned leases and reliable token-checked release, validate NUL-safe fetched and staged generations before checkout mutation, prove Git ownership before finalizing journal recovery, and protect fsynced pending-push receipts from later export generations.
-- Adopt validated non-Git exports into empty backup remotes without weakening inventory checks, and preserve sparse handle-less DM avatar enrichment without fabricating public handles.
-- Validate recovery journals and every referenced transaction/index path before filesystem mutation, and preserve rich display names when sparse Bird/DM payloads omit names.
-- Normalize shadow external IDs during target-absent profile canonicalization, and renew scheduled-job leases with fsynced atomic token-checked replacement.
-- Normalize stale shadow IDs already attached to canonical profiles, and restore only managed backup index entries during crash recovery so unrelated staging survives.
-- Reclaim stale lock guards with marker-owned revalidation, validate receipt roots before discovery/removal, and probe transaction-root writability before fallback selection.
-- Roll back invocation-created Git state after failed non-Git backup promotion unless a push receipt/remote commit requires retention, and bound profile reconciliation to indexed identity candidates.
-- Propagate explicit selected-account identity proof through Bird, Xurl, and local DM hydration, and compare pending-push remotes using credential-free canonical endpoint identity.
-- Preserve endpoint-routing identity while redacting remote credentials, fail closed for live/cross-host lease owners, and bind recovery journals to repository and Git-directory inode identities.
-- Route authored and profile-analysis live ingestion through the canonical tweet repository so sparse media/profile refreshes, rich video metadata, included context, revisions, and FTS stay consistent across Xurl sources.
-- Make live pagination, cache freshness, account verification, collection saturation, and follow/list completeness conservative across timeline, mentions, authored tweets, saved collections, DMs, and follow graph syncs.
-- Scope full archive restores to archive-owned state for the primary account so other accounts, unrelated local datasets, and their live cursors survive replacement imports.
-
-### Testing and maintenance
-
-- Refresh Zod to 4.5.4 and Lucide to 1.37.0, including the refined check-circle icon used for completed and replied states.
-- Refresh application and development dependencies, including Supercluster 9 and Nano ID 6, and update pinned checkout, cache, and Node setup actions while retaining the verified Bun canary and Node 26 compatibility floor.
-- Remove obsolete query compatibility facades and internal Promise transport wrappers in favor of their owning read-model, action, and Effect modules.
-- Remove the static live-transport forwarding facade and zero-consumer low-level Xurl Promise mirrors so consumers and tests use the owning Effect functions directly.
-- Add synthetic regressions for profile identity collisions and canonicalization, atomic mention cursor writes, backup lease takeover, fsynced publication recovery, hidden data, large shards, malicious paths, read-only freshness, receipt-owned push retries, corrupt remotes, and diverged histories.
+- Resume bounded Xurl Likes and Bookmarks backfills from an explicit pagination token without reusing the head-page cache. (#126 — thanks @eferm)
+- Scope replacement archive imports to the primary account's archive-owned data so other accounts, unrelated datasets, and live cursors survive.
+- Preserve numeric profile identities, history, affiliations, and dependent references through legacy rekeys, handle reuse, case-fold collisions, handoffs, swaps, and backup merges; retain rich display names and handle-less DM avatars from sparse payloads.
+- Recover Git backups safely with renewable token-owned leases, validated manifests and journal paths, fsynced publication receipts, repository identity checks, and preservation of unrelated staged files; support validated non-Git exports into empty remotes and roll back failed promotions when safe.
+- Keep backup remote credentials redacted without losing endpoint identity, reject live or cross-host lease takeover, validate receipt roots, and recover through writable transaction locations.
+- Persist authored and profile-analysis tweets through canonical ingestion so sparse refreshes preserve media, rich videos, included context, edit history, and full-text indexes.
+- Make pagination, cache freshness, account verification, saturation, and completeness conservative across timelines, mentions, authored tweets, saved collections, DMs, follow graphs, and Lists; apply consistent ID and handle account selection to follow and network views.
+- Report scheduled account syncs as failed when backup export fails, and renew job leases atomically so overlapping runs remain blocked.
+- Reject invalid LaunchAgent intervals before writing a plist, invalid search limits before archive reads, and non-finite DM follower filters or inbox scores before querying; preserve valid numeric spellings, zero search limits, fractional thresholds, and link-search coercion. (#137, #133, #132 — thanks @devYRPauli)
+- Register `archive find` and `db stats` as strict nested commands, reject unknown subcommands, and return structured HTTP 400 responses for invalid query resources.
+- Refresh mapping and icon libraries, adopt Vitest 5 and Playwright 1.63, update lint/type tooling and pinned GitHub Actions, and retain the checksum-pinned Bun canary and Node 26 compatibility floor.
+- Remove obsolete query and transport facades in favor of their owning read-model, action, and Effect modules, and extend synthetic coverage for identity collisions, atomic cursors, backup recovery, hidden data, corrupt remotes, large shards, and diverged histories.
 
 ## 0.12.1 - 2026-08-08
 
