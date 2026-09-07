@@ -2,6 +2,15 @@
 
 ## 0.12.3 - Unreleased
 
+### Highlights
+
+- Recover retained live-search results locally after an interrupted discussion without repeating paid API reads.
+
+### Changes
+
+- Expose retained keyword matches through `search tweets --resource search` and report saved pages and unique tweets when a later Xurl search request fails. (#138, #141 — thanks @sid-ravikumar)
+- Refresh TanStack Router and Start patch releases while retaining the pinned Bun canary and Node 26 compatibility floor.
+
 ## 0.12.2 - 2026-09-05
 
 ### Highlights
