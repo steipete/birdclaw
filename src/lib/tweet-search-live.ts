@@ -163,6 +163,8 @@ function fetchXurlSearchEffect({
 	until?: string;
 }): Effect.Effect<XurlMentionsResponse, Error> {
 	return Effect.gen(function* () {
+		let savedPages = 0;
+		const savedTweetIds = new Set<string>();
 		const result = yield* runSyncPlanEffect({
 			fetchPage: ({ cursor, fetched }) => {
 				const remaining = Math.max(1, limit - fetched);
@@ -172,7 +174,16 @@ function fetchXurlSearchEffect({
 					startTime: since,
 					endTime: until,
 					timeoutMs,
-				});
+				}).pipe(
+					Effect.mapError((error) =>
+						savedPages === 0
+							? error
+							: new Error(
+									`Xurl search stopped after saving ${savedPages} page(s) and ${savedTweetIds.size} unique tweet(s) locally. ${error.message}`,
+									{ cause: error },
+								),
+					),
+				);
 			},
 			persistPage: ({ page, fetched }) =>
 				databaseWriteEffect((db) =>
@@ -185,7 +196,15 @@ function fetchXurlSearchEffect({
 						),
 						"xurl",
 					),
-				).pipe(Effect.asVoid),
+				).pipe(
+					Effect.tap((tweetIds) =>
+						Effect.sync(() => {
+							savedPages += 1;
+							for (const id of tweetIds) savedTweetIds.add(id);
+						}),
+					),
+					Effect.asVoid,
+				),
 			getItemCount: (page) => page.data.length,
 			getNextCursor: (page) =>
 				typeof page.meta?.next_token === "string"

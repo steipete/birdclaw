@@ -232,7 +232,11 @@ describe("live tweet search sync", () => {
 			maxPages: 2,
 		};
 		const result = await syncTweetSearch(options);
-		expect(result).toMatchObject({ ok: false, error: "402 credits depleted" });
+		expect(result).toMatchObject({
+			ok: false,
+			error:
+				"Xurl search stopped after saving 1 page(s) and 1 unique tweet(s) locally. 402 credits depleted",
+		});
 		expect(
 			db
 				.prepare(
@@ -263,6 +267,29 @@ describe("live tweet search sync", () => {
 			count: 2,
 		});
 		expect(mocks.searchRecentTweets).toHaveBeenCalledTimes(3);
+	});
+
+	it("counts retained tweets once across overlapping pages on failure", async () => {
+		mocks.searchRecentTweets
+			.mockResolvedValueOnce(payload(["retained"], "second"))
+			.mockResolvedValueOnce(payload(["retained", "another"], "third"))
+			.mockRejectedValueOnce(new Error("network unavailable"));
+		const { syncTweetSearch } = await import("./tweet-search-live");
+
+		expect(
+			await syncTweetSearch({ query: "retained", mode: "xurl", maxPages: 3 }),
+		).toMatchObject({
+			ok: false,
+			error:
+				"Xurl search stopped after saving 2 page(s) and 2 unique tweet(s) locally. network unavailable",
+		});
+		expect(
+			getNativeDb()
+				.prepare(
+					"select count(*) as count from tweet_account_edges where kind = 'search' and source = 'xurl'",
+				)
+				.get(),
+		).toEqual({ count: 2 });
 	});
 
 	it("combines bird and xurl results for auto searches", async () => {

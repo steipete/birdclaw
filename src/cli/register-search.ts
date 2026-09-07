@@ -44,7 +44,11 @@ export function registerSearchCommands({
 
 	searchCommand
 		.command("tweets [query]")
-		.option("--resource <resource>", "home, mentions, or authored", "home")
+		.option(
+			"--resource <resource>",
+			"home, mentions, authored, or search",
+			"home",
+		)
 		.option("--account <username>", "Account username or id")
 		.option("--list <name>", "Only authors in a cached X List")
 		.option("--list-id <id>", "Only authors in a cached X List id")
@@ -167,7 +171,9 @@ export function registerSearchCommands({
 							? "mentions"
 							: options.resource === "authored"
 								? "authored"
-								: "home",
+								: options.resource === "search"
+									? "search"
+									: "home",
 					account: options.account,
 					listAccountId: selectedList?.accountId,
 					listId: selectedList?.listId,

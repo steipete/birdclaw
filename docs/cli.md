@@ -437,6 +437,7 @@ birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdc
 
 Flags:
 
+- `--resource home|mentions|authored|search` (default `home`; `search` reads retained live keyword matches)
 - `--author <handle-or-id>`
 - `--account <accountId>`
 - `--list <name>`
@@ -497,6 +498,11 @@ out unless explicitly requested.
 Xurl search stores each successful page before requesting the next. If a later
 request fails, earlier pages remain locally searchable, but the command still
 fails without caching a complete search or producing a partial AI summary.
+The error reports how many pages and unique tweets were saved in this run,
+followed by the transport error (for example, exhausted X API credits).
+These counts describe local retention, not billable resources or newly inserted
+tweets. Search the retained data with `search tweets <query> --resource search`; rerunning a live discussion
+starts a new sweep and may bill for the same results again.
 Use `--limit` and `--max-pages` to bound paid API reads; neither is a dollar budget.
 
 Flags:

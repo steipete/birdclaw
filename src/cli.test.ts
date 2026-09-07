@@ -1306,6 +1306,30 @@ describe("cli", () => {
 		);
 	});
 
+	it("searches retained live keyword results locally", async () => {
+		const { runCli } = await loadCli();
+		await runCli([
+			"node",
+			"birdclaw",
+			"search",
+			"tweets",
+			"retained",
+			"--resource",
+			"search",
+			"--account",
+			"acct_primary",
+		]);
+
+		expect(listTimelineItemsMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				resource: "search",
+				search: "retained",
+				account: "acct_primary",
+			}),
+		);
+		expect(streamSearchDiscussionMock).not.toHaveBeenCalled();
+	});
+
 	it("prints the package version", async () => {
 		const exitMock = vi.spyOn(process, "exit").mockImplementation((() => {
 			return undefined as never;
