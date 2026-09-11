@@ -2,6 +2,15 @@
 
 ## 0.12.4 - Unreleased
 
+### Highlights
+
+- Choose the home-timeline transport used by digests through a deployment-wide environment default.
+
+### Changes
+
+- Add `BIRDCLAW_DIGEST_LIVE_MODE` for `today`, `digest`, and the digest API, preserve explicit overrides and the existing Xurl default, and report the selected home-timeline mode accurately. (#143 — thanks @sahil7886)
+- Refresh React, TanStack Router and Start, Effect, Zod, Lucide icons, Vite, and lint/type tooling while retaining the pinned Bun canary and Node 26 compatibility floor.
+
 ## 0.12.3 - 2026-09-07
 
 ### Highlights
