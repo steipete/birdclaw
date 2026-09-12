@@ -54,15 +54,11 @@ function normalizeRow(row: unknown): unknown {
 }
 
 class NativeSqliteStatement {
-	readonly reader: boolean;
-
 	constructor(
 		private readonly statement: StatementSync,
 		private readonly sql: string,
 		private readonly onStatement?: (sql: string, durationMs: number) => void,
-	) {
-		this.reader = statement.columns().length > 0;
-	}
+	) {}
 
 	private track<T>(operation: () => T) {
 		const startedAt = performance.now();

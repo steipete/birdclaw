@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Avoid constructing unused SQLite column metadata for every prepared statement.
+
 - Reduce initial browser JavaScript by keeping ordinary API reads and sync-job polling independent of the server Effect runtime.
 
 - Reuse number formatters for timeline counts, map statistics, and rate limits instead of constructing one for every displayed value.
