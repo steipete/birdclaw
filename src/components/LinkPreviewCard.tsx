@@ -14,7 +14,7 @@ import {
 	linkPreviewHostClass,
 	linkPreviewTitleClass,
 } from "#/lib/ui";
-import { safeHttpUrl } from "#/lib/url-safety";
+import { assertSafePreviewUrl, safeHttpUrl } from "#/lib/url-safety";
 import { queryKeys } from "#/lib/query-client";
 
 type LinkPreviewState = Pick<
@@ -119,7 +119,7 @@ function isDirectImageUrl(url: string) {
 function safePreviewImageUrl(url: string | null | undefined) {
 	if (!url) return null;
 	try {
-		const parsed = new URL(url);
+		const parsed = assertSafePreviewUrl(url);
 		if (
 			parsed.protocol === "https:" &&
 			parsed.hostname === "pbs.twimg.com" &&
@@ -128,7 +128,7 @@ function safePreviewImageUrl(url: string | null | undefined) {
 		) {
 			return parsed.toString();
 		}
-		return null;
+		return `/api/link-preview?${new URLSearchParams({ imageUrl: parsed.toString() })}`;
 	} catch {
 		return null;
 	}

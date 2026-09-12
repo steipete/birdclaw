@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Restore external link-preview thumbnails through a bounded, validated raster-image cache while keeping read-only deployments free of network fetches and cache writes.
+
 ## 0.12.5 - 2026-09-12
 
 ### Highlights

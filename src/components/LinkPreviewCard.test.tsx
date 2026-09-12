@@ -72,7 +72,7 @@ describe("LinkPreviewCard", () => {
 		expect(document.querySelector("svg")).toBeInTheDocument();
 	});
 
-	it("does not render preview images from arbitrary hosts", () => {
+	it("proxies external preview images through the local cache", () => {
 		render(
 			<LinkPreviewCard
 				entry={{
@@ -90,8 +90,10 @@ describe("LinkPreviewCard", () => {
 			/>,
 		);
 
-		expect(screen.queryByRole("img")).toBeNull();
-		expect(document.querySelector("svg")).toBeInTheDocument();
+		expect(screen.getByRole("img")).toHaveAttribute(
+			"src",
+			"/api/link-preview?imageUrl=https%3A%2F%2Fexample.com%2Fpreview.png",
+		);
 	});
 
 	it("hydrates missing metadata when the card becomes eligible", async () => {

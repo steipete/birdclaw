@@ -220,7 +220,7 @@ function headersFromIncoming(headers: http.IncomingHttpHeaders): HeadersInit {
 	return result;
 }
 
-function decodedResponseBody(response: Response) {
+export function decodedResponseBody(response: Response) {
 	const body = response.body;
 	if (!body) return null;
 	const encoding = response.headers
