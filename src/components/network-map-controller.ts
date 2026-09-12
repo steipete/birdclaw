@@ -5,6 +5,7 @@ import {
 	MAP_TYPES,
 	WORLD_VIEWPORT,
 	boundsContainFeature,
+	compareClusterFeatures,
 	featureMatchesSearch,
 	fetchMap,
 	type MapViewport,
@@ -50,17 +51,16 @@ export function useNetworkMapController(
 	const loading = mapQuery.isPending || refreshMutation.isPending;
 	const queryError = refreshMutation.error ?? mapQuery.error;
 
+	const rankedFeatures = useMemo(
+		() => [...(data?.features ?? [])].sort(compareClusterFeatures),
+		[data?.features],
+	);
 	const visibleFeatures = useMemo(
 		() =>
-			(data?.features ?? [])
-				.slice()
-				.filter((feature) => boundsContainFeature(viewport.bounds, feature))
-				.sort(
-					(a, b) =>
-						b.properties.followersCount - a.properties.followersCount ||
-						a.properties.handle.localeCompare(b.properties.handle),
-				),
-		[data, viewport],
+			rankedFeatures.filter((feature) =>
+				boundsContainFeature(viewport.bounds, feature),
+			),
+		[rankedFeatures, viewport],
 	);
 	const filteredVisibleFeatures = useMemo(
 		() =>

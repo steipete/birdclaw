@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Reuse network-map profile ordering while panning and zooming instead of sorting the visible population on every viewport change.
+
 - Batch cached URL enrichment for timeline pages and cited tweets, including embedded replies and quotes, without triggering live lookups.
 
 - Resolve link-ranking ties using narrow influence records before loading full profile, text, and media details for the selected links.
