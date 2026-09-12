@@ -166,7 +166,7 @@ export function DmsRouteView({
 	const loadedConversationId = dmsData?.selectedConversation?.conversation.id;
 
 	useEffect(() => {
-		if (!dmsQuery.data) return;
+		if (!dmsQuery.data || dmsQuery.isPlaceholderData) return;
 		const nextSelected = loadedConversationId ?? items[0]?.id;
 		const resolved =
 			selectedConversationId &&
@@ -174,12 +174,25 @@ export function DmsRouteView({
 				? selectedConversationId
 				: nextSelected;
 		if (resolved && resolved !== selectedConversationId) {
+			if (loadedConversationId === resolved) {
+				const canonicalKey = [
+					...queryKeys.dms,
+					{ ...dmsQueryKey[1], selectedConversationId: resolved },
+				] as const;
+				const cachedAt =
+					queryClient.getQueryState(canonicalKey)?.dataUpdatedAt ?? 0;
+				if (cachedAt < dmsQuery.dataUpdatedAt) {
+					queryClient.setQueryData(canonicalKey, dmsQuery.data, {
+						updatedAt: dmsQuery.dataUpdatedAt,
+					});
+				}
+			}
 			updateSearch(
 				{ ...searchState, conversation: resolved },
 				{ replace: true },
 			);
 		}
-	}, [dmsQuery.data, items, loadedConversationId]);
+	}, [dmsQuery.data, dmsQuery.isPlaceholderData, items, loadedConversationId]);
 
 	const selectedConversation =
 		items.find((item) => item.id === selectedConversationId) ?? null;

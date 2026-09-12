@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Reuse the loaded DM conversation when canonicalizing its URL, avoiding a second download of the same conversation and messages.
+
 - Avoid duplicate startup reads on Map, DMs, and Inbox by settling account selection before requesting account-specific data.
 
 - Cancel obsolete link-preview requests and remove abandoned queued previews so navigation does not leave new cards waiting behind old work.
