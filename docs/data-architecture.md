@@ -579,3 +579,14 @@ Primary:
 Secondary later:
 
 - standalone desktop wrapper if the web UX becomes primary
+
+## Read-only status bootstrap
+
+Single-account read-only deployments may include the status envelope in the
+initial HTML after the same authorization checks as `/api/status`. The browser
+seeds its status query from that envelope, so it can request account-scoped data
+without another status round trip. Multiple-account and writable deployments
+retain the existing client flow; server rendering cannot infer browser-local
+account selection. Bootstrap failures fall back to the normal client request.
+No archive discovery, live reads, or backup updates run in the bootstrap.
+Server query clients remain request-local and do not retain timed GC entries.
