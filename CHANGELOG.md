@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Reuse number formatters for timeline counts, map statistics, and rate limits instead of constructing one for every displayed value.
+
 - Skip rendering unchanged timeline cards during search input, pagination, and status refreshes while preserving replies and conversation updates.
 
 - Reuse the loaded DM conversation when canonicalizing its URL, avoiding a second download of the same conversation and messages.

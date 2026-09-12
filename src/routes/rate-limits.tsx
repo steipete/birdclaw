@@ -11,6 +11,7 @@ import {
 import { useMemo } from "react";
 import { xurlRateLimitSnapshotSchema } from "#/lib/api-contracts";
 import { fetchJson } from "#/lib/api-client";
+import { formatNumber } from "#/lib/present";
 import { queryKeys } from "#/lib/query-client";
 import type {
 	XurlRateLimitEndpointSnapshot,
@@ -39,10 +40,6 @@ async function fetchRateLimits() {
 		xurlRateLimitSnapshotSchema,
 		"Rate limits request failed",
 	);
-}
-
-function formatNumber(value: number) {
-	return new Intl.NumberFormat().format(value);
 }
 
 function formatAge(value: string | null, nowMs: number) {

@@ -95,10 +95,6 @@ export async function fetchMap(
 	);
 }
 
-export function formatNumber(value: number) {
-	return new Intl.NumberFormat().format(value);
-}
-
 export function formatRelationship(
 	value: MapFeature["properties"]["relationship"],
 ) {

@@ -20,6 +20,7 @@ import {
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { MapRef } from "react-map-gl/mapbox";
 import { useNetworkMapController } from "#/components/network-map-controller";
+import { formatNumber } from "#/lib/present";
 import type { NetworkMapResponse } from "#/lib/api-contracts";
 import {
 	type NetworkMapRouteSearch,
@@ -56,7 +57,6 @@ import {
 	buildClusterIndex,
 	clusterGradient,
 	compareClusterFeatures,
-	formatNumber,
 	formatRelationship,
 	getClusterDisplayAnchor,
 	isCluster,

@@ -1,5 +1,14 @@
+const compactNumberFormatter = new Intl.NumberFormat("en", {
+	notation: "compact",
+});
+const numberFormatter = new Intl.NumberFormat();
+
 export function formatCompactNumber(value: number) {
-	return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
+	return compactNumberFormatter.format(value);
+}
+
+export function formatNumber(value: number) {
+	return numberFormatter.format(value);
 }
 
 const SECOND_MS = 1_000;

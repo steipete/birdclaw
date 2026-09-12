@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatCompactNumber,
+	formatNumber,
 	formatExactTimestamp,
 	formatShortTimestamp,
 	formatSmartTimestamp,
@@ -8,6 +9,26 @@ import {
 } from "./present";
 
 describe("present helpers", () => {
+	it("preserves locale formatting across repeated integer, fractional, and special values", () => {
+		const compact = new Intl.NumberFormat("en", { notation: "compact" });
+		const decimal = new Intl.NumberFormat();
+		const values = [
+			0,
+			-0,
+			-12345,
+			999,
+			999.95,
+			1234.567,
+			1234567,
+			NaN,
+			Infinity,
+			-Infinity,
+		];
+		for (const value of [...values, ...values].reverse()) {
+			expect(formatCompactNumber(value)).toBe(compact.format(value));
+			expect(formatNumber(value)).toBe(decimal.format(value));
+		}
+	});
 	it("formats compact counts, short timestamps, and initials", () => {
 		expect(formatCompactNumber(12_300)).toBe("12K");
 		const localNoon = new Date(2026, 2, 8, 12, 0, 0).toISOString();
