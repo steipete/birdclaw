@@ -1,3 +1,4 @@
+import { parseJsonField } from "./json-codec";
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { resolveOperationAccount } from "./account-selection";
@@ -79,17 +80,6 @@ function parseOptionalResourceCap(value: number | undefined) {
 		throw new Error("--max-resources must be at least 1");
 	}
 	return value;
-}
-
-function parseJsonField<T>(value: unknown, fallback: T): T {
-	if (typeof value !== "string" || value.length === 0) {
-		return fallback;
-	}
-	try {
-		return JSON.parse(value) as T;
-	} catch {
-		return fallback;
-	}
 }
 
 function buildCacheKey({
