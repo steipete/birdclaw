@@ -163,11 +163,19 @@ test("expands timeline cards with media, quote context, and profile hover", asyn
 		surveyCard.getByRole("link", { name: "Developer platform pricing" }),
 	).toBeVisible();
 	await surveyCard.getByRole("link", { name: "Ava Wires @avawires" }).hover();
+	const profilePreview = page.getByRole("group", {
+		name: "Ava Wires profile preview",
+	});
 	await expect(
-		surveyCard.getByText(
+		profilePreview.getByText(
 			"Reports on infrastructure, AI policy, and the business of software.",
 		),
 	).toBeVisible();
+	expect(
+		await profilePreview.evaluate(
+			(element) => element.parentElement === document.body,
+		),
+	).toBe(true);
 
 	await selectAccount(page, "@birdclaw_lab");
 	const quoteCard = page.locator('[data-perf="timeline-card"]').filter({
