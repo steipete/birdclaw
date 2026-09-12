@@ -8,6 +8,7 @@ import {
 	Repeat2,
 	UserSearch,
 } from "lucide-react";
+import { memo } from "react";
 import { formatCompactNumber } from "#/lib/present";
 import {
 	isTweetArticleUrlEntity,
@@ -280,7 +281,7 @@ function TweetPresentation({
 	);
 }
 
-export function TimelineCard({
+export const TimelineCard = memo(function TimelineCard({
 	item,
 	onReply,
 	showReplyControls = true,
@@ -533,4 +534,4 @@ export function TimelineCard({
 			</div>
 		</article>
 	);
-}
+});

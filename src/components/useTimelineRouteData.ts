@@ -4,7 +4,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
 	fetchQueryEnvelope,
 	fetchQueryResponse,
@@ -161,15 +161,18 @@ export function useTimelineRouteData({
 		]);
 	}
 
-	async function replyToTweet(tweetId: string) {
-		const text = window.prompt("Reply text");
-		if (!text?.trim()) return;
-		await replyMutation
-			.mutateAsync({ tweetId, text: text.trim() })
-			.catch(() => {
-				// The mutation error is exposed below for the route frame.
-			});
-	}
+	const replyToTweet = useCallback(
+		async (tweetId: string) => {
+			const text = window.prompt("Reply text");
+			if (!text?.trim()) return;
+			await replyMutation
+				.mutateAsync({ tweetId, text: text.trim() })
+				.catch(() => {
+					// The mutation error is exposed below for the route frame.
+				});
+		},
+		[replyMutation.mutateAsync],
+	);
 
 	const queryError = timelineQuery.error;
 	return {
