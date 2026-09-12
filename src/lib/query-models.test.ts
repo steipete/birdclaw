@@ -1381,6 +1381,31 @@ describe("query models", () => {
 		]);
 	});
 
+	it("uses chronological index order for the recent candidate window", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const query = buildTimelineItemsQuery({ resource: "home", limit: 18 });
+		const plan = db
+			.prepare(`explain query plan ${query.sql}`)
+			.all(...query.params) as Array<{
+			id: number;
+			parent: number;
+			detail: string;
+		}>;
+		const lists = new Set(
+			plan
+				.filter((row) => row.detail.startsWith("LIST SUBQUERY"))
+				.map((row) => row.id),
+		);
+		const candidates = plan.filter((row) => lists.has(row.parent));
+		expect(
+			candidates.some((row) => row.detail.includes("idx_tweets_created")),
+		).toBe(true);
+		expect(
+			candidates.some((row) => row.detail.includes("TEMP B-TREE FOR ORDER BY")),
+		).toBe(false);
+	});
+
 	it("hydrates rich tweet entities, media, reply context, and quote context", () => {
 		setupTempHome();
 		const db = getNativeDb();

@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Use the chronological tweet index to find recent timeline candidates without sorting the full active archive.
+
 - Reuse read-only archive status counts until SQLite reports a data change, avoiding repeated full archive counts during navigation.
 
 - Reduce allocations when reading SQLite rows while preserving plain objects and Buffer-valued BLOB columns.

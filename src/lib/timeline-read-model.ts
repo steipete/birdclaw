@@ -638,7 +638,7 @@ export function buildTimelineItemsQuery(
         where kind = ?
 	          and tweet_id in (
             select id
-            from tweets
+            from tweets indexed by idx_tweets_created
             where deleted_at is null and superseded_at is null
             order by created_at desc
 	            limit ?
