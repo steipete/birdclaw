@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
 	createAnalysisRequestBody,
+	fitPromptCount,
 	type HybridAnalysisResult,
 	parseHybridAnalysis,
 	readHybridAnalysisStreamEffect,
@@ -1011,41 +1012,27 @@ function buildPrompt(
 		});
 		const lengthFor = (tweets: number, dms: number, links: number) =>
 			JSON.stringify(datasetFor(tweets, dms, links)).length;
-		const fitCount = (max: number, fits: (count: number) => boolean) => {
-			let low = 0;
-			let high = max;
-			let best = 0;
-			while (low <= high) {
-				const mid = Math.floor((low + high) / 2);
-				if (fits(mid)) {
-					best = mid;
-					low = mid + 1;
-				} else {
-					high = mid - 1;
-				}
-			}
-			return best;
-		};
+
 		if (lengthFor(tweetCount, dmCount, linkCount) <= MAX_PROMPT_DATA_CHARS) {
 			return {
 				dataset: datasetFor(tweetCount, dmCount, linkCount),
 				tweetCount,
 			};
 		}
-		dmCount = fitCount(
+		dmCount = fitPromptCount(
 			dmCount,
 			(count) =>
 				lengthFor(tweetCount, count, linkCount) <= MAX_PROMPT_DATA_CHARS,
 		);
 		if (lengthFor(tweetCount, dmCount, linkCount) > MAX_PROMPT_DATA_CHARS) {
-			linkCount = fitCount(
+			linkCount = fitPromptCount(
 				linkCount,
 				(count) =>
 					lengthFor(tweetCount, dmCount, count) <= MAX_PROMPT_DATA_CHARS,
 			);
 		}
 		if (lengthFor(tweetCount, dmCount, linkCount) > MAX_PROMPT_DATA_CHARS) {
-			tweetCount = fitCount(
+			tweetCount = fitPromptCount(
 				tweetCount,
 				(count) =>
 					lengthFor(count, dmCount, linkCount) <= MAX_PROMPT_DATA_CHARS,

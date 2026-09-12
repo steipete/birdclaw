@@ -1,3 +1,4 @@
+import { parseJsonField } from "./json-codec";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
@@ -82,18 +83,6 @@ function trySync<T>(try_: () => T) {
 		try: try_,
 		catch: (cause) => cause,
 	});
-}
-
-function parseJsonField<T>(value: unknown, fallback: T): T {
-	if (typeof value !== "string" || value.length === 0) {
-		return fallback;
-	}
-
-	try {
-		return JSON.parse(value) as T;
-	} catch {
-		return fallback;
-	}
 }
 
 function normalizeTweetEntities(raw: unknown): TweetEntities {

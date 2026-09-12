@@ -1,3 +1,4 @@
+import { parseJsonField } from "./json-codec";
 import { getNativeDb } from "./db";
 import type { LinkInsightResponse } from "./api-contracts";
 import {
@@ -219,17 +220,6 @@ const TITLE_SMALL_WORDS = new Set([
 	"via",
 	"vs",
 ]);
-
-function parseJsonField<T>(value: unknown, fallback: T): T {
-	if (typeof value !== "string" || value.length === 0) {
-		return fallback;
-	}
-	try {
-		return JSON.parse(value) as T;
-	} catch {
-		return fallback;
-	}
-}
 
 function isHostMatch(host: string, suffixes: string[], exact: Set<string>) {
 	const normalized = host.toLowerCase();

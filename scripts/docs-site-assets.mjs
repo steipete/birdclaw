@@ -294,18 +294,3 @@ export function themeToggleHtml() {
     <svg class="theme-icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="14.4" y1="14.4" x2="15.8" y2="15.8"/><line x1="4.2" y1="15.8" x2="5.6" y2="14.4"/><line x1="14.4" y1="5.6" x2="15.8" y2="4.2"/></g></svg>
   </button>`;
 }
-
-export function brandIconSvg() {
-	return `<svg viewBox="2 1 20 20" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M21.3 4.2c-.7.3-1.5.5-2.3.6.8-.5 1.5-1.3 1.8-2.2-.8.5-1.7.8-2.6 1A4.1 4.1 0 0 0 11.1 7c0 .3 0 .6.1.9A11.7 11.7 0 0 1 2.7 3.6c-.4.7-.6 1.5-.6 2.3 0 1.4.7 2.7 1.8 3.4-.7 0-1.3-.2-1.9-.5v.1c0 2 1.4 3.7 3.3 4.1-.4.1-.7.1-1.1.1-.3 0-.5 0-.8-.1.5 1.6 2 2.8 3.8 2.8a8.3 8.3 0 0 1-5.1 1.7c-.3 0-.7 0-1-.1A11.7 11.7 0 0 0 7.5 19c7.6 0 11.7-6.3 11.7-11.7v-.5c.8-.6 1.5-1.3 2.1-2.1z"/></svg>`;
-}
-
-export function featherSvg() {
-	return `<svg viewBox="0 0 200 200" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M163 22c-30 4-58 19-78 41C53 88 41 117 47 144l-21 21c-3 3-3 7 0 10s7 3 10 0l21-21c27 6 56-6 81-32 22-22 36-49 41-79 1-9-7-15-16-21zM84 130c-1 0-2 0-3-1-1-2-1-4 1-5l60-60c1-1 4-1 5 1 1 2 1 4-1 5l-60 60c-1 1-2 1-2 0z"/></svg>`;
-}
-
-export function faviconSvg() {
-	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="birdclaw">
-<rect width="64" height="64" rx="14" fill="#1d9bf0"/>
-<path fill="#ffffff" d="M50 18c-2 1-4 1.5-6 1.7 2.2-1.3 3.8-3.4 4.6-5.8-2 1.2-4.3 2-6.6 2.5a10.4 10.4 0 0 0-17.7 9.5c-8.6-.4-16.2-4.5-21.3-10.8-3 5.2-1.5 12 3.6 15.4-1.7 0-3.3-.5-4.7-1.2v.1c0 5 3.6 9.3 8.4 10.3-1 .3-1.9.4-2.9.4-.7 0-1.4-.1-2.1-.2 1.4 4.2 5.3 7.2 10 7.3a20.9 20.9 0 0 1-13 4.4c-.8 0-1.7 0-2.6-.1A29.5 29.5 0 0 0 16 56c19.2 0 29.7-15.9 29.7-29.7v-1.4C48 23.4 50 21 50 18z"/>
-</svg>`;
-}

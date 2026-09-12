@@ -60,10 +60,10 @@ Repo: `steipete/birdclaw`
 - multi-account from day 1
 - DM default: `full`
 - media cache: originals + thumbnails
-- `serve` should background sync automatically
+- web auto-sync is opt-in, bounded, and paused while hidden; durable unattended refresh belongs to `birdclaw jobs`
 - local app auth: none by default; local-only app
 - archive discovery on macOS: Spotlight (`mdfind`) first, plus Sweetistics-style filename/path heuristics
-- no-archive mode is first-class, not fallback
+- a new real database gets its account identity from an archive; restored databases can continue live sync without another archive
 - long-running syncs must be resumable and wait through rate limits automatically
 - followers/following are first-class entities with history from day 1
 - OpenAI is the day-1 AI provider for ranking / low-signal filtering
@@ -86,7 +86,7 @@ Repo: `steipete/birdclaw`
 - Node.js `>=26.5.1 <27` as a first-class compatibility and npm/Homebrew runtime
 - TypeScript `strict: true`
 - ESM only
-- latest stable dependencies at scaffold time
+- dependencies are recorded in `package.json` and `bun.lock`
 
 The selected Bun is the first Rust-port release line, not a pure-Rust stack: JavaScriptCore, SQLite, and other native components remain embedded. The rolling canary URL is not immutable, so Birdclaw pins archive and binary digests plus the full source revision and fails closed if the public asset changes.
 
@@ -102,10 +102,6 @@ The selected Bun is the first Rust-port release line, not a pure-Rust stack: Jav
 
 - React
 - TanStack Start for local full-stack routing/server functions
-
-Note:
-- TanStack Start is still presented by TanStack as RC as of March 8, 2026.
-- fallback if needed later: thin Vite + Express/Hono local server
 
 ## Product Shape
 
@@ -198,7 +194,7 @@ Core rule:
 Includes:
 - archive import
 - archive autodiscovery on disk
-- no-archive sync path
+- live sync for imported or restored accounts
 - sync home timeline, mentions/replies, DMs, bookmarks, likes, followers, following
 - offline search
 - local web app
@@ -237,8 +233,8 @@ Excludes:
 1. Archive-assisted
    - import archive first when found
    - then fill gaps via live transports
-2. Live-first
-   - no archive required
+2. Restored account
+   - restore an existing Birdclaw database or backup before syncing
    - sync as much as possible via `xurl`
    - wait through rate limits
    - resume from saved cursors/jobs until local state is complete enough
@@ -313,7 +309,7 @@ Build `birdclaw` as:
 - follow graph with history from day 1
 - archive import from day 1
 - archive autodiscovery from day 1
-- no-archive resumable sync from day 1
+- resumable sync for established account identities
 - CLI + local web app sharing one core
 - local-only app, no general auth layer
 - OpenAI ranking for low-signal filtering and inbox triage

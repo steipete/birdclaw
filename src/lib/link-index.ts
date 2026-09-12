@@ -1,3 +1,4 @@
+import { parseJsonField } from "./json-codec";
 import { Effect } from "effect";
 import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
@@ -70,18 +71,6 @@ export interface LinkSearchOptions {
 	participant?: string;
 	mediaType?: "image" | "video" | "gif";
 	limit?: number;
-}
-
-function parseJsonField<T>(value: unknown, fallback: T): T {
-	if (typeof value !== "string" || value.length === 0) {
-		return fallback;
-	}
-
-	try {
-		return JSON.parse(value) as T;
-	} catch {
-		return fallback;
-	}
 }
 
 function getString(value: unknown) {

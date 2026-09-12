@@ -496,57 +496,27 @@ Options by transport:
 
 ## Package Layout
 
+Birdclaw is one package with shared core modules, not a multi-package workspace:
+
 ```text
 birdclaw/
-  apps/
-    web/
-  packages/
-    archive/
-    cli/
-    core/
-    db/
-    server/
-    transport-bird/
-    transport-xurl/
-    ui/
-  docs/
-    spec.md
-    cli.md
-    data-architecture.md
+  bin/birdclaw.mjs       # installed CLI launcher
+  src/
+    cli.ts              # CLI entry and command context
+    cli/                # command registration by domain
+    components/         # React views and controllers
+    routes/             # TanStack pages and HTTP API handlers
+    lib/                # storage, query models, transports, sync, and analysis
+      archive/          # archive readers, slices, reconciliation, and apply
+    test/               # shared fixtures and test helpers
+  scripts/              # builds, toolchain verification, package and perf proof
+  playwright/           # production-server browser tests
+  docs/                 # user guides and architecture
 ```
 
-### Package responsibilities
+SQLite connection ownership lives in `src/lib/db.ts`; ordered schema definitions live in `src/lib/database-schema.ts`, and `src/lib/database-migrations.ts` applies them transactionally. `src/lib/backup-filesystem.ts` owns backup path safety and durable filesystem operations; `src/lib/backup.ts` coordinates export, import, recovery, and Git synchronization.
 
-- `core`
-  - domain types
-  - sync contracts
-  - ranking contracts
-- `archive`
-  - archive parsers and normalizers
-- `db`
-  - native SQLite connections
-  - transactional migrations
-  - repositories
-  - FTS helpers
-  - DM influence and replied/unreplied query helpers
-- `transport-xurl`
-  - `xurl` detection
-  - subprocess exec wrappers
-  - output parsing
-- `transport-bird`
-  - `bird` detection
-  - subprocess exec wrappers
-  - GraphQL-focused reads/actions
-- `server`
-  - local app API
-  - background sync orchestration
-- `cli`
-  - command surface
-- `ui`
-  - React components, inbox, thread, DM views
-  - compact sender bio / influence surfaces for DM context
-- `apps/web`
-  - TanStack Start app shell
+Transport adapters shell out to `bird` and `xurl`; they do not own those tools' credentials or configuration. CLI and HTTP handlers share the canonical repositories and query models in `src/lib/`. The browser API boundary remains independent of the server's Effect workflows.
 
 ## Testing Plan
 
