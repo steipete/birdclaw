@@ -117,3 +117,54 @@ it("renders a trusted avatar without a local profile ID", () => {
 	fireEvent.error(screen.getByRole("img"));
 	expect(screen.queryByRole("img")).toBeNull();
 });
+
+it("keeps map sizing, positioning, and single-letter initials through image failures", () => {
+	const { container } = render(
+		<AvatarChip
+			profileId="profile_avery"
+			avatarUrl="https://pbs.twimg.com/profile_images/demo/avery.png"
+			name="Avery Reed"
+			variant="map"
+			size={25}
+			className="absolute ring-[3px]"
+			style={{ transform: "translate(-10px, 11px)" }}
+		/>,
+	);
+	const chip = container.firstElementChild!;
+	expect(chip).toHaveClass("absolute", "ring-[3px]");
+	expect(chip).toHaveStyle({
+		width: "25px",
+		height: "25px",
+		transform: "translate(-10px, 11px)",
+	});
+	const image = screen.getByAltText("");
+	fireEvent.error(image);
+	const fallback = screen.getByAltText("");
+	expect(fallback).toHaveAttribute("referrerpolicy", "no-referrer");
+	fireEvent.error(fallback);
+	expect(chip).toHaveTextContent(/^A$/);
+	expect(container.querySelector("img")).toBeNull();
+});
+
+it("retries an updated image URL without retrying a failed image on name changes", () => {
+	const props = {
+		profileId: "avery",
+		avatarUrl: "https://pbs.twimg.com/profile_images/demo/old.png",
+		name: "Avery Reed",
+		hue: 210,
+	};
+	const { rerender } = render(<AvatarChip {...props} />);
+	fireEvent.error(screen.getByRole("img"));
+	fireEvent.error(screen.getByRole("img"));
+	rerender(<AvatarChip {...props} name="Avery Bell" />);
+	expect(screen.queryByRole("img")).toBeNull();
+	expect(screen.getByText("AB")).toBeInTheDocument();
+	const avatarUrl = "https://pbs.twimg.com/profile_images/demo/new.png";
+	rerender(<AvatarChip {...props} avatarUrl={avatarUrl} />);
+	const source = new URL(
+		screen.getByRole("img").getAttribute("src")!,
+		window.location.origin,
+	);
+	expect(source.pathname).toBe("/api/avatar");
+	expect(source.searchParams.get("v")).toBe(avatarUrl);
+});

@@ -115,12 +115,6 @@ export function relationshipColor(
 	return "#1d9bf0";
 }
 
-export function avatarInitial(feature: MapFeature) {
-	return (feature.properties.name || feature.properties.handle || "?")
-		.slice(0, 1)
-		.toUpperCase();
-}
-
 export function clusterGradient(stats: ClusterAggregateProperties) {
 	const total = Math.max(1, stats.followers + stats.following + stats.mutual);
 	const mutual = (stats.mutual / total) * 100;

@@ -1,4 +1,4 @@
-import { AvatarImage } from "#/components/AvatarImage";
+import { AvatarChip } from "#/components/AvatarChip";
 import { createFileRoute } from "@tanstack/react-router";
 import { useDeploymentMode } from "#/lib/deployment-mode";
 import {
@@ -53,7 +53,6 @@ import {
 	type MapViewport,
 	type ReactMapboxModule,
 	type SelectedOverlay,
-	avatarInitial,
 	buildClusterIndex,
 	clusterGradient,
 	compareClusterFeatures,
@@ -115,7 +114,7 @@ function useMapboxModule() {
 	return { module, error };
 }
 
-function Avatar({
+function MapAvatar({
 	feature,
 	size = 36,
 	className,
@@ -127,21 +126,15 @@ function Avatar({
 	style?: CSSProperties;
 }) {
 	return (
-		<div
-			className={cx(
-				"relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--accent-soft)] text-[12px] font-bold text-[var(--accent)] ring-2 ring-white",
-				className,
-			)}
-			style={{ width: size, height: size, ...style }}
-		>
-			<AvatarImage
-				profileId={feature.properties.profileId}
-				avatarUrl={feature.properties.avatarUrl ?? undefined}
-				alt=""
-				className="h-full w-full object-cover"
-				fallback={<span>{avatarInitial(feature)}</span>}
-			/>
-		</div>
+		<AvatarChip
+			profileId={feature.properties.profileId}
+			avatarUrl={feature.properties.avatarUrl ?? undefined}
+			name={feature.properties.name || feature.properties.handle || "?"}
+			variant="map"
+			size={size}
+			className={className}
+			style={style}
+		/>
 	);
 }
 
@@ -158,7 +151,7 @@ function ProfileMarker({ feature }: { feature: MapFeature }) {
 				className="absolute inset-0 rounded-full opacity-90 shadow-[0_10px_28px_rgba(15,20,25,0.28)]"
 				style={{ backgroundColor: color }}
 			/>
-			<Avatar feature={feature} size={34} className="relative ring-[3px]" />
+			<MapAvatar feature={feature} size={34} className="relative ring-[3px]" />
 		</button>
 	);
 }
@@ -189,7 +182,7 @@ function ClusterMarker({
 			<span className="absolute inset-[4px] rounded-full bg-white/88 backdrop-blur-sm" />
 			<span className="absolute inset-0 flex items-center justify-center">
 				{features.slice(0, 4).map((feature, index) => (
-					<Avatar
+					<MapAvatar
 						key={feature.properties.profileId}
 						feature={feature}
 						size={avatarSize}
@@ -445,7 +438,7 @@ function SvgMapFallback({ data }: { data: NetworkMapResponse }) {
 function ProfilePopup({ feature }: { feature: MapFeature }) {
 	return (
 		<div className="flex max-w-[280px] gap-3 text-[13px] text-[#0f1419]">
-			<Avatar feature={feature} size={48} className="ring-[#d9e2ea]" />
+			<MapAvatar feature={feature} size={48} className="ring-[#d9e2ea]" />
 			<div className="min-w-0">
 				<div className="truncate font-bold">{feature.properties.name}</div>
 				<div className="truncate text-[#536471]">
@@ -489,7 +482,7 @@ function ClusterPopup({
 			</div>
 			<div className="mt-3 flex -space-x-2">
 				{features.slice(0, 6).map((feature) => (
-					<Avatar
+					<MapAvatar
 						key={feature.properties.profileId}
 						feature={feature}
 						size={36}
@@ -503,7 +496,7 @@ function ClusterPopup({
 						key={feature.properties.profileId}
 						className="flex min-w-0 items-center gap-2 py-2"
 					>
-						<Avatar feature={feature} size={28} className="ring-[#ffffff]" />
+						<MapAvatar feature={feature} size={28} className="ring-[#ffffff]" />
 						<div className="min-w-0 flex-1">
 							<div className="truncate font-semibold">
 								{feature.properties.name}
@@ -538,7 +531,7 @@ function ProfileRow({ feature }: { feature: MapFeature }) {
 					: `/profiles/${encodeURIComponent(feature.properties.handle)}`
 			}
 		>
-			<Avatar feature={feature} size={40} className="ring-[var(--bg)]" />
+			<MapAvatar feature={feature} size={40} className="ring-[var(--bg)]" />
 			<div className="min-w-0 flex-1">
 				<div className="flex min-w-0 items-center gap-1.5">
 					<span className="truncate font-bold text-[var(--ink)]">

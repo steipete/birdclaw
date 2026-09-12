@@ -115,7 +115,7 @@ birdclaw media fetch --parallel 3 --pacing-ms 500 --video-pacing-ms 1500 --max-b
 
 ## Avatars
 
-Avatar images first use the local `/api/avatar` cache. If that request fails,
+All profile avatars, including the network map, first use the local `/api/avatar` cache. If that request fails,
 the browser makes one fallback attempt to the stored HTTPS `pbs.twimg.com/profile_images/`
 URL without a referrer. Both failures retain initials; arbitrary hosts, credential-bearing
 URLs, and non-profile paths are never used for the fallback. This also lets a read-only

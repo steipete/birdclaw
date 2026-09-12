@@ -188,6 +188,9 @@ export const avatarChipLargeClass = "avatar-chip-large size-16 text-[18px]";
 
 export const avatarChipSmallClass = "avatar-chip-small size-8 text-[12px]";
 
+export const avatarChipMapClass =
+	"relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--accent-soft)] text-[12px] font-bold text-[var(--accent)] ring-2 ring-white";
+
 /* Embedded tweet / link preview (rounded box, used inside feed row body). */
 export const embeddedCardClass =
 	"mt-2 overflow-hidden rounded-2xl border border-[var(--line)] transition-colors duration-150 hover:bg-[var(--bg-hover)]";

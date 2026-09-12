@@ -25,8 +25,5 @@ birdclaw import hydrate-profiles --json
 ./scripts/bun-canary.sh run --bun dev
 ```
 
-Profile avatars in markers, clusters, popups, and the visible-people list use the
-local image cache first. If a cached image is missing, the browser tries the
-stored HTTPS Twitter profile-image URL once, without a referrer. Initials remain
-when neither source is available. This also works in read-only deployments without
-populating the server cache.
+Profile avatars in markers, clusters, popups, and the visible-people list follow
+the same [cache and fallback rules](media.md#avatars) as other profile views.
