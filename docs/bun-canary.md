@@ -33,7 +33,7 @@ Bun 1.4 is the first release line after Bun's Zig-to-Rust port. It preserves Bun
 
 ### Node contract
 
-The npm and Homebrew package remains a Node CLI with `#!/usr/bin/env node` and `engines.node: >=26.5.1 <27`. CI builds and runs the installed package under real Node 26.5.1 as well as the exact Bun binary.
+The npm and Homebrew package remains a Node CLI with `#!/usr/bin/env node` and `engines.node: >=26.5.1 <27`. CI runs Node coverage and builds on the maintained Node 26 version in `.node-version`, while installed-package smoke stays on the public Node 26.5.1 floor as well as the exact Bun binary.
 
 Bun reports Node compatibility `26.3.0`, below Birdclaw's public Node floor. Birdclaw does not weaken that floor or pretend Bun is a qualifying Node binary; Bun is identified through `process.versions.bun` and its own exact revision.
 

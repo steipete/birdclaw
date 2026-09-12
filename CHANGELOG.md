@@ -2,6 +2,8 @@
 
 ## 0.12.7 - Unreleased
 
+- Update the Hono server dependency to 4.13.7 and the development/CI Node pin to 26.8.2; installed-package checks retain the Node 26.5.1 minimum.
+
 - Limit profile-history rows in SQLite before returning them and omit unused raw payloads from history reads, reducing sync and identity-search work for profiles with long histories.
 
 - Index historical follower membership, follow events, and list owners by profile so identity reconciliation avoids repeated full-table scans; existing version-9 snapshots remain readable during the additive version-10 migration.
