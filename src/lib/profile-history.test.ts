@@ -95,6 +95,12 @@ describe("profile history", () => {
 		const db = getNativeDb();
 		expect(recordProfileSnapshot(db, "missing")).toBeNull();
 		expect(fetchProfileSnapshots(db, [])).toEqual(new Map());
+		expect(fetchProfileSnapshots(db, ["profile_user_42"], 0)).toEqual(
+			new Map(),
+		);
+		expect(fetchProfileSnapshots(db, ["profile_user_42"], Number.NaN)).toEqual(
+			new Map(),
+		);
 
 		db.prepare(
 			`
@@ -108,6 +114,33 @@ describe("profile history", () => {
         ('profile_user_42', 'hash3', '2026-05-03T00:00:00.000Z', '2026-05-01T00:00:00.000Z', 'test', 'oldest', 'Oldest', 'Oldest bio', null, null, null, 5, 6, '', '{}')
       `,
 		).run();
+		db.exec(`insert into profile_snapshots
+      select 'profile_user_43', snapshot_hash, observed_at, last_seen_at,
+        source, handle, display_name, bio, location, url, verified_type,
+        followers_count, following_count, affiliations_json, raw_json
+      from profile_snapshots where profile_id='profile_user_42'`);
+		const limited = fetchProfileSnapshots(
+			db,
+			["profile_user_43", "missing", "profile_user_42", "profile_user_42"],
+			1.5,
+		);
+		expect(
+			[...limited].map(([id, rows]) => [
+				id,
+				rows.map((row) => row.snapshotHash),
+			]),
+		).toEqual([
+			["profile_user_42", ["hash1", "hash2"]],
+			["profile_user_43", ["hash1", "hash2"]],
+		]);
+		expect(
+			fetchProfileSnapshots(db, ["profile_user_42"], Infinity).get(
+				"profile_user_42",
+			),
+		).toHaveLength(3);
+		expect(
+			db.prepare("select count(*) as count from profile_snapshots").get(),
+		).toEqual({ count: 6 });
 
 		expect(fetchProfileSnapshots(db, ["profile_user_42"], 1)).toEqual(
 			new Map([

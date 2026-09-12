@@ -555,7 +555,9 @@ birdclaw discuss "prototype" --include-dms --limit 500 --max-pages 5 --json
 Find likely people or orgs from local DM and optional tweet evidence.
 Candidates include structured `profileEvidence` entries for profile bio, profile
 URL, bio URLs, location, verified type, first-class affiliations, bio entities,
-profile-history snapshots, DM context, and expanded URLs. `whois` also searches
+profile-history snapshots, DM context, and expanded URLs. Recent profile-history
+reads select only the requested rows per profile; the complete stored history
+remains available to archive exports. `whois` also searches
 significant terms from fuzzy prompts, so `blacksmith guy` can rank a match from
 `@useblacksmith` and `blacksmith.sh` even when the literal phrase was not stored
 in a DM. Query intent changes ranking: `@github` emphasizes handle and

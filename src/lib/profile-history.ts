@@ -264,28 +264,41 @@ export function fetchProfileSnapshots(
 	profileIds: string[],
 	limitPerProfile = 5,
 ) {
-	if (profileIds.length === 0) {
+	if (profileIds.length === 0 || !(limitPerProfile > 0)) {
 		return new Map<string, ProfileSnapshot[]>();
 	}
 	const placeholders = profileIds.map(() => "?").join(",");
+	const columns = `profile_id, snapshot_hash, observed_at, last_seen_at, source,
+    handle, display_name, bio, location, url, verified_type,
+    followers_count, following_count, affiliations_json`;
+	const singleProfile =
+		profileIds.length === 1 && Number.isFinite(limitPerProfile);
 	const rows = db
 		.prepare(
-			`
-      select *
-      from profile_snapshots
-      where profile_id in (${placeholders})
-      order by profile_id, last_seen_at desc
+			singleProfile
+				? `select ${columns} from profile_snapshots where profile_id = ?
+           order by last_seen_at desc, snapshot_hash limit ?`
+				: `
+      select * from (
+        select ${columns},
+          row_number() over (
+            partition by profile_id order by last_seen_at desc, snapshot_hash
+          ) as position
+        from profile_snapshots
+        where profile_id in (${placeholders})
+      ) where position <= ?
+      order by profile_id, position
       `,
 		)
-		.all(...profileIds) as Array<Record<string, unknown>>;
+		.all(...profileIds, Math.ceil(limitPerProfile)) as Array<
+		Record<string, unknown>
+	>;
 	const result = new Map<string, ProfileSnapshot[]>();
 	for (const row of rows) {
 		const snapshot = toSnapshot(row);
 		const existing = result.get(snapshot.profileId) ?? [];
-		if (existing.length < limitPerProfile) {
-			existing.push(snapshot);
-			result.set(snapshot.profileId, existing);
-		}
+		existing.push(snapshot);
+		result.set(snapshot.profileId, existing);
 	}
 	return result;
 }
