@@ -18,7 +18,7 @@ const TRANSPORT_STATUS_TTL_MS = 5 * 60_000;
 const AUTHENTICATED_USER_TTL_MS = 60_000;
 const JSON_RETRY_LIMIT = 6;
 const MEDIA_EXPANSION = "attachments.media_keys";
-const AUTHOR_MEDIA_EXPANSIONS = `author_id,${MEDIA_EXPANSION}`;
+const AUTHOR_MEDIA_EXPANSIONS = `author_id,${MEDIA_EXPANSION},referenced_tweets.id,referenced_tweets.id.author_id`;
 const MEDIA_FIELDS =
 	"variants,preview_image_url,url,duration_ms,alt_text,type,width,height,public_metrics";
 const RICH_USER_FIELDS =

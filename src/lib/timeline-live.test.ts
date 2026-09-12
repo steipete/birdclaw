@@ -630,3 +630,55 @@ describe("live home timeline sync", () => {
 		expect(listHomeTimelineViaBirdMock).not.toHaveBeenCalled();
 	});
 });
+
+it("stores expanded original-author avatars without adding referenced tweets to Home", async () => {
+	makeTempHome();
+	listHomeTimelineViaXurlMock.mockResolvedValueOnce({
+		data: [
+			{
+				id: "repost-avatar",
+				author_id: "9001",
+				text: "RT @original: Original post",
+				created_at: "2026-09-12T01:00:00Z",
+				referenced_tweets: [{ type: "retweeted", id: "original-avatar" }],
+			},
+		],
+		includes: {
+			tweets: [
+				{
+					id: "original-avatar",
+					author_id: "9002",
+					text: "Original post",
+					created_at: "2026-09-12T00:00:00Z",
+				},
+			],
+			users: [
+				{ id: "9001", username: "reposter", name: "Reposter" },
+				{
+					id: "9002",
+					username: "original",
+					name: "Original Author",
+					profile_image_url:
+						"https://pbs.twimg.com/profile_images/9002/avatar_normal.jpg",
+				},
+			],
+		},
+		meta: { result_count: 1 },
+	});
+	const { syncHomeTimeline } = await import("./timeline-live");
+	await syncHomeTimeline({
+		account: "acct_primary",
+		mode: "xurl",
+		limit: 5,
+		refresh: true,
+	});
+	const rows = listTimelineItems({ account: "acct_primary", resource: "home" });
+	const repost = rows.find((row) => row.id === "repost-avatar");
+	expect(repost?.retweetedTweet?.author).toMatchObject({
+		id: "profile_user_9002",
+		displayName: "Original Author",
+		avatarUrl: "https://pbs.twimg.com/profile_images/9002/avatar.jpg",
+	});
+	expect(rows.some((row) => row.id === "original-avatar")).toBe(false);
+	expect(listHomeTimelineViaXurlMock).toHaveBeenCalledTimes(1);
+});

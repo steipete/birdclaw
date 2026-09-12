@@ -113,6 +113,17 @@ birdclaw media fetch --parallel 3 --pacing-ms 500 --video-pacing-ms 1500 --max-b
 - [Archive Import](archive.md) — where archive byte reuse comes from
 - [CLI reference](cli.md#media-fetch) — canonical flag listing
 
+## Avatars
+
+Avatar images first use the local `/api/avatar` cache. If that request fails,
+the browser makes one fallback attempt to the stored HTTPS `pbs.twimg.com/profile_images/`
+URL without a referrer. Both failures retain initials; arbitrary hosts, credential-bearing
+URLs, and non-profile paths are never used for the fallback. This also lets a read-only
+archive display a known avatar when its local image bytes were not copied.
+
+Xurl tweet reads include referenced tweets and their authors, preserving repost and
+quote author avatars in the normal sync response without separate profile lookups.
+
 ## Link preview thumbnails
 
 External link-card images are served through `/api/link-preview?imageUrl=...`,

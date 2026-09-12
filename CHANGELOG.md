@@ -2,6 +2,7 @@
 
 ## 0.12.6 - Unreleased
 
+- Recover avatars from their stored Twitter image URL when the local image endpoint fails, and include original-author profiles when syncing reposts and quoted tweets.
 - Restore external link-preview thumbnails through a bounded, validated raster-image cache while keeping read-only deployments free of network fetches and cache writes.
 
 ## 0.12.5 - 2026-09-12
