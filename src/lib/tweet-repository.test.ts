@@ -559,15 +559,19 @@ it("merges revision components beyond SQLite's traditional variable limit", () =
 			older_revision_id, newer_revision_id, source, observed_at
 		) values (?, ?, 'test', '2026-07-01T00:00:00.000Z')
 	`);
-	for (let index = 0; index < 5_000; index += 1) {
-		const revisionId = `scale-${String(index).padStart(4, "0")}`;
-		insertRevision.run(revisionId, revisionId);
-		if (index > 0) {
-			insertEdge.run(`scale-${String(index - 1).padStart(4, "0")}`, revisionId);
+	const component = db.transaction(() => {
+		for (let index = 0; index < 5_000; index += 1) {
+			const revisionId = `scale-${String(index).padStart(4, "0")}`;
+			insertRevision.run(revisionId, revisionId);
+			if (index > 0) {
+				insertEdge.run(
+					`scale-${String(index - 1).padStart(4, "0")}`,
+					revisionId,
+				);
+			}
 		}
-	}
-
-	const component = mergeTweetRevisionChain(db, ["scale-0000"]);
+		return mergeTweetRevisionChain(db, ["scale-0000"]);
+	})();
 
 	expect(component).toHaveLength(5_000);
 	expect(
