@@ -17,6 +17,7 @@ import { seedDemoData } from "./seed";
 import {
 	type DatabaseConnectionRole,
 	recordDatabaseStatement,
+	recordDatabaseBatch,
 } from "./database-metrics";
 
 let nativeDb: Database | undefined;
@@ -1221,6 +1222,7 @@ function createDatabaseConnection(
 ) {
 	return new NativeSqliteDatabase(dbPath, {
 		...options,
+		onBatch: recordDatabaseBatch,
 		onStatement: (sql, durationMs) =>
 			recordDatabaseStatement(role, sql, durationMs),
 	});

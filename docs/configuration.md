@@ -183,3 +183,7 @@ birdclaw blocks add @someone --account acct_primary
 ```
 
 Both commands record the intent locally where applicable but skip every transport call. Tests and CI rely on this exact mechanism.
+
+### CLI timing diagnostics
+
+Set `BIRDCLAW_CLI_METRICS=1` to write one `BIRDCLAW_CLI_METRICS ` JSON line to stderr when a CLI command finishes. Normal stdout and exit behavior remain unchanged. The versioned summary contains elapsed milliseconds, user/system CPU milliseconds for the CLI process (excluding child processes), SQL call count, and SQL milliseconds. Database timing includes prepared operations and exec/transaction batches; counts refer to calls rather than individual statements inside a batch. The summary contains no SQL text, bound values, paths, tokens, or archive contents. Missing or closed diagnostic output does not fail the command.

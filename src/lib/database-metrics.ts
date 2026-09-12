@@ -11,6 +11,9 @@ const MAX_SLOW_STATEMENTS = 10;
 
 let readStatements = 0;
 let writeStatements = 0;
+let statementDurationMs = 0;
+let batchCalls = 0;
+let batchDurationMs = 0;
 let slowStatements: SlowDatabaseStatement[] = [];
 let queuedWrites = 0;
 let activeWrites = 0;
@@ -28,6 +31,7 @@ export function recordDatabaseStatement(
 	sql: string,
 	durationMs: number,
 ) {
+	statementDurationMs += durationMs;
 	if (role === "reader") {
 		readStatements += 1;
 	} else {
@@ -38,6 +42,18 @@ export function recordDatabaseStatement(
 		...slowStatements,
 		{ durationMs, role, sql: compactSql(sql) },
 	].slice(-MAX_SLOW_STATEMENTS);
+}
+
+export function recordDatabaseBatch(durationMs: number) {
+	batchCalls += 1;
+	batchDurationMs += durationMs;
+}
+
+export function getDatabasePerformanceTotals() {
+	return {
+		calls: readStatements + writeStatements + batchCalls,
+		milliseconds: statementDurationMs + batchDurationMs,
+	};
 }
 
 export function recordDatabaseWriteQueued() {
@@ -78,6 +94,9 @@ export function getDatabaseRuntimeMetrics() {
 export function resetDatabaseRuntimeMetricsForTests() {
 	readStatements = 0;
 	writeStatements = 0;
+	statementDurationMs = 0;
+	batchCalls = 0;
+	batchDurationMs = 0;
 	slowStatements = [];
 	queuedWrites = 0;
 	activeWrites = 0;

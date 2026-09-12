@@ -7,6 +7,7 @@ type DatabaseOptions = {
 	fileMustExist?: boolean;
 	timeout?: number;
 	onStatement?: (sql: string, durationMs: number) => void;
+	onBatch?: (durationMs: number) => void;
 };
 
 type PragmaOptions = {
@@ -137,7 +138,16 @@ export class NativeSqliteDatabase {
 	}
 
 	exec(sql: string): void {
-		this.db.exec(sql);
+		if (!this.options.onBatch) {
+			this.db.exec(sql);
+			return;
+		}
+		const startedAt = performance.now();
+		try {
+			this.db.exec(sql);
+		} finally {
+			this.options.onBatch(performance.now() - startedAt);
+		}
 	}
 
 	pragma(sql: string, options: PragmaOptions = {}): unknown {

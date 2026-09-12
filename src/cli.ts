@@ -24,6 +24,10 @@ import { registerServeCommand } from "#/cli/register-serve";
 import { registerStorageCommands } from "#/cli/register-storage";
 import { registerSyncCommands } from "#/cli/register-sync";
 import { closeDatabase } from "#/lib/db";
+import {
+	captureCliPerformance,
+	writeCliPerformance,
+} from "#/lib/cli-performance";
 
 function findPackageRoot(entryUrl: string) {
 	let directory = dirname(fileURLToPath(entryUrl));
@@ -69,11 +73,19 @@ registerServeCommand(
 );
 
 export async function runCli(argv = process.argv) {
+	const profile =
+		process.env.BIRDCLAW_CLI_METRICS === "1"
+			? captureCliPerformance()
+			: undefined;
 	try {
 		await program.parseAsync(argv);
 	} finally {
 		resetOperationAccountSelection();
-		await closeDatabase();
+		try {
+			await closeDatabase();
+		} finally {
+			if (profile) writeCliPerformance(profile());
+		}
 	}
 }
 
