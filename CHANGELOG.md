@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Replace tweet search-index rows once per incoming batch instead of scanning the full index for every tweet, reducing live-sync ingestion time.
+
 - Generate and serve a compact versioned logo for the app and favicon while retaining the high-resolution artwork for documentation.
 
 - Bootstrap authorized single-account read-only pages with cached status metadata to remove the initial status-request waterfall.
