@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Batch cached URL enrichment for timeline pages and cited tweets, including embedded replies and quotes, without triggering live lookups.
+
 - Resolve link-ranking ties using narrow influence records before loading full profile, text, and media details for the selected links.
 
 - Batch cited-tweet lookups while preserving input order, account visibility, collection state, and deleted/edit filtering.

@@ -165,6 +165,59 @@ type UrlExpansionCache = Map<
 	| null
 >;
 
+interface UrlExpansionRow {
+	short_url: string;
+	expanded_url: string;
+	final_url: string;
+	title: string | null;
+	description: string | null;
+	image_url: string | null;
+	site_name: string | null;
+}
+
+function expansionFromRow(row: UrlExpansionRow) {
+	const expandedUrl = row.final_url || row.expanded_url || row.short_url;
+	return {
+		expandedUrl,
+		displayUrl: displayUrlForLink(expandedUrl),
+		...(row.title ? { title: row.title } : {}),
+		...(row.description ? { description: row.description } : {}),
+		...(row.image_url ? { imageUrl: row.image_url } : {}),
+		...(row.site_name ? { siteName: row.site_name } : {}),
+	};
+}
+
+function preloadUrlExpansions(
+	db: Database,
+	cache: UrlExpansionCache,
+	rows: Record<string, unknown>[],
+) {
+	const urls = new Set<string>();
+	for (const row of rows) {
+		for (const prefix of ["", "reply_", "quoted_"]) {
+			if (!row[`${prefix}id`]) continue;
+			enrichFallbackUrlEntities(
+				String(row[`${prefix}text`] ?? ""),
+				parseJsonField<TweetEntities>(row[`${prefix}entities_json`], {}),
+				(url) => {
+					if (!cache.has(url)) urls.add(url);
+					return null;
+				},
+			);
+		}
+	}
+	if (urls.size === 0) return;
+	const expansions = db
+		.prepare(`
+    select short_url, expanded_url, final_url, title, description, image_url, site_name
+    from url_expansions indexed by sqlite_autoindex_url_expansions_1
+    where short_url in (select value from json_each(?)) and status = 'hit'
+  `)
+		.all(JSON.stringify([...urls])) as UrlExpansionRow[];
+	for (const url of urls) cache.set(url, null);
+	for (const row of expansions) cache.set(row.short_url, expansionFromRow(row));
+}
+
 function getUrlExpansion(
 	db: Database,
 	cache: UrlExpansionCache,
@@ -177,36 +230,19 @@ function getUrlExpansion(
 	const row = db
 		.prepare(
 			`
-      select expanded_url, final_url, title, description, image_url, site_name
+      select short_url, expanded_url, final_url, title, description, image_url, site_name
       from url_expansions
       where short_url = ?
         and status = 'hit'
       `,
 		)
-		.get(rawUrl) as
-		| {
-				expanded_url: string;
-				final_url: string;
-				title: string | null;
-				description: string | null;
-				image_url: string | null;
-				site_name: string | null;
-		  }
-		| undefined;
+		.get(rawUrl) as UrlExpansionRow | undefined;
 	if (!row) {
 		cache.set(rawUrl, null);
 		return null;
 	}
 
-	const expandedUrl = row.final_url || row.expanded_url || rawUrl;
-	const expansion = {
-		expandedUrl,
-		displayUrl: displayUrlForLink(expandedUrl),
-		...(row.title ? { title: row.title } : {}),
-		...(row.description ? { description: row.description } : {}),
-		...(row.image_url ? { imageUrl: row.image_url } : {}),
-		...(row.site_name ? { siteName: row.site_name } : {}),
-	};
+	const expansion = expansionFromRow(row);
 	cache.set(rawUrl, expansion);
 	return expansion;
 }
@@ -1037,6 +1073,7 @@ export function listTimelineItems(
 	}
 
 	const urlExpansionCache: UrlExpansionCache = new Map();
+	preloadUrlExpansions(db, urlExpansionCache, rows);
 	const profileByHandleCache: ProfileByHandleCache = new Map();
 	const items = rows.map((row) => {
 		const author = {
@@ -1362,6 +1399,7 @@ export function getTweetsByIds(
 			unknown
 		>[];
 		const byId = new Map(rows.map((row) => [String(row.id), row]));
+		preloadUrlExpansions(db, urlExpansionCache, rows);
 		for (const id of batch) {
 			const row = byId.get(id);
 			if (!row) continue;

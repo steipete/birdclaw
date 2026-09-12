@@ -764,6 +764,71 @@ describe("query models", () => {
 		);
 	});
 
+	it("batches URL hits and misses across a timeline page and refreshes on the next read", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const stamp = "2026-01-01T00:00:00Z";
+		for (let i = 0; i < 50; i++) {
+			const id = `url_batch_${i}`;
+			const url = `https://t.co/batch${i}`;
+			insertTestTweet(db, { id, text: `bulkurl ${url}.`, createdAt: stamp });
+			db.prepare("insert into tweets_fts(tweet_id, text) values (?, ?)").run(
+				id,
+				`bulkurl ${url}.`,
+			);
+			insertTestEdge(db, id, stamp);
+			if (i % 2 === 0)
+				db.prepare(
+					"insert into url_expansions(short_url, expanded_url, final_url, status, title, source, updated_at) values (?, ?, ?, 'hit', ?, 'test', ?)",
+				).run(
+					url,
+					`https://example.com/${i}`,
+					`https://example.com/${i}`,
+					`Title ${i}`,
+					stamp,
+				);
+		}
+		const prepare = vi.spyOn(NativeSqliteDatabase.prototype, "prepare");
+		try {
+			const items = listTimelineItems({
+				resource: "home",
+				search: "bulkurl",
+				limit: 50,
+			});
+			expect(items).toHaveLength(50);
+			expect(
+				items.find((item) => item.id === "url_batch_0")?.entities.urls?.[0],
+			).toMatchObject({
+				url: "https://t.co/batch0",
+				expandedUrl: "https://example.com/0",
+				title: "Title 0",
+			});
+			expect(
+				items.find((item) => item.id === "url_batch_1")?.entities.urls?.[0],
+			).toMatchObject({
+				url: "https://t.co/batch1",
+				expandedUrl: "https://t.co/batch1",
+			});
+			expect(
+				prepare.mock.calls.filter(([sql]) =>
+					sql.includes("from url_expansions"),
+				),
+			).toHaveLength(1);
+			db.prepare(
+				"update url_expansions set title = 'Updated' where short_url = 'https://t.co/batch0'",
+			).run();
+			expect(
+				listTimelineItems({
+					resource: "home",
+					search: "bulkurl",
+					limit: 50,
+				}).find((item) => item.id === "url_batch_0")?.entities.urls?.[0]?.title,
+			).toBe("Updated");
+		} finally {
+			prepare.mockRestore();
+		}
+	});
+
 	it("batches cited tweets without changing order, visibility, or collection state", () => {
 		setupTempHome();
 		const db = getNativeDb();
