@@ -1,88 +1,30 @@
 # CHANGELOG
 
-## 0.12.6 - Unreleased
+## 0.12.6 - 2026-09-12
 
-- Replace tweet search-index rows once per incoming batch instead of scanning the full index for every tweet, reducing live-sync ingestion time.
+### Highlights
 
-- Keep mention refreshes current during historical backfills with native `sync mentions --latest` and `--resume`, preserve pending pages, and report scan position and check time explicitly.
+- **Fresh mentions, even during a backfill.** Refresh the newest mentions without abandoning older pages, with native commands for checking the latest activity and resuming history.
+- **A faster everyday archive.** Feeds, Inbox, search, maps, and long DM conversations do less unnecessary work, while the browser and CLI start with fewer dependencies.
+- **More reliable images.** Avatars and link-preview thumbnails recover when local cached images are missing, including in read-only archives and network maps.
 
-- Generate and serve a compact versioned logo for the app and favicon while retaining the high-resolution artwork for documentation.
+### Fixes and improvements
 
-- Bootstrap authorized single-account read-only pages with cached status metadata to remove the initial status-request waterfall.
+- Add `sync mentions --latest` and `--resume`. Newest-page reads preserve pending continuations, resumed scans retain their original boundaries, and JSON output reports the scan intent, position, and check time. Web and scheduled account refreshes now request current mentions. (#186)
+- Restore avatar fallbacks throughout profiles and maps, and include original-author profiles when syncing reposts and quoted tweets. (#146, #150, #152)
+- Restore external link-preview thumbnails through a bounded image cache, and cancel obsolete preview work so navigation does not leave new cards waiting behind abandoned requests. (#145, #153)
+- Keep hover previews correctly positioned and unclipped when their layout or content changes. (#167)
+- Preserve deterministic timeline ordering at page boundaries while selecting posts before loading their rich metadata. (#183)
 
-- Load DM history in pages and cache it independently of list filters, while preserving complete CLI/API reads and access to every earlier message.
+### Performance
 
-- Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
-
-- Rebuild imported tweet and DM search entries in batches after archive slices merge, avoiding repeated full-index scans and duplicate entries.
-
-- Defer loading the HTTP/MCP server until `serve` runs, reducing startup work for CLI help and local commands.
-
-- Rank DM search matches using narrow message identifiers before loading the three selected messages and their sender profiles.
-
-- Normalize each distinct link URL once per insight query and reuse the result across ranking and hydration.
-
-- Batch URL and mention-profile enrichment for conversation descendants while retaining traversal limits and truncation reporting.
-
-- Select timeline pages before hydrating rich metadata and preserve deterministic timestamp ties at the recent-window boundary.
-
-- Reuse up to 128 recently prepared SQLite statements per connection while keeping streaming iterators on independent cursors.
-
-- Reuse bounded, validated query responses in read-only archives and invalidate them when SQLite data changes, reducing repeated query and serialization work.
-
-- Hydrate each DM sender once per thread instead of copying profile columns for every message, preserving complete history and independent message objects.
-
-- Limit Inbox score reads to the current candidate mentions and conversations instead of loading the entire scoring history.
-
-- Batch referenced-retweet hydration and enrichment per account, preserving collection state and missing/deleted-post fallbacks.
-
-- Batch mention-profile enrichment across timeline pages and cited tweets while preserving inline profiles and missing-handle fallbacks.
-
-- Return standalone CLI version checks directly from package metadata without loading every command and its dependencies.
-
-- Reposition hover previews on layout/content changes instead of every frame, and keep them outside contained feed rows so they remain correctly positioned and unclipped.
-
-- Pause relative-timestamp updates in hidden tabs, refresh immediately on return, and reuse unchanged exact timestamp labels.
-
-- Keep unchanged DM conversations and message bubbles out of reply-draft renders.
-
-- Reuse network-map profile ordering while panning and zooming instead of sorting the visible population on every viewport change.
-
-- Batch cached URL enrichment for timeline pages and cited tweets, including embedded replies and quotes, without triggering live lookups.
-
-- Resolve link-ranking ties using narrow influence records before loading full profile, text, and media details for the selected links.
-
-- Batch cited-tweet lookups while preserving input order, account visibility, collection state, and deleted/edit filtering.
-
-- Read only displayed profile fields when enriching timeline mentions, avoiding copies of large stored provider payloads.
-
-- Avoid constructing unused SQLite column metadata for every prepared statement.
-
-- Reduce initial browser JavaScript by keeping ordinary API reads and sync-job polling independent of the server Effect runtime.
-
-- Reuse number formatters for timeline counts, map statistics, and rate limits instead of constructing one for every displayed value.
-
-- Skip rendering unchanged timeline cards during search input, pagination, and status refreshes while preserving replies and conversation updates.
-
-- Reuse the loaded DM conversation when canonicalizing its URL, avoiding a second download of the same conversation and messages.
-
-- Avoid duplicate startup reads on Map, DMs, and Inbox by settling account selection before requesting account-specific data.
-
-- Cancel obsolete link-preview requests and remove abandoned queued previews so navigation does not leave new cards waiting behind old work.
-
-- Use the chronological tweet index to find recent timeline candidates without sorting the full active archive.
-
-- Reuse read-only archive status counts until SQLite reports a data change, avoiding repeated full archive counts during navigation.
-
-- Reduce allocations when reading SQLite rows while preserving plain objects and Buffer-valued BLOB columns.
-
-- Restore network-map avatars in markers, clusters, popups, and the visible-people list when cached image bytes are missing, including read-only archives.
-- Consolidate map and profile avatars into one renderer with shared URL rules and simpler fallback state, preserving their existing appearance.
-
-- Speed up recent DM lists by using the conversation ordering index instead of grouping and sorting the complete candidate set.
-
-- Recover avatars from their stored Twitter image URL when the local image endpoint fails, and include original-author profiles when syncing reposts and quoted tweets.
-- Restore external link-preview thumbnails through a bounded, validated raster-image cache while keeping read-only deployments free of network fetches and cache writes.
+- Page long DM histories and cache the selected conversation independently of list filters. Earlier messages remain accessible, and complete CLI/API reads keep their existing behavior. Reuse sender profiles and avoid rerendering unchanged conversations while composing. (#182)
+- Speed up feeds, Inbox, and search by selecting and ranking narrow candidate rows before loading full content. Batch cited tweets, reposts, mention profiles, links, and conversation enrichment instead of repeating lookups per item.
+- Reduce startup requests and browser JavaScript, bootstrap authorized read-only status with the page, reuse validated read-only queries until the database changes, and serve compact versioned branding assets.
+- Make map interactions smoother by reusing profile ordering while panning and zooming. Reuse formatters, pause timestamp updates in hidden tabs, and skip unchanged timeline renders.
+- Speed up large archive imports and live sync by rebuilding tweet and DM search entries in batches instead of repeatedly scanning the full index. (#184, #185)
+- Reduce SQLite allocation and preparation work and reuse a bounded statement cache.
+- Start CLI help and local commands with fewer imports; standalone version checks return directly from package metadata.
 
 ## 0.12.5 - 2026-09-12
 
