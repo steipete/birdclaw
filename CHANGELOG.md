@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Cancel obsolete link-preview requests and remove abandoned queued previews so navigation does not leave new cards waiting behind old work.
+
 - Use the chronological tweet index to find recent timeline candidates without sorting the full active archive.
 
 - Reuse read-only archive status counts until SQLite reports a data change, avoiding repeated full archive counts during navigation.

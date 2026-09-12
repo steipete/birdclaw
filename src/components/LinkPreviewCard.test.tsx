@@ -4,7 +4,7 @@ import {
 	createTestQueryClient,
 	renderWithQueryClient as render,
 } from "#/test/render";
-import { LinkPreviewCard } from "./LinkPreviewCard";
+import { LinkPreviewCard, linkPreviewQueryOptions } from "./LinkPreviewCard";
 
 afterEach(() => {
 	cleanup();
@@ -13,6 +13,79 @@ afterEach(() => {
 });
 
 describe("LinkPreviewCard", () => {
+	it("discards queued previews on navigation and gives new previews the freed slots", async () => {
+		const fetchMock = vi.fn(
+			(_input: RequestInfo | URL, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) => {
+					const signal = init?.signal;
+					if (signal?.aborted) reject(signal.reason);
+					else
+						signal?.addEventListener("abort", () => reject(signal.reason), {
+							once: true,
+						});
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const queryClient = createTestQueryClient();
+		const oldPreviews = Array.from({ length: 32 }, (_, index) =>
+			queryClient
+				.fetchQuery(linkPreviewQueryOptions(`https://example.com/old/${index}`))
+				.catch(() => null),
+		);
+		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+		await queryClient.cancelQueries();
+		await Promise.all(oldPreviews);
+		const next = queryClient
+			.fetchQuery(linkPreviewQueryOptions("https://example.com/new"))
+			.catch(() => null);
+		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+		expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
+			encodeURIComponent("https://example.com/new"),
+		);
+		expect(
+			fetchMock.mock.calls
+				.slice(0, 2)
+				.every(([, init]) => init?.signal?.aborted),
+		).toBe(true);
+		await queryClient.cancelQueries();
+		await next;
+		queryClient.clear();
+	});
+
+	it("releases queue slots after failures and completed responses", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValue({
+				ok: true,
+				json: () =>
+					Promise.resolve({
+						ok: true,
+						preview: {
+							url: "https://example.com",
+							title: null,
+							description: null,
+							imageUrl: null,
+							siteName: null,
+						},
+					}),
+			});
+		vi.stubGlobal("fetch", fetchMock);
+		const queryClient = createTestQueryClient();
+		const results = await Promise.allSettled(
+			Array.from({ length: 6 }, (_, index) =>
+				queryClient.fetchQuery(
+					linkPreviewQueryOptions(`https://example.com/complete/${index}`),
+				),
+			),
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(6);
+		expect(
+			results.filter((result) => result.status === "fulfilled"),
+		).toHaveLength(5);
+		queryClient.clear();
+	});
+
 	it("can rerender from a safe URL to an unsafe URL without changing hooks", () => {
 		const { container, rerender } = render(
 			<LinkPreviewCard
@@ -134,6 +207,7 @@ describe("LinkPreviewCard", () => {
 		);
 		expect(fetchMock).toHaveBeenCalledWith(
 			"/api/link-preview?url=https%3A%2F%2Fexample.com%2Fhydrate-card",
+			{ signal: expect.any(AbortSignal) },
 		);
 	});
 

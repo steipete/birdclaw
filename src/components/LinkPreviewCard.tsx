@@ -61,18 +61,34 @@ function runQueuedPreviewFetches() {
 	}
 }
 
-function schedulePreviewFetch(task: () => Promise<LinkPreviewMetadata | null>) {
+function schedulePreviewFetch(
+	task: () => Promise<LinkPreviewMetadata | null>,
+	signal: AbortSignal,
+) {
 	return new Promise<LinkPreviewMetadata | null>((resolve, reject) => {
-		queuedPreviewFetches.push(() => {
+		if (signal.aborted) {
+			reject(signal.reason);
+			return;
+		}
+		const cancel = () => {
+			const index = queuedPreviewFetches.indexOf(start);
+			if (index !== -1) queuedPreviewFetches.splice(index, 1);
+			reject(signal.reason);
+		};
+		const start = () => {
+			signal.removeEventListener("abort", cancel);
 			activePreviewFetches += 1;
-			task()
+			Promise.resolve()
+				.then(task)
 				.then(resolve)
 				.catch(reject)
 				.finally(() => {
 					activePreviewFetches = Math.max(0, activePreviewFetches - 1);
 					runQueuedPreviewFetches();
 				});
-		});
+		};
+		signal.addEventListener("abort", cancel, { once: true });
+		queuedPreviewFetches.push(start);
 		runQueuedPreviewFetches();
 	});
 }
@@ -81,14 +97,16 @@ export function linkPreviewQueryOptions(targetUrl: string) {
 	const params = new URLSearchParams({ url: targetUrl });
 	return queryOptions({
 		queryKey: [...queryKeys.linkPreviews, targetUrl] as const,
-		queryFn: () =>
-			schedulePreviewFetch(() =>
-				fetchJson(
-					`/api/link-preview?${params.toString()}`,
-					undefined,
-					linkPreviewResponseSchema,
-					"Link preview unavailable",
-				).then((data) => data.preview),
+		queryFn: ({ signal }) =>
+			schedulePreviewFetch(
+				() =>
+					fetchJson(
+						`/api/link-preview?${params.toString()}`,
+						{ signal },
+						linkPreviewResponseSchema,
+						"Link preview unavailable",
+					).then((data) => data.preview),
+				signal,
 			),
 		staleTime: 30 * 60_000,
 	});
