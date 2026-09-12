@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Reuse bounded, validated query responses in read-only archives and invalidate them when SQLite data changes, reducing repeated query and serialization work.
+
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
 
 - Defer loading the HTTP/MCP server until `serve` runs, reducing startup work for CLI help and local commands.

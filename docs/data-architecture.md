@@ -579,3 +579,9 @@ Primary:
 Secondary later:
 
 - standalone desktop wrapper if the web UX becomes primary
+
+### Read-only query response reuse
+
+After authorization and filter parsing, `/api/query` may reuse validated serialized JSON in read-only deployments. Entries are scoped to the reader connection and normalized resource/filter arguments, including account selection. Each lookup checks SQLite `data_version`; changed databases drop their prior entries. A second check avoids retaining a response across an external commit. The cache retains at most 100 entries and 4 MiB of encoded keys/values per reader, skips responses over 512 KiB and keys over 4 KiB, and evicts least-recently-used entries.
+
+Writable deployments bypass this cache. Exceptions are not retained, and response bodies remain independent. This is process-local reuse of deterministic reads, not an HTTP cache: authentication and HTTP cache policy remain unchanged, and time-dependent link insights are outside its scope.
