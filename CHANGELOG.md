@@ -4,6 +4,8 @@
 
 - Limit profile-history rows in SQLite before returning them and omit unused raw payloads from history reads, reducing sync and identity-search work for profiles with long histories.
 
+- Index historical follower membership, follow events, and list owners by profile so identity reconciliation avoids repeated full-table scans; existing version-9 snapshots remain readable during the additive version-10 migration.
+
 - Reduce CLI startup time by bundling the used Effect modules while keeping other direct dependencies external.
 
 - Add account-scoped `show tweet`, `show thread`, and `show dm` commands with JSON output, plus `db vacuum`. Validate numeric CLI options before account lookups or command work, preventing negative limits from requesting unlimited DM results and rejecting invalid score thresholds.

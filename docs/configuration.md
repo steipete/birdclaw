@@ -5,6 +5,12 @@ description: "birdclaw config files, env vars, transport precedence, and multi-a
 
 # Configuration
 
+Database schema version 10 adds profile-reference lookup indexes without changing
+stored records. Writable access migrates version 9 automatically; read-only access
+continues serving version-9 snapshots without modifying them. Older incompatible
+schemas and unknown future versions are rejected. After a writable upgrade, use a
+version-10-capable build for rollback because earlier builds require schema 9.
+
 birdclaw reads configuration from these layers:
 
 1. **Command flags** — for example `--account`, `--mode`, and `--transport`.

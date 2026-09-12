@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import {
 } from "./db";
 import { seedDemoData } from "./seed";
 import NativeSqliteDatabase, { SQLITE_BUSY_TIMEOUT_MS } from "./sqlite";
+import { upsertProfileFromXUser } from "./x-profile";
 
 const tempDirs: string[] = [];
 
@@ -429,7 +430,7 @@ describe("database init", () => {
 			{ name: "fxtwitter_fetches" },
 			{ name: "fxtwitter_observations" },
 		]);
-		expect(db.pragma("user_version", { simple: true })).toBe(9);
+		expect(db.pragma("user_version", { simple: true })).toBe(10);
 	});
 
 	it("adds revision edges without rewriting v6 revision rows", () => {
@@ -452,7 +453,7 @@ describe("database init", () => {
 		resetDatabaseForTests();
 
 		const migrated = getNativeDb({ seedDemoData: false });
-		expect(migrated.pragma("user_version", { simple: true })).toBe(9);
+		expect(migrated.pragma("user_version", { simple: true })).toBe(10);
 		expect(
 			migrated
 				.prepare(
@@ -626,9 +627,72 @@ describe("database init", () => {
 		).toThrow(/read.?only|write/i);
 	});
 
+	it("serves v9 snapshots unchanged and adds reference indexes on writable upgrade", () => {
+		const tempDir = mkdtempSync(
+			path.join(os.tmpdir(), "birdclaw-db-v9-indexes-"),
+		);
+		tempDirs.push(tempDir);
+		process.env.BIRDCLAW_HOME = tempDir;
+		const db = getNativeDb({ seedDemoData: false });
+		db.exec(`
+      insert into follow_snapshot_members values ('fixture','profile_user_42','incorrect',0);
+      insert into follow_snapshot_members values ('fixture','profile_user_43','43',1);
+      drop index idx_follow_snapshot_members_profile;
+      drop index idx_follow_events_profile;
+      drop index idx_x_lists_owner_profile;
+      pragma user_version=9;
+    `);
+		resetDatabaseForTests();
+		const filename = path.join(tempDir, "birdclaw.sqlite");
+		const before = readFileSync(filename);
+		const reader = getStrictReadDb();
+		expect(reader.pragma("user_version", { simple: true })).toBe(9);
+		expect(
+			reader
+				.prepare("select count(*) as count from follow_snapshot_members")
+				.get(),
+		).toEqual({ count: 2 });
+		expect(() => reader.exec("delete from follow_snapshot_members")).toThrow(
+			/read.?only|write/i,
+		);
+		resetDatabaseForTests();
+		expect(readFileSync(filename)).toEqual(before);
+		const upgraded = getNativeDb({ seedDemoData: false });
+		expect(upgraded.pragma("user_version", { simple: true })).toBe(10);
+		for (const [table, column, index] of [
+			[
+				"follow_snapshot_members",
+				"profile_id",
+				"idx_follow_snapshot_members_profile",
+			],
+			["follow_events", "profile_id", "idx_follow_events_profile"],
+			["x_lists", "owner_profile_id", "idx_x_lists_owner_profile"],
+		]) {
+			const plan = upgraded
+				.prepare(`explain query plan select * from ${table} where ${column}=?`)
+				.all("profile_user_42");
+			expect(JSON.stringify(plan)).toContain(`USING INDEX ${index}`);
+		}
+		upsertProfileFromXUser(upgraded, {
+			id: "42",
+			username: "fixture",
+			name: "Fixture",
+		});
+		expect(
+			upgraded
+				.prepare(
+					"select profile_id,external_user_id from follow_snapshot_members order by profile_id",
+				)
+				.all(),
+		).toEqual([
+			{ profile_id: "profile_user_42", external_user_id: "42" },
+			{ profile_id: "profile_user_43", external_user_id: "43" },
+		]);
+	});
+
 	it.each([
 		{ kind: "stale", version: 4 },
-		{ kind: "future", version: 10 },
+		{ kind: "future", version: 11 },
 	])(
 		"rejects a $kind schema and closes its provisional reader",
 		({ version }) => {
@@ -663,10 +727,10 @@ describe("database init", () => {
 
 		const writer = getNativeDb({ seedDemoData: false });
 		getReadDb({ seedDemoData: false });
-		writer.pragma("user_version = 10");
+		writer.pragma("user_version = 11");
 
 		expect(() => getStrictReadDb()).toThrow(
-			/schema 10 is not ready for version 9/,
+			/schema 11 is not ready for version 10/,
 		);
 	});
 
