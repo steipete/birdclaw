@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Resolve link-ranking ties using narrow influence records before loading full profile, text, and media details for the selected links.
+
 - Batch cited-tweet lookups while preserving input order, account visibility, collection state, and deleted/edit filtering.
 
 - Read only displayed profile fields when enriching timeline mentions, avoiding copies of large stored provider payloads.

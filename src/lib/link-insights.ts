@@ -395,7 +395,16 @@ function getInfluenceScore(profile: ProfileRecord | null) {
 	return Math.round(Math.log10(profile.followersCount + 10) * 24);
 }
 
-function getDetailRowInfluenceScore(row: LinkInsightRow) {
+type LinkInfluenceRow = Pick<
+	LinkInsightRow,
+	| "source_kind"
+	| "source_author_id"
+	| "source_author_followers_count"
+	| "dm_sender_id"
+	| "dm_sender_followers_count"
+>;
+
+function getDetailRowInfluenceScore(row: LinkInfluenceRow) {
 	const profileId =
 		row.source_kind === "tweet" ? row.source_author_id : row.dm_sender_id;
 	if (!profileId) return 0;
@@ -800,6 +809,39 @@ export function getLinkInsights(
 		};
 	}
 
+	let selectedGroups = preliminaryGroups;
+	// A separate query only pays off when the tie set substantially exceeds a page.
+	const needsRankingPass = preliminaryGroups.length > Math.max(limit * 2, 32);
+	if (needsRankingPass) {
+		const groupByRowId = new Map(
+			preliminaryGroups.flatMap((group) =>
+				group.rowIds.map((id) => [id, group] as const),
+			),
+		);
+		const influenceRows = db
+			.prepare(`
+      select o.rowid as occurrence_rowid, o.source_kind,
+        author.id as source_author_id, author.followers_count as source_author_followers_count,
+        sender.id as dm_sender_id, sender.followers_count as dm_sender_followers_count
+      from link_occurrences o
+      left join tweets tweet on o.source_kind = 'tweet' and tweet.id = o.source_id
+      left join profiles author on author.id = tweet.author_profile_id
+      left join dm_messages dm on o.source_kind = 'dm' and dm.id = o.source_id
+      left join profiles sender on sender.id = dm.sender_profile_id
+      where o.rowid in (select cast(value as integer) from json_each(?))
+    `)
+			.all(JSON.stringify(candidateRowIds)) as Array<
+			LinkInfluenceRow & { occurrence_rowid: number }
+		>;
+		for (const row of influenceRows) {
+			const group = groupByRowId.get(row.occurrence_rowid);
+			if (group) group.totalInfluence += getDetailRowInfluenceScore(row);
+		}
+		selectedGroups = preliminaryGroups
+			.sort(compareInsights(sort))
+			.slice(0, limit);
+	}
+
 	const rows = db
 		.prepare(`
       select
@@ -899,9 +941,11 @@ export function getLinkInsights(
 	      )
 	      order by o.created_at desc
 	    `)
-		.all(JSON.stringify(candidateRowIds)) as LinkInsightRow[];
+		.all(
+			JSON.stringify(selectedGroups.flatMap((group) => group.rowIds)),
+		) as LinkInsightRow[];
 
-	for (const row of rows) {
+	for (const row of needsRankingPass ? [] : rows) {
 		const normalized = normalizeUrl(
 			row.final_url || row.expanded_url || row.short_url,
 		);
@@ -911,9 +955,7 @@ export function getLinkInsights(
 			rankedGroup.totalInfluence += getDetailRowInfluenceScore(row);
 		}
 	}
-	const selectedGroups = preliminaryGroups
-		.sort(compareInsights(sort))
-		.slice(0, limit);
+	selectedGroups = selectedGroups.sort(compareInsights(sort)).slice(0, limit);
 	const selectedKeys = new Set(
 		selectedGroups.map((group) => group.canonicalKey),
 	);
