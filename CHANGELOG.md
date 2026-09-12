@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Keep unchanged DM conversations and message bubbles out of reply-draft renders.
+
 - Reuse network-map profile ordering while panning and zooming instead of sorting the visible population on every viewport change.
 
 - Batch cached URL enrichment for timeline pages and cited tweets, including embedded replies and quotes, without triggering live lookups.

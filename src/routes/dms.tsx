@@ -6,7 +6,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DmWorkspace } from "#/components/DmWorkspace";
 import { FeedEmpty, FeedError, FeedLoading } from "#/components/FeedState";
 import { SyncNowButton } from "#/components/SyncNowButton";
@@ -94,8 +94,15 @@ export function DmsRouteView({
 	const queryClient = useQueryClient();
 	const [localSearch, setLocalSearch] = useState(() => validateDmsSearch({}));
 	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<DmsRouteSearch> = (next, options) =>
-		onSearchChange ? onSearchChange(next, options) : setLocalSearch(next);
+	const updateSearch = useCallback<RouteSearchChange<DmsRouteSearch>>(
+		(next, options) =>
+			onSearchChange ? onSearchChange(next, options) : setLocalSearch(next),
+		[onSearchChange],
+	);
+	const selectConversation = useCallback(
+		(conversation: string) => updateSearch({ ...searchState, conversation }),
+		[searchState, updateSearch],
+	);
 	const inboxFilter = searchState.inbox;
 	const replyFilter = searchState.reply;
 	const minFollowers = searchState.minFollowers;
@@ -481,9 +488,7 @@ export function DmsRouteView({
 					conversations={items}
 					onReplyDraftChange={setReplyDraft}
 					onReplySend={replyToConversation}
-					onSelectConversation={(conversation) =>
-						updateSearch({ ...searchState, conversation })
-					}
+					onSelectConversation={selectConversation}
 					replyDraft={replyDraft}
 					selectedConversation={selectedConversation}
 					selectedMessages={messages}
