@@ -55,9 +55,9 @@ test("navigates across the primary surfaces", async ({ page }) => {
 	await expect(
 		page.getByRole("button", { name: "Sync timeline" }),
 	).toBeVisible();
-	await expect(
-		page.locator('img[src="/birdclaw-mark.png"]').first(),
-	).toBeVisible();
+	const mark = page.locator(".birdclaw-mark img").first();
+	await expect(mark).toBeVisible();
+	await expect(mark).toHaveJSProperty("naturalWidth", 256);
 
 	await page.getByRole("link", { name: "Mentions" }).click();
 	await expect(page.getByRole("heading", { name: "Mentions" })).toBeVisible();
@@ -143,9 +143,7 @@ test("shows the animated Birdclaw mark while the timeline loads", async ({
 	await page.goto("/");
 
 	await expect(page.getByText("Loading posts")).toBeVisible();
-	await expect(
-		page.locator('.birdclaw-mark-animated img[src="/birdclaw-mark.png"]'),
-	).toBeVisible();
+	await expect(page.locator(".birdclaw-mark-animated img")).toBeVisible();
 	await expect(page.locator('[data-perf="tweet-skeleton-row"]')).toHaveCount(4);
 	await expect(page.getByText("No posts to show")).toHaveCount(0);
 });

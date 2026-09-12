@@ -22,6 +22,7 @@ import {
 } from "#/lib/ui";
 
 import appCss from "../styles.css?url";
+import brandMarkUrl from "virtual:birdclaw-brand?url";
 
 export const Route = createRootRoute({
 	loader: loadStatusBootstrap,
@@ -39,6 +40,7 @@ export const Route = createRootRoute({
 			},
 		],
 		links: [
+			{ rel: "icon", type: "image/png", href: brandMarkUrl },
 			{
 				rel: "stylesheet",
 				href: appCss,
