@@ -23,6 +23,85 @@ describe("api query route", () => {
 		maybeAutoUpdateBackupMock.mockResolvedValue({ skipped: true });
 	});
 
+	it.each(["list", "conversation"])(
+		"accepts the independent DM %s view",
+		async (view) => {
+			queryResourceMock.mockReturnValue({
+				resource: "dms",
+				items: [],
+				selectedConversation: null,
+			});
+			const response = await GET({
+				request: new Request(
+					`http://localhost/api/query?resource=dms&view=${view}&conversationId=dm_1&account=acct_primary`,
+				),
+			});
+			expect(response.status).toBe(200);
+			expect(queryResourceMock).toHaveBeenCalledWith(
+				"dms",
+				expect.objectContaining({
+					view,
+					conversationId: "dm_1",
+					account: "acct_primary",
+				}),
+			);
+		},
+	);
+
+	it.each([
+		"view=unknown",
+		"view=conversation",
+		"view=conversation&conversationId=%20",
+	])("rejects invalid DM view input %s", async (query) => {
+		const response = await GET({
+			request: new Request(`http://localhost/api/query?resource=dms&${query}`),
+		});
+		expect(response.status).toBe(400);
+		expect(queryResourceMock).not.toHaveBeenCalled();
+	});
+
+	it("bounds message pages and validates their conversation-specific cursor", async () => {
+		queryResourceMock.mockReturnValue({
+			resource: "dms",
+			items: [],
+			selectedConversation: null,
+		});
+		const cursor = Buffer.from(
+			JSON.stringify(["dm_1", "2030-01-01", "message_1"]),
+		).toString("base64url");
+		const response = await GET({
+			request: new Request(
+				`http://localhost/api/query?resource=dms&view=conversation&conversationId=dm_1&messageLimit=999&before=${cursor}`,
+			),
+		});
+		expect(response.status).toBe(200);
+		expect(queryResourceMock).toHaveBeenCalledWith(
+			"dms",
+			expect.objectContaining({
+				messageLimit: 200,
+				before: {
+					conversationId: "dm_1",
+					createdAt: "2030-01-01",
+					id: "message_1",
+				},
+			}),
+		);
+	});
+
+	it.each([
+		"messageLimit=0",
+		"messageLimit=-1",
+		"messageLimit=invalid",
+		"view=conversation&conversationId=dm_1&messageLimit=100&before=invalid",
+		"before=invalid",
+	])("rejects malformed DM paging %s", async (query) => {
+		const response = await GET({
+			request: new Request(`http://localhost/api/query?resource=dms&${query}`),
+		});
+		expect(response.status).toBe(400);
+		expect(queryResourceMock).not.toHaveBeenCalled();
+	});
+
 	it("parses dm filters", async () => {
 		queryResourceMock.mockReturnValue({ resource: "dms", items: [] });
 		const response = await GET({

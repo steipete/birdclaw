@@ -8,7 +8,11 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { NativeSqliteDatabase } from "./sqlite";
 import { listInboxItems } from "./inbox";
-import { getConversationThread, listDmConversations } from "./dm-read-model";
+import {
+	getConversationThread,
+	listDmConversations,
+	decodeDmMessageCursor,
+} from "./dm-read-model";
 import {
 	applyDmRequestMutationToLocalStore,
 	createDmReply,
@@ -2584,6 +2588,84 @@ describe("query models", () => {
 		expect(result.resource).toBe("dms");
 		expect(result.selectedConversation?.conversation.id).toBe("dm_003");
 		expect(result.selectedConversation?.messages).toHaveLength(2);
+	});
+
+	it("pages complete DM history across timestamp ties without changing full-thread reads", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const insert = db.prepare(
+			"insert into dm_messages(id,conversation_id,sender_profile_id,text,created_at,direction,is_replied,media_count) values (?,'dm_001','profile_me',?,'2030-01-01','outbound',0,0)",
+		);
+		db.transaction(() => {
+			for (let i = 0; i < 305; i++)
+				insert.run(`paged_${String(i).padStart(4, "0")}`, `Message ${i}`);
+		})();
+		const full = getConversationThread("dm_001", { account: "acct_primary" })!;
+		expect(full).not.toHaveProperty("nextCursor");
+		const messages: typeof full.messages = [];
+		let cursor: string | null | undefined;
+		let pages = 0;
+		do {
+			const page = getConversationThread("dm_001", {
+				account: "acct_primary",
+				messageLimit: 100,
+				...(cursor ? { before: decodeDmMessageCursor(cursor, "dm_001") } : {}),
+			})!;
+			expect(page.messages.length).toBeLessThanOrEqual(100);
+			messages.unshift(...page.messages);
+			cursor = page.nextCursor;
+			pages++;
+			if (pages > 5) throw new Error("Pagination failed to terminate");
+		} while (cursor);
+		expect(pages).toBe(4);
+		expect(messages).toEqual(full.messages);
+		expect(
+			getConversationThread("dm_001", {
+				account: "acct_studio",
+				messageLimit: 100,
+			}),
+		).toBeNull();
+		expect(() =>
+			getConversationThread("dm_001", { messageLimit: 201 }),
+		).toThrow("messageLimit must be between 1 and 200");
+		const page = getConversationThread("dm_001", { messageLimit: 100 })!;
+		expect(() => decodeDmMessageCursor(page.nextCursor!, "dm_other")).toThrow(
+			"Invalid message cursor",
+		);
+	});
+
+	it("separates DM lists and threads while retaining the combined contract and account scope", () => {
+		setupTempHome();
+		const combined = queryResource("dms", { account: "acct_primary" });
+		const list = queryResource("dms", {
+			account: "acct_primary",
+			view: "list",
+		});
+		expect(list).toEqual({ resource: "dms", items: combined.items });
+		expect(list).not.toHaveProperty("selectedConversation");
+		const id = combined.items[0]!.id;
+		const thread = queryResource("dms", {
+			account: "acct_primary",
+			view: "conversation",
+			conversationId: id,
+		});
+		expect(thread).toEqual({
+			resource: "dms",
+			items: [],
+			selectedConversation: combined.selectedConversation,
+		});
+		expect(
+			queryResource("dms", {
+				account: "acct_studio",
+				view: "conversation",
+				conversationId: id,
+			}),
+		).toEqual({ resource: "dms", items: [], selectedConversation: null });
+		expect(queryResource("dms", { view: "conversation" })).toEqual({
+			resource: "dms",
+			items: [],
+			selectedConversation: null,
+		});
 	});
 
 	it("hydrates selected dms with the active account filter", () => {

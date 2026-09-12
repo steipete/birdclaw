@@ -283,6 +283,7 @@ export const dmQueryResponseSchema = z.object({
 		.object({
 			conversation: dmConversationSchema,
 			messages: z.array(dmMessageSchema),
+			nextCursor: z.string().nullable().optional(),
 		})
 		.nullable()
 		.optional(),

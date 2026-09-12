@@ -579,3 +579,22 @@ Primary:
 Secondary later:
 
 - standalone desktop wrapper if the web UX becomes primary
+
+## DM read views
+
+`GET /api/query?resource=dms` retains the combined list and selected-thread
+response used by existing clients. The web workspace bootstraps with the combined response, then requests `view=list` for
+conversation metadata and `view=conversation&conversationId=...&account=...`
+for a selected thread. The latter returns an empty `items` array and the
+account-scoped `selectedConversation`, or null when it is unavailable. List
+filters apply to the list; the thread view selects by conversation ID and account.
+
+The initial combined response seeds the thread cache without a second request.
+The browser caches thread responses by account and conversation separately from
+list filters. Sync and successful writes invalidate both caches. The browser requests the newest 100 messages (`messageLimit=100`) and loads older
+pages on demand through the returned `selectedConversation.nextCursor`. A cursor
+is passed as `before` with `view=conversation`, its exact `conversationId`, and
+`messageLimit`; malformed or cross-conversation cursors are rejected. Message
+pages are capped at 200 and use creation time plus message ID to handle ties.
+Calls without `messageLimit`, including existing combined/API and CLI full-thread
+reads, retain complete history. All messages remain accessible through pagination.

@@ -5,6 +5,7 @@ export const queryKeys = {
 	status: ["status"] as const,
 	timelines: ["timeline"] as const,
 	dms: ["dms"] as const,
+	dmThreads: ["dm-thread"] as const,
 	conversations: ["conversation"] as const,
 	linkInsights: ["link-insights"] as const,
 	linkPreviews: ["link-preview"] as const,

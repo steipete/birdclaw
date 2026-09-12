@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Load DM history in pages and cache it independently of list filters, while preserving complete CLI/API reads and access to every earlier message.
+
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
 
 - Defer loading the HTTP/MCP server until `serve` runs, reducing startup work for CLI help and local commands.

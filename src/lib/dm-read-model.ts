@@ -305,10 +305,59 @@ export function listDmConversations({
 	return limited;
 }
 
+export interface DmMessageCursor {
+	conversationId: string;
+	createdAt: string;
+	id: string;
+}
+
+export function decodeDmMessageCursor(
+	value: string,
+	conversationId: string,
+): DmMessageCursor {
+	if (value.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(value))
+		throw new Error("Invalid message cursor");
+	const parsed: unknown = JSON.parse(
+		Buffer.from(value, "base64url").toString("utf8"),
+	);
+	if (
+		!Array.isArray(parsed) ||
+		parsed.length !== 3 ||
+		parsed[0] !== conversationId ||
+		!parsed.every(
+			(part) =>
+				typeof part === "string" && part.length > 0 && part.length <= 256,
+		)
+	)
+		throw new Error("Invalid message cursor");
+	return { conversationId: parsed[0], createdAt: parsed[1], id: parsed[2] };
+}
+
 export function getConversationThread(
 	conversationId: string,
-	filters: Pick<DmQuery, "account"> = {},
-): { conversation: DmConversationItem; messages: DmMessageItem[] } | null {
+	filters: Pick<DmQuery, "account"> & {
+		messageLimit?: number;
+		before?: DmMessageCursor;
+	} = {},
+): {
+	conversation: DmConversationItem;
+	messages: DmMessageItem[];
+	nextCursor?: string | null;
+} | null {
+	const messageLimit = filters.messageLimit;
+	if (
+		messageLimit !== undefined &&
+		(!Number.isSafeInteger(messageLimit) ||
+			messageLimit < 1 ||
+			messageLimit > 200)
+	)
+		throw new Error("messageLimit must be between 1 and 200");
+	if (
+		filters.before &&
+		(messageLimit === undefined ||
+			filters.before.conversationId !== conversationId)
+	)
+		throw new Error("Invalid message cursor");
 	const conversation = listDmConversations({
 		...filters,
 		conversationIds: [conversationId],
@@ -321,16 +370,42 @@ export function getConversationThread(
 
 	const db = getReadDb();
 	return db.readTransaction(() => {
-		const rows = db
+		const params: Array<string | number> = [conversationId];
+		const before = filters.before;
+		if (before)
+			params.push(
+				before.createdAt,
+				before.createdAt,
+				before.createdAt,
+				before.id,
+			);
+		if (messageLimit !== undefined) params.push(messageLimit + 1);
+		const fetched = db
 			.prepare(`
 			select m.id, m.conversation_id, m.text, m.created_at, m.direction,
 			  m.is_replied, m.media_count, m.sender_profile_id
 			from dm_messages m
 			join profiles p on p.id = m.sender_profile_id
 			where m.conversation_id = ?
-			order by m.created_at asc
+			${before ? "and m.created_at <= ? and (m.created_at < ? or (m.created_at = ? and m.id < ?))" : ""}
+			order by ${messageLimit === undefined ? "m.created_at asc" : "m.created_at desc, m.id desc limit ?"}
 		`)
-			.all(conversationId) as Record<string, unknown>[];
+			.all(...params) as Record<string, unknown>[];
+		const rows =
+			messageLimit === undefined
+				? fetched
+				: fetched.slice(0, messageLimit).reverse();
+		const first = rows[0];
+		const nextCursor =
+			messageLimit !== undefined && fetched.length > messageLimit && first
+				? Buffer.from(
+						JSON.stringify([
+							conversationId,
+							String(first.created_at),
+							String(first.id),
+						]),
+					).toString("base64url")
+				: null;
 		const senderIds = [
 			...new Set(rows.map((row) => String(row.sender_profile_id))),
 		];
@@ -349,6 +424,7 @@ export function getConversationThread(
 		);
 		return {
 			conversation,
+			...(messageLimit === undefined ? {} : { nextCursor }),
 			messages: rows.map((row) => ({
 				id: String(row.id),
 				conversationId: String(row.conversation_id),

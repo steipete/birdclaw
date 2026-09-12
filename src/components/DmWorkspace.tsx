@@ -157,6 +157,10 @@ export function DmWorkspace({
 	conversations,
 	selectedConversation,
 	selectedMessages,
+	hasEarlier = false,
+	loadingEarlier = false,
+	onLoadEarlier,
+	earlierError,
 	onSelectConversation,
 	replyDraft,
 	onReplyDraftChange,
@@ -165,6 +169,10 @@ export function DmWorkspace({
 	conversations: DmConversationItem[];
 	selectedConversation: DmConversationItem | null;
 	selectedMessages: DmMessageItem[];
+	hasEarlier?: boolean;
+	loadingEarlier?: boolean;
+	onLoadEarlier?: () => void;
+	earlierError?: string;
 	onSelectConversation: (conversationId: string) => void;
 	replyDraft: string;
 	onReplyDraftChange: (value: string) => void;
@@ -267,6 +275,25 @@ export function DmWorkspace({
 							</div>
 						) : null}
 						<div className={dmMessagesClass}>
+							{hasEarlier ? (
+								<div className="flex flex-col items-center gap-2">
+									<button
+										type="button"
+										disabled={loadingEarlier}
+										onClick={onLoadEarlier}
+										className="rounded-full border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] disabled:opacity-50"
+									>
+										{loadingEarlier
+											? "Loading earlier messages..."
+											: "Load earlier messages"}
+									</button>
+									{earlierError ? (
+										<p role="alert" className="text-sm text-red-500">
+											{earlierError}
+										</p>
+									) : null}
+								</div>
+							) : null}
 							{selectedMessages.map((message) => (
 								<MessageBubble key={message.id} message={message} />
 							))}

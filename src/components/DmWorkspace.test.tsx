@@ -30,6 +30,32 @@ const conversation = {
 };
 
 describe("DmWorkspace", () => {
+	it("offers earlier history with a disabled loading state and a retryable error", () => {
+		const load = vi.fn();
+		const props = {
+			conversations: [conversation],
+			selectedConversation: conversation,
+			selectedMessages: [],
+			replyDraft: "",
+			onReplyDraftChange: vi.fn(),
+			onReplySend: vi.fn(),
+			onSelectConversation: vi.fn(),
+			hasEarlier: true,
+			onLoadEarlier: load,
+		};
+		const view = render(<DmWorkspace {...props} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Load earlier messages" }),
+		);
+		expect(load).toHaveBeenCalledOnce();
+		view.rerender(<DmWorkspace {...props} loadingEarlier />);
+		expect(
+			screen.getByRole("button", { name: "Loading earlier messages..." }),
+		).toBeDisabled();
+		view.rerender(<DmWorkspace {...props} earlierError="Try again" />);
+		expect(screen.getByRole("alert")).toHaveTextContent("Try again");
+	});
+
 	it("reads conversations without reply controls in a read-only deployment", () => {
 		renderWithQueryClient(
 			<DmWorkspace

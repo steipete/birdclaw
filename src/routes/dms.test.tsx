@@ -18,6 +18,10 @@ vi.mock("#/components/DmWorkspace", () => ({
 		onReplyDraftChange,
 		onReplySend,
 		onSelectConversation,
+		hasEarlier,
+		loadingEarlier,
+		onLoadEarlier,
+		earlierError,
 	}: {
 		selectedConversation: { id: string; title: string } | null;
 		selectedMessages: Array<{ id: string; text: string }>;
@@ -26,8 +30,18 @@ vi.mock("#/components/DmWorkspace", () => ({
 		onReplyDraftChange: (value: string) => void;
 		onReplySend: (id: string) => void;
 		onSelectConversation: (id: string) => void;
+		hasEarlier?: boolean;
+		loadingEarlier?: boolean;
+		onLoadEarlier?: () => void;
+		earlierError?: string;
 	}) => (
 		<div>
+			{hasEarlier ? (
+				<button type="button" disabled={loadingEarlier} onClick={onLoadEarlier}>
+					Load earlier messages
+				</button>
+			) : null}
+			{earlierError ? <p role="alert">{earlierError}</p> : null}
 			{conversations.map((conversation) => (
 				<button
 					key={conversation.id}
@@ -154,7 +168,7 @@ describe("dms route", () => {
 		});
 	});
 
-	it("reuses the initial conversation response and only fetches when selection changes", async () => {
+	it("caches threads separately from list sorting and conversation selection", async () => {
 		const conversations = [
 			{
 				id: "dm_a",
@@ -181,7 +195,15 @@ describe("dms route", () => {
 						accounts: [],
 						archives: [],
 					});
-				queries.push(url.searchParams.get("conversationId") ?? "default");
+				queries.push(
+					url.searchParams.get("view") === "list"
+						? "list"
+						: url.searchParams.get("view") === "conversation"
+							? url.searchParams.get("conversationId")!
+							: "combined",
+				);
+				if (url.searchParams.get("view") === "list")
+					return Response.json({ resource: "dms", items: conversations });
 				const conversation =
 					conversations.find(
 						(item) => item.id === url.searchParams.get("conversationId"),
@@ -203,13 +225,99 @@ describe("dms route", () => {
 		);
 		render(<DmsRoute />);
 		expect(await screen.findByText("Message for Demo A")).toBeInTheDocument();
-		expect(queries).toEqual(["default"]);
+		expect(queries).toEqual(["combined"]);
 		fireEvent.click(screen.getByRole("button", { name: "Demo B" }));
 		expect(await screen.findByText("Message for Demo B")).toBeInTheDocument();
-		expect(queries).toEqual(["default", "dm_b"]);
+		expect(queries).toEqual(["combined", "dm_b"]);
 		fireEvent.click(screen.getByRole("button", { name: "Demo A" }));
 		expect(await screen.findByText("Message for Demo A")).toBeInTheDocument();
-		expect(queries).toEqual(["default", "dm_b"]);
+		expect(queries).toEqual(["combined", "dm_b"]);
+		fireEvent.click(screen.getByRole("button", { name: "Followers" }));
+		await waitFor(() => expect(queries).toEqual(["combined", "dm_b", "list"]));
+		expect(screen.getByText("Message for Demo A")).toBeInTheDocument();
+	});
+
+	it("loads earlier message pages, retains them across list filters, and retries page errors without hiding history", async () => {
+		const conversation = {
+			id: "dm_page",
+			title: "Demo thread",
+			accountId: "acct_demo",
+			accountHandle: "@demo",
+		};
+		let listCalls = 0,
+			olderCalls = 0;
+		const cursors: Array<string | null> = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = new URL(String(input), window.location.origin);
+				if (url.pathname === "/api/status")
+					return Response.json({
+						stats: { home: 0, mentions: 0, dms: 1, needsReply: 0, inbox: 0 },
+						transport: { statusText: "local" },
+						accounts: [],
+						archives: [],
+					});
+				if (url.searchParams.get("view") === "list") {
+					listCalls++;
+					return Response.json({ resource: "dms", items: [conversation] });
+				}
+				expect(url.searchParams.get("messageLimit")).toBe("100");
+				if (url.searchParams.has("before")) {
+					cursors.push(url.searchParams.get("before"));
+					olderCalls++;
+					if (olderCalls === 1)
+						return Response.json(
+							{ error: "Page unavailable" },
+							{ status: 503 },
+						);
+					return Response.json({
+						resource: "dms",
+						items: [],
+						selectedConversation: {
+							conversation,
+							messages: [{ id: "old", text: "older message" }],
+							nextCursor: null,
+						},
+					});
+				}
+				return Response.json({
+					resource: "dms",
+					items: [conversation],
+					selectedConversation: {
+						conversation,
+						messages: [{ id: "new", text: "newer message" }],
+						nextCursor: "older-cursor",
+					},
+				});
+			}),
+		);
+		render(<DmsRoute />);
+		expect(await screen.findByText("newer message")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Load earlier messages" }),
+		);
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"Could not load earlier messages",
+		);
+		expect(screen.getByText("newer message")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Load earlier messages" }),
+		);
+		expect(await screen.findByText("older message")).toBeInTheDocument();
+		expect(
+			screen
+				.getAllByText(/^(older|newer) message$/)
+				.map((node) => node.textContent),
+		).toEqual(["older message", "newer message"]);
+		expect(
+			screen.queryByRole("button", { name: "Load earlier messages" }),
+		).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Followers" }));
+		await waitFor(() => expect(listCalls).toBe(1));
+		expect(olderCalls).toBe(2);
+		expect(cursors).toEqual(["older-cursor", "older-cursor"]);
+		expect(screen.getByText("older message")).toBeInTheDocument();
 	});
 
 	it("lets the dm list switch from newest to follower count sorting", async () => {
@@ -227,7 +335,8 @@ describe("dms route", () => {
 				);
 			}
 			if (url.includes("/api/query")) {
-				queryUrls.push(new URL(url));
+				if (new URL(url).searchParams.get("view") !== "conversation")
+					queryUrls.push(new URL(url));
 				return new Response(
 					JSON.stringify({
 						resource: "dms",
@@ -377,8 +486,12 @@ describe("dms route", () => {
 				);
 			}
 			if (url.includes("/api/query")) {
-				queryCalls += 1;
-				if (queryCalls === 2) {
+				if (new URL(url).searchParams.get("view") !== "conversation")
+					queryCalls += 1;
+				if (
+					queryCalls === 2 &&
+					new URL(url).searchParams.get("view") !== "conversation"
+				) {
 					await new Promise<void>((resolve) => {
 						releaseRefresh = resolve;
 					});
@@ -552,7 +665,8 @@ describe("dms route", () => {
 					);
 				}
 				if (url.includes("/api/query")) {
-					queryUrls.push(new URL(url));
+					if (new URL(url).searchParams.get("view") !== "conversation")
+						queryUrls.push(new URL(url));
 					return new Response(
 						JSON.stringify({
 							resource: "dms",
@@ -612,7 +726,16 @@ describe("dms route", () => {
 				{ kind: "dms", inbox: "all", limit: 50, maxPages: 1 },
 			]);
 			expect(queryUrls.length).toBeGreaterThan(initialQueryCount);
-			expect(queryUrls.at(-1)?.searchParams.get("conversationId")).toBe("dm_1");
+			expect(queryUrls.at(-1)?.searchParams.get("view")).toBe("list");
+			expect(
+				fetchMock.mock.calls.some(([input]) => {
+					const url = new URL(String(input), window.location.origin);
+					return (
+						url.searchParams.get("view") === "conversation" &&
+						url.searchParams.get("conversationId") === "dm_1"
+					);
+				}),
+			).toBe(true);
 		});
 	});
 
@@ -633,7 +756,8 @@ describe("dms route", () => {
 					);
 				}
 				if (url.includes("/api/query")) {
-					queryUrls.push(new URL(url));
+					if (new URL(url).searchParams.get("view") !== "conversation")
+						queryUrls.push(new URL(url));
 					return new Response(
 						JSON.stringify({
 							resource: "dms",
