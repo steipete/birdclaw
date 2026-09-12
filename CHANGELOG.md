@@ -2,7 +2,7 @@
 
 ## 0.12.6 - Unreleased
 
-- Reuse bounded, validated query responses in read-only archives and invalidate them when SQLite data changes, reducing repeated query and serialization work.
+- Generate and serve a compact versioned logo for the app and favicon while retaining the high-resolution artwork for documentation.
 
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
 
@@ -15,6 +15,8 @@
 - Batch URL and mention-profile enrichment for conversation descendants while retaining traversal limits and truncation reporting.
 
 - Reuse up to 128 recently prepared SQLite statements per connection while keeping streaming iterators on independent cursors.
+
+- Reuse bounded, validated query responses in read-only archives and invalidate them when SQLite data changes, reducing repeated query and serialization work.
 
 - Hydrate each DM sender once per thread instead of copying profile columns for every message, preserving complete history and independent message objects.
 
