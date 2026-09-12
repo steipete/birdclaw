@@ -18,3 +18,6 @@ coverage
 playwright-report
 test-results
 .toolchains/
+
+# Reproducible application asset derivatives
+.generated/birdclaw-brand/

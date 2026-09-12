@@ -93,6 +93,8 @@ See [Configuration](https://birdclaw.sh/configuration.html) for the complete fil
 ./scripts/bun-canary.sh run --bun build
 ```
 
+Vite generates the compact app/favicon logo from the original artwork during configuration. The derivative lives in `.generated/birdclaw-brand/` and is emitted with a content hash; the full-resolution documentation image remains unchanged. Sharp is a build-only dependency.
+
 The wrapper installs and verifies the exact Rust-port canary recorded in `toolchains/bun-canary.conf`; it refuses a newer rolling canary with a different checksum or revision. CI also runs Bun/Istanbul and Node/V8 coverage, dual-runtime installed-package smoke, and Playwright against the Bun production server.
 
 ## License
