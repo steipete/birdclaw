@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Reduce initial browser JavaScript by keeping ordinary API reads and sync-job polling independent of the server Effect runtime.
+
 - Reuse number formatters for timeline counts, map statistics, and rate limits instead of constructing one for every displayed value.
 
 - Skip rendering unchanged timeline cards during search input, pagination, and status refreshes while preserving replies and conversation updates.

@@ -9,8 +9,7 @@ import {
 	useState,
 } from "react";
 import { tweetConversationResponseSchema } from "#/lib/api-contracts";
-import { fetchJsonEffect } from "#/lib/api-client";
-import { runEffectPromise } from "./effect-runtime";
+import { fetchJson } from "#/lib/api-client";
 import { queryKeys } from "./query-client";
 
 type ConversationStatus = "idle" | "loading" | "ready" | "error";
@@ -27,13 +26,11 @@ export function conversationQueryOptions(tweetId: string) {
 	return queryOptions({
 		queryKey: [...queryKeys.conversations, tweetId] as const,
 		queryFn: () =>
-			runEffectPromise(
-				fetchJsonEffect(
-					`/api/conversation?tweetId=${encodeURIComponent(tweetId)}`,
-					undefined,
-					tweetConversationResponseSchema,
-					"Conversation unavailable",
-				),
+			fetchJson(
+				`/api/conversation?tweetId=${encodeURIComponent(tweetId)}`,
+				undefined,
+				tweetConversationResponseSchema,
+				"Conversation unavailable",
 			).then((data) => data.items),
 		staleTime: Number.POSITIVE_INFINITY,
 	});

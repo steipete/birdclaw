@@ -10,6 +10,12 @@ Keep framework edges boring:
 - React components may call Promise wrappers from effects and event handlers.
 - route handlers may return normal `Response` values.
 
+The browser API adapter in `src/lib/api-client.ts` uses native Promises and
+`AbortSignal`, with schema validation and `ApiFetchError` at the HTTP boundary.
+React Query owns request cancellation, caching, and retries. Keeping this UI
+adapter independent of Effect avoids downloading the server workflow runtime
+for ordinary page reads; server and CLI core I/O retain their Effect programs.
+
 Inside `src/lib`, prefer exporting both forms when useful:
 
 ```ts
@@ -31,7 +37,6 @@ Use `runEffectPromise` from `src/lib/effect-runtime.ts` for Promise wrappers so 
 Current migrated surfaces:
 
 - typed Effect-to-Promise boundary handling in `src/lib/effect-runtime.ts`
-- web API client parsing and sync-job polling in `src/lib/api-client.ts`
 - `bird` command availability and execution in `src/lib/bird-command.ts`
 - `bird` JSON transport, large stdout capture, and temp-file cleanup in `src/lib/bird.ts`
 - `xurl` command execution, JSON parsing, retry delay, mutation helpers, and public adapter wrappers in `src/lib/xurl.ts`
@@ -49,7 +54,7 @@ Current migrated surfaces:
 - scheduled bookmark sync audit logging, overlap locking, backup pass, and launchd install in `src/lib/bookmark-sync-job.ts`
 - web sync orchestration, plan runners, backup pass, and job polling in `src/lib/web-sync.ts`
 
-Production `src/lib` code should stay free of ad hoc `async`/`await` orchestration. Next migrations should target remaining CLI, React, and route edges only where an Effect boundary would simplify error handling, cancellation, retries, or concurrency; otherwise keep those framework adapters as small Promise wrappers over core Effect programs.
+Core production `src/lib` code should stay free of ad hoc `async`/`await` orchestration. The browser API adapter is a framework boundary, including its paced HTTP sync-job polling. Next migrations should target remaining CLI, React, and route edges only where an Effect boundary would simplify error handling, cancellation, retries, or concurrency; otherwise keep those framework adapters small.
 
 ## Transport Strategy
 
