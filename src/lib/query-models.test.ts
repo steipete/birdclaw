@@ -664,6 +664,76 @@ describe("query models", () => {
 		}
 	});
 
+	it("limits timeline membership before hydrating embedded metadata", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		for (const filters of [
+			{ account: "acct_primary" },
+			{},
+			{ replyFilter: "unreplied" as const },
+		]) {
+			const plan = buildTimelineItemsQuery({
+				resource: "home",
+				limit: 2,
+				...filters,
+			});
+			const rows = db
+				.prepare(`explain query plan ${plan.sql}`)
+				.all(...plan.params) as Array<{
+				id: number;
+				parent: number;
+				detail: string;
+			}>;
+			const selection = rows.find(
+				(row) => row.detail === "MATERIALIZE timeline_selection",
+			);
+			expect(selection).toBeDefined();
+			const parents = new Map(rows.map((row) => [row.id, row.parent]));
+			for (const row of rows.filter((row) =>
+				/SEARCH (rt|qt|rp|qp|collection) USING/.test(row.detail),
+			)) {
+				let parent = row.parent;
+				while (parent) {
+					expect(parent).not.toBe(selection?.id);
+					parent = parents.get(parent) ?? 0;
+				}
+			}
+		}
+	});
+
+	it("fills a limited timeline page past missing authors and accounts", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.exec("pragma foreign_keys = off");
+		try {
+			for (const [id, authorProfileId, createdAt] of [
+				["late_valid", "profile_me", "2030-01-01T00:00:00Z"],
+				["late_orphan_author", "missing_author", "2030-01-02T00:00:00Z"],
+				["late_orphan_account", "profile_me", "2030-01-03T00:00:00Z"],
+			] as const) {
+				insertTestTweet(db, {
+					id,
+					authorProfileId,
+					createdAt,
+					text: "Synthetic late hydration",
+				});
+				insertTestEdge(db, id, createdAt);
+			}
+			db.exec(
+				"update tweet_account_edges set account_id = 'missing_account' where tweet_id = 'late_orphan_account'",
+			);
+			for (const account of [undefined, "acct_primary"]) {
+				expect(
+					listTimelineItems({ resource: "home", account, limit: 1 }, db).map(
+						(item) => item.id,
+					),
+				).toEqual(["late_valid"]);
+			}
+		} finally {
+			db.exec("pragma foreign_keys = on");
+		}
+	});
+
 	it("pins dense timeline searches to the created-time index and bounded hydration", () => {
 		setupTempHome();
 		const db = getNativeDb();
@@ -1697,6 +1767,44 @@ describe("query models", () => {
 			["tweet_reason_media", "keep:has-media"],
 			["tweet_reason_rt", "drop:rt"],
 		]);
+	});
+
+	it("preserves timestamp ties across global and account timeline reads", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const createdAt = "2035-01-01T00:00:00Z";
+		db.transaction(() => {
+			for (let index = 0; index < 5100; index++) {
+				const id = `window_tie_${String(index).padStart(5, "0")}`;
+				insertTestTweet(db, {
+					id,
+					createdAt,
+					text: "Synthetic tied timestamp",
+				});
+				insertTestEdge(db, id, createdAt);
+			}
+		})();
+		for (const account of [undefined, "acct_primary", "all"]) {
+			const query = { resource: "home" as const, account, limit: 2 };
+			const plan = buildTimelineItemsQuery(query);
+			expect(plan.usedRecentEdgeWindow).toBe(account === undefined);
+			const selected = listTimelineItems(query, db).map((item) => item.id);
+			const fallback = db
+				.prepare(plan.fallbackSql)
+				.all(...plan.fallbackParams) as Array<{ id: string }>;
+			expect(selected).toEqual(["window_tie_05099", "window_tie_05098"]);
+			expect(selected).toEqual(fallback.map((item) => item.id));
+		}
+		// Sparse account membership outside the candidate window must still be found.
+		db.prepare(
+			"delete from tweet_account_edges where tweet_id like 'window_tie_%' and tweet_id != 'window_tie_00000'",
+		).run();
+		expect(
+			listTimelineItems(
+				{ resource: "home", account: "acct_primary", limit: 2 },
+				db,
+			)[0]?.id,
+		).toBe("window_tie_00000");
 	});
 
 	it("uses chronological index order for the recent candidate window", () => {

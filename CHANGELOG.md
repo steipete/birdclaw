@@ -18,6 +18,8 @@
 
 - Batch URL and mention-profile enrichment for conversation descendants while retaining traversal limits and truncation reporting.
 
+- Select timeline pages before hydrating rich metadata and preserve deterministic timestamp ties at the recent-window boundary.
+
 - Reuse up to 128 recently prepared SQLite statements per connection while keeping streaming iterators on independent cursors.
 
 - Reuse bounded, validated query responses in read-only archives and invalidate them when SQLite data changes, reducing repeated query and serialization work.

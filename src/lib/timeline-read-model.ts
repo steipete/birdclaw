@@ -758,7 +758,7 @@ export function buildTimelineItemsQuery(
             select id
             from tweets indexed by idx_tweets_created
             where deleted_at is null and superseded_at is null
-            order by created_at desc
+            order by created_at desc, id desc
 	            limit ?
 	          )
 	      )
@@ -886,28 +886,35 @@ export function buildTimelineItemsQuery(
         cross join tweets t on t.id = fts_matches.tweet_id
         cross join timeline_edges e on e.tweet_id = t.id`;
 
+	const boundedHydration =
+		Boolean(ftsSearch) || (!likedOnly && !bookmarkedOnly);
 	params.push(limit);
-	if (ftsSearch) {
-		// Outer limit; the inner search CTE consumes the first one.
-		params.push(limit);
-	}
+	if (boundedHydration) params.push(limit);
 
-	// For searches, resolve the limited id set first so the wide column list
-	// (embedded tweets, bookmark/like probes) is only evaluated for returned
-	// rows instead of every match.
-	const searchSelectionCte = ftsSearch
-		? `, search_selection as materialized (
+	// Select the page before loading embedded tweets and collection metadata.
+	const selectionName = ftsSearch ? "search_selection" : "timeline_selection";
+	const selectionFrom = ftsSearch
+		? searchDrivenFrom
+		: "timeline_edges e join tweets t on t.id = e.tweet_id";
+	const selectionCte = boundedHydration
+		? `, ${selectionName} as materialized (
         select t.id as tweet_id, e.account_id, e.kind, e.raw_json
-        from ${searchDrivenFrom}
+        from ${selectionFrom}
+        ${
+					ftsSearch
+						? ""
+						: `join accounts selected_account on selected_account.id = e.account_id
+        join profiles selected_author on selected_author.id = t.author_profile_id`
+				}
         ${where}
         order by t.created_at desc, t.id desc
         limit ?
       )`
 		: "";
 
-	const hydrationJoin = ftsSearch ? "cross join" : "join";
+	const hydrationJoin = boundedHydration ? "cross join" : "join";
 	const buildTimelineSelectSql = (timelineEdgesSql: string) => `
-      ${timelineEdgesSql}${ftsMatchesCte}${searchSelectionCte}
+      ${timelineEdgesSql}${ftsMatchesCte}${selectionCte}
       select
         t.id,
         e.account_id,
@@ -984,7 +991,7 @@ export function buildTimelineItemsQuery(
         qp.avatar_hue as quoted_avatar_hue,
         qp.avatar_url as quoted_avatar_url,
         qp.created_at as quoted_profile_created_at
-      from ${ftsSearch ? "search_selection e" : "timeline_edges e"}
+      from ${boundedHydration ? selectionName : "timeline_edges"} e
       ${hydrationJoin} tweets t on t.id = e.tweet_id
       ${hydrationJoin} accounts a on a.id = e.account_id
       ${hydrationJoin} profiles p on p.id = t.author_profile_id
@@ -992,7 +999,7 @@ export function buildTimelineItemsQuery(
       left join profiles rp on rp.id = rt.author_profile_id
       left join tweets qt on qt.id = t.quoted_tweet_id and qt.deleted_at is null and qt.superseded_at is null
       left join profiles qp on qp.id = qt.author_profile_id
-      ${ftsSearch ? "" : where}
+      ${boundedHydration ? "" : where}
       order by t.created_at desc, t.id desc
       limit ?
       `;
