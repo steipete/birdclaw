@@ -5,6 +5,8 @@ description: "Mentions ingest, cached live export, and conversation backfill —
 
 # Mentions
 
+In the web app, select **Open on X** beside **Thread** to open the tweet in a new tab. Parent tweets, quoted tweets, and expanded conversation replies have their own links. Reposts link to the original tweet when its ID is known. These links also work in read-only archives.
+
 There are two commands and they do different things:
 
 - [`birdclaw sync mentions`](sync.md#sync-mentions) is the ingest path. It pulls live mentions through `xurl` (or `bird`), writes them into the canonical local store with `kind='mention'`, and exits. Run this on cron.

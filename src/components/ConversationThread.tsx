@@ -10,6 +10,7 @@ import {
 import { AvatarChip } from "./AvatarChip";
 import { BirdclawEmpty, BirdclawLoading } from "./BrandMark";
 import { ProfilePreview } from "./ProfilePreview";
+import { OpenTweetLink } from "./OpenTweetLink";
 import { SmartTimestamp } from "./SmartTimestamp";
 import { TweetArticleCard } from "./TweetArticleCard";
 import { TweetMediaGrid } from "./TweetMediaGrid";
@@ -121,6 +122,9 @@ export function ConversationThread({
 								{tweet.entities.article ? (
 									<TweetArticleCard article={tweet.entities.article} />
 								) : null}
+								<div className="mt-2">
+									<OpenTweetLink compact tweetId={tweet.id} />
+								</div>
 							</div>
 						</div>
 					);
