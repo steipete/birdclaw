@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Effect } from "effect";
-import { queryResponseSchema } from "#/lib/api-contracts";
 import { resourceKindSchema } from "#/lib/api-enums";
 import { requestBackupAutoUpdate } from "#/lib/backup";
 import {
@@ -9,7 +8,7 @@ import {
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
-import { queryResource } from "#/lib/query-resource";
+import { queryResourceResponse } from "#/lib/query-resource-response";
 import type { DmQuery, ReplyFilter, TimelineQualityFilter } from "#/lib/types";
 
 function parseReplyFilter(value: string | null): ReplyFilter {
@@ -82,42 +81,33 @@ export const Route = createFileRoute("/api/query")({
 						};
 
 						if (resource === "dms") {
-							return jsonResponse(
-								queryResponseSchema.parse(
-									queryResource("dms", {
-										...baseFilters,
-										participant:
-											url.searchParams.get("participant") ?? undefined,
-										minFollowers: parseOptionalNumber(
-											url.searchParams.get("minFollowers"),
-										),
-										maxFollowers: parseOptionalNumber(
-											url.searchParams.get("maxFollowers"),
-										),
-										minInfluenceScore: parseOptionalNumber(
-											url.searchParams.get("minInfluenceScore"),
-										),
-										maxInfluenceScore: parseOptionalNumber(
-											url.searchParams.get("maxInfluenceScore"),
-										),
-										sort: parseDmSort(url.searchParams.get("sort")),
-										inbox: parseDmInbox(url.searchParams.get("inbox")),
-										conversationId:
-											url.searchParams.get("conversationId") ?? undefined,
-									}),
+							return queryResourceResponse("dms", {
+								...baseFilters,
+								participant: url.searchParams.get("participant") ?? undefined,
+								minFollowers: parseOptionalNumber(
+									url.searchParams.get("minFollowers"),
 								),
-							);
+								maxFollowers: parseOptionalNumber(
+									url.searchParams.get("maxFollowers"),
+								),
+								minInfluenceScore: parseOptionalNumber(
+									url.searchParams.get("minInfluenceScore"),
+								),
+								maxInfluenceScore: parseOptionalNumber(
+									url.searchParams.get("maxInfluenceScore"),
+								),
+								sort: parseDmSort(url.searchParams.get("sort")),
+								inbox: parseDmInbox(url.searchParams.get("inbox")),
+								conversationId:
+									url.searchParams.get("conversationId") ?? undefined,
+							});
 						}
 
-						return jsonResponse(
-							queryResponseSchema.parse(
-								queryResource(resource, {
-									...baseFilters,
-									resource,
-									untilId: url.searchParams.get("untilId") ?? undefined,
-								}),
-							),
-						);
+						return queryResourceResponse(resource, {
+							...baseFilters,
+							resource,
+							untilId: url.searchParams.get("untilId") ?? undefined,
+						});
 					}),
 				),
 		},

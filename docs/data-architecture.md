@@ -591,6 +591,12 @@ account selection. Bootstrap failures fall back to the normal client request.
 No archive discovery, live reads, or backup updates run in the bootstrap.
 Server query clients remain request-local and do not retain timed GC entries.
 
+### Read-only query response reuse
+
+After authorization and filter parsing, `/api/query` may reuse validated serialized JSON in read-only deployments. Entries are scoped to the reader connection and normalized resource/filter arguments, including account selection. Each lookup checks SQLite `data_version`; changed databases drop their prior entries. A second check avoids retaining a response across an external commit. The cache retains at most 100 entries and 4 MiB of encoded keys/values per reader, skips responses over 512 KiB and keys over 4 KiB, and evicts least-recently-used entries.
+
+Writable deployments bypass this cache. Exceptions are not retained, and response bodies remain independent. This is process-local reuse of deterministic reads, not an HTTP cache: authentication and HTTP cache policy remain unchanged, and time-dependent link insights are outside its scope.
+
 Ordinary timeline reads materialize their limited membership before hydrating reply/quote profiles and collection metadata. Ordinary timeline selection retains account/author joins before the limit so malformed orphan rows cannot shorten a page. Saved-post reads keep their collection query plan. Search retains its existing bounded selection and join order, and recent-window fallback, account preference, filters, and keyset ordering remain unchanged.
 
 Recent-window candidate order includes tweet IDs so timestamp ties match the final page order. Account-scoped and literal-account callers retain their existing membership rules.

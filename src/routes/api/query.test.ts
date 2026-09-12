@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRouteHandler } from "#/test/route-handlers";
 
 const queryResourceMock = vi.fn();
@@ -17,6 +17,21 @@ import { Route } from "./query";
 const GET = getRouteHandler(Route, "GET");
 
 describe("api query route", () => {
+	afterEach(() => vi.unstubAllEnvs());
+	it("authorizes before accessing cached query responses", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("VITEST", "false");
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		vi.stubEnv("BIRDCLAW_ALLOW_REMOTE_WEB", "1");
+		vi.stubEnv("BIRDCLAW_WEB_TOKEN", "synthetic-query-cache-test");
+		const response = await GET({
+			request: new Request("https://archive.example/api/query?resource=home"),
+		});
+		expect(response.status).toBe(403);
+		expect(queryResourceMock).not.toHaveBeenCalled();
+		expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+	});
+
 	beforeEach(() => {
 		queryResourceMock.mockReset();
 		maybeAutoUpdateBackupMock.mockReset();

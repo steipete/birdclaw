@@ -20,6 +20,8 @@
 
 - Reuse up to 128 recently prepared SQLite statements per connection while keeping streaming iterators on independent cursors.
 
+- Reuse bounded, validated query responses in read-only archives and invalidate them when SQLite data changes, reducing repeated query and serialization work.
+
 - Hydrate each DM sender once per thread instead of copying profile columns for every message, preserving complete history and independent message objects.
 
 - Limit Inbox score reads to the current candidate mentions and conversations instead of loading the entire scoring history.
