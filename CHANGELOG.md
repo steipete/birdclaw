@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Pause relative-timestamp updates in hidden tabs, refresh immediately on return, and reuse unchanged exact timestamp labels.
+
 - Keep unchanged DM conversations and message bubbles out of reply-draft renders.
 
 - Reuse network-map profile ordering while panning and zooming instead of sorting the visible population on every viewport change.

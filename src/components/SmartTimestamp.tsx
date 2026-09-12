@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import {
 	formatExactTimestamp,
 	formatShortTimestamp,
@@ -18,19 +18,39 @@ function updateClock() {
 	for (const listener of listeners) listener();
 }
 
+function stopClock() {
+	if (clockInterval === null) return;
+	clearInterval(clockInterval);
+	clockInterval = null;
+}
+
+function startClock() {
+	if (clockInterval !== null || document.visibilityState === "hidden") return;
+	clockInterval = setInterval(updateClock, CLOCK_INTERVAL_MS);
+}
+
+function handleVisibilityChange() {
+	if (document.visibilityState === "hidden") stopClock();
+	else {
+		updateClock();
+		startClock();
+	}
+}
+
 function subscribeToClock(listener: () => void) {
 	listeners.add(listener);
 
-	if (clockInterval === null) {
+	if (listeners.size === 1) {
 		currentNow = Date.now();
-		clockInterval = setInterval(updateClock, CLOCK_INTERVAL_MS);
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+		startClock();
 	}
 
 	return () => {
 		listeners.delete(listener);
-		if (listeners.size === 0 && clockInterval !== null) {
-			clearInterval(clockInterval);
-			clockInterval = null;
+		if (listeners.size === 0) {
+			stopClock();
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
 		}
 	};
 }
@@ -55,7 +75,7 @@ export function SmartTimestamp({
 		getClockSnapshot,
 		getServerClockSnapshot,
 	);
-	const exactTimestamp = formatExactTimestamp(value);
+	const exactTimestamp = useMemo(() => formatExactTimestamp(value), [value]);
 
 	return (
 		<time
