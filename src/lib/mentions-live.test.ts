@@ -115,6 +115,151 @@ describe("cached live mentions", () => {
 		}
 	});
 
+	it("fetches new heads while preserving and draining every saved continuation", async () => {
+		makeTempHome();
+		insertLocalMentionBaseline();
+		const { syncMentions } = await import("./mentions-live");
+		const page = (id: string, next?: string) => ({
+			data: [
+				{
+					id,
+					author_id: "11",
+					text: `Mention ${id}`,
+					created_at: "2026-09-12T00:00:00.000Z",
+				},
+			],
+			includes: { users: [{ id: "11", username: "fixture", name: "Fixture" }] },
+			meta: { result_count: 1, ...(next ? { next_token: next } : {}) },
+		});
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce(page("2000", "old-tail"))
+			.mockResolvedValueOnce(page("4000", "recent-tail"))
+			.mockResolvedValueOnce(page("5000", "newer-tail"))
+			.mockResolvedValueOnce(page("3000"))
+			.mockResolvedValueOnce(page("4500"))
+			.mockResolvedValueOnce(page("1500"));
+		const options = { mode: "xurl", limit: 5, maxPages: 1, refresh: true };
+		await syncMentions(options);
+		for (let index = 0; index < 2; index++) {
+			const result = await syncMentions({
+				...options,
+				intent: "latest",
+				refresh: false,
+			});
+			expect(result).toMatchObject({
+				intent: "latest",
+				position: "head",
+				source: "xurl",
+				partial: true,
+			});
+			expect(Number.isFinite(Date.parse(result.checkedAt))).toBe(true);
+		}
+		for (let index = 0; index < 3; index++) {
+			const result = await syncMentions({ ...options, intent: "resume" });
+			expect(result).toMatchObject({
+				position: "continuation",
+				partial: false,
+			});
+		}
+		const requests = listMentionsViaXurlMock.mock.calls.map(([request]) => ({
+			sinceId: request.sinceId,
+			token: request.paginationToken,
+		}));
+		expect(requests).toEqual([
+			{ sinceId: "1000", token: undefined },
+			{ sinceId: "2000", token: undefined },
+			{ sinceId: "4000", token: undefined },
+			{ sinceId: "2000", token: "recent-tail" },
+			{ sinceId: "4000", token: "newer-tail" },
+			{ sinceId: "1000", token: "old-tail" },
+		]);
+		const ids = getNativeDb()
+			.prepare(
+				"select tweet_id from tweet_account_edges where kind = 'mention' and account_id = 'acct_primary' order by tweet_id",
+			)
+			.all() as Array<{ tweet_id: string }>;
+		expect(
+			ids.map((row) => row.tweet_id).filter((id) => /^\d+$/.test(id)),
+		).toEqual(["1000", "1500", "2000", "3000", "4000", "4500", "5000"]);
+	});
+
+	it("resumes an unbounded first head and rejects conflicting explicit cursor metadata", async () => {
+		makeTempHome();
+		const { syncMentions } = await import("./mentions-live");
+		const page = (id: string) => ({
+			data: [
+				{
+					id,
+					author_id: "11",
+					text: "mention",
+					created_at: "2026-09-12T00:00:00.000Z",
+				},
+			],
+			includes: { users: [{ id: "11", username: "fixture", name: "Fixture" }] },
+			meta: { result_count: 1, next_token: "next" },
+		});
+		listMentionsViaXurlMock.mockResolvedValueOnce(page("2000"));
+		await syncMentions({
+			mode: "xurl",
+			limit: 5,
+			maxPages: 1,
+			intent: "latest",
+		});
+		listMentionsViaXurlMock.mockResolvedValueOnce({
+			data: [],
+			meta: { result_count: 0 },
+		});
+		await syncMentions({
+			mode: "xurl",
+			limit: 5,
+			maxPages: 1,
+			intent: "resume",
+		});
+		expect(listMentionsViaXurlMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ paginationToken: "next" }),
+		);
+		expect(listMentionsViaXurlMock.mock.lastCall?.[0].sinceId).toBeUndefined();
+		listMentionsViaXurlMock.mockResolvedValueOnce(page("3000"));
+		await syncMentions({
+			mode: "xurl",
+			limit: 5,
+			maxPages: 1,
+			intent: "latest",
+		});
+		const db = getNativeDb();
+		const row = db
+			.prepare(
+				"select cache_key, value_json from sync_cache where cache_key like 'mentions:sync:cursor:%boundary=since%'",
+			)
+			.get() as { cache_key: string; value_json: string };
+		const value = JSON.parse(row.value_json);
+		value.birdclaw.boundary.sinceId = "9999";
+		db.prepare("update sync_cache set value_json=? where cache_key=?").run(
+			JSON.stringify(value),
+			row.cache_key,
+		);
+		await expect(
+			syncMentions({ mode: "xurl", limit: 5, intent: "resume" }),
+		).rejects.toThrow("disagrees with its key");
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(3);
+	});
+
+	it("rejects incompatible sync intents before transport reads", async () => {
+		makeTempHome();
+		const { syncMentions } = await import("./mentions-live");
+		await expect(
+			syncMentions({ intent: "latest", sinceId: "1000" }),
+		).rejects.toThrow("cannot be combined");
+		await expect(
+			syncMentions({ intent: "resume", startTime: "2026-01-01" }),
+		).rejects.toThrow("cannot be combined");
+		await expect(
+			syncMentions({ intent: "resume", mode: "bird" }),
+		).rejects.toThrow("requires xurl");
+		expect(listMentionsViaXurlMock).not.toHaveBeenCalled();
+		expect(listMentionsViaBirdMock).not.toHaveBeenCalled();
+	});
+
 	it("rejects a mismatched explicit Bird account before mention persistence", async () => {
 		makeTempHome();
 		getAuthenticatedBirdAccountMock.mockResolvedValue({

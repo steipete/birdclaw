@@ -86,6 +86,11 @@ export function registerSyncCommands({
 	syncCommand
 		.command("mentions")
 		.description("Refresh live mentions through xurl or bird")
+		.option("--latest", "Fetch the newest page without resuming an older scan")
+		.option(
+			"--resume",
+			"Resume saved mention pages before starting another scan",
+		)
 		.option("--account <username>", "Account username or id")
 		.option("--mode <mode>", "auto, bird, or xurl", "auto")
 		.option("--limit <n>", "Result limit per page", "20")
@@ -99,7 +104,14 @@ export function registerSyncCommands({
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 		.action(async (options) => {
 			try {
+				if (options.latest && options.resume)
+					throw new Error("Choose either --latest or --resume");
 				const result = await syncMentions({
+					...(options.latest
+						? { intent: "latest" as const }
+						: options.resume
+							? { intent: "resume" as const }
+							: {}),
 					account: options.account,
 					mode: options.mode,
 					limit: Number(options.limit),

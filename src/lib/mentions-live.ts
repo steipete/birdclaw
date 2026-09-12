@@ -1,4 +1,19 @@
 import type { Database } from "./sqlite";
+import {
+	getMentionCursorKey,
+	getMentionResultCacheKey,
+	getMentionCursorBoundary,
+	getMentionRequestBoundary,
+	maxNumericTweetId,
+	getNewestMentionId,
+	addMentionCursorState,
+	readMentionHighWaterId,
+	writeMentionHighWaterId,
+	findNewestMentionId,
+	selectMentionScan,
+	type MentionScanShape,
+	type MentionSyncIntent,
+} from "./mentions-cursor";
 import { Effect } from "effect";
 import { listMentionsViaBirdEffect } from "./bird";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
@@ -19,7 +34,6 @@ import { listTimelineItems } from "./timeline-read-model";
 import {
 	deleteSyncCache,
 	inspectSyncCache,
-	readSyncCache,
 	writeSyncCache,
 } from "./sync-cache";
 import { runSyncPlanEffect } from "./sync-plan";
@@ -43,6 +57,7 @@ export interface MentionsProgress {
 	done: boolean;
 }
 export interface SyncMentionsOptions {
+	intent?: MentionSyncIntent;
 	account?: string;
 	mode?: string;
 	limit?: number;
@@ -64,26 +79,6 @@ interface ExportMentionsViaCachedLiveSourceOptions {
 	refresh?: boolean;
 	cacheTtlMs?: number;
 }
-type MentionScanBoundary =
-	| { kind: "auto" }
-	| { kind: "since"; sinceId: string }
-	| { kind: "start"; startTime: string }
-	| { kind: "unbounded" };
-interface MentionScanShape {
-	mode: MentionLiveSource;
-	accountId: string;
-	pageSize: number;
-	boundary: MentionScanBoundary;
-}
-interface MentionCursorValue extends XurlMentionsResponse {
-	birdclaw?: {
-		boundary?: MentionScanBoundary;
-		pendingNewestId?: string | null;
-	};
-}
-interface MentionHighWaterValue {
-	sinceId: string;
-}
 
 function getMentionsExportCacheKey({
 	mode,
@@ -99,90 +94,6 @@ function getMentionsExportCacheKey({
 	maxPages: number | null;
 }) {
 	return `mentions:export:${mode}:${accountId}:${String(pageSize)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}`;
-}
-
-function encodeCacheKeyPart(value: string) {
-	return encodeURIComponent(value);
-}
-
-function getMentionScanBoundaryKey(boundary: MentionScanBoundary) {
-	switch (boundary.kind) {
-		case "auto":
-			return "auto";
-		case "since":
-			return `since=${encodeCacheKeyPart(boundary.sinceId)}`;
-		case "start":
-			return `start=${encodeCacheKeyPart(boundary.startTime)}`;
-		case "unbounded":
-			return "unbounded";
-	}
-}
-
-function getMentionScanShapeKey(shape: MentionScanShape) {
-	return [
-		`mode=${shape.mode}`,
-		`account=${encodeCacheKeyPart(shape.accountId)}`,
-		`page=${String(shape.pageSize)}`,
-		`boundary=${getMentionScanBoundaryKey(shape.boundary)}`,
-	].join(":");
-}
-
-function getMentionCursorKey(shape: MentionScanShape) {
-	return `mentions:sync:cursor:v2:${getMentionScanShapeKey(shape)}`;
-}
-
-function getMentionResultCacheKey({
-	shape,
-	all,
-	maxPages,
-}: {
-	shape: MentionScanShape;
-	all: boolean;
-	maxPages: number | null;
-}) {
-	return `mentions:sync:result:v2:${getMentionScanShapeKey(shape)}:${all ? "all" : "single"}:${maxPages === null ? "all-pages" : String(maxPages)}`;
-}
-
-function getMentionHighWaterKey({
-	mode,
-	accountId,
-}: {
-	mode: MentionLiveSource;
-	accountId: string;
-}) {
-	return `mentions:sync:high-water:v1:mode=${mode}:account=${encodeCacheKeyPart(accountId)}`;
-}
-
-function getMentionCursorBoundary({
-	explicitSinceId,
-	explicitStartTime,
-}: {
-	explicitSinceId?: string;
-	explicitStartTime?: string;
-}): MentionScanBoundary {
-	if (explicitSinceId) {
-		return { kind: "since", sinceId: explicitSinceId };
-	}
-	if (explicitStartTime) {
-		return { kind: "start", startTime: explicitStartTime };
-	}
-	return { kind: "auto" };
-}
-
-function getMentionRequestBoundary({
-	sinceId,
-	startTime,
-}: {
-	sinceId?: string;
-	startTime?: string;
-}): MentionScanBoundary {
-	if (sinceId) {
-		return { kind: "since", sinceId };
-	}
-	if (startTime) {
-		return { kind: "start", startTime };
-	}
-	return { kind: "unbounded" };
 }
 
 function assertXurlLimit(limit: number) {
@@ -201,144 +112,6 @@ function assertBirdLimit(limit: number) {
 
 function parseSyncMode(value?: string): MentionSyncMode {
 	return parseLiveSyncMode(value, "auto");
-}
-
-function getMentionCursorToken(cached?: { value: MentionCursorValue } | null) {
-	return typeof cached?.value.meta?.next_token === "string" &&
-		cached.value.meta.next_token.length > 0
-		? cached.value.meta.next_token
-		: undefined;
-}
-
-function parseCachedMentionBoundary(
-	value: MentionCursorValue | XurlMentionsResponse,
-	fallbackBoundary?: MentionScanBoundary,
-) {
-	const boundary = (value as MentionCursorValue).birdclaw?.boundary;
-	if (!boundary || typeof boundary !== "object") {
-		return fallbackBoundary;
-	}
-	if (boundary.kind === "unbounded" || boundary.kind === "auto") {
-		return boundary;
-	}
-	if (boundary.kind === "since" && typeof boundary.sinceId === "string") {
-		return boundary;
-	}
-	if (boundary.kind === "start" && typeof boundary.startTime === "string") {
-		return boundary;
-	}
-	return fallbackBoundary;
-}
-
-function getCachedMentionPendingNewestId(
-	value: MentionCursorValue | XurlMentionsResponse | undefined,
-) {
-	const pendingNewestId = (value as MentionCursorValue | undefined)?.birdclaw
-		?.pendingNewestId;
-	return isNumericTweetId(pendingNewestId) ? pendingNewestId : undefined;
-}
-
-function addMentionCursorState(
-	payload: XurlMentionsResponse,
-	boundary: MentionScanBoundary,
-	pendingNewestId: string | undefined,
-): MentionCursorValue {
-	return {
-		...payload,
-		birdclaw: { boundary, pendingNewestId: pendingNewestId ?? null },
-	};
-}
-
-function readMentionCursor(db: Database, shape: MentionScanShape) {
-	const cursorKey = getMentionCursorKey(shape);
-	const fallbackBoundary =
-		shape.boundary.kind === "auto" ? undefined : shape.boundary;
-	const current = readSyncCache<MentionCursorValue>(cursorKey, db);
-	const currentToken = getMentionCursorToken(current);
-	if (current && currentToken) {
-		return {
-			token: currentToken,
-			boundary: parseCachedMentionBoundary(current.value, fallbackBoundary),
-			pendingNewestId: getCachedMentionPendingNewestId(current.value),
-		};
-	}
-
-	return undefined;
-}
-
-function isNumericTweetId(value: string | undefined | null): value is string {
-	return typeof value === "string" && /^[0-9]+$/.test(value);
-}
-
-function maxNumericTweetId(...ids: Array<string | undefined | null>) {
-	return ids.filter(isNumericTweetId).reduce<string | undefined>((max, id) => {
-		if (!max) {
-			return id;
-		}
-		if (id.length !== max.length) {
-			return id.length > max.length ? id : max;
-		}
-		return id > max ? id : max;
-	}, undefined);
-}
-
-function getNewestMentionId(payload: XurlMentionsResponse) {
-	return maxNumericTweetId(
-		typeof payload.meta?.newest_id === "string"
-			? payload.meta.newest_id
-			: undefined,
-		...payload.data.map((tweet) => tweet.id),
-	);
-}
-
-function readMentionHighWaterId(
-	db: Database,
-	mode: MentionLiveSource,
-	accountId: string,
-) {
-	const cached = readSyncCache<MentionHighWaterValue>(
-		getMentionHighWaterKey({ mode, accountId }),
-		db,
-	);
-	return isNumericTweetId(cached?.value.sinceId)
-		? cached.value.sinceId
-		: undefined;
-}
-
-function writeMentionHighWaterId(
-	db: Database,
-	mode: MentionLiveSource,
-	accountId: string,
-	sinceId: string | undefined,
-) {
-	if (!isNumericTweetId(sinceId)) {
-		return;
-	}
-	writeSyncCache(getMentionHighWaterKey({ mode, accountId }), { sinceId }, db);
-}
-
-function findNewestArchiveMentionId(db: Database, accountId: string) {
-	const row = db
-		.prepare(
-			`
-      select t.id
-      from tweets t
-      join tweet_account_edges e
-        on e.tweet_id = t.id
-      where e.account_id = ?
-        and e.kind = 'mention'
-        and e.source in ('archive', 'legacy')
-		and t.deleted_at is null
-		and t.superseded_at is null
-        and length(t.id) > 0
-        and t.id glob '[0-9]*'
-        and t.id not glob '*[^0-9]*'
-      order by length(t.id) desc, t.id desc
-      limit 1
-      `,
-		)
-		.get(accountId) as { id: string } | undefined;
-	return row?.id;
 }
 
 function mergeMentionsIntoLocalStore(
@@ -475,6 +248,7 @@ function fetchMentionsViaBirdEffect({
 }
 
 export function syncMentionsEffect({
+	intent = "auto",
 	account,
 	mode,
 	limit = 20,
@@ -491,6 +265,18 @@ export function syncMentionsEffect({
 			parsedMode === "auto" ? "xurl" : parsedMode;
 		const explicitSinceId = sinceId?.trim() || undefined;
 		const explicitStartTime = startTime?.trim() || undefined;
+		if (!["auto", "latest", "resume"].includes(intent))
+			return yield* Effect.fail(new Error("Invalid mentions sync intent"));
+		if (intent !== "auto" && (explicitSinceId || explicitStartTime))
+			return yield* Effect.fail(
+				new Error(
+					"--latest and --resume cannot be combined with --since-id or --start-time",
+				),
+			);
+		if (intent === "resume" && primaryMode === "bird")
+			return yield* Effect.fail(
+				new Error("--resume requires xurl mentions pagination"),
+			);
 		if (primaryMode === "bird" && (explicitSinceId || explicitStartTime)) {
 			return yield* Effect.fail(
 				new Error("bird mode does not support --since-id or --start-time"),
@@ -506,12 +292,12 @@ export function syncMentionsEffect({
 		const fetchAll =
 			primaryMode === "xurl" &&
 			(parsedMaxPages !== null ||
-				Boolean(explicitSinceId || explicitStartTime));
+				(intent === "auto" && Boolean(explicitSinceId || explicitStartTime)));
 		const db = yield* trySync(() => getNativeDb());
 		const resolvedAccount = yield* trySync(() =>
 			resolveLiveSyncAccount(db, account),
 		);
-		const cursorShape: MentionScanShape = {
+		const initialShape: MentionScanShape = {
 			mode: primaryMode,
 			accountId: resolvedAccount.accountId,
 			pageSize: limit,
@@ -520,11 +306,10 @@ export function syncMentionsEffect({
 				explicitStartTime,
 			}),
 		};
+		const { shape: cursorShape, cursor } = yield* trySync(() =>
+			selectMentionScan(db, initialShape, intent),
+		);
 		const cursorKey = getMentionCursorKey(cursorShape);
-		const cursor =
-			primaryMode === "xurl"
-				? yield* trySync(() => readMentionCursor(db, cursorShape))
-				: undefined;
 		const startPaginationToken = cursor?.token;
 		const cursorSinceId =
 			cursor?.boundary?.kind === "since" ? cursor.boundary.sinceId : undefined;
@@ -542,21 +327,24 @@ export function syncMentionsEffect({
 				: undefined;
 		const seededSinceId =
 			primaryMode === "xurl" &&
-			!explicitSinceId &&
-			!explicitStartTime &&
+			cursorShape.boundary.kind === "auto" &&
 			!startPaginationToken
 				? (committedSinceId ??
 					(yield* trySync(() =>
-						findNewestArchiveMentionId(db, resolvedAccount.accountId),
+						findNewestMentionId(db, resolvedAccount.accountId),
 					)))
 				: undefined;
 		const resolvedSinceId = startPaginationToken
 			? cursorSinceId
-			: (explicitSinceId ?? seededSinceId);
+			: cursorShape.boundary.kind === "since"
+				? cursorShape.boundary.sinceId
+				: seededSinceId;
 		const resolvedStartTime = startPaginationToken
 			? cursorStartTime
 			: !resolvedSinceId
-				? explicitStartTime
+				? cursorShape.boundary.kind === "start"
+					? cursorShape.boundary.startTime
+					: undefined
 				: undefined;
 		const resolvedBoundary = getMentionRequestBoundary({
 			sinceId: resolvedSinceId,
@@ -585,7 +373,13 @@ export function syncMentionsEffect({
 				);
 		const cached = cache.entry;
 
-		if (!startPaginationToken && !refresh && cached && cache.fresh) {
+		if (
+			intent === "auto" &&
+			!startPaginationToken &&
+			!refresh &&
+			cached &&
+			cache.fresh
+		) {
 			yield* databaseWriteEffect((writeDb) =>
 				mergeMentionsIntoLocalStore(
 					writeDb,
@@ -609,11 +403,15 @@ export function syncMentionsEffect({
 				accountId: resolvedAccount.accountId,
 				count: cached.value.data.length,
 				partial: false,
+				intent,
+				position: "head" as const,
+				checkedAt: cached.updatedAt,
 				payload: cached.value,
 			};
 		}
 
 		if (
+			intent === "auto" &&
 			primaryMode === "xurl" &&
 			!explicitSinceId &&
 			!explicitStartTime &&
@@ -670,6 +468,7 @@ export function syncMentionsEffect({
 						}),
 					);
 		const { payload } = fetched;
+		const checkedAt = new Date().toISOString();
 		if (source === "bird") {
 			yield* Effect.sync(() =>
 				onProgress?.({
@@ -744,6 +543,11 @@ export function syncMentionsEffect({
 			accountId: resolvedAccount.accountId,
 			count: payload.data.length,
 			partial: !fetched.complete,
+			intent,
+			position: startPaginationToken
+				? ("continuation" as const)
+				: ("head" as const),
+			checkedAt,
 			payload,
 		};
 	});

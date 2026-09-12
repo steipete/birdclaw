@@ -122,6 +122,29 @@ birdclaw sync mentions --mode xurl --limit 100 --max-pages 3 --refresh --json
 birdclaw sync mentions --mode bird --limit 50 --json
 ```
 
+Use `--latest` for current mentions while a historical scan is still pending,
+then `--resume` to consume saved continuation pages without losing that history:
+
+```bash
+birdclaw sync mentions --mode xurl --latest --limit 100 --max-pages 1 --json
+birdclaw sync mentions --mode xurl --resume --limit 100 --max-pages 1 --json
+```
+
+`--latest` always makes a live newest-page read, independently of existing
+pagination cursors. It preserves any remaining pages for `--resume`, which
+prioritizes pending explicit scans before the older automatic scan. With no
+pending cursor, `--resume` starts the next incremental scan. Account and page-size
+boundaries remain isolated. The default command retains its existing automatic
+cursor behavior.
+
+The flags are mutually exclusive and cannot be combined with `--since-id` or
+`--start-time`. Explicit `bird` mode supports `--latest`, but resumable pagination
+requires `xurl`. The JSON result includes `intent`, `position` (`head` or
+`continuation`), and `checkedAt`; `partial` continues to describe remaining pages,
+not whether the newest page was checked. A cached default read retains the cache
+timestamp instead of claiming a new live check. Web and scheduled account mention
+refreshes use the newest-page intent.
+
 Flags:
 
 - `--account <accountId>` — pick the account when multiple are configured

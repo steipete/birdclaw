@@ -161,6 +161,7 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 		run: (account) =>
 			Effect.gen(function* () {
 				const mentions = yield* syncMentionsEffect({
+					intent: "latest",
 					account,
 					mode: "auto",
 					limit: 100,

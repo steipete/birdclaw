@@ -209,6 +209,7 @@ describe("web sync dispatcher", () => {
 		const result = await runWebSync("mentions");
 
 		expect(syncMentionsMock).toHaveBeenCalledWith({
+			intent: "latest",
 			account: undefined,
 			mode: "auto",
 			limit: 100,

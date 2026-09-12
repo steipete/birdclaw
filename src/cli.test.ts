@@ -1492,6 +1492,27 @@ describe("cli", () => {
 		});
 	});
 
+	it("dispatches explicit latest and resume mention intents and rejects combining them", async () => {
+		const { runCli } = await loadCli();
+		syncMentionsMock.mockResolvedValue({ ok: true, partial: false });
+		for (const intent of ["latest", "resume"]) {
+			await runCli(["node", "birdclaw", "sync", "mentions", `--${intent}`]);
+			expect(syncMentionsMock).toHaveBeenLastCalledWith(
+				expect.objectContaining({ intent }),
+			);
+		}
+		await runCli([
+			"node",
+			"birdclaw",
+			"sync",
+			"mentions",
+			"--latest",
+			"--resume",
+		]);
+		expect(process.exitCode).toBe(1);
+		expect(syncMentionsMock).toHaveBeenCalledTimes(2);
+	});
+
 	it("marks capped sync mentions as partial", async () => {
 		syncMentionsMock.mockResolvedValueOnce({
 			ok: true,

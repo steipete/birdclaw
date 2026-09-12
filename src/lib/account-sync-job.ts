@@ -230,6 +230,7 @@ async function runStep({
 			const mentionMode =
 				mode === "auto" ? (allowBirdAccount ? "auto" : "xurl") : mode;
 			const result = await syncMentions({
+				intent: "latest",
 				account,
 				mode: mentionMode,
 				limit,
