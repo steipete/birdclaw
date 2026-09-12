@@ -1175,6 +1175,17 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 			`);
 		},
 	},
+	{
+		version: 10,
+		name: "index profile references for identity reconciliation",
+		up: (db) => {
+			db.exec(`
+				create index if not exists idx_follow_snapshot_members_profile on follow_snapshot_members(profile_id);
+				create index if not exists idx_follow_events_profile on follow_events(profile_id);
+				create index if not exists idx_x_lists_owner_profile on x_lists(owner_profile_id);
+			`);
+		},
+	},
 ];
 
 function ensureDemoData(db: Database) {
@@ -1275,7 +1286,10 @@ function createReadDatabasePool(
 function assertCurrentDatabaseSchema(db: Database) {
 	const expectedVersion = DATABASE_MIGRATIONS.at(-1)?.version ?? 0;
 	const actualVersion = getDatabaseSchemaVersion(db);
-	if (actualVersion !== expectedVersion) {
+	// Version 10 adds only indexes. Existing v9 snapshots remain safe to serve
+	// until their next writable sync upgrades them; future schemas still fail closed.
+	const compatibleSnapshot = expectedVersion === 10 && actualVersion === 9;
+	if (actualVersion !== expectedVersion && !compatibleSnapshot) {
 		throw new Error(
 			`Birdclaw database schema ${String(actualVersion)} is not ready for version ${String(expectedVersion)}`,
 		);
