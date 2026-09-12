@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Read only displayed profile fields when enriching timeline mentions, avoiding copies of large stored provider payloads.
+
 - Avoid constructing unused SQLite column metadata for every prepared statement.
 
 - Reduce initial browser JavaScript by keeping ordinary API reads and sync-job polling independent of the server Effect runtime.

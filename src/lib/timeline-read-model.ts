@@ -62,7 +62,8 @@ function getProfileByHandle(
 	const row = db
 		.prepare(
 			`
-      select *
+      select id, handle, display_name, bio, followers_count, following_count,
+        avatar_hue, avatar_url, location, url, verified_type, entities_json, created_at
       from profiles
       where lower(handle) = lower(?)
       limit 1
