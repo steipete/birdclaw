@@ -170,12 +170,6 @@ export function applyArchiveImportPlanEffect({
 		        else tweets.deletion_reason
 		      end
 		  `);
-		const deleteTweetFts = db.prepare(
-			"delete from tweets_fts where tweet_id = ?",
-		);
-		const insertTweetFts = db.prepare(
-			"insert into tweets_fts (tweet_id, text) values (?, ?)",
-		);
 		const selectTweetFtsState = db.prepare(
 			"select text, deleted_at, deletion_source from tweets where id = ?",
 		);
@@ -229,10 +223,6 @@ export function applyArchiveImportPlanEffect({
 		      is_replied = max(dm_messages.is_replied, excluded.is_replied),
 		      media_count = max(dm_messages.media_count, excluded.media_count)
 		  `);
-		const insertDmFts = db.prepare(
-			"insert into dm_fts (message_id, text) values (?, ?)",
-		);
-		const deleteDmFts = db.prepare("delete from dm_fts where message_id = ?");
 		const insertFollowSnapshot = db.prepare(`
 		    insert into follow_snapshots (
 		      id, account_id, direction, source, status, page_count, result_count,
@@ -705,7 +695,6 @@ export function applyArchiveImportPlanEffect({
 					preserveExistingBody ? 1 : 0,
 					preserveExistingBody ? 1 : 0,
 				);
-				deleteTweetFts.run(tweet.id);
 				if (tweet.kind === "home") {
 					insertTimelineEdge.run(
 						"acct_primary",
@@ -733,9 +722,7 @@ export function applyArchiveImportPlanEffect({
 							deletion_source: string | null;
 					  }
 					| undefined;
-				if (!storedTweet?.deleted_at) {
-					insertTweetFts.run(tweet.id, storedTweet?.text ?? tweet.text);
-				} else {
+				if (storedTweet?.deleted_at) {
 					tombstoneTweetSubordinates(db, {
 						tweetId: tweet.id,
 						deletedAt: storedTweet.deleted_at,
@@ -755,6 +742,18 @@ export function applyArchiveImportPlanEffect({
 				});
 				tweetWriteIndex += 1;
 				tickWrite("tweets", tweetWriteIndex, tweetRows.length);
+			}
+
+			if (tweetRows.length > 0) {
+				const ids = JSON.stringify(tweetRows.map((tweet) => tweet.id));
+				// Merge all slices first, then replace each stored tweet's index entry once.
+				db.prepare(
+					"delete from tweets_fts where tweet_id in (select value from json_each(?))",
+				).run(ids);
+				db.prepare(`insert into tweets_fts (tweet_id, text)
+					select id, text from tweets
+					where id in (select value from json_each(?))
+					  and deleted_at is null and superseded_at is null`).run(ids);
 			}
 
 			if (collectionRows.length > 0) {
@@ -810,10 +809,18 @@ export function applyArchiveImportPlanEffect({
 					message.direction === "outbound" ? 1 : 0,
 					message.mediaCount,
 				);
-				deleteDmFts.run(message.id);
-				insertDmFts.run(message.id, message.text);
 				dmWriteIndex += 1;
 				tickWrite("dmMessages", dmWriteIndex, dmMessages.length);
+			}
+
+			if (dmMessages.length > 0) {
+				const ids = JSON.stringify(dmMessages.map((message) => message.id));
+				db.prepare(
+					"delete from dm_fts where message_id in (select value from json_each(?))",
+				).run(ids);
+				db.prepare(`insert into dm_fts (message_id, text)
+					select id, text from dm_messages
+					where id in (select value from json_each(?))`).run(ids);
 			}
 
 			if (includeFollowers && followerEntryCount > 0) {

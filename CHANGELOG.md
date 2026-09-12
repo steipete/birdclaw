@@ -12,6 +12,8 @@
 
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
 
+- Rebuild imported tweet and DM search entries in batches after archive slices merge, avoiding repeated full-index scans and duplicate entries.
+
 - Defer loading the HTTP/MCP server until `serve` runs, reducing startup work for CLI help and local commands.
 
 - Rank DM search matches using narrow message identifiers before loading the three selected messages and their sender profiles.

@@ -2,6 +2,8 @@
 
 Live tweet ingestion replaces the touched search-index rows in a batch within its existing transaction. FTS5 does not index the stored tweet ID, so a per-tweet deletion repeatedly scans the archive. One batch deletion and insertion preserve primary-payload precedence, remove duplicate stale rows, and leave unrelated entries intact; retention reconciliation still removes deleted and superseded revisions.
 
+Archive imports rebuild touched tweet and DM search entries after the selected slices merge, using the final stored text and deletion state. This avoids repeated full FTS scans and handles duplicate IDs across authored, liked, bookmarked, and DM records without duplicating index entries.
+
 ## Effect Runtime Boundary
 
 Birdclaw's core I/O code should be written as Effect programs. Use `Effect.gen` for multi-step workflows, typed failures for expected errors, and `Effect.forEach` / `Effect.sleep` for concurrency, retry, timeout, and pacing logic.
