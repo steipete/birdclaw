@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
+import { NativeSqliteDatabase } from "./sqlite";
 import { listInboxItems } from "./inbox";
 import { getConversationThread, listDmConversations } from "./dm-read-model";
 import {
@@ -22,6 +23,7 @@ import { getQueryEnvelope, getQueryEnvelopeEffect } from "./query-status";
 import {
 	buildTimelineItemsQuery,
 	getTweetConversation,
+	getTweetsByIds,
 	listTimelineItems,
 	TimelineCandidateLimitError,
 } from "./timeline-read-model";
@@ -760,6 +762,78 @@ describe("query models", () => {
 		expect(preparedSql.some((sql) => sql.includes(" as match_count"))).toBe(
 			false,
 		);
+	});
+
+	it("batches cited tweets without changing order, visibility, or collection state", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const stamp = "2026-01-01T00:00:00Z";
+		for (const id of ["90001", "90002", "90003", "90004", "90005"]) {
+			insertTestTweet(db, { id, text: `Post ${id}`, createdAt: stamp });
+			if (id !== "90002" && id !== "90005") insertTestEdge(db, id, stamp);
+		}
+		insertTestCollection(db, "90001", "bookmarks", stamp);
+		insertTestCollection(db, "90002", "likes", stamp);
+		db.prepare("update tweets set deleted_at = ? where id = '90003'").run(
+			stamp,
+		);
+		db.prepare("update tweets set superseded_at = ? where id = '90004'").run(
+			stamp,
+		);
+		const ids = [
+			"90002",
+			" tweet_90001 ",
+			"90003",
+			"90004",
+			"90005",
+			"90001",
+			"missing",
+			"",
+		];
+		const scoped = getTweetsByIds(ids, "acct_primary");
+		expect(scoped.map((tweet) => tweet.id)).toEqual(["90002", "90001"]);
+		expect(scoped[0]).toMatchObject({ liked: true, bookmarked: false });
+		expect(scoped[1]).toMatchObject({ liked: false, bookmarked: true });
+		expect(getTweetsByIds(ids, "acct_studio")).toEqual([]);
+		expect(getTweetsByIds(ids, "all").map((tweet) => tweet.id)).toEqual([
+			"90002",
+			"90001",
+			"90005",
+		]);
+	});
+
+	it("bounds bulk tweet SQL queries across batches", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const ids = Array.from({ length: 501 }, (_, index) =>
+			String(91000 + index),
+		);
+		db.transaction(() => {
+			for (const id of ids)
+				insertTestTweet(db, {
+					id,
+					text: "Bulk post",
+					createdAt: "2026-01-01T00:00:00Z",
+				});
+		})();
+		const prepare = vi.spyOn(NativeSqliteDatabase.prototype, "prepare");
+		try {
+			expect(getTweetsByIds(ids).map((tweet) => tweet.id)).toEqual(ids);
+			const selects = prepare.mock.calls.filter(([sql]) =>
+				sql.includes("from tweets t"),
+			);
+			expect(selects).toHaveLength(2);
+			const plan = db
+				.prepare(`explain query plan ${selects[0]?.[0]}`)
+				.all(...ids.slice(0, 500)) as { detail: string }[];
+			expect(
+				plan.some((row) =>
+					row.detail.includes("USING INDEX sqlite_autoindex_tweets_1"),
+				),
+			).toBe(true);
+		} finally {
+			prepare.mockRestore();
+		}
 	});
 
 	it("keeps timeline membership account-scoped for the same canonical tweet", () => {

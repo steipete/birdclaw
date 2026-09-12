@@ -1332,30 +1332,48 @@ export function getTweetsByIds(
 	const profileByHandleCache: ProfileByHandleCache = new Map();
 	const resolveProfileByHandle = (handle: string) =>
 		getProfileByHandle(db, profileByHandleCache, handle);
-	const seen = new Set<string>();
+	const uniqueIds = [
+		...new Set(
+			tweetIds.map((id) => id.trim().replace(/^tweet_/, "")).filter(Boolean),
+		),
+	];
 	const tweets: EmbeddedTweet[] = [];
-
-	for (const tweetId of tweetIds) {
-		const normalized = tweetId.trim().replace(/^tweet_/, "");
-		if (!normalized || seen.has(normalized)) continue;
-		seen.add(normalized);
-		if (
-			scopedAccountId !== undefined &&
-			!hasTweetAccountMembership(db, normalized, scopedAccountId)
-		) {
-			continue;
+	const accountParams =
+		scopedAccountId !== undefined ? [scopedAccountId, scopedAccountId] : [];
+	const membershipClause =
+		scopedAccountId !== undefined
+			? `and ${tweetAccountMembershipPredicate("t")}`
+			: "";
+	// Explicit ID batches must not scan the active-tweet edit index.
+	const selectSql = conversationTweetSelect(
+		scopedAccountId,
+		"",
+		`from tweets t indexed by sqlite_autoindex_tweets_1
+    join profiles p on p.id = t.author_profile_id`,
+	);
+	for (let offset = 0; offset < uniqueIds.length; offset += 500) {
+		const batch = uniqueIds.slice(offset, offset + 500);
+		const rows = db
+			.prepare(`${selectSql}
+			where t.id in (${batch.map(() => "?").join(",")})
+			and t.deleted_at is null and t.superseded_at is null ${membershipClause}`)
+			.all(...accountParams, ...batch, ...accountParams) as Record<
+			string,
+			unknown
+		>[];
+		const byId = new Map(rows.map((row) => [String(row.id), row]));
+		for (const id of batch) {
+			const row = byId.get(id);
+			if (!row) continue;
+			const tweet = buildEmbeddedTweet(
+				db,
+				urlExpansionCache,
+				row,
+				"",
+				resolveProfileByHandle,
+			);
+			if (tweet) tweets.push(tweet);
 		}
-		const tweet = getTweetById(
-			db,
-			urlExpansionCache,
-			normalized,
-			resolveProfileByHandle,
-			{
-				stateAccountId: scopedAccountId,
-				membershipAccountId: scopedAccountId,
-			},
-		);
-		if (tweet) tweets.push(tweet);
 	}
 
 	return tweets;
