@@ -660,6 +660,76 @@ describe("query models", () => {
 		}
 	});
 
+	it("limits timeline membership before hydrating embedded metadata", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		for (const filters of [
+			{ account: "acct_primary" },
+			{},
+			{ replyFilter: "unreplied" as const },
+		]) {
+			const plan = buildTimelineItemsQuery({
+				resource: "home",
+				limit: 2,
+				...filters,
+			});
+			const rows = db
+				.prepare(`explain query plan ${plan.sql}`)
+				.all(...plan.params) as Array<{
+				id: number;
+				parent: number;
+				detail: string;
+			}>;
+			const selection = rows.find(
+				(row) => row.detail === "MATERIALIZE timeline_selection",
+			);
+			expect(selection).toBeDefined();
+			const parents = new Map(rows.map((row) => [row.id, row.parent]));
+			for (const row of rows.filter((row) =>
+				/SEARCH (rt|qt|rp|qp|collection) USING/.test(row.detail),
+			)) {
+				let parent = row.parent;
+				while (parent) {
+					expect(parent).not.toBe(selection?.id);
+					parent = parents.get(parent) ?? 0;
+				}
+			}
+		}
+	});
+
+	it("fills a limited timeline page past missing authors and accounts", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.exec("pragma foreign_keys = off");
+		try {
+			for (const [id, authorProfileId, createdAt] of [
+				["late_valid", "profile_me", "2030-01-01T00:00:00Z"],
+				["late_orphan_author", "missing_author", "2030-01-02T00:00:00Z"],
+				["late_orphan_account", "profile_me", "2030-01-03T00:00:00Z"],
+			] as const) {
+				insertTestTweet(db, {
+					id,
+					authorProfileId,
+					createdAt,
+					text: "Synthetic late hydration",
+				});
+				insertTestEdge(db, id, createdAt);
+			}
+			db.exec(
+				"update tweet_account_edges set account_id = 'missing_account' where tweet_id = 'late_orphan_account'",
+			);
+			for (const account of [undefined, "acct_primary"]) {
+				expect(
+					listTimelineItems({ resource: "home", account, limit: 1 }, db).map(
+						(item) => item.id,
+					),
+				).toEqual(["late_valid"]);
+			}
+		} finally {
+			db.exec("pragma foreign_keys = on");
+		}
+	});
+
 	it("pins dense timeline searches to the created-time index and bounded hydration", () => {
 		setupTempHome();
 		const db = getNativeDb();

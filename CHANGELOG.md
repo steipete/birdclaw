@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Select timeline page membership before loading rich tweet, profile, and collection metadata, reducing uncached reads on large archives.
+
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
 
 - Defer loading the HTTP/MCP server until `serve` runs, reducing startup work for CLI help and local commands.
