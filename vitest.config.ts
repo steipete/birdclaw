@@ -1,8 +1,14 @@
+import { fileURLToPath } from "node:url";
+import { prepareBrandAsset } from "./scripts/brand-asset.ts";
 import {
 	configDefaults,
 	coverageConfigDefaults,
 	defineConfig,
 } from "vitest/config";
+
+const brandAsset = await prepareBrandAsset(
+	fileURLToPath(new URL(".", import.meta.url)),
+);
 
 const isBun = Boolean(process.versions.bun);
 const isCoverageRun = process.env.BIRDCLAW_COVERAGE_RUN === "1";
@@ -11,6 +17,7 @@ const coverageProvider =
 
 export default defineConfig({
 	resolve: {
+		alias: { "virtual:birdclaw-brand?url": `${brandAsset}?url` },
 		tsconfigPaths: true,
 	},
 	test: {

@@ -2,6 +2,10 @@
 
 ## 0.12.6 - Unreleased
 
+- Generate and serve a compact versioned logo for the app and favicon while retaining the high-resolution artwork for documentation.
+
+- Bootstrap authorized single-account read-only pages with cached status metadata to remove the initial status-request waterfall.
+
 - Load DM history in pages and cache it independently of list filters, while preserving complete CLI/API reads and access to every earlier message.
 
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.

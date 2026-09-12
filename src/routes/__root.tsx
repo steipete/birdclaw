@@ -12,6 +12,7 @@ import {
 	useDeploymentMode,
 } from "#/lib/deployment-mode";
 import { BirdclawQueryProvider } from "#/lib/query-client";
+import { loadStatusBootstrap } from "#/lib/status-bootstrap";
 import { ThemeProvider, themeScript } from "#/lib/theme";
 import {
 	bodyClass,
@@ -21,8 +22,10 @@ import {
 } from "#/lib/ui";
 
 import appCss from "../styles.css?url";
+import brandMarkUrl from "virtual:birdclaw-brand?url";
 
 export const Route = createRootRoute({
+	loader: loadStatusBootstrap,
 	head: () => ({
 		meta: [
 			{
@@ -37,6 +40,7 @@ export const Route = createRootRoute({
 			},
 		],
 		links: [
+			{ rel: "icon", type: "image/png", href: brandMarkUrl },
 			{
 				rel: "stylesheet",
 				href: appCss,
@@ -56,6 +60,7 @@ function NotFoundView() {
 }
 
 function RootDocument({ children }: { children: ReactNode }) {
+	const initialStatus = Route.useLoaderData();
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
 	});
@@ -69,7 +74,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 				<script suppressHydrationWarning>{themeScript}</script>
 			</head>
 			<body className={bodyClass}>
-				<BirdclawQueryProvider>
+				<BirdclawQueryProvider initialStatus={initialStatus}>
 					<ThemeProvider>
 						<DeploymentModeProvider>
 							<div className={siteShellClass}>
