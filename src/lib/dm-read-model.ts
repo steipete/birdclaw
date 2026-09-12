@@ -195,7 +195,6 @@ export function listDmConversations({
       join profiles p on p.id = c.participant_profile_id
       ${join}
       ${where}
-      group by c.id
       order by ${orderBy}
       limit ?
       `,
