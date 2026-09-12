@@ -779,7 +779,10 @@ describe("cli", () => {
 			"Find likely Twitter archives on disk",
 		);
 		expect(db?.description()).toBe("Inspect local storage");
-		expect(db?.commands.map((command) => command.name())).toEqual(["stats"]);
+		expect(db?.commands.map((command) => command.name())).toEqual([
+			"stats",
+			"vacuum",
+		]);
 		expect(db?.commands[0]?.description()).toBe(
 			"Show local storage and dataset stats",
 		);
@@ -3057,7 +3060,75 @@ describe("cli", () => {
 		},
 	);
 
-	it("preserves lenient link search limit coercion", async () => {
+	it.each([
+		["dms", "list", "--limit", "-1"],
+		["dms", "list", "--limit", "NaN"],
+		["dms", "list", "--limit", ""],
+		["dms", "list", "--limit", " "],
+		["dms", "list", "--limit", "9007199254740992"],
+		["dms", "list", "--min-influence-score", "NaN"],
+		["dms", "sync", "--cache-ttl", "-1"],
+		["search", "dms", "query", "--max-influence-score", "Infinity"],
+		["graph", "top-followers", "--limit", "-1"],
+		["lists", "members", "--limit", "1.5"],
+		["mentions", "export", "--max-pages", "-1"],
+		["sync", "timeline", "--max-pages", "NaN"],
+		["sync", "lists", "--delay-ms", "-1"],
+		["jobs", "install-account-launchd", "--limit", "bad"],
+		["inbox", "--min-score", ""],
+		["research", "--thread-depth", "bad"],
+		["media", "fetch", "--max-bytes", "Infinity"],
+		["blocks", "list", "--limit", "-1"],
+		["whois", "query", "--context", "-1"],
+		["show", "thread", "tweet_001", "--limit", "-1"],
+	])(
+		"validates numeric input before account selection or I/O: %j",
+		async (...args) => {
+			const error = vi.spyOn(console, "error").mockImplementation(() => {});
+			getDefaultAccountSelectorMock.mockReturnValue("missing");
+			const { runCli } = await loadCli();
+			await runCli(["node", "birdclaw", ...args, "--json"]);
+			expect(process.exitCode).toBe(1);
+			expect(error).toHaveBeenCalledTimes(1);
+			expect(JSON.parse(String(error.mock.lastCall?.[0])).error).toContain(
+				"must be",
+			);
+			expect(resolveOperationAccountMock).not.toHaveBeenCalled();
+			expect(getNativeDbMock).not.toHaveBeenCalled();
+			expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+			expect(installAccountSyncLaunchAgentMock).not.toHaveBeenCalled();
+			expect(syncDirectMessagesViaCachedBirdMock).not.toHaveBeenCalled();
+			expect(consoleLogMock).not.toHaveBeenCalled();
+			error.mockRestore();
+		},
+	);
+
+	it("preserves fractional thresholds and cache TTLs", async () => {
+		const { runCli } = await loadCli();
+		await runCli([
+			"node",
+			"birdclaw",
+			"dms",
+			"list",
+			"--refresh",
+			"--limit",
+			"5",
+			"--min-influence-score",
+			"2.5",
+			"--cache-ttl",
+			"0.5",
+			"--json",
+		]);
+		expect(process.exitCode).toBe(0);
+		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 5, cacheTtlMs: 500 }),
+		);
+		expect(listDmConversationsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ minInfluenceScore: 2.5 }),
+		);
+	});
+
+	it("rejects fractional link search limits before reading", async () => {
 		const consoleErrorMock = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => {});
@@ -3073,12 +3144,12 @@ describe("cli", () => {
 			"2.7",
 		]);
 
-		expect(consoleErrorMock).not.toHaveBeenCalled();
-		expect(process.exitCode).not.toBe(1);
-		expect(searchLinksMock).toHaveBeenCalledWith(
-			"query",
-			expect.objectContaining({ limit: 2.7 }),
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			JSON.stringify({ error: "--limit must be a non-negative integer" }),
 		);
+		expect(process.exitCode).toBe(1);
+		expect(searchLinksMock).not.toHaveBeenCalled();
+		expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
 		consoleErrorMock.mockRestore();
 	});
 

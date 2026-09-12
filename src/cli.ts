@@ -7,8 +7,13 @@ import { Command, CommanderError } from "commander";
 import {
 	configureOperationAccountSelection,
 	createCommandContext,
+	printError,
 	resetOperationAccountSelection,
 } from "#/cli/command-context";
+import {
+	configureNumericOptions,
+	NumericOptionError,
+} from "#/cli/numeric-options";
 import { registerAnalysisCommands } from "#/cli/register-analysis";
 import { registerComposeCommands } from "#/cli/register-compose";
 import { registerCoreCommands } from "#/cli/register-core";
@@ -21,6 +26,7 @@ import { registerMentionCommands } from "#/cli/register-mentions";
 import { registerModerationCommands } from "#/cli/register-moderation";
 import { registerSearchCommands } from "#/cli/register-search";
 import { registerServeCommand } from "#/cli/register-serve";
+import { registerShowCommands } from "#/cli/register-show";
 import { registerStorageCommands } from "#/cli/register-storage";
 import { registerSyncCommands } from "#/cli/register-sync";
 import { closeDatabase } from "#/lib/db";
@@ -56,6 +62,7 @@ export const program = new Command()
 	})
 	.exitOverride();
 const commandContext = createCommandContext(program);
+configureNumericOptions(program);
 configureOperationAccountSelection(program);
 
 registerCoreCommands(commandContext);
@@ -71,6 +78,7 @@ registerComposeCommands(commandContext);
 registerInboxCommand(commandContext);
 registerGraphCommands(commandContext);
 registerStorageCommands(commandContext);
+registerShowCommands(commandContext);
 registerServeCommand(
 	commandContext,
 	packageRoot,
@@ -81,6 +89,11 @@ export async function runCli(argv = process.argv) {
 	try {
 		await program.parseAsync(argv);
 	} catch (error) {
+		if (error instanceof NumericOptionError) {
+			printError(error.message);
+			process.exitCode = 1;
+			return;
+		}
 		if (!(error instanceof CommanderError) || error.exitCode !== 0) {
 			throw error;
 		}

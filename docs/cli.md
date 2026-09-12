@@ -57,10 +57,8 @@ birdclaw auth status
 birdclaw auth use <transport>
 birdclaw import archive [path]
 birdclaw import tweet <tweet-id-or-url...> --fxtwitter
-birdclaw sync all
-birdclaw sync tweets
 birdclaw sync authored
-birdclaw sync dms
+birdclaw dms sync
 birdclaw sync bookmarks
 birdclaw sync likes
 birdclaw sync timeline
@@ -71,7 +69,6 @@ birdclaw sync following
 birdclaw sync lists
 birdclaw lists list
 birdclaw lists members [name]
-birdclaw import tweet <tweet-id-or-url...> --fxtwitter
 birdclaw import thread <tweet-id-or-url> --fxtwitter
 birdclaw import conversation <tweet-id-or-url> --fxtwitter
 birdclaw import profile <handle> --fxtwitter
@@ -110,7 +107,10 @@ birdclaw backup export --repo <path>
 birdclaw backup sync --repo <path> --remote <url>
 birdclaw backup import <path>
 birdclaw backup validate <path>
-birdclaw debug transport
+birdclaw jobs sync-account
+birdclaw jobs sync-bookmarks
+birdclaw jobs install-account-launchd
+birdclaw jobs install-bookmarks-launchd
 ```
 
 ## Subcommand semantics
@@ -144,6 +144,24 @@ birdclaw debug transport
 - print useful next commands for the selected setup path
 
 Account-capable commands accept `--account <username>` or a stored account ID. Set `accounts.default` in `config.json` for a reversible default; an explicit flag wins.
+
+Numeric flags are checked before account selection or command actions. Counts and limits require non-negative safe integers; command-specific positive minimums and caps still apply. Follower and score thresholds allow finite fractional values, and `--cache-ttl` allows non-negative fractional seconds. Blank values, `NaN`, infinity, negative counts, and fractional limits fail with a JSON error on stderr and exit code `1`.
+
+### `show tweet|thread|dm`
+
+Read records already stored in the selected account. An explicit `--account` overrides the configured default; otherwise the stored default account is used. Missing records and records belonging only to another account return a failure.
+
+```bash
+birdclaw show tweet 1891234567890 --json
+birdclaw show thread 1891234567890 --limit 80 --json
+birdclaw show dm <conversation-id> --account <username> --json
+```
+
+`show tweet` returns one tweet object. `show thread` returns `anchorId`, `items`, and `truncated`; its positive `--limit` defaults to 80, and only cached ancestors and replies are available. `show dm` returns `conversation` and the complete stored `messages` in chronological order. These commands follow the existing opt-in backup auto-update behavior described below.
+
+### `db vacuum`
+
+Reclaim unused SQLite space without changing archive contents. This can take time and requires a writable database; concurrent activity may cause a busy error. `--json` returns `{"ok":true,"operation":"vacuum"}` after completion.
 
 ### `import tweet <tweet-id-or-url...>`
 
@@ -919,7 +937,7 @@ birdclaw init
 birdclaw init --demo
 birdclaw auth status
 birdclaw import archive ~/Downloads/twitter-archive.zip --select tweets,directMessages
-birdclaw sync all --transport xurl
+birdclaw jobs sync-account --mode xurl
 birdclaw search tweets "openai" --since 2024-01-01 --limit 20
 birdclaw search tweets --since 2020-01-01 --until 2021-01-01 --originals-only --hide-low-quality --limit 500
 birdclaw search dms "invoice" --participant @someone --min-followers 1000

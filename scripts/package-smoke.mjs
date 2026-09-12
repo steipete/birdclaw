@@ -195,6 +195,10 @@ async function smokeRuntime({
 		["blocks", "list", "--json"],
 		["mutes", "list", "--json"],
 		["inbox", "--limit", "3", "--json"],
+		["show", "tweet", "tweet_001", "--json"],
+		["show", "thread", "tweet_001", "--limit", "2", "--json"],
+		["show", "dm", "dm_001", "--json"],
+		["db", "vacuum", "--json"],
 	]) {
 		const { stdout } = await runRuntime(runtime, args, {
 			cwd: installDir,
@@ -208,6 +212,8 @@ async function smokeRuntime({
 		[["backup", "export", "--json"], 2],
 		[["show", "tweet", "--json"], 2],
 		[["--json"], 2],
+		[["dms", "list", "--limit", "-1", "--json"], 1],
+		[["show", "tweet", "tweet_001", "--account", "@birdclaw_lab", "--json"], 1],
 		[["backup", "import", path.join(tempRoot, "missing-backup"), "--json"], 1],
 	]) {
 		let failure;

@@ -6,6 +6,7 @@ import {
 } from "#/lib/backup";
 import { getBirdclawPaths } from "#/lib/config";
 import { getDatabaseRuntimeMetrics } from "#/lib/database-metrics";
+import { getNativeDb } from "#/lib/db";
 import { getQueryEnvelope } from "#/lib/query-status";
 import type { CliCommandContext } from "./command-context";
 
@@ -32,6 +33,16 @@ export function registerStorageCommands({
 				},
 				asJson(),
 			);
+		});
+
+	dbCommand
+		.command("vacuum")
+		.description(
+			"Reclaim unused SQLite space without changing archive contents",
+		)
+		.action(() => {
+			getNativeDb({ seedDemoData: false }).exec("VACUUM");
+			print({ ok: true, operation: "vacuum" }, asJson());
 		});
 
 	const backupCommand = program
