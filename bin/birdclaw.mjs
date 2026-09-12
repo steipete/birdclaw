@@ -10,8 +10,8 @@ async function run() {
 		console.log(manifest.version ?? "0.0.0");
 		return;
 	}
-	const { runCli } = await import("../dist/cli/birdclaw.js");
-	await runCli();
+	const { runCliMain } = await import("../dist/cli/birdclaw.js");
+	await runCliMain();
 }
 
 void run().catch((error) => {

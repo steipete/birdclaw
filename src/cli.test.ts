@@ -757,6 +757,7 @@ describe("cli", () => {
 			host: "127.0.0.1",
 			port: 3000,
 			serverVersion: packageVersion,
+			json: false,
 			onListening: expect.any(Function),
 		});
 		expect(getNativeDbMock).toHaveBeenCalledWith({ seedDemoData: false });
@@ -1342,8 +1343,70 @@ describe("cli", () => {
 		await runCli(["node", "birdclaw", "--version"]);
 
 		expect(stdoutWriteMock).toHaveBeenCalledWith(`${packageVersion}\n`);
-		expect(exitMock).toHaveBeenCalledWith(0);
+		expect(exitMock).not.toHaveBeenCalled();
 		stdoutWriteMock.mockRestore();
+		exitMock.mockRestore();
+	});
+
+	it.each([
+		["--json", "not-a-command"],
+		["search", "tweets", "--invalid", "--json"],
+		["backup", "export", "--json"],
+		["show", "tweet", "--json"],
+		["--json"],
+		["search", "--json"],
+	])("reports parser failures as JSON: %j", async (...args) => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const { runCliMain } = await loadCli();
+		await runCliMain(["node", "birdclaw", ...args]);
+		expect(process.exitCode).toBe(2);
+		expect(error).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toEqual({
+			error: expect.any(String),
+		});
+		expect(String(error.mock.calls[0]?.[0])).not.toContain("(outputHelp)");
+		expect(consoleLogMock).not.toHaveBeenCalled();
+		expect(getNativeDbMock).not.toHaveBeenCalled();
+		error.mockRestore();
+	});
+
+	it("reports runtime failures as JSON", async () => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		getQueryEnvelopeMock.mockRejectedValueOnce(
+			new Error("database unavailable"),
+		);
+		const { runCliMain } = await loadCli();
+		await runCliMain(["node", "birdclaw", "db", "stats", "--json"]);
+		expect(process.exitCode).toBe(1);
+		expect(error).toHaveBeenCalledWith(
+			JSON.stringify({ error: "database unavailable" }),
+		);
+		error.mockRestore();
+	});
+
+	it("shows global JSON help on nested commands", async () => {
+		const { program } = await loadCli();
+		const search = program.commands.find(
+			(command) => command.name() === "search",
+		);
+		const tweets = search?.commands.find(
+			(command) => command.name() === "tweets",
+		);
+		expect(tweets?.helpInformation()).toContain("--json");
+	});
+
+	it("passes JSON mode to the production server and rejects out-of-range ports", async () => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const { runCli } = await loadCli();
+		await runCli(["node", "birdclaw", "serve", "--port", "0", "--json"]);
+		expect(runProductionServerMock).toHaveBeenCalledWith(
+			expect.objectContaining({ port: 0, json: true }),
+		);
+		runProductionServerMock.mockClear();
+		await runCli(["node", "birdclaw", "serve", "--port", "65536", "--json"]);
+		expect(process.exitCode).toBe(2);
+		expect(runProductionServerMock).not.toHaveBeenCalled();
+		error.mockRestore();
 	});
 
 	it("imports the latest archive when no path is provided", async () => {

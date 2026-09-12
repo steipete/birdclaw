@@ -2,7 +2,7 @@ import { requestBackupAutoUpdate } from "#/lib/backup";
 import { printError, type CliCommandContext } from "./command-context";
 
 export function registerServeCommand(
-	{ program, parseNonNegativeIntegerOption }: CliCommandContext,
+	{ program, asJson, parseNonNegativeIntegerOption }: CliCommandContext,
 	packageRoot: string,
 	serverVersion: string,
 ) {
@@ -28,12 +28,18 @@ export function registerServeCommand(
 			}
 			const port = parseNonNegativeIntegerOption(options.port, "--port");
 			if (port === undefined) return;
+			if (port > 65535) {
+				printError("--port must be between 0 and 65535");
+				process.exitCode = 2;
+				return;
+			}
 			const { runProductionServer } = await import("#/lib/production-server");
 			await runProductionServer({
 				packageRoot,
 				host,
 				port,
 				serverVersion,
+				json: asJson(),
 				onListening: () => requestBackupAutoUpdate(),
 			});
 		});

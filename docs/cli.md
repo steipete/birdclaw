@@ -28,6 +28,8 @@ birdclaw [global flags] <subcommand> [args]
 - `--version`
 - `--json`
 
+Global flags work before or after subcommands, for example `birdclaw --json db stats` and `birdclaw db stats --json`. Nested `--help` output includes the available global flags. Use `--` before positional values that start with a dash; a literal `--json` after that separator is data, not an output flag. Help and version requests always return text.
+
 ## Config precedence
 
 Command flags > environment overrides > user config
@@ -809,6 +811,7 @@ Flags:
 - starts local app server
 - starts the built production SSR and static-asset server
 - stdout prints the listening URL
+- `--json` prints one startup object with `ok`, `host`, the actual bound `port`, and `url`; `--port 0` selects an available port
 
 Flags:
 
@@ -896,13 +899,15 @@ stderr:
 
 - default human output
 - `--json` stable machine-readable envelopes
-- `--plain` stable line-oriented text, no color
+- parser and uncaught runtime failures with `--json` emit `{"error":"message"}` on stderr and leave stdout empty; command-specific failure results retain their existing JSON shapes
+
+Successful output shapes are command-specific (objects or arrays). Progress and warnings stay on stderr. `--plain` is not currently implemented; use `--json` for scripting.
 
 ## Exit codes
 
 - `0` success
 - `1` runtime failure
-- `2` invalid usage / validation
+- `2` parser usage errors (unknown command/option, missing arguments/options) and invalid port range; older command-specific validation paths use `1`
 - `3` auth unavailable
 - `4` transport unavailable
 - `5` partial sync failure

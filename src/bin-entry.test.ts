@@ -54,14 +54,14 @@ it.each([
 	["search", "tweets", "two words"],
 ])("delegates other arguments unchanged: %j", (...args: string[]) => {
 	const result = fixture(
-		"export async function runCli(){console.log(JSON.stringify(process.argv.slice(2)));}",
+		"export async function runCliMain(){console.log(JSON.stringify(process.argv.slice(2)));}",
 	)(args);
 	expect(result.status).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual(args);
 });
 it("retains the normal CLI error boundary", () => {
 	const result = fixture(
-		'export async function runCli(){throw new Error("fixture failure");}',
+		'export async function runCliMain(){throw new Error("fixture failure");}',
 	)(["search"]);
 	expect(result.status).toBe(1);
 	expect(result.stderr.trim()).toBe("fixture failure");

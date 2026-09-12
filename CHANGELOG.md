@@ -2,6 +2,8 @@
 
 ## 0.12.7 - Unreleased
 
+- Honor `--json` for parser and uncaught runtime failures and server startup, expose global options in nested help, and validate the server port before startup. Exercise local JSON commands and failures through installed Node and Bun packages.
+
 ## 0.12.6 - 2026-09-12
 
 ### Highlights

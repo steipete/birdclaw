@@ -89,7 +89,15 @@ async function waitForServer(child, label) {
 			const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)/);
 			if (!match) return;
 			clearTimeout(timer);
-			resolve(`http://127.0.0.1:${match[1]}`);
+			try {
+				const startup = JSON.parse(output);
+				if (startup.ok !== true || startup.port !== Number(match[1])) {
+					throw new Error(`${label}: invalid JSON startup event`);
+				}
+				resolve(startup.url);
+			} catch (error) {
+				reject(error);
+			}
 		});
 		child.stderr.on("data", (chunk) => {
 			errors += String(chunk);
@@ -178,6 +186,47 @@ async function smokeRuntime({
 		{ cwd: installDir, env },
 	);
 	JSON.parse(statsOutput);
+	for (const args of [
+		["search", "tweets", "local-first", "--limit", "3", "--json"],
+		["search", "dms", "local", "--limit", "3", "--json"],
+		["dms", "list", "--limit", "3", "--json"],
+		["lists", "list", "--json"],
+		["graph", "summary", "--json"],
+		["blocks", "list", "--json"],
+		["mutes", "list", "--json"],
+		["inbox", "--limit", "3", "--json"],
+	]) {
+		const { stdout } = await runRuntime(runtime, args, {
+			cwd: installDir,
+			env,
+		});
+		JSON.parse(stdout);
+	}
+	for (const [args, expectedCode] of [
+		[["unknown-command", "--json"], 2],
+		[["search", "tweets", "--unknown-option", "--json"], 2],
+		[["backup", "export", "--json"], 2],
+		[["show", "tweet", "--json"], 2],
+		[["--json"], 2],
+		[["backup", "import", path.join(tempRoot, "missing-backup"), "--json"], 1],
+	]) {
+		let failure;
+		try {
+			await runRuntime(runtime, args, { cwd: installDir, env });
+		} catch (error) {
+			failure = error;
+		}
+		if (
+			!failure ||
+			failure.code !== expectedCode ||
+			failure.stdout !== "" ||
+			typeof JSON.parse(failure.stderr).error !== "string"
+		) {
+			throw new Error(
+				`${runtime.name}: invalid CLI failure for ${args.join(" ")}`,
+			);
+		}
+	}
 
 	const port = await reserveLoopbackPort();
 	const expectedBaseUrl = `http://127.0.0.1:${String(port)}`;
@@ -189,7 +238,7 @@ async function smokeRuntime({
 	};
 	const child = spawnRuntime(
 		runtime,
-		["serve", "--host", "127.0.0.1", "--port", String(port)],
+		["serve", "--host", "127.0.0.1", "--port", String(port), "--json"],
 		{
 			cwd: installDir,
 			env: serverEnv,

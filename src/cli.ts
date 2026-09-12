@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { Command } from "commander";
+import { Command, CommanderError } from "commander";
 import {
 	configureOperationAccountSelection,
 	createCommandContext,
@@ -45,7 +45,16 @@ export const program = new Command()
 	.name("birdclaw")
 	.description("Local-first Twitter workspace")
 	.version(packageVersion.version ?? "0.0.0")
-	.option("--json", "Emit JSON output");
+	.option("--json", "Emit JSON output")
+	.configureHelp({ showGlobalOptions: true })
+	.configureOutput({
+		// The entrypoint reports parser failures once, in the selected output mode.
+		outputError: () => {},
+		writeErr: (text) => {
+			if (!program.opts().json) process.stderr.write(text);
+		},
+	})
+	.exitOverride();
 const commandContext = createCommandContext(program);
 configureOperationAccountSelection(program);
 
@@ -71,19 +80,37 @@ registerServeCommand(
 export async function runCli(argv = process.argv) {
 	try {
 		await program.parseAsync(argv);
+	} catch (error) {
+		if (!(error instanceof CommanderError) || error.exitCode !== 0) {
+			throw error;
+		}
 	} finally {
 		resetOperationAccountSelection();
 		await closeDatabase();
 	}
 }
 
-/* v8 ignore next 5 */
+export async function runCliMain(argv = process.argv) {
+	try {
+		await runCli(argv);
+	} catch (error) {
+		const message =
+			error instanceof CommanderError && error.code === "commander.help"
+				? "A subcommand is required. Run birdclaw --help for usage."
+				: error instanceof Error
+					? error.message
+					: String(error);
+		console.error(
+			program.opts().json ? JSON.stringify({ error: message }) : message,
+		);
+		process.exitCode = error instanceof CommanderError ? 2 : 1;
+	}
+}
+
+/* v8 ignore next 4 */
 if (process.argv[1]) {
 	const entryUrl = pathToFileURL(process.argv[1]).href;
 	if (import.meta.url === entryUrl) {
-		void runCli().catch((error) => {
-			console.error(error instanceof Error ? error.message : String(error));
-			process.exitCode = 1;
-		});
+		void runCliMain();
 	}
 }
