@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { Fragment, type ReactNode } from "react";
 import { useDeploymentMode } from "#/lib/deployment-mode";
 import { formatCompactNumber } from "#/lib/present";
@@ -99,40 +100,43 @@ export function ProfilePreview({
 			>
 				{children}
 			</a>
-			{preview.open ? (
-				<span
-					aria-label={`${profile.displayName} profile preview`}
-					id={preview.floatingId}
-					ref={preview.floatingRef}
-					className={profilePreviewCardClass}
-					role="group"
-					style={preview.floatingStyle}
-					{...preview.floatingProps}
-				>
-					<span className="grid gap-2" data-floating-preview-content>
-						<span className={profilePreviewHeaderClass}>
-							<AvatarChip
-								avatarUrl={profile.avatarUrl}
-								hue={profile.avatarHue}
-								name={profile.displayName}
-								profileId={profile.id}
-							/>
-							<span className="flex min-w-0 flex-col">
-								<span className={profilePreviewNameClass}>
-									{profile.displayName}
+			{preview.open
+				? createPortal(
+						<span
+							aria-label={`${profile.displayName} profile preview`}
+							id={preview.floatingId}
+							ref={preview.floatingRef}
+							className={profilePreviewCardClass}
+							role="group"
+							style={preview.floatingStyle}
+							{...preview.floatingProps}
+						>
+							<span className="grid gap-2" data-floating-preview-content>
+								<span className={profilePreviewHeaderClass}>
+									<AvatarChip
+										avatarUrl={profile.avatarUrl}
+										hue={profile.avatarHue}
+										name={profile.displayName}
+										profileId={profile.id}
+									/>
+									<span className="flex min-w-0 flex-col">
+										<span className={profilePreviewNameClass}>
+											{profile.displayName}
+										</span>
+										<span className={profilePreviewHandleClass}>
+											@{profile.handle}
+										</span>
+									</span>
 								</span>
-								<span className={profilePreviewHandleClass}>
-									@{profile.handle}
+								{profile.bio ? <ProfilePreviewBio profile={profile} /> : null}
+								<span className={profilePreviewMetaClass}>
+									{formatCompactNumber(profile.followersCount)} followers
 								</span>
 							</span>
-						</span>
-						{profile.bio ? <ProfilePreviewBio profile={profile} /> : null}
-						<span className={profilePreviewMetaClass}>
-							{formatCompactNumber(profile.followersCount)} followers
-						</span>
-					</span>
-				</span>
-			) : null}
+						</span>,
+						document.body,
+					)
+				: null}
 		</span>
 	);
 }

@@ -37,6 +37,8 @@ describe("ProfilePreview", () => {
 		const wrapper = link.parentElement as HTMLElement;
 		act(() => link.focus());
 		expect(screen.getByRole("group")).toHaveTextContent("Design systems");
+		expect(wrapper).not.toContainElement(screen.getByRole("group"));
+		expect(screen.getByRole("group").parentElement).toBe(document.body);
 
 		fireEvent.pointerEnter(wrapper);
 		fireEvent.pointerLeave(wrapper);

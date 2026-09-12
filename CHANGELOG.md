@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Reposition hover previews on layout/content changes instead of every frame, and keep them outside contained feed rows so they remain correctly positioned and unclipped.
+
 - Pause relative-timestamp updates in hidden tabs, refresh immediately on return, and reuse unchanged exact timestamp labels.
 
 - Keep unchanged DM conversations and message bubbles out of reply-draft renders.

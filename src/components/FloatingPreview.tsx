@@ -1,3 +1,4 @@
+import { autoUpdate } from "@floating-ui/dom";
 import {
 	type CSSProperties,
 	type FocusEvent,
@@ -323,32 +324,34 @@ export function useFloatingPreview(options: { closeDelayMs?: number } = {}): {
 
 	useLayoutEffect(() => {
 		if (!open) return;
+		const reference = referenceRef.current;
+		const floating = floatingRef.current;
+		if (!reference || !floating) return;
 		updatePlacement();
-		let frame = 0;
-		const trackLayout = () => {
-			updatePlacement();
-			frame = window.requestAnimationFrame(trackLayout);
+		let frame: number | null = null;
+		let active = true;
+		const schedulePlacement = () => {
+			if (!active || frame !== null) return;
+			frame = window.requestAnimationFrame(() => {
+				frame = null;
+				updatePlacement();
+			});
 		};
-		// Fixed positioning needs explicit tracking when surrounding content shifts.
-		frame = window.requestAnimationFrame(trackLayout);
-		const viewport = window.visualViewport;
-		window.addEventListener("resize", updatePlacement);
-		window.addEventListener("scroll", updatePlacement, true);
-		viewport?.addEventListener("resize", updatePlacement);
-		viewport?.addEventListener("scroll", updatePlacement);
+		const stopTracking = autoUpdate(reference, floating, schedulePlacement);
+		// Clipped cards must observe their natural content height as well.
+		const content = floating.querySelector<HTMLElement>(
+			"[data-floating-preview-content]",
+		);
 		const observer =
 			typeof ResizeObserver === "undefined"
 				? null
-				: new ResizeObserver(updatePlacement);
-		if (referenceRef.current) observer?.observe(referenceRef.current);
-		if (floatingRef.current) observer?.observe(floatingRef.current);
+				: new ResizeObserver(schedulePlacement);
+		if (content) observer?.observe(content);
 
 		return () => {
-			window.cancelAnimationFrame(frame);
-			window.removeEventListener("resize", updatePlacement);
-			window.removeEventListener("scroll", updatePlacement, true);
-			viewport?.removeEventListener("resize", updatePlacement);
-			viewport?.removeEventListener("scroll", updatePlacement);
+			active = false;
+			stopTracking();
+			if (frame !== null) window.cancelAnimationFrame(frame);
 			observer?.disconnect();
 		};
 	}, [open, updatePlacement]);

@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { Fragment, type MouseEventHandler, type ReactNode } from "react";
 import { formatCompactNumber } from "#/lib/present";
 import type { PeriodDigestContext } from "#/lib/period-digest";
@@ -294,45 +295,51 @@ function TweetPreviewToken({
 			>
 				{children}
 			</TweetSourceLink>
-			{preview.open ? (
-				<span
-					id={preview.floatingId}
-					ref={preview.floatingRef}
-					className="fixed z-40 w-[360px] overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--bg-elevated)] p-3 text-left text-[14px] leading-[1.4] text-[var(--ink)] shadow-[0_14px_40px_var(--shadow-strong)]"
-					role="tooltip"
-					style={preview.floatingStyle}
-					{...preview.floatingProps}
-				>
-					<span className="block" data-floating-preview-content>
-						<span className="mb-2 flex items-center gap-2">
-							<AvatarChip
-								avatarUrl={tweet.authorProfile.avatarUrl}
-								hue={tweet.authorProfile.avatarHue}
-								name={tweet.name}
-								profileId={tweet.authorProfile.id}
-								size="small"
-							/>
-							<span className="min-w-0">
-								<span className="block truncate font-bold">{tweet.name}</span>
-								<span className="block truncate text-[12px] text-[var(--ink-soft)]">
-									@{tweet.author} · <SmartTimestamp value={tweet.createdAt} />
+			{preview.open
+				? createPortal(
+						<span
+							id={preview.floatingId}
+							ref={preview.floatingRef}
+							className="fixed z-40 w-[360px] overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--bg-elevated)] p-3 text-left text-[14px] leading-[1.4] text-[var(--ink)] shadow-[0_14px_40px_var(--shadow-strong)]"
+							role="tooltip"
+							style={preview.floatingStyle}
+							{...preview.floatingProps}
+						>
+							<span className="block" data-floating-preview-content>
+								<span className="mb-2 flex items-center gap-2">
+									<AvatarChip
+										avatarUrl={tweet.authorProfile.avatarUrl}
+										hue={tweet.authorProfile.avatarHue}
+										name={tweet.name}
+										profileId={tweet.authorProfile.id}
+										size="small"
+									/>
+									<span className="min-w-0">
+										<span className="block truncate font-bold">
+											{tweet.name}
+										</span>
+										<span className="block truncate text-[12px] text-[var(--ink-soft)]">
+											@{tweet.author} ·{" "}
+											<SmartTimestamp value={tweet.createdAt} />
+										</span>
+									</span>
+								</span>
+								<span className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+									{previewText}
+								</span>
+								<TweetPreviewMedia items={media} />
+								<span className="mt-2 flex gap-3 text-[12px] text-[var(--ink-soft)]">
+									<span>{tweet.source}</span>
+									{tweet.likeCount > 0 ? (
+										<span>{formatCompactNumber(tweet.likeCount)} likes</span>
+									) : null}
+									{tweet.needsReply ? <span>reply open</span> : null}
 								</span>
 							</span>
-						</span>
-						<span className="whitespace-pre-wrap [overflow-wrap:anywhere]">
-							{previewText}
-						</span>
-						<TweetPreviewMedia items={media} />
-						<span className="mt-2 flex gap-3 text-[12px] text-[var(--ink-soft)]">
-							<span>{tweet.source}</span>
-							{tweet.likeCount > 0 ? (
-								<span>{formatCompactNumber(tweet.likeCount)} likes</span>
-							) : null}
-							{tweet.needsReply ? <span>reply open</span> : null}
-						</span>
-					</span>
-				</span>
-			) : null}
+						</span>,
+						document.body,
+					)
+				: null}
 		</span>
 	);
 }

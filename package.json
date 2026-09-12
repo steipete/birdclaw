@@ -55,6 +55,7 @@
 		"verify:bun": "bun --no-env-file scripts/verify-bun-canary.mjs"
 	},
 	"dependencies": {
+		"@floating-ui/dom": "1.8.0",
 		"@modelcontextprotocol/sdk": "^1.30.0",
 		"@tanstack/react-query": "^5.102.8",
 		"@tanstack/react-router": "1.170.35",
