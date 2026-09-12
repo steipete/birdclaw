@@ -46,6 +46,7 @@ import { AvatarChip } from "./AvatarChip";
 import { ConversationThread } from "./ConversationThread";
 import { EmbeddedTweetCard } from "./EmbeddedTweetCard";
 import { LinkPreviewCard } from "./LinkPreviewCard";
+import { OpenTweetLink } from "./OpenTweetLink";
 import { ProfilePreview } from "./ProfilePreview";
 import { SmartTimestamp } from "./SmartTimestamp";
 import { TweetArticleCard } from "./TweetArticleCard";
@@ -425,7 +426,7 @@ export const TimelineCard = memo(function TimelineCard({
 					visibleUrlCards={visibleUrlCards}
 				/>
 				<footer className={feedRowActionsClass}>
-					<div className="flex items-center gap-3 text-[13px] text-[var(--ink-soft)]">
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[var(--ink-soft)]">
 						<button
 							aria-expanded={conversation.isOpen}
 							aria-label={
@@ -448,6 +449,7 @@ export const TimelineCard = memo(function TimelineCard({
 								{conversation.isOpen ? "Hide thread" : "Thread"}
 							</span>
 						</button>
+						<OpenTweetLink tweetId={interactionTweetId} />
 						{canReply ? (
 							<button
 								className={feedActionButtonClass}

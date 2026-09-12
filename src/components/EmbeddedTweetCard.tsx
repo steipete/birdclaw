@@ -9,6 +9,7 @@ import {
 	feedRowTimestampClass,
 } from "#/lib/ui";
 import { ProfilePreview } from "./ProfilePreview";
+import { OpenTweetLink } from "./OpenTweetLink";
 import { SmartTimestamp } from "./SmartTimestamp";
 import { TweetArticleCard } from "./TweetArticleCard";
 import { TweetMediaGrid } from "./TweetMediaGrid";
@@ -23,7 +24,10 @@ export function EmbeddedTweetCard({
 }) {
 	return (
 		<section className={embeddedCardBodyClass}>
-			<p className={embeddedCardLabelClass}>{label}</p>
+			<div className="flex flex-wrap items-center justify-between gap-1">
+				<p className={embeddedCardLabelClass}>{label}</p>
+				<OpenTweetLink compact tweetId={item.id} />
+			</div>
 			<header className={embeddedCardHeaderClass}>
 				<ProfilePreview profile={item.author}>
 					<span className="flex min-w-0 items-center gap-1.5">

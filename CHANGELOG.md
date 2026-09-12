@@ -2,6 +2,8 @@
 
 ## 0.12.7 - Unreleased
 
+- Add **Open on X** links to feed cards, parent and quoted tweets, and expanded conversations, including read-only archives. Reposts open the original tweet when its ID is known.
+
 ## 0.12.6 - 2026-09-12
 
 ### Highlights
