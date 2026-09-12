@@ -1,3 +1,4 @@
+import { AvatarImage } from "#/components/AvatarImage";
 import { createFileRoute } from "@tanstack/react-router";
 import { useDeploymentMode } from "#/lib/deployment-mode";
 import {
@@ -53,7 +54,6 @@ import {
 	type ReactMapboxModule,
 	type SelectedOverlay,
 	avatarInitial,
-	avatarPath,
 	buildClusterIndex,
 	clusterGradient,
 	compareClusterFeatures,
@@ -126,9 +126,6 @@ function Avatar({
 	className?: string;
 	style?: CSSProperties;
 }) {
-	const src = avatarPath(feature);
-	const [failedSrc, setFailedSrc] = useState<string | null>(null);
-	const showImage = src && failedSrc !== src;
 	return (
 		<div
 			className={cx(
@@ -137,17 +134,13 @@ function Avatar({
 			)}
 			style={{ width: size, height: size, ...style }}
 		>
-			{showImage ? (
-				<img
-					src={src}
-					alt=""
-					className="h-full w-full object-cover"
-					loading="lazy"
-					onError={() => setFailedSrc(src)}
-				/>
-			) : (
-				<span>{avatarInitial(feature)}</span>
-			)}
+			<AvatarImage
+				profileId={feature.properties.profileId}
+				avatarUrl={feature.properties.avatarUrl ?? undefined}
+				alt=""
+				className="h-full w-full object-cover"
+				fallback={<span>{avatarInitial(feature)}</span>}
+			/>
 		</div>
 	);
 }

@@ -4,6 +4,8 @@
 
 - Reduce allocations when reading SQLite rows while preserving plain objects and Buffer-valued BLOB columns.
 
+- Restore network-map avatars in markers, clusters, popups, and the visible-people list when cached image bytes are missing, including read-only archives.
+
 - Speed up recent DM lists by using the conversation ordering index instead of grouping and sorting the complete candidate set.
 
 - Recover avatars from their stored Twitter image URL when the local image endpoint fails, and include original-author profiles when syncing reposts and quoted tweets.

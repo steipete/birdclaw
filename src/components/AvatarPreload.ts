@@ -1,5 +1,5 @@
 import { type RefObject, useEffect } from "react";
-import { avatarPath } from "./AvatarChip";
+import { avatarPath } from "./AvatarImage";
 
 const MAX_CONCURRENT_PRELOADS = 4;
 const IDLE_TIMEOUT_MS = 2500;

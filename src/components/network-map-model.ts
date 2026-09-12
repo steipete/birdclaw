@@ -121,15 +121,6 @@ export function avatarInitial(feature: MapFeature) {
 		.toUpperCase();
 }
 
-export function avatarPath(feature: MapFeature) {
-	if (!feature.properties.avatarUrl) return null;
-	const query = new URLSearchParams({
-		profileId: feature.properties.profileId,
-		v: feature.properties.avatarUrl,
-	});
-	return `/api/avatar?${query.toString()}`;
-}
-
 export function clusterGradient(stats: ClusterAggregateProperties) {
 	const total = Math.max(1, stats.followers + stats.following + stats.mutual);
 	const mutual = (stats.mutual / total) * 100;
