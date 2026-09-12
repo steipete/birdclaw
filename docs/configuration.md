@@ -156,7 +156,9 @@ seeds, or migrates it. Database reads use strict query-only connections. Automat
 backup updates, sync jobs, live transport subprocesses, configuration writes, and web mutation
 requests are disabled. Cached tweets, threads, DMs, saved posts, links, blocklists,
 and network maps remain readable. Missing avatar, link-preview, and geocoding
-cache entries are left missing instead of being fetched or saved.
+cache entries are left missing instead of being fetched or saved. Read-only status
+counts are cached per database connection and refreshed when SQLite reports an
+external data commit; normal writable deployments continue to read fresh counts.
 
 The status API includes `readOnly: true`, and the web app hides writing controls,
 automatic sync timers, and pages that require live fetching or generation. The

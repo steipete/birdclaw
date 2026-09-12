@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Reuse read-only archive status counts until SQLite reports a data change, avoiding repeated full archive counts during navigation.
+
 - Reduce allocations when reading SQLite rows while preserving plain objects and Buffer-valued BLOB columns.
 
 - Speed up recent DM lists by using the conversation ordering index instead of grouping and sorting the complete candidate set.

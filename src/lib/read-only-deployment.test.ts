@@ -18,6 +18,7 @@ import {
 	requestBackupAutoUpdate,
 } from "./backup";
 import { readCachedAvatar } from "./avatar-cache";
+import NativeSqliteDatabase from "./sqlite";
 import { getOrFetchLinkPreview } from "./link-preview-metadata";
 import { getNetworkMap } from "./network-map";
 import { runSubprocessEffect } from "./subprocess";
@@ -128,4 +129,36 @@ it("requires a cached API path at handler admission even for a rewritten URL", (
 	expect(
 		sensitiveRequestErrorResponse(new Request("http://localhost/rewritten")),
 	).toBeNull();
+});
+
+it("reuses read-only status counts and invalidates after an external commit", async () => {
+	freshHome();
+	getNativeDb({ seedDemoData: true });
+	closeDatabase();
+	vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+	const first = await getQueryEnvelope({ includeArchives: false });
+	const expected = structuredClone(first);
+	await getQueryEnvelope({ includeArchives: false });
+	const prepare = vi.spyOn(NativeSqliteDatabase.prototype, "prepare");
+	first.stats.home = -1;
+	first.accounts[0].name = "mutated caller copy";
+	expect(await getQueryEnvelope({ includeArchives: false })).toEqual(expected);
+	expect(await getQueryEnvelope({ includeArchives: false })).toEqual(expected);
+	expect(prepare.mock.calls.some(([sql]) => sql.includes("count("))).toBe(
+		false,
+	);
+	prepare.mockRestore();
+	const writer = new NativeSqliteDatabase(getBirdclawPaths().dbPath);
+	try {
+		writer.exec("update dm_conversations set needs_reply=0");
+	} finally {
+		writer.close();
+	}
+	expect(expected.stats.needsReply).toBeGreaterThan(0);
+	expect(
+		(await getQueryEnvelope({ includeArchives: false })).stats.needsReply,
+	).toBe(0);
+	expect(
+		(await getQueryEnvelope({ includeArchives: false })).stats.needsReply,
+	).toBe(0);
 });

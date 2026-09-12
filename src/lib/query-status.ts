@@ -113,12 +113,34 @@ function readLocalQueryEnvelope(db: Database) {
 	})();
 }
 
+type LocalEnvelope = ReturnType<typeof readLocalQueryEnvelope>;
+const readOnlyEnvelopes = new WeakMap<
+	Database,
+	{ version: number; value: LocalEnvelope }
+>();
+
+function readQueryEnvelope(db: Database, readOnly: boolean): LocalEnvelope {
+	if (!readOnly) return readLocalQueryEnvelope(db);
+	const version = Number(db.pragma("data_version", { simple: true }));
+	let cached = readOnlyEnvelopes.get(db);
+	if (!cached || cached.version !== version) {
+		cached = { version, value: readLocalQueryEnvelope(db) };
+		readOnlyEnvelopes.set(db, cached);
+	}
+	return {
+		stats: { ...cached.value.stats },
+		accounts: cached.value.accounts.map((account) => ({ ...account })),
+	};
+}
+
 export function getQueryEnvelopeEffect({
 	includeArchives = true,
 }: { includeArchives?: boolean } = {}): Effect.Effect<QueryEnvelope, unknown> {
 	return Effect.gen(function* () {
-		const local = yield* trySync(() => readLocalQueryEnvelope(getReadDb()));
 		const readOnly = isReadOnlyDeployment();
+		const local = yield* trySync(() =>
+			readQueryEnvelope(getReadDb(), readOnly),
+		);
 		const external = yield* Effect.all({
 			archives:
 				includeArchives && !readOnly
