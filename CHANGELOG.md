@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.12.7 - Unreleased
+
 ## 0.12.6 - 2026-09-12
 
 ### Highlights
