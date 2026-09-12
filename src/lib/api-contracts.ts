@@ -725,17 +725,6 @@ export const actionResponseSchemas = {
 	}),
 	syncBlocks: syncBlocksActionResponseSchema,
 } as const;
-export const actionResponseSchema = z.union([
-	postActionResponseSchema,
-	tweetReplyActionResponseSchema,
-	dmReplyActionResponseSchema,
-	scoreInboxActionResponseSchema,
-	profileActionResponseBaseSchema.extend({ action: z.literal("block") }),
-	profileActionResponseBaseSchema.extend({ action: z.literal("unblock") }),
-	profileActionResponseBaseSchema.extend({ action: z.literal("mute") }),
-	profileActionResponseBaseSchema.extend({ action: z.literal("unmute") }),
-	syncBlocksActionResponseSchema,
-]);
 export type ActionResponseFor<K extends ActionKind> = z.infer<
 	(typeof actionResponseSchemas)[K]
 >;
