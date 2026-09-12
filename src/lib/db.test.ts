@@ -808,6 +808,34 @@ describe("native sqlite compatibility wrapper", () => {
 		expect(() => db.close()).not.toThrow();
 	});
 
+	it("keeps dangerous column names as own data and rows independent", () => {
+		const db = new NativeSqliteDatabase(":memory:");
+		const statement = db.prepare(
+			'select ? as "__proto__", ? as "constructor", ? as data',
+		);
+		const first = statement.get(
+			"literal",
+			"value",
+			Buffer.from([1, 2, 3]),
+		) as Record<string, unknown>;
+		expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
+		expect(Object.hasOwn(first, "__proto__")).toBe(true);
+		expect(first.__proto__).toBe("literal");
+		expect(first.constructor).toBe("value");
+		expect(first.data).toEqual(Buffer.from([1, 2, 3]));
+		first.__proto__ = "changed";
+		const second = statement.all(
+			"fresh",
+			"other",
+			Buffer.from([4]),
+		)[0] as Record<string, unknown>;
+		expect(second.__proto__).toBe("fresh");
+		expect(Object.getPrototypeOf(second)).toBe(Object.prototype);
+		expect(second.data).toEqual(Buffer.from([4]));
+		expect(first.__proto__).toBe("changed");
+		db.close();
+	});
+
 	it("commits, rolls back, and nests transactions with savepoints", () => {
 		const db = new NativeSqliteDatabase(":memory:");
 		db.exec("create table events (name text)");

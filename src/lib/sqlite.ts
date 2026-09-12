@@ -43,12 +43,14 @@ function normalizeRow(row: unknown): unknown {
 	) {
 		return normalizeValue(row);
 	}
-	return Object.fromEntries(
-		Object.entries(row as Record<string, unknown>).map(([key, value]) => [
-			key,
-			normalizeValue(value),
-		]),
-	);
+	const record = row as Record<string, unknown>;
+	for (const key of Object.keys(record)) {
+		const value = record[key];
+		if (value instanceof Uint8Array && !Buffer.isBuffer(value)) {
+			record[key] = normalizeValue(value);
+		}
+	}
+	return Object.setPrototypeOf(record, Object.prototype);
 }
 
 class NativeSqliteStatement {
