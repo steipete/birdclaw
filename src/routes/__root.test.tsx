@@ -6,7 +6,10 @@ const routerState = vi.hoisted(() => ({ path: "/inbox" }));
 const appNavProps: Array<{ compact?: boolean }> = vi.hoisted(() => []);
 
 vi.mock("@tanstack/react-router", () => ({
-	createRootRoute: (options: Record<string, unknown>) => ({ options }),
+	createRootRoute: (options: Record<string, unknown>) => ({
+		options,
+		useLoaderData: () => null,
+	}),
 	HeadContent: () => null,
 	Scripts: () => <div data-testid="scripts" />,
 	useRouterState: ({
