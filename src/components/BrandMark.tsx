@@ -1,3 +1,4 @@
+import brandMarkUrl from "virtual:birdclaw-brand?url";
 import { cx, emptyStateClass } from "#/lib/ui";
 
 export function BirdclawMark({
@@ -20,7 +21,7 @@ export function BirdclawMark({
 				alt=""
 				className="size-full object-contain drop-shadow-[0_10px_22px_var(--brand-shadow)]"
 				draggable={false}
-				src="/birdclaw-mark.png"
+				src={brandMarkUrl}
 			/>
 		</span>
 	);

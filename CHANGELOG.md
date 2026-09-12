@@ -2,7 +2,7 @@
 
 ## 0.12.6 - Unreleased
 
-- Select timeline page membership before loading rich tweet, profile, and collection metadata, reducing uncached reads on large archives.
+- Generate and serve a compact versioned logo for the app and favicon while retaining the high-resolution artwork for documentation.
 
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
 
@@ -13,6 +13,8 @@
 - Normalize each distinct link URL once per insight query and reuse the result across ranking and hydration.
 
 - Batch URL and mention-profile enrichment for conversation descendants while retaining traversal limits and truncation reporting.
+
+- Select timeline page membership before loading rich tweet, profile, and collection metadata, reducing uncached reads on large archives.
 
 - Reuse up to 128 recently prepared SQLite statements per connection while keeping streaming iterators on independent cursors.
 
