@@ -1765,6 +1765,44 @@ describe("query models", () => {
 		]);
 	});
 
+	it("preserves timestamp ties across global and account timeline reads", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		const createdAt = "2035-01-01T00:00:00Z";
+		db.transaction(() => {
+			for (let index = 0; index < 5100; index++) {
+				const id = `window_tie_${String(index).padStart(5, "0")}`;
+				insertTestTweet(db, {
+					id,
+					createdAt,
+					text: "Synthetic tied timestamp",
+				});
+				insertTestEdge(db, id, createdAt);
+			}
+		})();
+		for (const account of [undefined, "acct_primary", "all"]) {
+			const query = { resource: "home" as const, account, limit: 2 };
+			const plan = buildTimelineItemsQuery(query);
+			expect(plan.usedRecentEdgeWindow).toBe(account === undefined);
+			const selected = listTimelineItems(query, db).map((item) => item.id);
+			const fallback = db
+				.prepare(plan.fallbackSql)
+				.all(...plan.fallbackParams) as Array<{ id: string }>;
+			expect(selected).toEqual(["window_tie_05099", "window_tie_05098"]);
+			expect(selected).toEqual(fallback.map((item) => item.id));
+		}
+		// Sparse account membership outside the candidate window must still be found.
+		db.prepare(
+			"delete from tweet_account_edges where tweet_id like 'window_tie_%' and tweet_id != 'window_tie_00000'",
+		).run();
+		expect(
+			listTimelineItems(
+				{ resource: "home", account: "acct_primary", limit: 2 },
+				db,
+			)[0]?.id,
+		).toBe("window_tie_00000");
+	});
+
 	it("uses chronological index order for the recent candidate window", () => {
 		setupTempHome();
 		const db = getNativeDb();
