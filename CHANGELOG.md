@@ -2,6 +2,8 @@
 
 ## 0.12.6 - Unreleased
 
+- Avoid duplicate startup reads on Map, DMs, and Inbox by settling account selection before requesting account-specific data.
+
 - Cancel obsolete link-preview requests and remove abandoned queued previews so navigation does not leave new cards waiting behind old work.
 
 - Use the chronological tweet index to find recent timeline candidates without sorting the full active archive.

@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useSelectedAccountId } from "#/components/account-selection";
+import { useQueryAccount } from "#/components/account-selection";
 import { InboxCard } from "#/components/InboxCard";
 import { inboxResponseSchema } from "#/lib/api-contracts";
 import { fetchJson, fetchQueryEnvelope, postAction } from "#/lib/api-client";
@@ -85,7 +85,8 @@ export function InboxRouteView({
 		queryFn: ({ signal }) => fetchQueryEnvelope({ signal }),
 	});
 	const meta = statusQuery.data ?? null;
-	const selectedAccountId = useSelectedAccountId(meta?.accounts);
+	const { selectedAccountId, accountSelectionSettled } =
+		useQueryAccount(statusQuery);
 	const inboxQueryKey = [
 		...queryKeys.inbox,
 		{
@@ -97,6 +98,7 @@ export function InboxRouteView({
 	] as const;
 	const inboxQuery = useQuery({
 		queryKey: inboxQueryKey,
+		enabled: accountSelectionSettled,
 		queryFn: async ({ signal }) => {
 			const url = new URL("/api/inbox", window.location.origin);
 			url.searchParams.set("kind", kind);

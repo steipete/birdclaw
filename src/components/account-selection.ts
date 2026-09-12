@@ -4,6 +4,21 @@ import type { AccountRecord } from "#/lib/types";
 const STORAGE_KEY = "birdclaw:selected-account-id";
 const CHANGE_EVENT = "birdclaw-account-change";
 
+export function useQueryAccount(status: {
+	data?: { accounts: AccountRecord[] };
+	isSuccess: boolean;
+	isError: boolean;
+}) {
+	const selectedAccountId = useSelectedAccountId(status.data?.accounts, {
+		allowStoredBeforeAccounts: true,
+	});
+	return {
+		selectedAccountId,
+		accountSelectionSettled:
+			Boolean(selectedAccountId) || status.isSuccess || status.isError,
+	};
+}
+
 export function defaultAccountId(accounts: AccountRecord[] | undefined) {
 	if (!accounts?.length) return undefined;
 	return accounts.find((account) => account.isDefault)?.id ?? accounts[0]?.id;

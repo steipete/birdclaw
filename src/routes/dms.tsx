@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DmWorkspace } from "#/components/DmWorkspace";
 import { FeedEmpty, FeedError, FeedLoading } from "#/components/FeedState";
 import { SyncNowButton } from "#/components/SyncNowButton";
-import { useSelectedAccountId } from "#/components/account-selection";
+import { useQueryAccount } from "#/components/account-selection";
 import { fetchJson, fetchQueryEnvelope, postAction } from "#/lib/api-client";
 import { dmQueryResponseSchema, type QueryResponse } from "#/lib/api-contracts";
 import { queryKeys } from "#/lib/query-client";
@@ -109,7 +109,8 @@ export function DmsRouteView({
 		queryFn: ({ signal }) => fetchQueryEnvelope({ signal }),
 	});
 	const meta = statusQuery.data ?? null;
-	const selectedAccountId = useSelectedAccountId(meta?.accounts);
+	const { selectedAccountId, accountSelectionSettled } =
+		useQueryAccount(statusQuery);
 	const debouncedSearch = useDebouncedValue(search, 180);
 	const dmsQueryKey = [
 		...queryKeys.dms,
@@ -126,6 +127,7 @@ export function DmsRouteView({
 	] as const;
 	const dmsQuery = useQuery({
 		queryKey: dmsQueryKey,
+		enabled: accountSelectionSettled,
 		queryFn: ({ signal }) => {
 			const url = new URL("/api/query", window.location.origin);
 			url.searchParams.set("resource", "dms");

@@ -12,7 +12,7 @@ import {
 } from "#/lib/api-client";
 import { queryKeys } from "#/lib/query-client";
 import type { ReplyFilter, ResourceKind, TimelineItem } from "#/lib/types";
-import { useSelectedAccountId } from "./account-selection";
+import { useQueryAccount } from "./account-selection";
 import { useDebouncedValue } from "./useDebouncedValue";
 
 const PAGE_SIZE = 50;
@@ -84,11 +84,8 @@ export function useTimelineRouteData({
 		queryFn: ({ signal }) => fetchQueryEnvelope({ signal }),
 	});
 	const meta = statusQuery.data ?? null;
-	const selectedAccountId = useSelectedAccountId(meta?.accounts, {
-		allowStoredBeforeAccounts: true,
-	});
-	const accountSelectionSettled =
-		Boolean(selectedAccountId) || statusQuery.isSuccess || statusQuery.isError;
+	const { selectedAccountId, accountSelectionSettled } =
+		useQueryAccount(statusQuery);
 	const debouncedSearch = useDebouncedValue(search, 180);
 	const timelineQueryKey = [
 		...queryKeys.timelines,
