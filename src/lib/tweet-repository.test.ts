@@ -16,6 +16,91 @@ import {
 
 let tempRoot: string | undefined;
 
+it("reconciles each payload author once and observes new profile data in the next payload", () => {
+	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-author-reuse-"));
+	process.env.BIRDCLAW_HOME = tempRoot;
+	resetBirdclawPathsForTests();
+	resetDatabaseForTests();
+	getNativeDb({ seedDemoData: false });
+	let snapshots = 0;
+	const db = new NativeSqliteDatabase(path.join(tempRoot, "birdclaw.sqlite"), {
+		onStatement: (sql) => {
+			if (/insert into profile_snapshots/i.test(sql)) snapshots++;
+		},
+	});
+	const users = [
+		{ id: "42", username: "first", name: "First" },
+		{ id: "43", username: "second", name: "Second" },
+	];
+	const tweets = Array.from({ length: 30 }, (_, i) => ({
+		id: `reuse_${i}`,
+		author_id: String(42 + (i % 2)),
+		text: `Post ${i}`,
+		created_at: "2026-09-12T10:00:00Z",
+	}));
+	try {
+		const ingest = (name: string) =>
+			ingestTweetPayload(db, {
+				accountId: "fixture",
+				source: "test",
+				payload: {
+					data: tweets,
+					includes: {
+						users: users.map((user) =>
+							user.id === "42" ? { ...user, name } : user,
+						),
+						tweets: [{ ...tweets[0]!, id: "included_reuse" }],
+					},
+				},
+			});
+		ingest("First");
+		expect(snapshots).toBe(2);
+		snapshots = 0;
+		ingest("Updated First");
+		expect(snapshots).toBe(4);
+		expect(
+			db
+				.prepare("select display_name from profiles where id='profile_user_42'")
+				.get(),
+		).toEqual({ display_name: "Updated First" });
+		expect(
+			db
+				.prepare(
+					"select distinct author_profile_id from tweets order by author_profile_id",
+				)
+				.all(),
+		).toEqual([
+			{ author_profile_id: "profile_user_42" },
+			{ author_profile_id: "profile_user_43" },
+		]);
+		expect(db.prepare("select count(*) as count from tweets").get()).toEqual({
+			count: 31,
+		});
+		expect(
+			db
+				.prepare(
+					"select distinct display_name from profile_snapshots where profile_id='profile_user_42' order by display_name",
+				)
+				.all(),
+		).toEqual([{ display_name: "First" }, { display_name: "Updated First" }]);
+		ingestTweetPayload(db, {
+			accountId: "fixture",
+			source: "test",
+			payload: {
+				data: [tweets[0]!, tweets[1]!, tweets[2]!],
+				includes: {
+					users: users.map((user) => ({ ...user, username: "shared" })),
+				},
+			},
+		});
+		expect(
+			db.prepare("select id from profiles where handle='shared'").get(),
+		).toEqual({ id: "profile_user_42" });
+	} finally {
+		db.close();
+	}
+});
+
 afterEach(() => {
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();

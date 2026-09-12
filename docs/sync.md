@@ -5,6 +5,10 @@ description: "Sync authored tweets, Lists, likes, bookmarks, home timeline, ment
 
 # Sync
 
+Tweet ingestion reconciles each unique author once within a payload, including
+referenced posts. The cache is discarded with the transaction, so later payloads
+still update profile identity, metadata, and history normally.
+
 `birdclaw sync` mirrors the live Twitter surfaces you actually use into the local SQLite store. Every sync command:
 
 - pulls from the best live transport for the surface; authored sync uses `xurl`, follow graph sync prefers `bird`, and likes/bookmarks still try `xurl` before `bird`

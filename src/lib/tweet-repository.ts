@@ -12,6 +12,7 @@ import {
 	upsertTweetAccountEdge,
 } from "./tweet-account-edges";
 import { ensureStubProfileForXUser, upsertProfileFromXUser } from "./x-profile";
+import { profileHandleKey } from "./profile-row";
 
 export interface IngestTweetPayloadOptions {
 	accountId: string;
@@ -59,6 +60,17 @@ export function ingestTweetPayload(
 	const usersById = new Map(
 		(payload.includes?.users ?? []).map((user) => [user.id, user]),
 	);
+	const handleOwners = new Map<string, string>();
+	const conflictingAuthors = new Set<string>();
+	for (const user of usersById.values()) {
+		const handle = profileHandleKey(user.username);
+		const previous = handleOwners.get(handle);
+		if (previous && previous !== user.id) {
+			conflictingAuthors.add(previous);
+			conflictingAuthors.add(user.id);
+		}
+		handleOwners.set(handle, user.id);
+	}
 	const mediaByKey = indexMediaIncludes(payload.includes?.media);
 	const upsertTweet = db.prepare(`
     insert into tweets (
@@ -106,13 +118,22 @@ export function ingestTweetPayload(
 	db.transaction(() => {
 		const observedAt = new Date().toISOString();
 		const primaryTweetIds = new Set(payload.data.map((tweet) => tweet.id));
+		const profileIdsByAuthor = new Map<string, string>();
 		for (const tweet of toCanonicalTweets(payload)) {
 			touchedTweetIds.push(tweet.id);
 			const isPrimaryTweet = primaryTweetIds.has(tweet.id);
-			const author = usersById.get(tweet.author_id);
-			const profile = author
-				? upsertProfileFromXUser(db, author)
-				: ensureStubProfileForXUser(db, tweet.author_id);
+			let profileId = profileIdsByAuthor.get(tweet.author_id);
+			if (!profileId) {
+				const author = usersById.get(tweet.author_id);
+				const profile = author
+					? upsertProfileFromXUser(db, author)
+					: ensureStubProfileForXUser(db, tweet.author_id);
+				profileId = profile.profile.id;
+				// Keep order-dependent handle-collision reconciliation for ambiguous payloads.
+				if (!conflictingAuthors.has(tweet.author_id)) {
+					profileIdsByAuthor.set(tweet.author_id, profileId);
+				}
+			}
 			const replyToId = getReferencedTweetId(tweet, "replied_to");
 			const quotedTweetId = getReferencedTweetId(tweet, "quoted");
 			const media = buildTweetMedia(tweet, mediaByKey);
@@ -121,7 +142,7 @@ export function ingestTweetPayload(
 				isPrimaryTweet && markRepliesAsReplied && Boolean(replyToId);
 			upsertTweet.run(
 				tweet.id,
-				profile.profile.id,
+				profileId,
 				tweet.text,
 				tweet.created_at,
 				shouldMarkReplied ? 1 : 0,
