@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import type { QueryEnvelope } from "./api-contracts";
 
 export const queryKeys = {
 	status: ["status"] as const,
@@ -17,21 +18,33 @@ export const queryKeys = {
 	rateLimits: ["rate-limits"] as const,
 };
 
-export function createBirdclawQueryClient() {
-	return new QueryClient({
+export function createBirdclawQueryClient(
+	initialStatus?: QueryEnvelope | null,
+) {
+	const client = new QueryClient({
 		defaultOptions: {
 			queries: {
-				gcTime: 30 * 60_000,
+				gcTime: typeof window === "undefined" ? Infinity : 30 * 60_000,
 				refetchOnWindowFocus: false,
 				retry: 1,
 				staleTime: 60_000,
 			},
 		},
 	});
+	if (initialStatus) client.setQueryData(queryKeys.status, initialStatus);
+	return client;
 }
 
-export function BirdclawQueryProvider({ children }: { children: ReactNode }) {
-	const [queryClient] = useState(createBirdclawQueryClient);
+export function BirdclawQueryProvider({
+	children,
+	initialStatus,
+}: {
+	children: ReactNode;
+	initialStatus?: QueryEnvelope | null;
+}) {
+	const [queryClient] = useState(() =>
+		createBirdclawQueryClient(initialStatus),
+	);
 	return (
 		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 	);

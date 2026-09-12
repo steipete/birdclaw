@@ -4,6 +4,8 @@
 
 - Generate and serve a compact versioned logo for the app and favicon while retaining the high-resolution artwork for documentation.
 
+- Bootstrap authorized single-account read-only pages with cached status metadata to remove the initial status-request waterfall.
+
 - Defer linked-account metadata lookup until link-search results are selected, preserving substring matching and account fallback precedence.
 
 - Defer loading the HTTP/MCP server until `serve` runs, reducing startup work for CLI help and local commands.

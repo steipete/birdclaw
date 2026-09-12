@@ -580,6 +580,17 @@ Secondary later:
 
 - standalone desktop wrapper if the web UX becomes primary
 
+## Read-only status bootstrap
+
+Single-account read-only deployments may include the status envelope in the
+initial HTML after the same authorization checks as `/api/status`. The browser
+seeds its status query from that envelope, so it can request account-scoped data
+without another status round trip. Multiple-account and writable deployments
+retain the existing client flow; server rendering cannot infer browser-local
+account selection. Bootstrap failures fall back to the normal client request.
+No archive discovery, live reads, or backup updates run in the bootstrap.
+Server query clients remain request-local and do not retain timed GC entries.
+
 ### Read-only query response reuse
 
 After authorization and filter parsing, `/api/query` may reuse validated serialized JSON in read-only deployments. Entries are scoped to the reader connection and normalized resource/filter arguments, including account selection. Each lookup checks SQLite `data_version`; changed databases drop their prior entries. A second check avoids retaining a response across an external commit. The cache retains at most 100 entries and 4 MiB of encoded keys/values per reader, skips responses over 512 KiB and keys over 4 KiB, and evicts least-recently-used entries.
