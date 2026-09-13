@@ -1,0 +1,107 @@
+{
+  "baselineCommit": "78a2ff23791a49781abbb592e866d9effc8c69ff",
+  "runtime": "Bun 1.4.0-canary.1+f972c287f",
+  "fixture": {
+    "profiles": 544560,
+    "locatedProfiles": 224706,
+    "locations": 2048
+  },
+  "method": "Thirty different requests per navigation scenario, sequential processes, same fixture. Request times include validation and JSON serialization. All response digests match.",
+  "limitation": "No cold-load speedup is claimed: the unchanged SQLite query and filesystem caches dominate first-read variance.",
+  "baseline": [
+    {
+      "scenario": "cold",
+      "generateMs": 9049.256041,
+      "totalMs": 9055.519416000001,
+      "databaseMs": 8699.162253,
+      "bytes": 358449,
+      "profiles": 544560,
+      "located": 224706,
+      "digest": "6f0aa7ed0edfe1c1086f496642f87e5f9404b4ea7715c19fc10a4a4f96fe738c"
+    },
+    {
+      "scenario": "pagination",
+      "iterations": 30,
+      "medianGenerateMs": 24.073875000000044,
+      "medianTotalMs": 25.768707999999606,
+      "p95TotalMs": 47.6411250000001,
+      "medianDatabaseMs": 0.09629300000051444,
+      "digest": "9c68a6722a1f0967b6f3c4b236afb095001458aee982a037b55ec6d2357c0153"
+    },
+    {
+      "scenario": "changing-search",
+      "iterations": 30,
+      "medianGenerateMs": 96.80408399999942,
+      "medianTotalMs": 97.79670900000019,
+      "p95TotalMs": 114.61454199999935,
+      "medianDatabaseMs": 0.09908200000063516,
+      "digest": "4ba97d07c9f308bd1e98e9194038487da0f190947642e32e515e31f03e3500d7"
+    },
+    {
+      "scenario": "typing-search",
+      "iterations": 30,
+      "medianGenerateMs": 83.92029100000036,
+      "medianTotalMs": 84.65329100000054,
+      "p95TotalMs": 94.92012500000055,
+      "medianDatabaseMs": 0.09745900000234542,
+      "digest": "9e89ddd4055c252e43a76b0fe9c1641a7d05146acd95e6b3383809ad9266a7d9"
+    },
+    {
+      "scenario": "fresh-pan",
+      "iterations": 30,
+      "medianGenerateMs": 17.823292000000947,
+      "medianTotalMs": 18.021624999999403,
+      "p95TotalMs": 24.961041999998997,
+      "medianDatabaseMs": 0.08904200000324636,
+      "digest": "ad4267fcd8679ec5441b620343c4770afb7445c4773d69ddf26350c0680f5cf2"
+    }
+  ],
+  "optimized": [
+    {
+      "scenario": "cold",
+      "generateMs": 1064.751459,
+      "totalMs": 1071.3400840000002,
+      "databaseMs": 790.6150830000006,
+      "bytes": 358449,
+      "profiles": 544560,
+      "located": 224706,
+      "digest": "6f0aa7ed0edfe1c1086f496642f87e5f9404b4ea7715c19fc10a4a4f96fe738c"
+    },
+    {
+      "scenario": "pagination",
+      "iterations": 30,
+      "medianGenerateMs": 0.18174999999996544,
+      "medianTotalMs": 1.3927909999999883,
+      "p95TotalMs": 2.3075830000000224,
+      "medianDatabaseMs": 0.0555410000001757,
+      "digest": "9c68a6722a1f0967b6f3c4b236afb095001458aee982a037b55ec6d2357c0153"
+    },
+    {
+      "scenario": "changing-search",
+      "iterations": 30,
+      "medianGenerateMs": 4.7068329999999605,
+      "medianTotalMs": 5.592499999999973,
+      "p95TotalMs": 7.441458999999895,
+      "medianDatabaseMs": 0.0892910000000029,
+      "digest": "4ba97d07c9f308bd1e98e9194038487da0f190947642e32e515e31f03e3500d7"
+    },
+    {
+      "scenario": "typing-search",
+      "iterations": 30,
+      "medianGenerateMs": 1.0798330000000078,
+      "medianTotalMs": 1.8018750000001091,
+      "p95TotalMs": 9.014249999999947,
+      "medianDatabaseMs": 0.06445899999994253,
+      "digest": "9e89ddd4055c252e43a76b0fe9c1641a7d05146acd95e6b3383809ad9266a7d9"
+    },
+    {
+      "scenario": "fresh-pan",
+      "iterations": 30,
+      "medianGenerateMs": 8.255541999999878,
+      "medianTotalMs": 8.579708999999639,
+      "p95TotalMs": 13.82858299999998,
+      "medianDatabaseMs": 0.09658399999989342,
+      "digest": "ad4267fcd8679ec5441b620343c4770afb7445c4773d69ddf26350c0680f5cf2"
+    }
+  ]
+}

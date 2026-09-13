@@ -83,6 +83,10 @@ describe("network map views", () => {
 		const db = fixture();
 		const build = vi.spyOn(geometry, "buildClusterIndex");
 		await getNetworkMapView({ account: "a" }, db);
+		expect(
+			(await getNetworkMapView({ account: "a", search: "updated" }, db))
+				.matchingProfiles,
+		).toBe(0);
 		await getNetworkMapView(
 			{ account: "a", search: "person", offset: 160 },
 			db,
@@ -113,6 +117,10 @@ describe("network map views", () => {
 		} finally {
 			writer.close();
 		}
+		expect(
+			(await getNetworkMapView({ account: "a", search: "updated" }, db))
+				.matchingProfiles,
+		).toBe(1);
 		expect(
 			(await getNetworkMapView({ account: "a" }, db)).features[0].properties
 				.name,

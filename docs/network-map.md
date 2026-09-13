@@ -23,6 +23,40 @@ The UI requests `/api/network-map?format=view` with `bounds=west,south,east,nort
 cluster counts and profile previews, a page of people, and full-network totals.
 The existing GeoJSON response remains available when `format` is omitted.
 
+The index also retains four recent viewport results and up to 2,000 cluster
+previews. Pagination reuses the viewport's ranked matches. Search text is
+normalized lazily once per profile, and extending a search filters its previous
+matches. Replacing or shortening a search starts from everyone in view. These
+caches belong to the current database index and are discarded together when it
+is invalidated.
+
+## Profiling
+
+Run the reproducible synthetic benchmark with 544,560 profiles and 224,706
+located people:
+
+```bash
+./scripts/bun-canary.sh scripts/network-map-perf.ts
+```
+
+It reports cold-load database time, median/p95 request times for 30 different
+pages, changing searches, typed searches, and fresh pans. Times include response
+validation and JSON serialization; response digests help compare correctness
+between implementations. Its temporary database is removed afterward. An
+optional existing Birdclaw home argument is opened read-only.
+
+To capture CPU samples and a readable hot-function report:
+
+```bash
+./scripts/bun-canary.sh --cpu-prof --cpu-prof-md --cpu-prof-dir=/tmp/map-profile scripts/network-map-perf.ts /path/to/benchmark-home
+```
+
+Use the same fixture and runtime for comparisons, run benchmarks sequentially,
+and compare navigation medians separately from the first database read, which
+is sensitive to filesystem caches and host load.
+
+## Configuration
+
 Runtime keys:
 
 ```bash

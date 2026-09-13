@@ -178,24 +178,28 @@ export function readViewport(target: unknown): MapViewport | null {
 	};
 }
 
-export function boundsContainFeature(bounds: MapBounds, feature: MapFeature) {
+export function createBoundsFilter(bounds: MapBounds) {
 	const [west, south, east, north] = bounds;
-	const [lng, lat] = feature.geometry.coordinates;
 	const normalizedWest = (((west % 360) + 540) % 360) - 180;
 	const normalizedEast = (((east % 360) + 540) % 360) - 180;
-	const inLatitude = lat >= Math.max(-85, south) && lat <= Math.min(85, north);
-	const inLongitude =
-		east - west >= 360
-			? true
-			: normalizedWest <= normalizedEast
-				? lng >= normalizedWest && lng <= normalizedEast
-				: lng >= normalizedWest || lng <= normalizedEast;
-	return inLatitude && inLongitude;
+	const minLatitude = Math.max(-85, south);
+	const maxLatitude = Math.min(85, north);
+	const allLongitudes = east - west >= 360;
+	const crossesAntimeridian = normalizedWest > normalizedEast;
+	return (feature: MapFeature) => {
+		const [lng, lat] = feature.geometry.coordinates;
+		return (
+			lat >= minLatitude &&
+			lat <= maxLatitude &&
+			(allLongitudes ||
+				(crossesAntimeridian
+					? lng >= normalizedWest || lng <= normalizedEast
+					: lng >= normalizedWest && lng <= normalizedEast))
+		);
+	};
 }
 
-export function featureMatchesSearch(feature: MapFeature, search: string) {
-	const needle = search.trim().toLowerCase();
-	if (!needle) return true;
+export function featureSearchText(feature: MapFeature) {
 	return [
 		feature.properties.name,
 		feature.properties.handle,
@@ -204,6 +208,5 @@ export function featureMatchesSearch(feature: MapFeature, search: string) {
 		formatRelationship(feature.properties.relationship),
 	]
 		.join(" ")
-		.toLowerCase()
-		.includes(needle);
+		.toLowerCase();
 }
