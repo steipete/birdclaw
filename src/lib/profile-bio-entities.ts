@@ -1,6 +1,10 @@
 import type { Database } from "./sqlite";
 import { fetchProfileAffiliations } from "./profile-affiliations";
-import { normalizeProfileHandle, profileFromDbRow } from "./profile-row";
+import {
+	normalizeProfileHandle,
+	profileFromDbRow,
+	profileEntityUrls,
+} from "./profile-row";
 import type { ProfileBioEntity, ProfileRecord } from "./types";
 
 interface ExtractedBioEntity {
@@ -54,31 +58,6 @@ function addHandleDerivedCompany(
 	});
 }
 
-function getUrlEntityExpandedUrls(profile: ProfileRecord) {
-	const urls: string[] = [];
-	for (const key of ["url", "description"] as const) {
-		const block = profile.entities?.[key];
-		if (!block || typeof block !== "object") {
-			continue;
-		}
-		const entries = (block as { urls?: unknown }).urls;
-		if (!Array.isArray(entries)) {
-			continue;
-		}
-		for (const entry of entries) {
-			if (!entry || typeof entry !== "object") {
-				continue;
-			}
-			const record = entry as Record<string, unknown>;
-			const expanded = record.expandedUrl ?? record.expanded_url ?? record.url;
-			if (typeof expanded === "string" && expanded.length > 0) {
-				urls.push(expanded);
-			}
-		}
-	}
-	return urls;
-}
-
 export function extractProfileBioEntities(profile: ProfileRecord) {
 	const entities = new Map<string, ExtractedBioEntity>();
 	const bio = profile.bio ?? "";
@@ -119,7 +98,11 @@ export function extractProfileBioEntities(profile: ProfileRecord) {
 		}
 	}
 
-	for (const url of [profile.url, ...getUrlEntityExpandedUrls(profile)]) {
+	for (const url of [
+		profile.url,
+		...profileEntityUrls(profile, "url"),
+		...profileEntityUrls(profile),
+	]) {
 		if (!url) {
 			continue;
 		}

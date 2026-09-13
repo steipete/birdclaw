@@ -4433,6 +4433,27 @@ describe("text backup", () => {
 					},
 				).trim(),
 			).toBe("1");
+			expect(result).not.toHaveProperty("backupHash");
+			await expect(maybeAutoUpdateBackup()).resolves.toMatchObject({
+				ok: true,
+				skipped: true,
+				reason: "backup auto-sync is fresh",
+			});
+			getNativeDb().exec(`
+        insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at)
+        values ('profile_fresh_sync', 'fresh_sync', 'Fresh Sync', '', 0, 0, '2026-09-12T00:00:00Z')
+      `);
+			await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+				ok: true,
+				skipped: false,
+			});
+			expect(
+				execFileSync(
+					"git",
+					["--git-dir", remotePath, "rev-list", "--count", "refs/heads/main"],
+					{ encoding: "utf8" },
+				).trim(),
+			).toBe("2");
 		} finally {
 			if (previousAutoSyncEnv === undefined) {
 				delete process.env.BIRDCLAW_BACKUP_AUTO_SYNC;

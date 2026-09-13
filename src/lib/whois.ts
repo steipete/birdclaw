@@ -7,6 +7,10 @@ import {
 } from "./identity-search-index";
 import { fetchProfileBioEntities } from "./profile-bio-entities";
 import { fetchProfileSnapshots } from "./profile-history";
+import {
+	getUrlEntityExpandedUrl,
+	profileEntityUrls as getProfileBioUrls,
+} from "./profile-row";
 import { resolveProfilesForIdsEffect } from "./profile-resolver";
 import type { ProfileResolveResult } from "./profile-resolver";
 import { listDmConversations } from "./dm-read-model";
@@ -213,31 +217,6 @@ function getMessageTexts(conversation: DmConversationItem) {
 		match.message.text,
 		...match.after.map((message) => message.text),
 	]);
-}
-
-function getUrlEntityExpandedUrl(entity: unknown) {
-	if (!entity || typeof entity !== "object") {
-		return undefined;
-	}
-	const record = entity as Record<string, unknown>;
-	const expanded = record.expandedUrl ?? record.expanded_url ?? record.url;
-	return typeof expanded === "string" && expanded.length > 0
-		? expanded
-		: undefined;
-}
-
-function getProfileBioUrls(profile: ProfileRecord) {
-	const description = profile.entities?.description;
-	if (!description || typeof description !== "object") {
-		return [];
-	}
-	const urls = (description as { urls?: unknown }).urls;
-	if (!Array.isArray(urls)) {
-		return [];
-	}
-	return urls
-		.map(getUrlEntityExpandedUrl)
-		.filter((url): url is string => Boolean(url));
 }
 
 function getAffiliationTexts(affiliation: ProfileAffiliation) {

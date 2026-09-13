@@ -5,9 +5,43 @@ import {
 	nullableProfileFromDbRow,
 	profileFromDbRow,
 	profileHandleKey,
+	profileEntityUrls,
 } from "./profile-row";
 
 describe("profile database row codec", () => {
+	it("preserves URL entity precedence, order, and the requested block", () => {
+		const profile = profileFromDbRow({
+			entities_json: JSON.stringify({
+				url: { urls: [{ url: "https://profile.example" }] },
+				description: {
+					urls: [
+						null,
+						"invalid",
+						{},
+						{ expandedUrl: "", expanded_url: "ignored" },
+						{ expandedUrl: 42, url: "ignored" },
+						{ expandedUrl: "https://first.example", expanded_url: "ignored" },
+						{ expandedUrl: null, expanded_url: "https://second.example" },
+						{ url: "https://first.example" },
+					],
+				},
+			}),
+		});
+		expect(profileEntityUrls(profile)).toEqual([
+			"https://first.example",
+			"https://second.example",
+			"https://first.example",
+		]);
+		expect(profileEntityUrls(profile, "url")).toEqual([
+			"https://profile.example",
+		]);
+		for (const description of [null, "invalid", {}, { urls: {} }]) {
+			expect(
+				profileEntityUrls({ ...profile, entities: { description } }),
+			).toEqual([]);
+		}
+	});
+
 	it("maps profile columns and rejects malformed object metadata", () => {
 		expect(
 			profileFromDbRow({

@@ -2,7 +2,7 @@ import type { Database } from "./sqlite";
 import { fetchProfileAffiliations } from "./profile-affiliations";
 import { fetchProfileBioEntities } from "./profile-bio-entities";
 import { fetchProfileSnapshots } from "./profile-history";
-import { profileFromDbRow } from "./profile-row";
+import { profileEntityUrls, profileFromDbRow } from "./profile-row";
 import type { ProfileRecord } from "./types";
 
 interface IdentityIndexEntry {
@@ -50,78 +50,28 @@ function addEntry(
 	}
 }
 
-function getUrlEntityExpandedUrl(entity: unknown) {
-	if (!entity || typeof entity !== "object") {
-		return undefined;
-	}
-	const record = entity as Record<string, unknown>;
-	const expanded = record.expandedUrl ?? record.expanded_url ?? record.url;
-	return typeof expanded === "string" && expanded.length > 0
-		? expanded
-		: undefined;
-}
-
-function getProfileBioUrls(profile: ProfileRecord) {
-	const description = profile.entities?.description;
-	if (!description || typeof description !== "object") {
-		return [];
-	}
-	const urls = (description as { urls?: unknown }).urls;
-	if (!Array.isArray(urls)) {
-		return [];
-	}
-	return urls
-		.map(getUrlEntityExpandedUrl)
-		.filter((url): url is string => Boolean(url));
-}
-
 function collectProfileEntries(
 	profile: ProfileRecord,
 ): Map<string, IdentityIndexEntry> {
 	const entries = new Map<string, IdentityIndexEntry>();
-	addEntry(entries, {
-		profileId: profile.id,
-		kind: "profile_handle",
-		value: profile.handle,
-		source: "profile",
-	});
-	addEntry(entries, {
-		profileId: profile.id,
-		kind: "profile_name",
-		value: profile.displayName,
-		source: "profile",
-	});
-	addEntry(entries, {
-		profileId: profile.id,
-		kind: "profile_bio",
-		value: profile.bio,
-		source: "profile",
-	});
-	if (profile.location) {
-		addEntry(entries, {
-			profileId: profile.id,
-			kind: "profile_location",
-			value: profile.location,
-			source: "profile",
-		});
+	const fields = {
+		profile_handle: profile.handle,
+		profile_name: profile.displayName,
+		profile_bio: profile.bio,
+		profile_location: profile.location,
+		profile_url: profile.url,
+		profile_verified_type: profile.verifiedType,
+	};
+	for (const [kind, value] of Object.entries(fields)) {
+		if (value)
+			addEntry(entries, {
+				profileId: profile.id,
+				kind,
+				value,
+				source: "profile",
+			});
 	}
-	if (profile.url) {
-		addEntry(entries, {
-			profileId: profile.id,
-			kind: "profile_url",
-			value: profile.url,
-			source: "profile",
-		});
-	}
-	if (profile.verifiedType) {
-		addEntry(entries, {
-			profileId: profile.id,
-			kind: "profile_verified_type",
-			value: profile.verifiedType,
-			source: "profile",
-		});
-	}
-	for (const url of getProfileBioUrls(profile)) {
+	for (const url of profileEntityUrls(profile, "description")) {
 		addEntry(entries, {
 			profileId: profile.id,
 			kind: "profile_bio_url",
@@ -204,37 +154,18 @@ export function syncIdentitySearchIndexForProfileIds(
 			});
 		}
 		for (const snapshot of snapshotsByProfile.get(profile.id) ?? []) {
-			addEntry(entries, {
-				profileId: profile.id,
-				kind: "profile_history",
-				value: snapshot.handle,
-				source: "history",
-			});
-			addEntry(entries, {
-				profileId: profile.id,
-				kind: "profile_history",
-				value: snapshot.displayName,
-				source: "history",
-			});
-			addEntry(entries, {
-				profileId: profile.id,
-				kind: "profile_history",
-				value: snapshot.bio,
-				source: "history",
-			});
-			if (snapshot.location) {
+			for (const value of [
+				snapshot.handle,
+				snapshot.displayName,
+				snapshot.bio,
+				snapshot.location,
+				snapshot.url,
+			]) {
+				if (!value) continue;
 				addEntry(entries, {
 					profileId: profile.id,
 					kind: "profile_history",
-					value: snapshot.location,
-					source: "history",
-				});
-			}
-			if (snapshot.url) {
-				addEntry(entries, {
-					profileId: profile.id,
-					kind: "profile_history",
-					value: snapshot.url,
+					value,
 					source: "history",
 				});
 			}
