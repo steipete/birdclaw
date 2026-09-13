@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TweetMediaGrid } from "./TweetMediaGrid";
 
 describe("TweetMediaGrid", () => {
@@ -47,13 +47,17 @@ describe("TweetMediaGrid", () => {
 			"src",
 			"https://example.com/one-thumb.jpg",
 		);
-		expect(screen.getByText("Video")).toBeInTheDocument();
-		expect(screen.getByText("GIF")).toBeInTheDocument();
+		expect(container.querySelector("video source")).toHaveAttribute(
+			"src",
+			"https://example.com/two.mp4",
+		);
+		expect(
+			screen.getByText("No playable video in this archive"),
+		).toBeInTheDocument();
 		expect(screen.getByText("Media")).toBeInTheDocument();
 		expect(
 			screen.getAllByRole("button", { name: /Open tweet media/ }),
-		).toHaveLength(4);
-		expect(screen.queryByRole("link")).not.toBeInTheDocument();
+		).toHaveLength(2);
 	});
 
 	it("opens images in an inline viewer", () => {
@@ -102,7 +106,7 @@ describe("TweetMediaGrid", () => {
 		);
 	});
 
-	it("opens video media inline", () => {
+	it("renders video controls directly in the feed without opening a viewer", () => {
 		const { container } = render(
 			<TweetMediaGrid
 				items={[
@@ -121,10 +125,17 @@ describe("TweetMediaGrid", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Open tweet media 1" }));
-
 		const video = container.querySelector("video");
-		expect(video).toHaveAttribute("src", "https://video.twimg.com/clip.mp4");
+		expect(video).toHaveAttribute("controls");
+		expect(video).toHaveAttribute("playsinline");
+		expect(video).toHaveAttribute("preload", "none");
+		expect(video).not.toHaveAttribute("autoplay");
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(video?.closest("button")).toBeNull();
+		expect(video?.querySelector("source")).toHaveAttribute(
+			"src",
+			"https://video.twimg.com/clip.mp4",
+		);
 		expect(video).toHaveAttribute(
 			"poster",
 			"https://pbs.twimg.com/video-thumb.jpg",
@@ -143,9 +154,7 @@ describe("TweetMediaGrid", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Open tweet media 1" }));
-
-		expect(container.querySelector("video")).toHaveAttribute(
+		expect(container.querySelector("video source")).toHaveAttribute(
 			"src",
 			"https://video.twimg.com/ext_tw_video/clip.mp4",
 		);
@@ -163,10 +172,11 @@ describe("TweetMediaGrid", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Open tweet media 1" }));
-
 		const video = container.querySelector("video");
-		expect(video).toHaveAttribute("src", "/media/demo.mp4");
+		expect(video?.querySelector("source")).toHaveAttribute(
+			"src",
+			"/media/demo.mp4",
+		);
 		expect(video).toHaveAttribute("loop");
 		expect(video?.muted).toBe(true);
 	});
@@ -184,8 +194,6 @@ describe("TweetMediaGrid", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Open tweet media 1" }));
-
 		expect(container.querySelector("video")).toBeNull();
 		expect(screen.getByRole("link", { name: "Open media" })).toHaveAttribute(
 			"href",
@@ -194,6 +202,120 @@ describe("TweetMediaGrid", () => {
 		expect(screen.getByRole("link", { name: "Open media" })).toHaveAttribute(
 			"target",
 			"_blank",
+		);
+	});
+
+	it("chooses the highest-bitrate MP4 over HLS and unsafe variants", () => {
+		const { container } = render(
+			<TweetMediaGrid
+				items={[
+					{
+						type: "video",
+						url: "https://pbs.twimg.com/poster.jpg",
+						variants: [
+							{
+								url: "https://video.twimg.com/clip.m3u8",
+								contentType: "application/x-mpegURL",
+							},
+							{
+								url: "https://video.twimg.com/low.mp4",
+								contentType: "video/mp4",
+								bitRate: 100,
+							},
+							{
+								url: "javascript:alert(1)",
+								contentType: "video/mp4",
+								bitRate: 99999,
+							},
+							{
+								url: "https://video.twimg.com/high.mp4",
+								contentType: "video/mp4",
+								bitRate: 1000,
+							},
+						],
+					},
+				]}
+			/>,
+		);
+		expect(container.querySelector("video source")).toHaveAttribute(
+			"src",
+			"https://video.twimg.com/high.mp4",
+		);
+	});
+
+	it("keeps playback clicks inside the media and links failed playback to the original tweet", () => {
+		const onClick = vi.fn();
+		const { container } = render(
+			<div onClick={onClick}>
+				<TweetMediaGrid
+					tweetId="123"
+					items={[{ type: "video", url: "/clip.mp4" }]}
+				/>
+			</div>,
+		);
+		const video = container.querySelector("video")!;
+		fireEvent.click(video);
+		expect(onClick).not.toHaveBeenCalled();
+		fireEvent.error(video);
+		expect(container.querySelector("video")).toBeNull();
+		expect(screen.getByRole("link", { name: "Watch on X" })).toHaveAttribute(
+			"href",
+			"https://x.com/i/status/123",
+		);
+		expect(screen.getByText("Video unavailable")).toBeInTheDocument();
+	});
+
+	it("keeps alternate sources available until the last source fails", () => {
+		const { container } = render(
+			<TweetMediaGrid
+				tweetId="123"
+				items={[
+					{
+						type: "video",
+						url: "/poster.png",
+						variants: [
+							{ url: "/primary.mp4", contentType: "video/mp4", bitRate: 1000 },
+							{
+								url: "/alternate.webm",
+								contentType: "video/webm",
+								bitRate: 500,
+							},
+						],
+					},
+				]}
+			/>,
+		);
+		const sources = container.querySelectorAll("source");
+		expect(sources).toHaveLength(2);
+		fireEvent.error(sources[0]);
+		expect(container.querySelector("video")).not.toBeNull();
+		fireEvent.error(sources[1]);
+		expect(container.querySelector("video")).toBeNull();
+		expect(
+			screen.getByRole("link", { name: "Watch on X" }),
+		).toBeInTheDocument();
+	});
+
+	it("retains HLS-only variants for browsers with native HLS playback", () => {
+		const { container } = render(
+			<TweetMediaGrid
+				items={[
+					{
+						type: "video",
+						url: "https://pbs.twimg.com/poster.jpg",
+						variants: [
+							{
+								url: "https://video.twimg.com/clip.m3u8",
+								contentType: "application/x-mpegURL",
+							},
+						],
+					},
+				]}
+			/>,
+		);
+		expect(container.querySelector("video source")).toHaveAttribute(
+			"src",
+			"https://video.twimg.com/clip.m3u8",
 		);
 	});
 

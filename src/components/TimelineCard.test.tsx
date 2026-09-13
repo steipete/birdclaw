@@ -568,7 +568,12 @@ describe("TimelineCard", () => {
 		expect(
 			screen.getByRole("link", { name: "example.com/kept" }),
 		).toBeInTheDocument();
-		expect(screen.getAllByText("example.com/kept").length).toBeGreaterThan(1);
+		expect(screen.getAllByText("example.com/kept")).toHaveLength(1);
+		expect(
+			screen.getByRole("link", {
+				name: "Open example.com/kept (opens in a new tab)",
+			}),
+		).toHaveAttribute("href", "https://example.com/kept");
 	});
 
 	it("renders direct image URL cards with the image immediately", () => {

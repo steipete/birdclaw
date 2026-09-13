@@ -74,9 +74,38 @@ describe("media includes mapping", () => {
 			variants: [
 				{ url: "https://video.twimg.com/high.mp4", bitRate: 2176000 },
 				{ url: "https://video.twimg.com/low.mp4", bitRate: 832000 },
+				{
+					url: "https://video.twimg.com/playlist.m3u8",
+					contentType: "application/x-mpegURL",
+				},
 			],
 		});
 	});
+
+	it.each(["video/webm", "application/x-mpegURL"])(
+		"preserves %s-only variants with a poster",
+		(contentType) => {
+			expect(
+				media(
+					["video_1"],
+					[
+						{
+							...video,
+							variants: [
+								{
+									url: "https://video.twimg.com/stream",
+									content_type: contentType,
+								},
+							],
+						},
+					],
+				)[0],
+			).toMatchObject({
+				thumbnailUrl: video.preview_image_url,
+				variants: [{ url: "https://video.twimg.com/stream", contentType }],
+			});
+		},
+	);
 
 	it("serializes animated gifs as local gif media with mp4 variants", () => {
 		expect(media(["gif_1"], [gif])[0]).toMatchObject({

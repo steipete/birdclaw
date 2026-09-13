@@ -21,13 +21,20 @@ function localType(media: XurlMediaItem): TweetMediaItem["type"] {
 	return media.type === "video" ? "video" : "unknown";
 }
 
-function mp4Variants(
+function videoVariants(
 	media: XurlMediaItem,
 ): NonNullable<TweetMediaItem["variants"]> {
 	return (media.variants ?? [])
 		.filter(
 			(variant) =>
-				variant.content_type === "video/mp4" && typeof variant.url === "string",
+				[
+					"video/mp4",
+					"video/webm",
+					"application/x-mpegurl",
+					"application/vnd.apple.mpegurl",
+				].includes(
+					(variant.content_type ?? "").split(";")[0].trim().toLowerCase(),
+				) && typeof variant.url === "string",
 		)
 		.map((variant) => ({
 			url: variant.url,
@@ -37,7 +44,10 @@ function mp4Variants(
 				: {}),
 		}))
 		.sort(
-			(left, right) => Number(right.bitRate ?? 0) - Number(left.bitRate ?? 0),
+			(left, right) =>
+				Number(!left.contentType?.toLowerCase().startsWith("video/")) -
+					Number(!right.contentType?.toLowerCase().startsWith("video/")) ||
+				Number(right.bitRate ?? 0) - Number(left.bitRate ?? 0),
 		);
 }
 
@@ -113,7 +123,7 @@ export function buildTweetMedia(
 		.map((key) => mediaByKey.get(key))
 		.filter((item): item is XurlMediaItem => item !== undefined)
 		.map((item) => {
-			const variants = mp4Variants(item);
+			const variants = videoVariants(item);
 			const type = localType(item);
 			const url =
 				type === "image"

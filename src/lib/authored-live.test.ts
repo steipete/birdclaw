@@ -510,6 +510,10 @@ describe("live authored tweet sync", () => {
 						contentType: "video/mp4",
 						bitRate: 2_176_000,
 					},
+					{
+						url: "https://video.twimg.com/video-1.m3u8",
+						contentType: "application/x-mpegURL",
+					},
 				],
 			}),
 		]);

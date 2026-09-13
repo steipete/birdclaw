@@ -232,7 +232,9 @@ function getVisibleUrlCards(
 function isInteractiveTarget(target: EventTarget | null) {
 	return (
 		target instanceof Element &&
-		Boolean(target.closest("a,button,input,textarea,select,[role='button']"))
+		Boolean(
+			target.closest("a,button,video,input,textarea,select,[role='button']"),
+		)
 	);
 }
 
@@ -258,7 +260,7 @@ function TweetPresentation({
 				hiddenUrlRanges={hiddenUrlRanges}
 				text={tweet.text}
 			/>
-			<TweetMediaGrid items={tweet.media} />
+			<TweetMediaGrid items={tweet.media} tweetId={tweet.id} />
 			{tweet.entities.article ? (
 				<TweetArticleCard article={tweet.entities.article} />
 			) : null}

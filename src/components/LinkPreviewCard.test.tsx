@@ -10,9 +10,123 @@ afterEach(() => {
 	cleanup();
 	vi.useRealTimers();
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 describe("LinkPreviewCard", () => {
+	it("shows a refreshed image after the archived thumbnail fails", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					ok: true,
+					preview: {
+						url: "https://example.com/article",
+						title: "Updated preview",
+						description: "Fresh metadata",
+						siteName: "Example",
+						imageUrl: "https://pbs.twimg.com/media/new.jpg",
+					},
+				}),
+			}),
+		);
+		render(
+			<LinkPreviewCard
+				index={0}
+				entry={{
+					url: "https://example.com/article",
+					expandedUrl: "https://example.com/article",
+					displayUrl: "example.com/article",
+					title: "Archived title",
+					imageUrl: "https://pbs.twimg.com/media/old.jpg",
+					start: 0,
+					end: 20,
+				}}
+			/>,
+		);
+		fireEvent.error(screen.getByRole("img"));
+		expect(screen.queryByRole("img")).toBeNull();
+		expect(
+			await screen.findByRole("img", { name: "Updated preview" }),
+		).toHaveAttribute("src", "https://pbs.twimg.com/media/new.jpg");
+	});
+	it("shows a bare domain once without reserving an empty thumbnail", () => {
+		const { container } = render(
+			<LinkPreviewCard
+				index={0}
+				entry={{
+					url: "https://example.com",
+					expandedUrl: "https://example.com",
+					displayUrl: "example.com",
+					title: "example.com",
+					description: "example.com",
+					siteName: "example.com",
+					start: 0,
+					end: 19,
+				}}
+			/>,
+		);
+		expect(screen.getAllByText("example.com", { exact: true })).toHaveLength(1);
+		expect(container.querySelector("img")).toBeNull();
+		expect(container.querySelector(".w-40")).toBeNull();
+	});
+
+	it("keeps a readable path for links without page metadata", () => {
+		render(
+			<LinkPreviewCard
+				index={0}
+				entry={{
+					url: "https://example.com/blog/a%20better%20preview?utm_source=feed",
+					expandedUrl:
+						"https://example.com/blog/a%20better%20preview?utm_source=feed",
+					displayUrl: "example.com/blog/a…",
+					title: "example.com/blog/a…",
+					start: 0,
+					end: 20,
+				}}
+			/>,
+		);
+		expect(
+			screen.getByText("example.com", { exact: true }),
+		).toBeInTheDocument();
+		expect(screen.getByText("/blog/a better preview")).toBeInTheDocument();
+		expect(screen.queryByText(/utm_source/)).toBeNull();
+	});
+
+	it("preserves a useful archived title when live hydration reports an error", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({
+				ok: true,
+				preview: {
+					url: "https://example.com/article",
+					title: "example.com",
+					description: null,
+					siteName: "example.com",
+					imageUrl: null,
+					error: "HTTP 403",
+				},
+			}),
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		render(
+			<LinkPreviewCard
+				index={0}
+				entry={{
+					url: "https://example.com/article",
+					expandedUrl: "https://example.com/article",
+					displayUrl: "example.com/article",
+					title: "A useful archived title",
+					start: 0,
+					end: 20,
+				}}
+			/>,
+		);
+		await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+		expect(screen.getByText("A useful archived title")).toBeInTheDocument();
+	});
+
 	it("discards queued previews on navigation and gives new previews the freed slots", async () => {
 		const fetchMock = vi.fn(
 			(_input: RequestInfo | URL, init?: RequestInit) =>
@@ -233,9 +347,10 @@ describe("LinkPreviewCard", () => {
 
 		await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-		expect(screen.getAllByText("example.com/fail-card").length).toBeGreaterThan(
-			0,
-		);
+		expect(
+			screen.getByText("example.com", { exact: true }),
+		).toBeInTheDocument();
+		expect(screen.getByText("/fail-card")).toBeInTheDocument();
 	});
 
 	it("retries a failed preview when the card mounts again", async () => {
