@@ -1,15 +1,3 @@
-import type { NetworkMapKind } from "./network-map";
-import type { SearchDiscussionSource } from "./search-discussion";
-import type { TweetSearchMode } from "./tweet-search-live";
-import type {
-	InboxKind,
-	LinkInsightKind,
-	LinkInsightRange,
-	LinkInsightSort,
-	LinkInsightSource,
-	ReplyFilter,
-} from "./types";
-
 function stringValue(value: unknown, fallback = "") {
 	return typeof value === "string" ? value : fallback;
 }
@@ -39,19 +27,9 @@ export type RouteSearchChange<T> = (
 	options?: RouteSearchUpdateOptions,
 ) => void;
 
-export interface DmsRouteSearch {
-	inbox: "all" | "accepted" | "requests";
-	reply: ReplyFilter;
-	minFollowers: string;
-	minInfluence: string;
-	sort: "recent" | "followers";
-	q: string;
-	conversation: string;
-}
+export type DmsRouteSearch = ReturnType<typeof validateDmsSearch>;
 
-export function validateDmsSearch(
-	search: Record<string, unknown>,
-): DmsRouteSearch {
+export function validateDmsSearch(search: Record<string, unknown>) {
 	return {
 		inbox: enumValue(search.inbox, ["all", "accepted", "requests"], "all"),
 		reply: enumValue(
@@ -67,15 +45,9 @@ export function validateDmsSearch(
 	};
 }
 
-export interface InboxRouteSearch {
-	kind: InboxKind;
-	minScore: string;
-	hideLowSignal: boolean;
-}
+export type InboxRouteSearch = ReturnType<typeof validateInboxSearch>;
 
-export function validateInboxSearch(
-	search: Record<string, unknown>,
-): InboxRouteSearch {
+export function validateInboxSearch(search: Record<string, unknown>) {
 	return {
 		kind: enumValue(search.kind, ["mixed", "mentions", "dms"], "mixed"),
 		minScore: stringValue(search.minScore, "40"),
@@ -83,17 +55,9 @@ export function validateInboxSearch(
 	};
 }
 
-export interface LinksRouteSearch {
-	kind: LinkInsightKind;
-	range: LinkInsightRange;
-	source: LinkInsightSource;
-	sort: LinkInsightSort;
-	q: string;
-}
+export type LinksRouteSearch = ReturnType<typeof validateLinksSearch>;
 
-export function validateLinksSearch(
-	search: Record<string, unknown>,
-): LinksRouteSearch {
+export function validateLinksSearch(search: Record<string, unknown>) {
 	return {
 		kind: enumValue(search.kind, ["links", "videos"], "links"),
 		range: enumValue(
@@ -107,17 +71,9 @@ export function validateLinksSearch(
 	};
 }
 
-export interface DiscussRouteSearch {
-	q: string;
-	question: string;
-	source: SearchDiscussionSource;
-	mode: TweetSearchMode;
-	includeDms: boolean;
-}
+export type DiscussRouteSearch = ReturnType<typeof validateDiscussSearch>;
 
-export function validateDiscussSearch(
-	search: Record<string, unknown>,
-): DiscussRouteSearch {
+export function validateDiscussSearch(search: Record<string, unknown>) {
 	return {
 		q: stringValue(search.q),
 		question: stringValue(search.question),
@@ -133,14 +89,9 @@ export function validateDiscussSearch(
 
 export type PeriodRouteSearch = "today" | "24h" | "yesterday" | "week";
 
-export interface TodayRouteSearch {
-	period: PeriodRouteSearch;
-	includeDms: boolean;
-}
+export type TodayRouteSearch = ReturnType<typeof validateTodaySearch>;
 
-export function validateTodaySearch(
-	search: Record<string, unknown>,
-): TodayRouteSearch {
+export function validateTodaySearch(search: Record<string, unknown>) {
 	return {
 		period: enumValue(
 			search.period,
@@ -151,14 +102,9 @@ export function validateTodaySearch(
 	};
 }
 
-export interface NetworkMapRouteSearch {
-	type: NetworkMapKind;
-	q: string;
-}
+export type NetworkMapRouteSearch = ReturnType<typeof validateNetworkMapSearch>;
 
-export function validateNetworkMapSearch(
-	search: Record<string, unknown>,
-): NetworkMapRouteSearch {
+export function validateNetworkMapSearch(search: Record<string, unknown>) {
 	return {
 		type: enumValue(
 			search.type,
@@ -169,14 +115,9 @@ export function validateNetworkMapSearch(
 	};
 }
 
-export interface BlocksRouteSearch {
-	account: string;
-	q: string;
-}
+export type BlocksRouteSearch = ReturnType<typeof validateBlocksSearch>;
 
-export function validateBlocksSearch(
-	search: Record<string, unknown>,
-): BlocksRouteSearch {
+export function validateBlocksSearch(search: Record<string, unknown>) {
 	return {
 		account: stringValue(search.account, "acct_primary"),
 		q: stringValue(search.q),

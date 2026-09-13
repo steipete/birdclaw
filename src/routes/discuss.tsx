@@ -1,3 +1,4 @@
+import { useRouteSearchState } from "#/components/useRouteSearchState";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	ChevronDown,
@@ -256,14 +257,11 @@ export function DiscussRouteView({
 	searchState?: DiscussRouteSearch;
 	onSearchChange?: RouteSearchChange<DiscussRouteSearch>;
 } = {}) {
-	const [localSearch, setLocalSearch] = useState(() =>
-		validateDiscussSearch({}),
+	const { searchState, updateSearch, textInput } = useRouteSearchState(
+		controlledSearch,
+		onSearchChange,
+		validateDiscussSearch,
 	);
-	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<DiscussRouteSearch> = (
-		next,
-		options,
-	) => (onSearchChange ? onSearchChange(next, options) : setLocalSearch(next));
 	const { q: query, question, source, mode, includeDms } = searchState;
 	const [submittedQuery, setSubmittedQuery] = useState("");
 	const pendingSubmitRef = useRef(false);
@@ -324,28 +322,15 @@ export function DiscussRouteView({
 						<input
 							className={searchFieldInputClass}
 							placeholder="Keywords"
-							value={query}
-							onChange={(event) =>
-								updateSearch(
-									{ ...searchState, q: event.currentTarget.value },
-									{ replace: true },
-								)
-							}
+
+							{...textInput("q")}
 						/>
 					</label>
 					<input
 						className={textFieldClass}
 						placeholder="Optional question"
-						value={question}
-						onChange={(event) =>
-							updateSearch(
-								{
-									...searchState,
-									question: event.currentTarget.value,
-								},
-								{ replace: true },
-							)
-						}
+
+						{...textInput("question")}
 					/>
 					<button
 						type="submit"

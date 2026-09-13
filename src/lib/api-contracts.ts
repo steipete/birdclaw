@@ -1,9 +1,5 @@
 import { z } from "zod";
-import type {
-	WebSyncJobSnapshot,
-	WebSyncResponse,
-	WebSyncStep,
-} from "./web-sync";
+import type { WebSyncBackup } from "./web-sync";
 import {
 	dmDirectionSchema,
 	inboxKindSchema,
@@ -288,7 +284,7 @@ export const queryResponseSchema = z.discriminatedUnion("resource", [
 export type QueryResponse = z.infer<typeof queryResponseSchema>;
 export { webSyncKindSchema } from "./api-enums";
 
-const webSyncStepSchema: z.ZodType<WebSyncStep> = z.object({
+export const webSyncStepSchema = z.object({
 	kind: z.union([webSyncKindSchema, z.literal("mention-threads")]),
 	label: z.string(),
 	count: z.number(),
@@ -297,7 +293,7 @@ const webSyncStepSchema: z.ZodType<WebSyncStep> = z.object({
 	warnings: z.array(z.string()).optional(),
 });
 
-export const webSyncResponseSchema: z.ZodType<WebSyncResponse> = z.object({
+export const webSyncResponseSchema = z.object({
 	ok: z.boolean(),
 	kind: webSyncKindSchema,
 	accountId: z.string().optional(),
@@ -306,11 +302,11 @@ export const webSyncResponseSchema: z.ZodType<WebSyncResponse> = z.object({
 	summary: z.string(),
 	steps: z.array(webSyncStepSchema).default([]),
 	inProgress: z.boolean().optional(),
-	backup: z.custom<WebSyncResponse["backup"]>().optional(),
+	backup: z.custom<WebSyncBackup>().optional(),
 	error: z.string().optional(),
 });
 
-export const webSyncJobSchema: z.ZodType<WebSyncJobSnapshot> = z.object({
+export const webSyncJobSchema = z.object({
 	id: z.string(),
 	kind: webSyncKindSchema,
 	accountId: z.string().optional(),

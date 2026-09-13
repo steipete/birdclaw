@@ -344,18 +344,6 @@ function TweetPreviewToken({
 	);
 }
 
-function additionalDirectCitationLinks(references: string[], key: string) {
-	return references.slice(1).flatMap((reference, index) => [
-		index === 0 ? " " : ", ",
-		<TweetSourceLink
-			key={`${key}-direct-source-${String(index + 2)}`}
-			href={getFallbackTweetUrl(reference)}
-		>
-			{`source ${String(index + 2)}`}
-		</TweetSourceLink>,
-	]);
-}
-
 function splitReadableForSourceLinks(value: string, count: number) {
 	if (count < 2) return null;
 	const separators = Array.from(
@@ -381,148 +369,84 @@ function splitReadableForSourceLinks(value: string, count: number) {
 	return parts.length === count ? parts : null;
 }
 
+type CitationSource = CitationTweet | string;
+
+function citationLink(
+	source: CitationSource,
+	children: ReactNode,
+	key: string,
+) {
+	return typeof source === "string" ? (
+		<TweetSourceLink key={key} href={getFallbackTweetUrl(source)}>
+			{children}
+		</TweetSourceLink>
+	) : (
+		<TweetPreviewToken key={key} tweet={source}>
+			{children}
+		</TweetPreviewToken>
+	);
+}
+
+function citationLinks(sources: CitationSource[], key: string, start = 0) {
+	return sources
+		.slice(start)
+		.flatMap((source, index) => [
+			index > 0 ? ", " : start > 0 ? " " : "",
+			citationLink(
+				source,
+				sources.length === 1 ? "source" : `source ${index + start + 1}`,
+				`${key}-source-${index + start}`,
+			),
+		]);
+}
+
 function linkedCitationParts(
 	readable: string,
-	tweets: CitationTweet[],
+	sources: CitationSource[],
 	key: string,
 ) {
-	const parts = splitReadableForSourceLinks(readable, tweets.length);
-	if (!parts) {
-		const tweet = tweets[0];
-		if (!tweet) return [];
+	const first = sources[0];
+	if (!first) return [];
+	const parts = splitReadableForSourceLinks(readable, sources.length);
+	if (!parts)
 		return [
-			<TweetPreviewToken key={key} tweet={tweet}>
-				{readable}
-			</TweetPreviewToken>,
-			...additionalCitationLinks(tweets, key),
+			citationLink(first, readable, key),
+			...citationLinks(sources, key, 1),
 		];
-	}
-	return parts.flatMap((part, index) => {
-		const tweet = tweets[index];
-		if (!tweet) return [];
-		return [
-			<TweetPreviewToken key={`${key}-part-${String(index)}`} tweet={tweet}>
-				{part.text}
-			</TweetPreviewToken>,
-			part.separatorAfter,
-		];
-	});
-}
-
-function linkedDirectCitationParts(
-	readable: string,
-	references: string[],
-	key: string,
-) {
-	const parts = splitReadableForSourceLinks(readable, references.length);
-	if (!parts) {
-		const reference = references[0];
-		if (!reference) return [];
-		return [
-			<TweetSourceLink key={key} href={getFallbackTweetUrl(reference)}>
-				{readable}
-			</TweetSourceLink>,
-			...additionalDirectCitationLinks(references, key),
-		];
-	}
-	return parts.flatMap((part, index) => {
-		const reference = references[index];
-		if (!reference) return [];
-		return [
-			<TweetSourceLink
-				key={`${key}-direct-part-${String(index)}`}
-				href={getFallbackTweetUrl(reference)}
-			>
-				{part.text}
-			</TweetSourceLink>,
-			part.separatorAfter,
-		];
-	});
-}
-
-function additionalCitationLinks(tweets: CitationTweet[], key: string) {
-	return tweets.slice(1).flatMap((tweet, index) => [
-		index === 0 ? " " : ", ",
-		<TweetPreviewToken key={`${key}-source-${String(index + 2)}`} tweet={tweet}>
-			{`source ${String(index + 2)}`}
-		</TweetPreviewToken>,
-	]);
-}
-
-function fallbackCitationLinks(tweets: CitationTweet[], key: string) {
-	return tweets.flatMap((tweet, index) => [
-		index === 0 ? "" : ", ",
-		<TweetPreviewToken
-			key={`${key}-fallback-${String(index + 1)}`}
-			tweet={tweet}
-		>
-			{tweets.length === 1 ? "source" : `source ${String(index + 1)}`}
-		</TweetPreviewToken>,
+	return parts.flatMap((part, index) => [
+		citationLink(sources[index]!, part.text, `${key}-part-${index}`),
+		part.separatorAfter,
 	]);
 }
 
 function linkTrailingCitationText(
 	nodes: ReactNode[],
-	tweets: CitationTweet[],
+	sources: CitationSource[],
 	key: string,
 ) {
-	const tweet = tweets[0];
-	if (!tweet) return false;
+	const first = sources[0];
 	const last = nodes.at(-1);
-	if (typeof last !== "string") return false;
-
-	const match = /(["“][^"”]+["”])(\s*)$/.exec(last);
-	if (match) {
-		const quoted = match[1];
-		const trailing = match[2] ?? "";
-		const before = last.slice(0, match.index);
-		nodes[nodes.length - 1] = before;
+	if (!first || typeof last !== "string") return false;
+	// Cached tweets can attach a preview to a quoted phrase; direct links use the clause.
+	const quote =
+		typeof first === "string" ? null : /(["“][^"”]+["”])(\s*)$/.exec(last);
+	if (quote) {
+		nodes[nodes.length - 1] = last.slice(0, quote.index);
 		nodes.push(
-			<TweetPreviewToken key={key} tweet={tweet}>
-				{quoted}
-			</TweetPreviewToken>,
-			...additionalCitationLinks(tweets, key),
-			/^\s*$/.test(trailing) ? "" : trailing,
+			citationLink(first, quote[1], key),
+			...citationLinks(sources, key, 1),
+			"",
 		);
 		return true;
 	}
-
 	const bounds = trailingReadableBounds(last, {
-		preferClause: tweets.length === 1,
+		preferClause: sources.length === 1,
 	});
 	if (!bounds) return false;
-
-	const before = last.slice(0, bounds.start);
-	const readable = last.slice(bounds.start, bounds.end);
+	nodes[nodes.length - 1] = last.slice(0, bounds.start);
 	const trailing = last.slice(bounds.end);
-	nodes[nodes.length - 1] = before;
 	nodes.push(
-		...linkedCitationParts(readable, tweets, key),
-		/^\s*$/.test(trailing) ? "" : trailing,
-	);
-	return true;
-}
-
-function linkTrailingDirectCitationText(
-	nodes: ReactNode[],
-	references: string[],
-	key: string,
-) {
-	const reference = references[0];
-	if (!reference) return false;
-	const last = nodes.at(-1);
-	if (typeof last !== "string") return false;
-	const bounds = trailingReadableBounds(last, {
-		preferClause: references.length === 1,
-	});
-	if (!bounds) return false;
-
-	const before = last.slice(0, bounds.start);
-	const readable = last.slice(bounds.start, bounds.end);
-	const trailing = last.slice(bounds.end);
-	nodes[nodes.length - 1] = before;
-	nodes.push(
-		...linkedDirectCitationParts(readable, references, key),
+		...linkedCitationParts(last.slice(bounds.start, bounds.end), sources, key),
 		/^\s*$/.test(trailing) ? "" : trailing,
 	);
 	return true;
@@ -615,77 +539,33 @@ export function renderInline(text: string, lookup: InlineLookup) {
 			Boolean(tweet),
 		);
 		const tweet = tweets[0];
-		if (
-			isParenthesizedTweetRef &&
-			references.length > 1 &&
-			!allReferencesResolved
-		) {
-			if (references.every(isNumericTweetReference)) {
-				const cursorAfterSourceWords = skipRedundantSourceWords(text, cursor);
-				if (linkTrailingDirectCitationText(nodes, references, tokenKey)) {
-					cursor = cursorAfterSourceWords;
-					continue;
-				}
-				nodes.push(
-					...references.flatMap((reference, index) => [
-						index === 0 ? "" : ", ",
-						<TweetSourceLink
-							key={`${tokenKey}-direct-${String(index)}`}
-							href={getFallbackTweetUrl(reference)}
-						>
-							{`source ${String(index + 1)}`}
-						</TweetSourceLink>,
-					]),
-				);
-				cursor = cursorAfterSourceWords;
+		if (isParenthesizedTweetRef) {
+			const sources = allReferencesResolved
+				? tweets
+				: references.length > 0 && references.every(isNumericTweetReference)
+					? references
+					: null;
+			if (sources) {
+				if (!linkTrailingCitationText(nodes, sources, tokenKey))
+					nodes.push(...citationLinks(sources, tokenKey));
+				cursor = skipRedundantSourceWords(text, cursor);
 				continue;
 			}
-			nodes.push(token);
-			continue;
-		}
-		if (
-			tweet &&
-			isParenthesizedTweetRef &&
-			allReferencesResolved &&
-			linkTrailingCitationText(nodes, tweets, tokenKey)
-		) {
-			cursor = skipRedundantSourceWords(text, cursor);
-			continue;
-		}
-		if (tweet && isParenthesizedTweetRef && allReferencesResolved) {
-			nodes.push(...fallbackCitationLinks(tweets, tokenKey));
-			cursor = skipRedundantSourceWords(text, cursor);
-			continue;
-		}
-		if (tweet) {
-			nodes.push(
-				<TweetPreviewToken key={tokenKey} tweet={tweet}>
-					{isParenthesizedTweetRef ? "source" : token}
-				</TweetPreviewToken>,
-			);
-		} else if (
-			isParenthesizedTweetRef &&
-			references.length === 1 &&
-			isNumericTweetReference(references[0] ?? "")
-		) {
-			const cursorAfterSourceWords = skipRedundantSourceWords(text, cursor);
-			if (linkTrailingDirectCitationText(nodes, references, tokenKey)) {
-				cursor = cursorAfterSourceWords;
+			// A partially resolved group containing nonnumeric archive IDs remains literal.
+			if (references.length > 1) {
+				nodes.push(token);
 				continue;
 			}
-			nodes.push(
-				<TweetSourceLink
-					key={`${tokenKey}-direct`}
-					href={getFallbackTweetUrl(references[0])}
-				>
-					source
-				</TweetSourceLink>,
-			);
-			cursor = cursorAfterSourceWords;
-			continue;
-		} else {
-			nodes.push(token);
 		}
+		nodes.push(
+			tweet
+				? citationLink(
+						tweet,
+						isParenthesizedTweetRef ? "source" : token,
+						tokenKey,
+					)
+				: token,
+		);
 	}
 
 	if (cursor < text.length) {

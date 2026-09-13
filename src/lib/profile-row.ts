@@ -27,8 +27,13 @@ export type ProfileSqlRow<Prefix extends string> = {
 		: string | null;
 };
 
-export function profileSelect(table: string, prefix: string) {
+export function profileSelect(table: string, prefix: string, details = true) {
 	return Object.values(PROFILE_COLUMNS)
+		.filter(
+			(column) =>
+				details ||
+				!["location", "url", "verified_type", "entities_json"].includes(column),
+		)
 		.map((column) => `${table}.${column} as ${prefix}${column}`)
 		.join(", ");
 }

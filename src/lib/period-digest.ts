@@ -12,7 +12,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
 	createAnalysisRequestBody,
-	fitPromptCount,
+	fitAnalysisDataset,
 	type HybridAnalysisResult,
 	parseHybridAnalysis,
 	resolveAnalysisModelSettings,
@@ -225,7 +225,6 @@ const DEFAULT_LIVE_MENTIONS_MAX_PAGES = undefined;
 const DEFAULT_LIVE_THREAD_LIMIT = 12;
 const DEFAULT_LIVE_THREAD_TIMEOUT_MS = 5_000;
 const DEFAULT_DIGEST_FRESHNESS_MS = 5 * 60_000;
-const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
 
 function localDateStart(date: Date) {
@@ -985,46 +984,22 @@ function buildPrompt(
 		replyToId: tweet.replyToId,
 		replyToTweet: tweet.replyToTweet,
 	}));
-	const fitDataset = () => {
-		let tweetCount = promptTweets.length;
-		let dmCount = context.dms.length;
-		let linkCount = context.links.length;
-		const datasetFor = (tweets: number, dms: number, links: number) => ({
+	const {
+		dataset,
+		counts: { tweets: tweetCount },
+	} = fitAnalysisDataset(
+		{
+			tweets: promptTweets.length,
+			dms: context.dms.length,
+			links: context.links.length,
+		},
+		({ tweets, dms, links }) => ({
 			tweets: promptTweets.slice(0, tweets),
 			dms: context.dms.slice(0, dms),
 			links: context.links.slice(0, links),
-		});
-		const lengthFor = (tweets: number, dms: number, links: number) =>
-			JSON.stringify(datasetFor(tweets, dms, links)).length;
-
-		if (lengthFor(tweetCount, dmCount, linkCount) <= MAX_PROMPT_DATA_CHARS) {
-			return {
-				dataset: datasetFor(tweetCount, dmCount, linkCount),
-				tweetCount,
-			};
-		}
-		dmCount = fitPromptCount(
-			dmCount,
-			(count) =>
-				lengthFor(tweetCount, count, linkCount) <= MAX_PROMPT_DATA_CHARS,
-		);
-		if (lengthFor(tweetCount, dmCount, linkCount) > MAX_PROMPT_DATA_CHARS) {
-			linkCount = fitPromptCount(
-				linkCount,
-				(count) =>
-					lengthFor(tweetCount, dmCount, count) <= MAX_PROMPT_DATA_CHARS,
-			);
-		}
-		if (lengthFor(tweetCount, dmCount, linkCount) > MAX_PROMPT_DATA_CHARS) {
-			tweetCount = fitPromptCount(
-				tweetCount,
-				(count) =>
-					lengthFor(count, dmCount, linkCount) <= MAX_PROMPT_DATA_CHARS,
-			);
-		}
-		return { dataset: datasetFor(tweetCount, dmCount, linkCount), tweetCount };
-	};
-	const { dataset, tweetCount } = fitDataset();
+		}),
+		["dms", "links", "tweets"],
+	);
 
 	return `Window: ${context.window.label}
 Since: ${context.window.since}

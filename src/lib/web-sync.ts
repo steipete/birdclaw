@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import type * as contracts from "./api-contracts";
 import { existsSync } from "node:fs";
 import { Effect } from "effect";
 import { maybeAutoSyncBackupEffect } from "./backup";
@@ -16,42 +18,17 @@ import { syncHomeTimelineEffect } from "./timeline-live";
 import type { WebSyncKind } from "./api-enums";
 export type { WebSyncKind } from "./api-enums";
 
-export interface WebSyncStep {
-	kind: WebSyncKind | "mention-threads";
-	label: string;
-	count: number;
-	source?: string;
-	partial?: boolean;
-	warnings?: string[];
-}
+export type WebSyncStep = z.infer<typeof contracts.webSyncStepSchema>;
 
-export interface WebSyncResponse {
-	ok: boolean;
-	kind: WebSyncKind;
-	accountId?: string;
-	startedAt: string;
-	finishedAt?: string;
-	summary: string;
-	steps: WebSyncStep[];
-	inProgress?: boolean;
-	backup?: Effect.Effect.Success<ReturnType<typeof maybeAutoSyncBackupEffect>>;
-	error?: string;
-}
+export type WebSyncResponse = z.infer<typeof contracts.webSyncResponseSchema>;
+
+export type WebSyncBackup = Effect.Effect.Success<
+	ReturnType<typeof maybeAutoSyncBackupEffect>
+>;
 
 export type WebSyncJobStatus = "running" | "succeeded" | "failed";
 
-export interface WebSyncJobSnapshot {
-	id: string;
-	kind: WebSyncKind;
-	accountId?: string;
-	status: WebSyncJobStatus;
-	startedAt: string;
-	finishedAt?: string;
-	summary: string;
-	inProgress: boolean;
-	result?: WebSyncResponse;
-	error?: string;
-}
+export type WebSyncJobSnapshot = z.infer<typeof contracts.webSyncJobSchema>;
 
 export type WebSyncDmInbox = "all" | "accepted" | "requests";
 

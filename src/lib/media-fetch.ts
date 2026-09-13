@@ -688,38 +688,19 @@ function runGroupEffect(
 		});
 		return { item, previous, release };
 	});
-	const runPaced = ({
-		item,
-		previous,
-		release,
-	}: {
-		item: Candidate;
-		previous: Promise<void>;
-		release: () => void;
-	}) =>
-		tryMediaPromise(() =>
-			previous.then(() => {
+	const runPaced = ({ item, previous, release }: (typeof pacedItems)[number]) =>
+		tryMediaPromise(async () => {
+			await previous;
+			try {
 				const waitMs =
 					lastStart !== null ? Math.max(0, lastStart + pacingMs - now()) : 0;
-				const wait = waitMs > 0 ? sleep(waitMs) : Promise.resolve();
-				return wait.then(
-					() => {
-						let work: Promise<void>;
-						try {
-							lastStart = now();
-							work = worker(item);
-						} finally {
-							release();
-						}
-						return work;
-					},
-					(error: unknown) => {
-						release();
-						throw error;
-					},
-				);
-			}),
-		);
+				if (waitMs > 0) await sleep(waitMs);
+				lastStart = now();
+				return worker(item);
+			} finally {
+				release();
+			}
+		});
 	return Effect.forEach(pacedItems, runPaced, {
 		concurrency: Math.min(parallel, items.length),
 		discard: true,

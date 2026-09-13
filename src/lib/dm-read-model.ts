@@ -1,6 +1,6 @@
 import { getReadDb } from "./db";
 import { fetchProfileAffiliations } from "./profile-affiliations";
-import { profileFromDbRow } from "./profile-row";
+import { profileFromDbRow, profileSelect } from "./profile-row";
 import { toFtsSearchQuery } from "./query-read-model-shared";
 import type { DmConversationItem, DmMessageItem, DmQuery } from "./types";
 
@@ -169,19 +169,7 @@ export function listDmConversations({
         c.last_message_at,
         c.unread_count,
         c.needs_reply,
-        p.id as profile_id,
-        p.handle,
-        p.display_name,
-        p.bio,
-        p.followers_count,
-        p.following_count,
-        p.avatar_hue,
-        p.avatar_url,
-        p.location as profile_location,
-        p.url as profile_url,
-        p.verified_type as profile_verified_type,
-        p.entities_json as profile_entities_json,
-        p.created_at as profile_created_at,
+        ${profileSelect("p", "profile_")},
         (
           select text
           from dm_messages latest_message
@@ -206,23 +194,9 @@ export function listDmConversations({
 		rows.map((row) => String(row.profile_id)),
 	);
 	const items: DmConversationItem[] = rows.map((row) => {
-		const followersCount = Number(row.followers_count);
+		const followersCount = Number(row.profile_followers_count);
 		const influenceScore = getInfluenceScore(followersCount);
-		const participant = profileFromDbRow({
-			id: row.profile_id,
-			handle: row.handle,
-			display_name: row.display_name,
-			bio: row.bio,
-			followers_count: row.followers_count,
-			following_count: row.following_count,
-			avatar_hue: row.avatar_hue,
-			avatar_url: row.avatar_url,
-			location: row.profile_location,
-			url: row.profile_url,
-			verified_type: row.profile_verified_type,
-			entities_json: row.profile_entities_json,
-			created_at: row.profile_created_at,
-		});
+		const participant = profileFromDbRow(row, "profile_");
 		const affiliations = affiliationsByProfile.get(participant.id) ?? [];
 		return {
 			id: String(row.id),
@@ -455,17 +429,7 @@ function mapDmMessageRow(row: Record<string, unknown>): DmMessageItem {
 		direction: row.direction as DmMessageItem["direction"],
 		isReplied: Boolean(row.is_replied),
 		mediaCount: Number(row.media_count),
-		sender: profileFromDbRow({
-			id: row.profile_id,
-			handle: row.handle,
-			display_name: row.display_name,
-			bio: row.bio,
-			followers_count: row.followers_count,
-			following_count: row.following_count,
-			avatar_hue: row.avatar_hue,
-			avatar_url: row.avatar_url,
-			created_at: row.profile_created_at,
-		}),
+		sender: profileFromDbRow(row, "profile_"),
 	};
 }
 
@@ -479,15 +443,7 @@ function selectDmMessageSql(where: string, orderBy: string, join = "") {
       m.direction,
       m.is_replied,
       m.media_count,
-      p.id as profile_id,
-      p.handle,
-      p.display_name,
-      p.bio,
-      p.followers_count,
-      p.following_count,
-      p.avatar_hue,
-      p.avatar_url,
-      p.created_at as profile_created_at
+      ${profileSelect("p", "profile_", false)}
     from dm_messages m
     join profiles p on p.id = m.sender_profile_id
     ${join}

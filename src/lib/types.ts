@@ -242,38 +242,18 @@ export interface XurlMentionUser {
 	protected?: boolean;
 }
 
-export interface XurlMentionData {
-	id: string;
-	author_id: string;
-	text: string;
-	note_tweet?: XurlNoteTweet;
-	created_at: string;
-	conversation_id?: string;
-	in_reply_to_user_id?: string;
-	attachments?: XurlTweetAttachments;
-	entities?: Record<string, unknown>;
-	referenced_tweets?: XurlReferencedTweet[];
-	public_metrics?: XurlPublicMetrics;
-	edit_history_tweet_ids?: string[];
-}
+export type XurlMentionData = XurlTweetData;
 
 export interface XurlReferencedTweet {
 	type: string;
 	id: string;
 }
 
-export interface XurlUserTweet {
-	id: string;
+export interface XurlUserTweet extends Omit<
+	XurlTweetData,
+	"author_id" | "in_reply_to_user_id"
+> {
 	author_id?: string;
-	text: string;
-	note_tweet?: XurlNoteTweet;
-	created_at: string;
-	conversation_id?: string;
-	attachments?: XurlTweetAttachments;
-	entities?: Record<string, unknown>;
-	referenced_tweets?: XurlReferencedTweet[];
-	public_metrics?: XurlPublicMetrics;
-	edit_history_tweet_ids?: string[];
 }
 
 export interface XurlTweetData {
@@ -357,15 +337,7 @@ export interface ProfileRepliesResponse {
 	};
 }
 
-export interface XurlMentionsResponse {
-	data: XurlMentionData[];
-	includes?: {
-		users?: XurlMentionUser[];
-		tweets?: XurlTweetData[];
-		media?: XurlMediaItem[];
-	};
-	meta?: Record<string, unknown>;
-}
+export type XurlMentionsResponse = XurlTweetsResponse;
 
 export interface XurlDmEvent {
 	id: string;
@@ -390,11 +362,7 @@ export interface XurlDmEventsResponse {
 
 export interface XurlTweetsResponse {
 	data: XurlTweetData[];
-	includes?: {
-		users?: XurlMentionUser[];
-		tweets?: XurlTweetData[];
-		media?: XurlMediaItem[];
-	};
+	includes?: XurlTweetIncludes;
 	meta?: Record<string, unknown>;
 }
 

@@ -1,3 +1,4 @@
+import { useRouteSearchState } from "#/components/useRouteSearchState";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	keepPreviousData,
@@ -71,10 +72,11 @@ export function InboxRouteView({
 } = {}) {
 	const queryClient = useQueryClient();
 	const { readOnly } = useDeploymentMode();
-	const [localSearch, setLocalSearch] = useState(() => validateInboxSearch({}));
-	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<InboxRouteSearch> = (next, options) =>
-		onSearchChange ? onSearchChange(next, options) : setLocalSearch(next);
+	const { searchState, updateSearch, textInput } = useRouteSearchState(
+		controlledSearch,
+		onSearchChange,
+		validateInboxSearch,
+	);
 	const { kind, minScore, hideLowSignal } = searchState;
 	const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
 	const [replyDraft, setReplyDraft] = useState("");
@@ -195,14 +197,8 @@ export function InboxRouteView({
 					<input
 						className={cx(textFieldClass, textFieldShortClass)}
 						inputMode="numeric"
-						onChange={(event) =>
-							updateSearch(
-								{ ...searchState, minScore: event.target.value },
-								{ replace: true },
-							)
-						}
+						{...textInput("minScore")}
 						placeholder="Min AI score"
-						value={minScore}
 					/>
 					<button
 						className={secondaryButtonClass}

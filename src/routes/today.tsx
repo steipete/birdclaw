@@ -1,3 +1,4 @@
+import { useRouteSearchState } from "#/components/useRouteSearchState";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -346,10 +347,11 @@ export function TodayRouteView({
 	searchState?: TodayRouteSearch;
 	onSearchChange?: RouteSearchChange<TodayRouteSearch>;
 } = {}) {
-	const [localSearch, setLocalSearch] = useState(() => validateTodaySearch({}));
-	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<TodayRouteSearch> = (next, options) =>
-		onSearchChange ? onSearchChange(next, options) : setLocalSearch(next);
+	const { searchState, updateSearch } = useRouteSearchState(
+		controlledSearch,
+		onSearchChange,
+		validateTodaySearch,
+	);
 	const { period, includeDms } = searchState;
 	const { context, error, loading, markdown, result, run, status } =
 		useDigestStream(period, includeDms);

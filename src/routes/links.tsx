@@ -1,3 +1,4 @@
+import { useRouteSearchState } from "#/components/useRouteSearchState";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	ChevronDown,
@@ -515,10 +516,11 @@ export function LinksRouteView({
 	searchState?: LinksRouteSearch;
 	onSearchChange?: RouteSearchChange<LinksRouteSearch>;
 } = {}) {
-	const [localSearch, setLocalSearch] = useState(() => validateLinksSearch({}));
-	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<LinksRouteSearch> = (next, options) =>
-		onSearchChange ? onSearchChange(next, options) : setLocalSearch(next);
+	const { searchState, updateSearch } = useRouteSearchState(
+		controlledSearch,
+		onSearchChange,
+		validateLinksSearch,
+	);
 	const {
 		kind,
 		setKind,

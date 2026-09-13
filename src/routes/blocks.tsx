@@ -1,3 +1,4 @@
+import { useRouteSearchState } from "#/components/useRouteSearchState";
 import { createFileRoute } from "@tanstack/react-router";
 import { useDeploymentMode } from "#/lib/deployment-mode";
 import {
@@ -65,12 +66,11 @@ export function BlocksRouteView({
 } = {}) {
 	const queryClient = useQueryClient();
 	const { readOnly, ready } = useDeploymentMode();
-	const [localSearch, setLocalSearch] = useState(() =>
-		validateBlocksSearch({}),
+	const { searchState, updateSearch } = useRouteSearchState(
+		controlledSearch,
+		onSearchChange,
+		validateBlocksSearch,
 	);
-	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<BlocksRouteSearch> = (next, options) =>
-		onSearchChange ? onSearchChange(next, options) : setLocalSearch(next);
 	const accountId = searchState.account;
 	const search = searchState.q;
 	const searchStateRef = useRef(searchState);

@@ -249,3 +249,21 @@ export function fitPromptCount(max: number, fits: (count: number) => boolean) {
 	}
 	return best;
 }
+
+export function fitAnalysisDataset<Key extends string, Dataset>(
+	initialCounts: Record<Key, number>,
+	build: (counts: Record<Key, number>) => Dataset,
+	trimOrder: readonly Key[],
+	maxChars = 1_200_000,
+) {
+	const counts = { ...initialCounts };
+	const fits = () => JSON.stringify(build(counts)).length <= maxChars;
+	for (const key of trimOrder) {
+		if (fits()) break;
+		counts[key] = fitPromptCount(counts[key], (count) => {
+			counts[key] = count;
+			return fits();
+		});
+	}
+	return { dataset: build(counts), counts };
+}

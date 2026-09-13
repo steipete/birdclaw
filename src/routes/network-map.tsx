@@ -1,3 +1,4 @@
+import { useRouteSearchState } from "#/components/useRouteSearchState";
 import { AvatarChip } from "#/components/AvatarChip";
 import { createFileRoute } from "@tanstack/react-router";
 import { useDeploymentMode } from "#/lib/deployment-mode";
@@ -635,14 +636,11 @@ export function NetworkMapRouteView({
 	searchState?: NetworkMapRouteSearch;
 	onSearchChange?: RouteSearchChange<NetworkMapRouteSearch>;
 } = {}) {
-	const [localSearch, setLocalSearch] = useState(() =>
-		validateNetworkMapSearch({}),
+	const { searchState, updateSearch } = useRouteSearchState(
+		controlledSearch,
+		onSearchChange,
+		validateNetworkMapSearch,
 	);
-	const searchState = controlledSearch ?? localSearch;
-	const updateSearch: RouteSearchChange<NetworkMapRouteSearch> = (
-		next,
-		options,
-	) => (onSearchChange ? onSearchChange(next, options) : setLocalSearch(next));
 	const {
 		type,
 		setType,

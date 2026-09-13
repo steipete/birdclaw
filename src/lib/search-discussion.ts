@@ -12,7 +12,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
 	createAnalysisRequestBody,
-	fitPromptCount,
+	fitAnalysisDataset,
 	type HybridAnalysisResult,
 	parseHybridAnalysis,
 	resolveAnalysisModelSettings,
@@ -146,7 +146,6 @@ export type SearchDiscussionStreamEvent =
 
 const DEFAULT_LIMIT = 20_000;
 const DEFAULT_MAX_PAGES = 200;
-const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
 
 function tweetUrl(handle: string, id: string) {
@@ -232,24 +231,18 @@ function collectLiveSearchTweets(
 			t.media_count,
 			t.entities_json,
 			t.media_json,
-        case
-          when exists (
+        exists (
             select 1 from tweet_collections collection
             where collection.account_id = ?
               and collection.tweet_id = t.id
               and collection.kind = 'bookmarks'
-          ) then 1
-          else 0
-        end as bookmarked,
-        case
-          when exists (
+          ) as bookmarked,
+        exists (
             select 1 from tweet_collections collection
             where collection.account_id = ?
               and collection.tweet_id = t.id
               and collection.kind = 'likes'
-          ) then 1
-          else 0
-        end as liked,
+          ) as liked,
         p.id as profile_id,
         p.handle,
         p.display_name,
@@ -490,22 +483,10 @@ function prefetchDiscussionAvatars(context: SearchDiscussionContext) {
 	if (profileIds.length === 0) {
 		return;
 	}
-	runEffectBackground(
-		prefetchCachedAvatarsForProfileIdsEffect(profileIds).pipe(
-			Effect.catchAll(() =>
-				Effect.succeed({
-					requested: 0,
-					available: 0,
-					missing: 0,
-					failed: 0,
-				}),
-			),
-		),
-		{
-			onSuccess: () => {},
-			onFailure: () => {},
-		},
-	);
+	runEffectBackground(prefetchCachedAvatarsForProfileIdsEffect(profileIds), {
+		onSuccess: () => {},
+		onFailure: () => {},
+	});
 }
 
 function modelFromOptions(options: SearchDiscussionOptions) {
@@ -549,32 +530,17 @@ function buildPrompt(context: SearchDiscussionContext) {
 		bookmarked: tweet.bookmarked,
 		needsReply: tweet.needsReply,
 	}));
-	const fitDataset = () => {
-		let tweetCount = promptTweets.length;
-		let dmCount = context.dms.length;
-		const datasetFor = (tweets: number, dms: number) => ({
+	const {
+		dataset,
+		counts: { tweets: tweetCount },
+	} = fitAnalysisDataset(
+		{ tweets: promptTweets.length, dms: context.dms.length },
+		({ tweets, dms }) => ({
 			tweets: promptTweets.slice(0, tweets),
 			dms: context.dms.slice(0, dms),
-		});
-		const lengthFor = (tweets: number, dms: number) =>
-			JSON.stringify(datasetFor(tweets, dms)).length;
-
-		if (lengthFor(tweetCount, dmCount) <= MAX_PROMPT_DATA_CHARS) {
-			return { dataset: datasetFor(tweetCount, dmCount), tweetCount };
-		}
-		dmCount = fitPromptCount(
-			dmCount,
-			(count) => lengthFor(tweetCount, count) <= MAX_PROMPT_DATA_CHARS,
-		);
-		if (lengthFor(tweetCount, dmCount) > MAX_PROMPT_DATA_CHARS) {
-			tweetCount = fitPromptCount(
-				tweetCount,
-				(count) => lengthFor(count, dmCount) <= MAX_PROMPT_DATA_CHARS,
-			);
-		}
-		return { dataset: datasetFor(tweetCount, dmCount), tweetCount };
-	};
-	const { dataset, tweetCount } = fitDataset();
+		}),
+		["dms", "tweets"],
+	);
 
 	return `Search query: ${context.query}
 ${context.question ? `Discussion question: ${context.question}\n` : ""}Account: ${context.account ?? "all"}

@@ -1,3 +1,4 @@
+import { useRouteSearchState } from "#/components/useRouteSearchState";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	keepPreviousData,
@@ -98,12 +99,10 @@ export function DmsRouteView({
 	onSearchChange?: RouteSearchChange<DmsRouteSearch>;
 } = {}) {
 	const queryClient = useQueryClient();
-	const [localSearch, setLocalSearch] = useState(() => validateDmsSearch({}));
-	const searchState = controlledSearch ?? localSearch;
-	const updateSearch = useCallback<RouteSearchChange<DmsRouteSearch>>(
-		(next, options) =>
-			onSearchChange ? onSearchChange(next, options) : setLocalSearch(next),
-		[onSearchChange],
+	const { searchState, updateSearch, textInput } = useRouteSearchState(
+		controlledSearch,
+		onSearchChange,
+		validateDmsSearch,
 	);
 	const selectConversation = useCallback(
 		(conversation: string) => updateSearch({ ...searchState, conversation }),
@@ -498,14 +497,8 @@ export function DmsRouteView({
 						<Search className={searchFieldIconClass} strokeWidth={2} />
 						<input
 							className={searchFieldInputClass}
-							onChange={(event) =>
-								updateSearch(
-									{ ...searchState, q: event.target.value },
-									{ replace: true },
-								)
-							}
+							{...textInput("q")}
 							placeholder="Search DMs"
-							value={search}
 						/>
 					</label>
 					<label className={cx(filterNumberFieldClass, "w-[156px]")}>
@@ -515,17 +508,8 @@ export function DmsRouteView({
 						<input
 							className="min-w-0 flex-1 border-0 bg-transparent text-right text-[14px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]"
 							inputMode="numeric"
-							onChange={(event) =>
-								updateSearch(
-									{
-										...searchState,
-										minFollowers: event.target.value,
-									},
-									{ replace: true },
-								)
-							}
+							{...textInput("minFollowers")}
 							placeholder="Any"
-							value={minFollowers}
 						/>
 					</label>
 					<label className={cx(filterNumberFieldClass, "w-[132px]")}>
@@ -535,17 +519,8 @@ export function DmsRouteView({
 						<input
 							className="min-w-0 flex-1 border-0 bg-transparent text-right text-[14px] text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]"
 							inputMode="numeric"
-							onChange={(event) =>
-								updateSearch(
-									{
-										...searchState,
-										minInfluence: event.target.value,
-									},
-									{ replace: true },
-								)
-							}
+							{...textInput("minInfluence")}
 							placeholder="Any"
-							value={minInfluenceScore}
 						/>
 					</label>
 					<div className={segmentedClass}>

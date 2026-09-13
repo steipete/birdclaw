@@ -13,7 +13,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
 	createAnalysisRequestBody,
-	fitPromptCount,
+	fitAnalysisDataset,
 	requestHybridAnalysisEffect,
 	resolveAnalysisModelSettings,
 } from "./analysis-runtime";
@@ -153,7 +153,6 @@ const DEFAULT_CONVERSATION_DELAY_MS = 3_100;
 const DEFAULT_RATE_LIMIT_RETRY_MS = 60_000;
 const DEFAULT_RATE_LIMIT_MAX_RETRIES = 1;
 const XURL_PAGE_SIZE = 100;
-const MAX_PROMPT_DATA_CHARS = 1_200_000;
 const DELIMITER_PATTERN = /\n---\s*\n/;
 
 function isXurlRateLimitError(error: Error) {
@@ -824,46 +823,22 @@ export function collectProfileAnalysisContextEffect(
 	});
 }
 
-function fitPromptDataset(context: ProfileAnalysisContext) {
-	let tweetCount = context.tweets.length;
-	let conversationCount = context.conversations.length;
-	const datasetFor = (tweets: number, conversations: number) => ({
-		profile: context.profile,
-		counts: context.counts,
-		tweets: context.tweets.slice(0, tweets).map(promptTweetContext),
-		conversations: context.conversations
-			.slice(0, conversations)
-			.map(promptTweetContext),
-	});
-	const lengthFor = (tweets: number, conversations: number) =>
-		JSON.stringify(datasetFor(tweets, conversations)).length;
-
-	if (lengthFor(tweetCount, conversationCount) <= MAX_PROMPT_DATA_CHARS) {
-		return {
-			dataset: datasetFor(tweetCount, conversationCount),
-			tweetCount,
-			conversationCount,
-		};
-	}
-	conversationCount = fitPromptCount(
-		conversationCount,
-		(count) => lengthFor(tweetCount, count) <= MAX_PROMPT_DATA_CHARS,
-	);
-	if (lengthFor(tweetCount, conversationCount) > MAX_PROMPT_DATA_CHARS) {
-		tweetCount = fitPromptCount(
-			tweetCount,
-			(count) => lengthFor(count, conversationCount) <= MAX_PROMPT_DATA_CHARS,
-		);
-	}
-	return {
-		dataset: datasetFor(tweetCount, conversationCount),
-		tweetCount,
-		conversationCount,
-	};
-}
-
 function buildPrompt(context: ProfileAnalysisContext) {
-	const { dataset, tweetCount, conversationCount } = fitPromptDataset(context);
+	const tweets = context.tweets.map(promptTweetContext);
+	const conversations = context.conversations.map(promptTweetContext);
+	const {
+		dataset,
+		counts: { tweets: tweetCount, conversations: conversationCount },
+	} = fitAnalysisDataset(
+		{ tweets: tweets.length, conversations: conversations.length },
+		(counts) => ({
+			profile: context.profile,
+			counts: context.counts,
+			tweets: tweets.slice(0, counts.tweets),
+			conversations: conversations.slice(0, counts.conversations),
+		}),
+		["conversations", "tweets"],
+	);
 	return `Profile: @${context.handle}
 Account cache: ${context.accountId} (${context.accountHandle})
 Fetched profile tweets: ${String(context.counts.tweets)} across ${String(context.counts.tweetPages)} pages
