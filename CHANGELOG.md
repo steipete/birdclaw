@@ -2,6 +2,7 @@
 
 ## 0.12.7 - Unreleased
 
+- Stabilize backup integration tests under slow filesystem I/O with focused fixtures and independent invalid-path cases, while retaining real durability and publication checks.
 - Consolidate backup merge declarations, API data types, transport page handling, and analysis cache/event plumbing; route invalid CLI inputs through one error boundary while retaining command output and archive compatibility.
 - Share profile URL-entity parsing and identity-index insertion rules, and consolidate automatic backup setup and result handling while retaining update freshness checks and sync behavior.
 

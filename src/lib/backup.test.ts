@@ -6,6 +6,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readlinkSync,
 	readdirSync,
 	realpathSync,
 	renameSync,
@@ -216,6 +217,13 @@ function writeBackupConfig(
 ) {
 	writeFileSync(path.join(home, "config.json"), JSON.stringify({ backup }));
 	resetBirdclawPathsForTests();
+}
+
+function seedMinimalBackupFixture() {
+	const db = testHome().db;
+	insertTestAccount(db);
+	const profile = insertTestProfile(db);
+	return insertTestTweet(db, { authorProfileId: profile.id });
 }
 
 function seedBackupFixture() {
@@ -461,7 +469,7 @@ describe("text backup", () => {
 
 	it("exposes backup export, import, and validation as Effects", async () => {
 		switchHome("birdclaw-backup-effect-src-");
-		seedBackupFixture();
+		const tweet = seedMinimalBackupFixture();
 		const repoPath = makeTempDir("birdclaw-backup-effect-store-");
 
 		const exported = await Effect.runPromise(exportBackupEffect({ repoPath }));
@@ -476,6 +484,24 @@ describe("text backup", () => {
 		expect(validation.ok).toBe(true);
 		expect(imported.ok).toBe(true);
 		expect(imported.mode).toBe("replace");
+		expect(exported.manifest.counts).toMatchObject({
+			accounts: 1,
+			profiles: 1,
+			tweets: 1,
+		});
+		const db = testHome().db;
+		expect(
+			db.prepare("select text from tweets where id = ?").get(tweet.id),
+		).toEqual({
+			text: tweet.text,
+		});
+		expect(
+			db
+				.prepare("select text from tweets_fts where tweet_id = ?")
+				.get(tweet.id),
+		).toEqual({
+			text: tweet.text,
+		});
 	}, 20000);
 
 	it("rejects backup export paths that traverse symlinked managed directories", async () => {
@@ -524,56 +550,69 @@ describe("text backup", () => {
 		);
 	});
 
-	it("rejects ignored, non-Git, and dangling-symlink data extras before publication", async () => {
-		switchHome("birdclaw-backup-extra-home-");
-		seedBackupFixture();
-		const repoPath = makeTempDir("birdclaw-backup-extra-repo-");
-		await exportBackup({ repoPath });
-		const privatePath = path.join(repoPath, "data", "private.json");
-		writeFileSync(privatePath, "private\n");
-		await expect(validateBackup(repoPath)).resolves.toMatchObject({
-			ok: false,
-			errors: expect.arrayContaining([
-				"Unexpected backup data file: data/private.json",
-			]),
-		});
-		await expect(exportBackup({ repoPath })).rejects.toThrow(
-			"Unexpected backup data file: data/private.json",
-		);
-		rmSync(privatePath);
-
-		const danglingPath = path.join(repoPath, "data", "dangling.jsonl");
-		symlinkSync(path.join(repoPath, "missing-target"), danglingPath);
-		await expect(validateBackup(repoPath)).resolves.toMatchObject({
-			ok: false,
-			errors: expect.arrayContaining([
-				"Unexpected symlink in backup data: data/dangling.jsonl",
-			]),
-		});
-		await expect(exportBackup({ repoPath })).rejects.toThrow(
-			"Unexpected symlink in backup data: data/dangling.jsonl",
-		);
-		rmSync(danglingPath);
-
-		await exportBackup({ repoPath, commit: true });
-		writeFileSync(path.join(repoPath, ".gitignore"), "data/private.json\n");
-		execFileSync("git", ["-C", repoPath, "add", ".gitignore"]);
-		execFileSync("git", [
-			"-C",
-			repoPath,
-			"commit",
-			"-m",
-			"test: ignore private data",
-		]);
-		writeFileSync(privatePath, "ignored private\n");
-		await expect(exportBackup({ repoPath })).rejects.toThrow(
-			"Unexpected backup data file: data/private.json",
-		);
-	}, 20000);
+	it.each(["non-Git file", "dangling symlink", "Git-ignored file"] as const)(
+		"rejects a %s data extra before publication",
+		async (extra) => {
+			seedMinimalBackupFixture();
+			const repoPath = makeTempDir("birdclaw-backup-extra-repo-");
+			const ignored = extra === "Git-ignored file";
+			await exportBackup({ repoPath, commit: ignored });
+			if (ignored) {
+				writeFileSync(path.join(repoPath, ".gitignore"), "data/private.json\n");
+				execFileSync("git", ["-C", repoPath, "add", ".gitignore"]);
+				execFileSync("git", [
+					"-C",
+					repoPath,
+					"-c",
+					"commit.gpgsign=false",
+					"commit",
+					"-m",
+					"test: ignore private data",
+				]);
+			}
+			const before = snapshotTree(repoPath);
+			const dangling = extra === "dangling symlink";
+			const extraPath = path.join(
+				repoPath,
+				"data",
+				dangling ? "dangling.jsonl" : "private.json",
+			);
+			const targetPath = path.join(repoPath, "missing-target");
+			if (dangling) symlinkSync(targetPath, extraPath);
+			else writeFileSync(extraPath, "private\n");
+			if (ignored) {
+				execFileSync("git", [
+					"-C",
+					repoPath,
+					"check-ignore",
+					"--quiet",
+					"data/private.json",
+				]);
+			}
+			const error = dangling
+				? "Unexpected symlink in backup data: data/dangling.jsonl"
+				: "Unexpected backup data file: data/private.json";
+			await expect(validateBackup(repoPath)).resolves.toMatchObject({
+				ok: false,
+				errors: expect.arrayContaining([error]),
+			});
+			await expect(exportBackup({ repoPath })).rejects.toThrow(error);
+			for (const [relativePath, content] of before) {
+				expect(readFileSync(path.join(repoPath, relativePath))).toEqual(
+					content,
+				);
+			}
+			const preservedExtra = dangling
+				? readlinkSync(extraPath)
+				: readFileSync(extraPath, "utf8");
+			expect(preservedExtra).toBe(dangling ? targetPath : "private\n");
+		},
+		20000,
+	);
 
 	it("builds backup import effects lazily", async () => {
 		switchHome("birdclaw-backup-import-src-");
-		seedBackupFixture();
+		const tweet = seedMinimalBackupFixture();
 		const repoPath = makeTempDir("birdclaw-backup-import-store-");
 
 		const effect = importBackupEffect({ repoPath, mode: "replace" });
@@ -588,8 +627,8 @@ describe("text backup", () => {
 		expect(imported.mode).toBe("replace");
 		expect(
 			getNativeDb({ seedDemoData: false })
-				.prepare("select count(*) as count from tweets where id = 'tweet_2025'")
-				.get(),
+				.prepare("select count(*) as count from tweets where id = ?")
+				.get(tweet.id),
 		).toEqual({ count: 1 });
 	}, 20000);
 
