@@ -255,8 +255,8 @@ Read commands pull + merge only when the last backup check is stale. Data-changi
 
 ### local `bird` command
 
-Live local likes, bookmarks, DMs, and moderation verification use `bird` on PATH
-by default. Override it with `BIRDCLAW_BIRD_COMMAND` or:
+Bird is an optional legacy transport. Explicit Bird modes and optional fallbacks
+look for `bird` on PATH. Override its location with `BIRDCLAW_BIRD_COMMAND` or:
 
 ```json
 {
@@ -336,7 +336,7 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,follo
 - refresh FTS incrementally
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
 - `sync authored` uses `xurl`, includes retweets, and resumes from a stored `since_id`
-- `sync timeline` stores the live home timeline through `auto`, with xurl fallback when bird is unavailable; it defaults to the chronological Following feed
+- `sync timeline` stores the live home timeline through `auto` (xurl first, optional Bird fallback); it defaults to the chronological Following feed
 - `sync mentions` ingests recent mentions through `xurl` (default) or `bird` and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
 - `sync mention-threads` fetches conversation context for recent mentions through xurl by default; explicit `--mode bird` remains available, and `--delay-ms`/`--timeout-ms` bound live work
 - `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` prefers `bird`, then falls back to `xurl`
@@ -699,7 +699,7 @@ birdclaw profiles replies @jpctan --limit 12 --json
 Flags:
 
 - `--refresh`
-- `--mode bird|xurl|auto`
+- `--mode web|bird|xurl|auto`
 - `--cache-ttl <seconds>`
 - `--participant <handle-or-id>`
 - `--min-followers <n>`
@@ -721,7 +721,7 @@ Flags:
 Flags:
 
 - `--account <account-id>`
-- `--mode bird|xurl|auto`
+- `--mode web|bird|xurl|auto`
 - `--limit <n>`
 - `--refresh`
 - `--cache-ttl <seconds>`

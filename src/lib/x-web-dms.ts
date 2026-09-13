@@ -231,7 +231,11 @@ export async function readWebDirectMessages({
 	const first = await session.json(
 		`/i/api/1.1/dm/inbox_initial_state.json?${params(inbox)}`,
 	);
-	if (!first.inbox_initial_state)
+	if (
+		!first.inbox_initial_state ||
+		typeof first.inbox_initial_state !== "object" ||
+		Array.isArray(first.inbox_initial_state)
+	)
 		throw new Error("X web returned an invalid DM inbox");
 	const pages = [first];
 	const kinds: Timeline[] =
@@ -258,7 +262,11 @@ export async function readWebDirectMessages({
 			const next = await session.json(
 				`/i/api/1.1/dm/inbox_timeline/${kind}.json?${params(inbox, cursor)}`,
 			);
-			if (!next.inbox_timeline)
+			if (
+				!next.inbox_timeline ||
+				typeof next.inbox_timeline !== "object" ||
+				Array.isArray(next.inbox_timeline)
+			)
 				throw new Error("X web returned an invalid DM timeline");
 			pages.push(next);
 			cursor = cursorFrom(next, kind);

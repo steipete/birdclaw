@@ -127,6 +127,32 @@ afterEach(async () => {
 });
 
 describe("native X web DMs", () => {
+	it.each([null, true, "invalid", []])(
+		"rejects malformed inbox containers: %j",
+		async (value) => {
+			const { readWebDirectMessages } = await import("./x-web-dms");
+			initial = { inbox_initial_state: value };
+			await expect(
+				readWebDirectMessages({ account, limit: 20 }),
+			).rejects.toThrow("invalid DM inbox");
+		},
+	);
+	it.each([null, true, "invalid", []])(
+		"rejects malformed timeline containers: %j",
+		async (value) => {
+			const { readWebDirectMessages } = await import("./x-web-dms");
+			next = { inbox_timeline: value };
+			await expect(
+				readWebDirectMessages({
+					account,
+					limit: 20,
+					inbox: "requests",
+					maxPages: 1,
+				}),
+			).rejects.toThrow("invalid DM timeline");
+		},
+	);
+
 	it("keeps cookies out of serialization and requires identity before private operations", async () => {
 		const { XWebSession } = await import("./x-web");
 		const session = new XWebSession();

@@ -5,10 +5,11 @@ description: "Connect birdclaw to X through xurl or bird, verify each tool, and 
 
 # Sign in
 
-birdclaw keeps its database local. Archive import needs no X credentials. Live reads and writes are delegated to external CLIs:
+birdclaw keeps its database local. Archive import needs no X credentials. Live reads and writes use these transports:
 
 - [`xurl`](https://github.com/xdevplatform/xurl) is the recommended setup for new users and uses the official X API with your own developer app.
 - Existing private `bird` installations remain supported for cookie-backed workflows and compatibility fallback.
+- Native `web` access handles DM requests directly with session cookies, without either external CLI.
 
 Install xurl for a new live-transport setup. Transport selection is workflow-specific: sync commands expose `--mode`, while `auth use` only controls moderation writes such as block, unblock, mute, and unmute.
 

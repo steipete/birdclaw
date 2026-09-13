@@ -91,7 +91,7 @@ Bookmarks are queried via `birdclaw search tweets --bookmarked` and drive the [r
 
 ## sync timeline
 
-Pull the chronological Following timeline through `auto` (bird when available, with xurl fallback), or select `--mode xurl` explicitly:
+Pull the chronological Following timeline through `auto` (xurl first, with optional Bird fallback), or select `--mode xurl` explicitly:
 
 ```bash
 birdclaw sync timeline --limit 100 --refresh --json

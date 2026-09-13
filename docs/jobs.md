@@ -12,13 +12,14 @@ Both LaunchAgent installers accept `--interval-seconds <seconds>` as a positive 
 ## `jobs sync-account`
 
 ```bash
-birdclaw --json jobs sync-account --account acct_openclaw --limit 100 --max-pages 3 --refresh --allow-bird-account
+birdclaw --json jobs sync-account --account acct_openclaw --mode xurl --limit 100 --max-pages 3 --refresh
 ```
 
 What it does:
 
 - refreshes home timeline, mentions, mention threads, likes, bookmarks, and DMs for one account
-- uses `bird` for home and mentions; DMs can use `auto`/`xurl` for accepted-message imports, while message-request state still needs `bird`
+- works without Bird: `--mode xurl` covers every step; `auto` retains available fallbacks, and mention threads always use xurl
+- default-account `auto` DM sync uses native web access when `AUTH_TOKEN` and `CT0` are configured, preserving message-request state without Bird
 - appends one JSONL audit entry per run to `~/.birdclaw/audit/account-sync.jsonl`
 - records each step independently so one rate-limited surface does not hide the others
 - runs backup auto-sync after the scheduled refresh when enabled
@@ -26,10 +27,10 @@ What it does:
 Install the LaunchAgent:
 
 ```bash
-birdclaw --json jobs install-account-launchd --account acct_openclaw --program /opt/homebrew/bin/birdclaw --env-path ~/.config/bird/openclaw.env --allow-bird-account
+birdclaw --json jobs install-account-launchd --account acct_openclaw --mode xurl --program /opt/homebrew/bin/birdclaw
 ```
 
-The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job, or `--env-path ~/.config/bird/openclaw.env` when launchd needs account cookies. Pass `--allow-bird-account` only when the sourced cookies match `--account`; without it, Bird-backed timeline, mentions, and `--mode bird` DM steps refuse non-default account writes.
+The default interval is 1,800 seconds (30 minutes). Use `--steps timeline,mentions,dms` for a narrower job, or `--env-path ~/.config/birdclaw/account.env` when launchd needs native web or legacy Bird cookies. Pass `--allow-bird-account` only when the sourced cookies match `--account`; it permits optional Bird fallback and never forces Bird in `auto` mode. Without it, explicitly selected non-default accounts use xurl in `auto` mode and refuse explicit Bird steps. To schedule native request sync for another account, invoke `birdclaw dms sync --account <account> --mode web --inbox requests` directly; the native transport verifies cookie identity before reading.
 
 ## `jobs sync-bookmarks`
 

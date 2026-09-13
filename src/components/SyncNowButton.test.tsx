@@ -122,6 +122,7 @@ describe("SyncNowButton", () => {
 			<SyncNowButton
 				kind="dms"
 				label="Sync DMs"
+				accounts={[]}
 				onSynced={vi.fn()}
 				syncOptions={{ inbox: "requests", limit: 200, maxPages: 3 }}
 			/>,
@@ -144,6 +145,80 @@ describe("SyncNowButton", () => {
 			);
 		});
 	});
+
+	it.each(["manual", "auto"] as const)(
+		"syncs secondary-account DMs through %s sync",
+		async (source) => {
+			vi.useFakeTimers();
+			setStoredAccountId("acct_secondary");
+			const onSynced = vi.fn();
+			const fetchMock = vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							id: "sync_dms_secondary",
+							kind: "dms",
+							status: "succeeded",
+							startedAt: "2026-05-15T12:00:00.000Z",
+							summary: "Synced 1 item",
+							inProgress: false,
+							result: {
+								ok: true,
+								kind: "dms",
+								accountId: "acct_secondary",
+								summary: "Synced 1 item",
+								steps: [],
+							},
+						}),
+					),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			render(
+				<SyncNowButton
+					kind="dms"
+					label="Sync DMs"
+					allowAutoSync
+					onSynced={onSynced}
+					accounts={["primary", "secondary"].map((name, index) => ({
+						id: `acct_${name}`,
+						name,
+						handle: `@${name}`,
+						transport: "xurl",
+						isDefault: index === 0 ? 1 : 0,
+						createdAt: "2026-05-15T12:00:00.000Z",
+					}))}
+					syncOptions={{ inbox: "requests", limit: 20 }}
+				/>,
+			);
+			expect(screen.getByRole("button", { name: "Sync DMs" })).toBeEnabled();
+			await act(async () => {
+				if (source === "manual")
+					fireEvent.click(screen.getByRole("button", { name: "Sync DMs" }));
+				else
+					fireEvent.click(
+						screen.getByRole("checkbox", { name: "Auto sync dms" }),
+					);
+			});
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(600000);
+			});
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/sync",
+				expect.objectContaining({
+					body: JSON.stringify({
+						kind: "dms",
+						accountId: "acct_secondary",
+						inbox: "requests",
+						limit: 20,
+					}),
+				}),
+			);
+			expect(onSynced).toHaveBeenCalledWith(
+				expect.objectContaining({ accountId: "acct_secondary" }),
+			);
+		},
+	);
 
 	it("keeps an accessible label when the visible text is hidden", () => {
 		render(

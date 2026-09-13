@@ -45,10 +45,59 @@ export async function smokeWithoutBird({ directory, runCli }) {
 		["sync", "mention-threads", "--limit", "1", "--delay-ms", "0"],
 		["sync", "likes", "--limit", "5", "--refresh"],
 		["sync", "bookmarks", "--limit", "5", "--refresh"],
-		["sync", "lists", "--mode", "xurl", "--max-lists", "1", "--delay-ms", "0"],
-		["sync", "followers", "--mode", "xurl", "--limit", "1", "--yes"],
-		["sync", "following", "--mode", "xurl", "--limit", "1", "--yes"],
+		["sync", "lists", "--max-lists", "1", "--delay-ms", "0"],
+		["sync", "followers", "--limit", "1", "--yes"],
+		["sync", "following", "--limit", "1", "--yes"],
 		["dms", "sync", "--limit", "5", "--refresh"],
+	])
+		await run(args);
+	const job = await run([
+		"jobs",
+		"sync-account",
+		"--account",
+		"acct_primary",
+		"--limit",
+		"5",
+		"--max-pages",
+		"1",
+		"--refresh",
+	]);
+	assert.equal(job.steps.length, 6);
+	assert.ok(job.steps.every((step) => step.ok && step.source === "xurl"));
+	const audit = (
+		await readFile(path.join(home, "audit/account-sync.jsonl"), "utf8")
+	)
+		.trim()
+		.split("\n")
+		.map(JSON.parse);
+	assert.deepEqual(audit.at(-1), job);
+	const secondary = await run([
+		"jobs",
+		"sync-account",
+		"--account",
+		"acct_studio",
+		"--allow-bird-account",
+		"--steps",
+		"timeline,mentions,likes,bookmarks,dms",
+		"--limit",
+		"5",
+		"--max-pages",
+		"1",
+		"--refresh",
+	]);
+	assert.ok(secondary.steps.every((step) => step.ok && step.source === "xurl"));
+	for (const args of [
+		["jobs", "sync-bookmarks", "--limit", "5", "--max-pages", "1", "--refresh"],
+		["sync", "authored", "--limit", "5", "--max-pages", "1"],
+		["mentions", "export", "--mode", "auto", "--limit", "5", "--refresh"],
+		["import", "hydrate-profiles", "--account", "acct_primary"],
+		["profiles", "replies", "@birdlessfixture", "--limit", "1"],
+		["whois", "birdlessfixture"],
+		["lists", "list"],
+		["lists", "members", "Fixture List"],
+		["graph", "summary"],
+		["show", "tweet", "2000000000000000001"],
+		["show", "thread", "2000000000000000001"],
 	])
 		await run(args);
 	const messages = await run(["search", "dms", "birdless fixture"]);
@@ -60,13 +109,9 @@ export async function smokeWithoutBird({ directory, runCli }) {
 		["compose", "dm", "dm_001", "synthetic DM"],
 	])
 		await run(args);
+	await run(["auth", "use", "auto"]);
 	for (const action of ["ban", "unban", "mute", "unmute"]) {
-		const result = await run([
-			action,
-			"@birdlessfixture",
-			"--transport",
-			"xurl",
-		]);
+		const result = await run([action, "@birdlessfixture"]);
 		assert.ok(JSON.stringify(result).includes("verified"));
 	}
 	const requests = (await readFile(log, "utf8"))
@@ -85,7 +130,9 @@ const fixture = String.raw`
 import { appendFileSync } from "node:fs";
 const args=process.argv.slice(2);
 appendFileSync(process.env.BIRDLESS_FIXTURE_LOG,JSON.stringify(args)+"\n");
-const user={id:"25401953",username:"steipete",name:"Demo account"};
+const usernameIndex=args.indexOf("--username");
+const username=usernameIndex<0?"steipete":args[usernameIndex+1];
+const user={id:username==="birdclaw_lab"?"888":"25401953",username,name:"Demo account"};
 const other={id:"777",username:"birdlessfixture",name:"Birdless Fixture",public_metrics:{followers_count:10}};
 const out=value=>console.log(JSON.stringify(value));
 if(args.includes("version")||args.includes("--version")){console.log("xurl synthetic");process.exit(0);}
@@ -106,7 +153,7 @@ if(url.pathname==="/2/users/by"||url.pathname==="/2/users"){out({data:[other]});
 if(url.pathname.endsWith("/owned_lists")){out({data:[{id:"900",name:"Fixture List",owner_id:user.id,member_count:1}],meta:{result_count:1}});process.exit(0);}
 if(["/members","/followers","/following"].some(suffix=>url.pathname.endsWith(suffix))){out({data:[other],meta:{result_count:1}});process.exit(0);}
 if(url.pathname==="/2/dm_events"){
- out({data:[{id:"2000000000000000100",event_type:"MessageCreate",dm_conversation_id:"25401953-777",sender_id:"777",participant_ids:["25401953","777"],text:"birdless fixture message",created_at:new Date().toISOString()}],includes:{users:[user,other]},meta:{result_count:1}});process.exit(0);
+ out({data:[{id:user.id==="888"?"2000000000000000101":"2000000000000000100",event_type:"MessageCreate",dm_conversation_id:user.id+"-777",sender_id:"777",participant_ids:[user.id,"777"],text:"birdless fixture message",created_at:new Date().toISOString()}],includes:{users:[user,other]},meta:{result_count:1}});process.exit(0);
 }
 const tweet={id:"2000000000000000001",author_id:"777",text:"birdless fixture tweet",created_at:new Date().toISOString(),conversation_id:"2000000000000000001",entities:{}};
 if(url.pathname.includes("/tweets")||url.pathname.endsWith("/mentions")||url.pathname.endsWith("/liked_tweets")||url.pathname.endsWith("/bookmarks")||url.pathname.endsWith("/reverse_chronological")){

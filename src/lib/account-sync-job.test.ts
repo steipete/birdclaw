@@ -499,37 +499,43 @@ describe("account sync job", () => {
 		});
 	});
 
-	it("uses bird timeline mode for allowed non-default auto jobs", async () => {
-		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
-		const logPath = path.join(tempDir, "audit.jsonl");
-		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
-		syncHomeTimelineMock.mockResolvedValue({
-			source: "bird",
-			count: 10,
-		});
+	it.each([
+		{ account: "acct_primary", allowBirdAccount: false },
+		{ account: "acct_openclaw", allowBirdAccount: true },
+	])(
+		"preserves auto timeline fallback for $account",
+		async ({ account, allowBirdAccount }) => {
+			tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+			const logPath = path.join(tempDir, "audit.jsonl");
+			const lockPath = path.join(tempDir, "sync.lock");
+			const db = {
+				prepare: () => ({
+					get: () => ({ id: "acct_primary" }),
+				}),
+			} as never;
+			syncHomeTimelineMock.mockResolvedValue({
+				source: "bird",
+				count: 10,
+			});
 
-		await runAccountSyncJob({
-			account: "acct_openclaw",
-			steps: ["timeline"],
-			mode: "auto",
-			allowBirdAccount: true,
-			logPath,
-			lockPath,
-			db,
-		});
+			await runAccountSyncJob({
+				account,
+				steps: ["timeline"],
+				mode: "auto",
+				allowBirdAccount,
+				logPath,
+				lockPath,
+				db,
+			});
 
-		expect(syncHomeTimelineMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				account: "acct_openclaw",
-				mode: "bird",
-			}),
-		);
-	});
+			expect(syncHomeTimelineMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					account,
+					mode: "auto",
+				}),
+			);
+		},
+	);
 
 	it("records mention-thread sync errors as failed step results", async () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));

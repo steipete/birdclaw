@@ -186,7 +186,8 @@ const capabilities: LiveDataSourceCapability[] = [
 		label: "DMs",
 		primary: "xurl",
 		fallbacks: ["bird", "birdclaw"],
-		notes: "message requests require bird.",
+		notes:
+			"Native web access handles message requests with AUTH_TOKEN and CT0; bird is optional. Native cookies are verified during DM sync, not by these CLI status probes.",
 	},
 	{
 		key: "follow-graph",

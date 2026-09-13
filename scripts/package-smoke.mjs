@@ -139,15 +139,19 @@ async function smokeRuntime({
 }) {
 	const home = path.join(tempRoot, `home-${runtime.name}`);
 	const env = {
-		...process.env,
+		...(process.platform === "win32"
+			? { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot }
+			: { PATH: "/usr/bin:/bin" }),
+		HOME: home,
+		USERPROFILE: home,
+		BIRDCLAW_CONFIG: path.join(home, "config.json"),
+		BIRDCLAW_BIRD_COMMAND: path.join(home, "bird-does-not-exist"),
 		BIRDCLAW_BACKUP_AUTO_SYNC: "0",
 		BIRDCLAW_DISABLE_LIVE_PROFILE_LOOKUP: "1",
 		BIRDCLAW_DISABLE_LIVE_WRITES: "1",
 		BIRDCLAW_HOME: home,
 		DO_NOT_TRACK: "1",
 	};
-	delete env.BIRDCLAW_MCP_ACCOUNT;
-	delete env.BIRDCLAW_WEB_TOKEN;
 
 	const versionStarted = performance.now();
 	const { stdout: versionOutput } = await runRuntime(runtime, ["--version"], {
@@ -273,6 +277,24 @@ async function smokeRuntime({
 				`${runtime.name}: static asset smoke failed with ${String(asset.status)}`,
 			);
 		}
+		const sourceResponse = await fetch(`${baseUrl}/api/data-sources`);
+		const sources = sourceResponse.ok ? await sourceResponse.json() : null;
+		if (
+			!sources?.sources.some(
+				(source) => source.source === "birdclaw" && source.works,
+			) ||
+			!sources.sources.some(
+				(source) => source.source === "bird" && !source.works,
+			) ||
+			!sources.capabilities.some(
+				(capability) =>
+					capability.key === "dms" &&
+					capability.notes.includes("bird is optional"),
+			)
+		)
+			throw new Error(
+				`${runtime.name}: data-source status failed without Bird`,
+			);
 
 		const transport = new StreamableHTTPClientTransport(
 			new URL(`${baseUrl}/mcp`),

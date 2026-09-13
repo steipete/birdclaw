@@ -113,22 +113,12 @@ function WritableSyncNowButton({
 		intervalMs: DEFAULT_AUTO_SYNC_INTERVAL_MS,
 	});
 	const autoSettingsReady = autoSettings.key === autoSyncKey;
-	const accountAwareSync = kind !== "dms";
 	const waitingForAccount =
-		accountAwareSync &&
-		accounts === undefined &&
-		(showAccountPicker || kind !== "timeline");
-	const birdOnlyWrongAccount =
-		!accountAwareSync &&
-		accountId !== undefined &&
-		defaultAccountId !== undefined &&
-		accountId !== defaultAccountId;
-	const disabled = syncing || waitingForAccount || birdOnlyWrongAccount;
-	const statusMessage = birdOnlyWrongAccount
-		? "Switch to default to sync"
-		: waitingForAccount
-			? "Loading account"
-			: (error ?? message ?? "");
+		accounts === undefined && (showAccountPicker || kind !== "timeline");
+	const disabled = syncing || waitingForAccount;
+	const statusMessage = waitingForAccount
+		? "Loading account"
+		: (error ?? message ?? "");
 	const autoStatusMessage = autoSyncError
 		? `Auto sync failed: ${autoSyncError}`
 		: autoSyncing
@@ -165,7 +155,6 @@ function WritableSyncNowButton({
 			if (
 				syncingRef.current ||
 				waitingForAccount ||
-				birdOnlyWrongAccount ||
 				(source === "auto" && autoSyncBlocked)
 			) {
 				return false;
@@ -182,11 +171,7 @@ function WritableSyncNowButton({
 				setMessage(null);
 			}
 			try {
-				const data = await postSync(
-					kind,
-					accountAwareSync ? accountId : undefined,
-					syncOptions,
-				);
+				const data = await postSync(kind, accountId, syncOptions);
 				if (!data.ok) throw new Error(data.summary);
 				if (
 					launchedAutoSyncKey !== null &&
@@ -224,15 +209,7 @@ function WritableSyncNowButton({
 				if (source === "auto") setAutoSyncing(false);
 			}
 		},
-		[
-			accountAwareSync,
-			accountId,
-			autoSyncBlocked,
-			birdOnlyWrongAccount,
-			kind,
-			syncOptions,
-			waitingForAccount,
-		],
+		[accountId, autoSyncBlocked, kind, syncOptions, waitingForAccount],
 	);
 
 	useEffect(() => {
@@ -241,8 +218,7 @@ function WritableSyncNowButton({
 			!autoSettingsReady ||
 			!autoSettings.enabled ||
 			autoSyncBlocked ||
-			waitingForAccount ||
-			birdOnlyWrongAccount
+			waitingForAccount
 		) {
 			setNextAutoSyncAt(null);
 			return;
@@ -272,7 +248,6 @@ function WritableSyncNowButton({
 		autoSettings.intervalMs,
 		autoSettingsReady,
 		autoSyncBlocked,
-		birdOnlyWrongAccount,
 		syncNow,
 		waitingForAccount,
 	]);
@@ -297,7 +272,7 @@ function WritableSyncNowButton({
 				allowAutoSync && "w-full lg:w-auto",
 			)}
 		>
-			{showAccountPicker && accountAwareSync && accountList.length > 1 ? (
+			{showAccountPicker && accountList.length > 1 ? (
 				<select
 					aria-label="Sync account"
 					className={cx(selectFieldClass, "h-9 w-[132px]!")}
@@ -317,17 +292,9 @@ function WritableSyncNowButton({
 				className={cx(
 					"inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--bg)] px-3 text-[13px] font-semibold text-[var(--ink)] transition-[background,border-color,color,transform] duration-150 hover:border-[color:color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:bg-[var(--accent-soft)] hover:text-[var(--accent)] active:scale-[0.98] disabled:opacity-65",
 					syncing && "text-[var(--ink-soft)]",
-					birdOnlyWrongAccount
-						? "disabled:cursor-not-allowed"
-						: "disabled:cursor-wait",
+					"disabled:cursor-wait",
 				)}
-				aria-label={
-					birdOnlyWrongAccount
-						? `${label}: default account only`
-						: syncing
-							? `${label}: syncing`
-							: label
-				}
+				aria-label={syncing ? `${label}: syncing` : label}
 				disabled={disabled}
 				onClick={() => void syncNow("manual")}
 			>
@@ -355,7 +322,7 @@ function WritableSyncNowButton({
 							aria-label={`Auto sync ${kind}`}
 							type="checkbox"
 							checked={autoSettings.enabled}
-							disabled={waitingForAccount || birdOnlyWrongAccount}
+							disabled={waitingForAccount}
 							onChange={(event) =>
 								updateAutoSettings({
 									enabled: event.currentTarget.checked,

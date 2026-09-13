@@ -13,7 +13,7 @@ birdclaw compose reply tweet_004 "On it."
 birdclaw compose dm dm_003 "Send it over."
 ```
 
-All three use the active live transport (`auto` by default — `xurl` first, `bird` second). They never touch SQLite when the live call fails, so a failed publish does not leave a half-state row behind.
+All three publish through xurl; they do not require Bird or use the moderation transport preference. A failed live publish does not insert a sent-message or tweet row into SQLite.
 
 ## compose post
 
@@ -56,7 +56,7 @@ birdclaw compose dm dm_003 "Send it over."
 birdclaw compose dm dm_004 --account acct_primary "Sounds good."
 ```
 
-`compose dm` resolves the conversation, picks the right transport (`bird` is preferred for DM writes because OAuth2 DM scopes are flaky), and merges the sent message back into the local DM tables.
+`compose dm` resolves the conversation, sends through xurl, and merges the sent message back into the local DM tables. The authenticated xurl account needs DM write permission.
 
 All compose commands accept `--account`. For DMs, the selected account must own the local conversation. Set `accounts.default` in `config.json` for a recurring choice.
 
