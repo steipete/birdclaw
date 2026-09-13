@@ -2,7 +2,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./subprocess", async () => ({
+	...(await vi.importActual<typeof import("./subprocess")>("./subprocess")),
+	runSubprocessEffect: () =>
+		Effect.fail(new Error("External CLIs are disabled in native DM tests")),
+}));
 
 const auth = "synthetic-auth-cookie-".repeat(2);
 const csrf = "synthetic-csrf-cookie-".repeat(2);
