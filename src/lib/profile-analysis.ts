@@ -3,18 +3,16 @@ import {
 	type AnalysisHandlers,
 	type AnalysisEvent,
 	type AnalysisStatus,
-	cachedAnalysisReport,
-	saveAnalysisReport,
-	emitAnalysisDelta,
+	readAnalysisReport,
+	analysisReportCacheKey,
+	generateAnalysisReportEffect,
 	emitCachedAnalysis,
 } from "./analysis-report";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { z } from "zod";
 import {
-	createAnalysisRequestBody,
 	fitAnalysisDataset,
-	requestHybridAnalysisEffect,
 	resolveAnalysisModelSettings,
 } from "./analysis-runtime";
 import { getNativeDb } from "./db";
@@ -25,7 +23,7 @@ import {
 	trySync,
 } from "./effect-runtime";
 import type { Database } from "./sqlite";
-import { inspectSyncCache, readSyncCache, writeSyncCache } from "./sync-cache";
+import { inspectSyncCache, writeSyncCache } from "./sync-cache";
 import type {
 	ProfileRecord,
 	TweetEntities,
@@ -153,7 +151,6 @@ const DEFAULT_CONVERSATION_DELAY_MS = 3_100;
 const DEFAULT_RATE_LIMIT_RETRY_MS = 60_000;
 const DEFAULT_RATE_LIMIT_MAX_RETRIES = 1;
 const XURL_PAGE_SIZE = 100;
-const DELIMITER_PATTERN = /\n---\s*\n/;
 
 function isXurlRateLimitError(error: Error) {
 	// Structured classification from the transport (tag check, so it also works
@@ -279,18 +276,6 @@ function resolveAccount(db: Database, accountId?: string) {
 	return row;
 }
 
-function modelFromOptions(options: ProfileAnalysisOptions) {
-	return resolveAnalysisModelSettings(options).model;
-}
-
-function reasoningEffortFromOptions(options: ProfileAnalysisOptions) {
-	return resolveAnalysisModelSettings(options).reasoningEffort;
-}
-
-function serviceTierFromOptions(options: ProfileAnalysisOptions) {
-	return resolveAnalysisModelSettings(options).serviceTier;
-}
-
 function tweetUrl(handle: string, id: string) {
 	return `https://x.com/${handle}/status/${id}`;
 }
@@ -406,13 +391,11 @@ function resultCacheKey(
 	context: ProfileAnalysisContext,
 	options: ProfileAnalysisOptions,
 ) {
-	return [
+	return analysisReportCacheKey(
 		"profile-analysis:result",
-		modelFromOptions(options),
-		reasoningEffortFromOptions(options),
-		serviceTierFromOptions(options),
+		options,
 		context.hash,
-	].join(":");
+	);
 }
 
 function topConversationIds(tweets: XurlTweetData[], maxConversations: number) {
@@ -882,19 +865,6 @@ function fallbackAnalysis(
 	};
 }
 
-function createOpenAIRequestBody(
-	context: ProfileAnalysisContext,
-	options: ProfileAnalysisOptions,
-) {
-	return createAnalysisRequestBody({
-		settings: resolveAnalysisModelSettings(options),
-		system:
-			"You are a precise X/Twitter profile analyst. Use only supplied data. Return Markdown plus the requested JSON after the delimiter.",
-		prompt: buildPrompt(context),
-		stream: false,
-	});
-}
-
 export function streamProfileAnalysisEffect(
 	options: ProfileAnalysisOptions,
 	handlers: ProfileAnalysisStreamHandlers = {},
@@ -907,45 +877,37 @@ export function streamProfileAnalysisEffect(
 		const cached = options.refresh
 			? null
 			: yield* trySync(() =>
-					readSyncCache<{
-						analysis: ProfileAnalysis;
-						markdown: string;
-						model: string;
-						reasoningEffort: string;
-						serviceTier: string;
-					}>(resultCacheKey(context, options)),
+					readAnalysisReport(
+						resultCacheKey(context, options),
+						context,
+						"analysis",
+						(value) => ProfileAnalysisSchema.parse(value),
+					),
 				);
 		if (cached) {
-			const result = yield* trySync(() =>
-				cachedAnalysisReport(cached, context, "analysis", (value) =>
-					ProfileAnalysisSchema.parse(value),
-				),
-			);
-			emitCachedAnalysis(result, handlers);
-			return result;
+			emitCachedAnalysis(cached, handlers);
+			return cached;
 		}
 
-		handlers.onEvent?.({ type: "start", context, cached: false });
-		emitStatus(handlers, "Summarizing with AI", modelFromOptions(options));
-		const analysisResponse = yield* requestHybridAnalysisEffect({
-			body: createOpenAIRequestBody(context, options),
-			signal: options.signal,
-			parse: (value) => ProfileAnalysisSchema.parse(value),
+		return yield* generateAnalysisReportEffect({
+			context,
+			key: "analysis",
+			cacheKey: () => resultCacheKey(context, options),
+			options,
+			delivery: "complete",
+			system:
+				"You are a precise X/Twitter profile analyst. Use only supplied data. Return Markdown plus the requested JSON after the delimiter.",
+			prompt: () => buildPrompt(context),
+			parse: ProfileAnalysisSchema.parse,
 			fallback: (markdown) => fallbackAnalysis(context, markdown),
-			delimiterPattern: DELIMITER_PATTERN,
+			handlers,
+			onStart: () =>
+				emitStatus(
+					handlers,
+					"Summarizing with AI",
+					resolveAnalysisModelSettings(options).model,
+				),
 		});
-		const result = yield* trySync(() =>
-			saveAnalysisReport(
-				resultCacheKey(context, options),
-				context,
-				"analysis",
-				analysisResponse,
-				resolveAnalysisModelSettings(options),
-			),
-		);
-		emitAnalysisDelta(handlers, result.markdown);
-		handlers.onEvent?.({ type: "done", result });
-		return result;
 	});
 }
 

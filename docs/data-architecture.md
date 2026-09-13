@@ -520,7 +520,19 @@ Automatic backup updates and synchronization share configuration and state bookk
 
 Portable backup tables declare their columns and merge policies once in `backup-table-codecs.ts`; export projections, insert bindings, and conflict assignments are derived from that declaration. Complex retention and revision rules stay explicit SQL expressions. API-facing domain types are inferred from the existing Zod output schemas in `api-contracts.ts`, with type-only imports keeping validation and server workflows out of consumers that need only types.
 
-`analysis-report.ts` owns report metadata, cache serialization, and event replay; individual analyses retain their input collection, prompts, and result schemas. CLI input parsers throw to the existing command error boundary instead of printing an error and returning a failure sentinel.
+`analysis-report.ts` owns the report lifecycle: model request construction, stream or complete-response delivery, cache serialization and validation, and completion events. Individual analyses supply their context, prompts, result schemas, and versioned cache identity. Digest input refresh, cited-tweet enrichment, and the latest-report cache remain digest policies; profile analysis retains its completed-response delivery. The report layer persists successful results before publishing completion, and failed requests never create cached reports. Browser event schemas share the report envelope while validating each context and its supported event variants separately.
+
+```mermaid
+flowchart LR
+  D[Digest / discussion / profile inputs] --> R[Shared report lifecycle]
+  R --> T[OpenAI request and stream runtime]
+  T --> R
+  R --> C[Validated report cache]
+  R --> E[Report events]
+  E --> B[Browser envelope and context validation]
+```
+
+CLI input parsers throw to the existing command error boundary instead of printing an error and returning a failure sentinel.
 
 Transport adapters shell out to `bird` and `xurl`; they do not own those tools' credentials or configuration. CLI and HTTP handlers share the canonical repositories and query models in `src/lib/`. The browser API boundary remains independent of the server's Effect workflows.
 

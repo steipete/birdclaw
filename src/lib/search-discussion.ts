@@ -2,22 +2,15 @@ import {
 	type AnalysisReport,
 	type AnalysisHandlers,
 	type AnalysisEvent,
-	cachedAnalysisReport,
-	saveAnalysisReport,
-	emitAnalysisDelta,
+	readAnalysisReport,
+	analysisReportCacheKey,
+	generateAnalysisReportEffect,
 	emitCachedAnalysis,
 } from "./analysis-report";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { z } from "zod";
-import {
-	createAnalysisRequestBody,
-	fitAnalysisDataset,
-	type HybridAnalysisResult,
-	parseHybridAnalysis,
-	resolveAnalysisModelSettings,
-	streamHybridAnalysisEffect,
-} from "./analysis-runtime";
+import { fitAnalysisDataset } from "./analysis-runtime";
 import { prefetchCachedAvatarsForProfileIdsEffect } from "./avatar-cache";
 import {
 	runEffectBackground,
@@ -26,13 +19,8 @@ import {
 } from "./effect-runtime";
 import { getNativeDb } from "./db";
 import { listDmConversations } from "./dm-read-model";
-import {
-	type OpenAIStreamState,
-	processOpenAIResponseSseChunk,
-} from "./openai-response-runtime";
 import { parseJsonField } from "./query-read-model-shared";
 import { listTimelineItems } from "./timeline-read-model";
-import { readSyncCache } from "./sync-cache";
 import {
 	syncTweetSearchEffect,
 	type SyncTweetSearchResult,
@@ -146,7 +134,6 @@ export type SearchDiscussionStreamEvent =
 
 const DEFAULT_LIMIT = 20_000;
 const DEFAULT_MAX_PAGES = 200;
-const DELIMITER_PATTERN = /\n---\s*\n/;
 
 function tweetUrl(handle: string, id: string) {
 	return `https://x.com/${handle}/status/${id}`;
@@ -489,29 +476,11 @@ function prefetchDiscussionAvatars(context: SearchDiscussionContext) {
 	});
 }
 
-function modelFromOptions(options: SearchDiscussionOptions) {
-	return resolveAnalysisModelSettings(options).model;
-}
-
-function reasoningEffortFromOptions(options: SearchDiscussionOptions) {
-	return resolveAnalysisModelSettings(options).reasoningEffort;
-}
-
-function serviceTierFromOptions(options: SearchDiscussionOptions) {
-	return resolveAnalysisModelSettings(options).serviceTier;
-}
-
 function cacheKey(
 	context: SearchDiscussionContext,
 	options: SearchDiscussionOptions,
 ) {
-	return [
-		"search-discussion:v1",
-		modelFromOptions(options),
-		reasoningEffortFromOptions(options),
-		serviceTierFromOptions(options),
-		context.hash,
-	].join(":");
+	return analysisReportCacheKey("search-discussion:v1", options, context.hash);
 }
 
 function buildPrompt(context: SearchDiscussionContext) {
@@ -586,65 +555,6 @@ function fallbackDiscussion(
 	};
 }
 
-function parseDiscussionFromHybridText(
-	context: SearchDiscussionContext,
-	rawText: string,
-): { discussion: SearchDiscussion; markdown: string } {
-	const parsed = parseHybridAnalysis({
-		rawText,
-		parse: (value) => SearchDiscussionSchema.parse(value),
-		fallback: (markdown) => fallbackDiscussion(context, markdown),
-		delimiterPattern: DELIMITER_PATTERN,
-	});
-	return { markdown: parsed.markdown, discussion: parsed.value };
-}
-
-function processSseChunk(
-	state: OpenAIStreamState,
-	chunk: string,
-	handlers: SearchDiscussionStreamHandlers,
-) {
-	processOpenAIResponseSseChunk(state, chunk, {
-		delimiterPattern: DELIMITER_PATTERN,
-		onDelta: (delta) => {
-			emitAnalysisDelta(handlers, delta);
-		},
-	});
-}
-
-function createOpenAIRequestBody(
-	context: SearchDiscussionContext,
-	options: SearchDiscussionOptions,
-) {
-	return createAnalysisRequestBody({
-		settings: resolveAnalysisModelSettings(options),
-		system:
-			"You are a precise local Twitter archive analyst. Stream Markdown first, then emit the requested JSON object after the delimiter. Do not invent events not present in the dataset.",
-		prompt: buildPrompt(context),
-		stream: true,
-	});
-}
-
-function completeOpenAIStreamEffect(
-	stream: HybridAnalysisResult<SearchDiscussion>,
-	context: SearchDiscussionContext,
-	options: SearchDiscussionOptions,
-	handlers: SearchDiscussionStreamHandlers,
-): Effect.Effect<SearchDiscussionRunResult, Error> {
-	return trySync(() => {
-		const result = saveAnalysisReport(
-			cacheKey(context, options),
-			context,
-			"discussion",
-			stream,
-			resolveAnalysisModelSettings(options),
-			true,
-		);
-		handlers.onEvent?.({ type: "done", result });
-		return result;
-	});
-}
-
 export function streamSearchDiscussionEffect(
 	options: SearchDiscussionOptions,
 	handlers: SearchDiscussionStreamHandlers = {},
@@ -685,41 +595,30 @@ export function streamSearchDiscussionEffect(
 		const cached = options.refresh
 			? null
 			: yield* trySync(() =>
-					readSyncCache<{
-						discussion: SearchDiscussion;
-						markdown: string;
-						model: string;
-						reasoningEffort: string;
-						serviceTier: string;
-					}>(cacheKey(context, options)),
+					readAnalysisReport(
+						cacheKey(context, options),
+						context,
+						"discussion",
+						(value) => SearchDiscussionSchema.parse(value),
+					),
 				);
 		if (cached) {
-			const result = yield* trySync(() =>
-				cachedAnalysisReport(cached, context, "discussion", (value) =>
-					SearchDiscussionSchema.parse(value),
-				),
-			);
-			emitCachedAnalysis(result, handlers);
-			return result;
+			emitCachedAnalysis(cached, handlers);
+			return cached;
 		}
 
-		handlers.onEvent?.({ type: "start", context, cached: false });
-		const stream = yield* streamHybridAnalysisEffect({
-			body: createOpenAIRequestBody(context, options),
-			signal: options.signal,
-			parse: (value) => SearchDiscussionSchema.parse(value),
-			fallback: (markdown) => fallbackDiscussion(context, markdown),
-			delimiterPattern: DELIMITER_PATTERN,
-			onDelta: (delta) => {
-				emitAnalysisDelta(handlers, delta);
-			},
-		});
-		return yield* completeOpenAIStreamEffect(
-			stream,
+		return yield* generateAnalysisReportEffect({
 			context,
+			key: "discussion",
+			cacheKey: () => cacheKey(context, options),
 			options,
+			system:
+				"You are a precise local Twitter archive analyst. Stream Markdown first, then emit the requested JSON object after the delimiter. Do not invent events not present in the dataset.",
+			prompt: () => buildPrompt(context),
+			parse: SearchDiscussionSchema.parse,
+			fallback: (markdown) => fallbackDiscussion(context, markdown),
 			handlers,
-		);
+		});
 	});
 }
 
@@ -733,6 +632,4 @@ export function streamSearchDiscussion(
 export const __test__ = {
 	SearchDiscussionSchema,
 	buildPrompt,
-	parseDiscussionFromHybridText,
-	processSseChunk,
 };

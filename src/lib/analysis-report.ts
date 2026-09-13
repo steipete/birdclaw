@@ -1,8 +1,19 @@
-import type {
-	AnalysisModelSettings,
-	HybridAnalysisResult,
+import { Effect } from "effect";
+import {
+	createAnalysisRequestBody,
+	requestHybridAnalysisEffect,
+	streamHybridAnalysisEffect,
+	resolveAnalysisModelSettings,
+	type AnalysisModelOptions,
+	type AnalysisModelSettings,
+	type HybridAnalysisResult,
 } from "./analysis-runtime";
-import { writeSyncCache, type SyncCacheEntry } from "./sync-cache";
+import { trySync } from "./effect-runtime";
+import {
+	readSyncCache,
+	writeSyncCache,
+	type SyncCacheEntry,
+} from "./sync-cache";
 
 export type AnalysisReport<Context, Value, Key extends string> = {
 	context: Context;
@@ -14,8 +25,11 @@ export type AnalysisReport<Context, Value, Key extends string> = {
 	updatedAt: string;
 } & Record<Key, Value>;
 
-export type AnalysisEvent<Result extends { context: unknown }> =
-	| { type: "start"; context: Result["context"]; cached: boolean }
+export type AnalysisEvent<
+	Result extends { context: unknown },
+	Context = Result["context"],
+> =
+	| { type: "start"; context: Context; cached: boolean }
 	| { type: "delta"; delta: string }
 	| { type: "done"; result: Result }
 	| { type: "error"; error: string };
@@ -25,7 +39,17 @@ export interface AnalysisHandlers<Event> {
 	onEvent?: (event: Event) => void;
 }
 
-type CachedReport<Value, Key extends string> = {
+export function analysisReportCacheKey(
+	namespace: string,
+	options: AnalysisModelOptions,
+	hash: string,
+) {
+	const { model, reasoningEffort, serviceTier } =
+		resolveAnalysisModelSettings(options);
+	return [namespace, model, reasoningEffort, serviceTier, hash].join(":");
+}
+
+export type CachedReport<Value, Key extends string> = {
 	markdown: string;
 	model: string;
 	reasoningEffort: string;
@@ -49,6 +73,103 @@ export function cachedAnalysisReport<Context, Value, Key extends string>(
 		cached: true,
 		updatedAt: cached.updatedAt,
 	} as AnalysisReport<Context, Value, Key>;
+}
+
+export function readAnalysisReport<Context, Value, Key extends string>(
+	cacheKey: string,
+	context: Context,
+	key: Key,
+	parse: (value: unknown) => Value,
+) {
+	const cached = readSyncCache<CachedReport<Value, Key>>(cacheKey);
+	return cached ? cachedAnalysisReport(cached, context, key, parse) : null;
+}
+
+interface GenerateReportOptions<Context, Value, Key extends string> {
+	context: Context;
+	key: Key;
+	cacheKey: () => string;
+	options: AnalysisModelOptions & { signal?: AbortSignal };
+	system: string;
+	prompt: () => string;
+	parse: (value: unknown) => Value;
+	fallback: (markdown: string) => Value;
+	delivery?: "stream" | "complete";
+	handlers: AnalysisHandlers<
+		AnalysisEvent<
+			AnalysisReport<Context, NoInfer<Value>, NoInfer<Key>>,
+			Context
+		>
+	>;
+	onStart?: () => void;
+	enrichContext?: (value: Value) => Context;
+	onSaved?: (
+		result: AnalysisReport<Context, NoInfer<Value>, NoInfer<Key>>,
+	) => void;
+}
+
+export function generateAnalysisReportEffect<
+	Context,
+	Value,
+	Key extends string,
+>({
+	context,
+	key,
+	cacheKey,
+	options,
+	system,
+	prompt,
+	parse,
+	fallback,
+	delivery = "stream",
+	handlers,
+	onStart,
+	enrichContext,
+	onSaved,
+}: GenerateReportOptions<Context, Value, Key>): Effect.Effect<
+	AnalysisReport<Context, Value, Key>,
+	Error
+> {
+	return Effect.gen(function* () {
+		handlers.onEvent?.({ type: "start", context, cached: false });
+		onStart?.();
+		const request = {
+			body: createAnalysisRequestBody({
+				settings: resolveAnalysisModelSettings(options),
+				system,
+				prompt: prompt(),
+				stream: delivery === "stream",
+			}),
+			signal: options.signal,
+			parse,
+			fallback,
+			onDelta: (delta: string) => emitAnalysisDelta(handlers, delta),
+		};
+		const response = yield* delivery === "stream"
+			? streamHybridAnalysisEffect(request)
+			: requestHybridAnalysisEffect(request);
+		const result = yield* trySync(() => {
+			const reportContext = enrichContext
+				? enrichContext(response.value)
+				: context;
+			const result = saveAnalysisReport(
+				cacheKey(),
+				reportContext,
+				key,
+				response,
+				resolveAnalysisModelSettings(options),
+				delivery === "stream",
+			);
+			onSaved?.(result);
+			if (delivery === "stream") handlers.onEvent?.({ type: "done", result });
+			return result;
+		});
+		if (delivery === "complete") {
+			emitAnalysisDelta(handlers, result.markdown);
+			handlers.onEvent?.({ type: "done", result });
+		}
+		return result;
+	});
 }
 
 export function saveAnalysisReport<Context, Value, Key extends string>(

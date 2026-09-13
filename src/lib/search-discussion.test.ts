@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
+import { processOpenAIResponseSseChunk } from "./openai-response-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -474,7 +475,7 @@ describe("search discussion", () => {
 			jsonMode: false,
 		};
 
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			state,
 			sseFrame({
 				type: "response.output_text.delta",
@@ -482,7 +483,7 @@ describe("search discussion", () => {
 			}),
 			handlers,
 		);
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			state,
 			sseFrame({
 				type: "response.output_text.delta",
@@ -490,7 +491,7 @@ describe("search discussion", () => {
 			}),
 			handlers,
 		);
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			state,
 			sseFrame({
 				type: "response.completed",
@@ -498,8 +499,8 @@ describe("search discussion", () => {
 			}),
 			handlers,
 		);
-		__test__.processSseChunk(state, "data: {bad json}\n\n", handlers);
-		__test__.processSseChunk(state, "data: [DONE]\n\n", handlers);
+		processOpenAIResponseSseChunk(state, "data: {bad json}\n\n", handlers);
+		processOpenAIResponseSseChunk(state, "data: [DONE]\n\n", handlers);
 
 		expect(state.jsonMode).toBe(true);
 		expect(state.responseId).toBe("resp_123");
@@ -520,7 +521,7 @@ describe("search discussion", () => {
 			pendingVisible: "",
 			jsonMode: false,
 		};
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			failedState,
 			sseFrame({
 				type: "response.failed",
@@ -544,7 +545,7 @@ describe("search discussion", () => {
 			pendingVisible: "",
 			jsonMode: false,
 		};
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			errorState,
 			sseFrame({ type: "error", error: { message: "stream denied" } }),
 			{},
@@ -560,7 +561,7 @@ describe("search discussion", () => {
 			jsonMode: false,
 		};
 		const handlers = { onDelta: vi.fn(), onEvent: vi.fn() };
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			holdState,
 			sseFrame({ type: "response.output_text.delta", delta: "tiny" }),
 			handlers,
@@ -580,7 +581,7 @@ describe("search discussion", () => {
 			pendingVisible: "",
 			jsonMode: false,
 		};
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			failedWithMessage,
 			sseFrame({
 				type: "response.failed",
@@ -602,7 +603,7 @@ describe("search discussion", () => {
 			pendingVisible: "",
 			jsonMode: false,
 		};
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			failedDefault,
 			sseFrame({ type: "response.incomplete", response: {} }),
 			{},
@@ -621,7 +622,7 @@ describe("search discussion", () => {
 			pendingVisible: "",
 			jsonMode: false,
 		};
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			errorDefault,
 			sseFrame({ type: "response.error", error: "plain" }),
 			{},
@@ -634,7 +635,7 @@ describe("search discussion", () => {
 			pendingVisible: "",
 			jsonMode: false,
 		};
-		__test__.processSseChunk(
+		processOpenAIResponseSseChunk(
 			completedDefault,
 			sseFrame({ type: "response.completed", response: null }),
 			{},
@@ -642,14 +643,24 @@ describe("search discussion", () => {
 		expect(completedDefault).not.toHaveProperty("responseId");
 	});
 
-	it("falls back when the streamed JSON is malformed", () => {
-		const parsed = __test__.parseDiscussionFromHybridText(
-			collectSearchDiscussionContext({
-				query: "local-first",
-				limit: 20,
-			}),
-			"# Report\n\nOnly Markdown\n\n---\n{bad",
+	it("falls back when the streamed JSON is malformed", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				streamResponse(
+					sseFrame({
+						type: "response.output_text.delta",
+						delta: "# Report\n\nOnly Markdown\n\n---\n{bad",
+					}) + "data: [DONE]\n\n",
+				),
+			),
 		);
+		const parsed = await streamSearchDiscussion({
+			query: "local-first",
+			limit: 20,
+			mode: "local",
+			refresh: true,
+		});
 
 		expect(parsed.markdown).toContain("Only Markdown");
 		expect(parsed.discussion.title).toContain("local-first");

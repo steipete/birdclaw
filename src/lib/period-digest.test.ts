@@ -680,28 +680,32 @@ describe("period digest", () => {
 		expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
 	});
 
-	it("derives localized fallback fields when the streamed JSON is malformed", () => {
-		const parsed = __test__.parseDigestFromHybridText(
-			collectPeriodDigestContext({
-				since: "2026-01-01T00:00:00.000Z",
-				until: "2027-01-01T00:00:00.000Z",
-			}),
+	it("derives localized fallback fields when the streamed JSON is malformed", async () => {
+		const fetchMock = vi.fn();
+		for (const delta of [
 			"# Resumen\n\nSolo Markdown\n\n---\n{bad",
-			"es",
-		);
+			"\n---\n{bad",
+		]) {
+			fetchMock.mockResolvedValueOnce(
+				streamResponse(
+					sseFrame({ type: "response.output_text.delta", delta }) +
+						"data: [DONE]\n\n",
+				),
+			);
+		}
+		vi.stubGlobal("fetch", fetchMock);
+		const options = {
+			since: "2026-01-01T00:00:00.000Z",
+			until: "2027-01-01T00:00:00.000Z",
+			refresh: true,
+		};
+		const parsed = await streamPeriodDigest({ ...options, language: "es" });
 
 		expect(parsed.markdown).toContain("Solo Markdown");
 		expect(parsed.digest.title).toBe("Resumen");
 		expect(parsed.digest.summary).toContain("Solo Markdown");
 
-		const empty = __test__.parseDigestFromHybridText(
-			collectPeriodDigestContext({
-				since: "2026-01-01T00:00:00.000Z",
-				until: "2027-01-01T00:00:00.000Z",
-			}),
-			"\n---\n{bad",
-			"ja",
-		);
+		const empty = await streamPeriodDigest({ ...options, language: "ja" });
 		expect(empty.digest.title).toBe("[ja]");
 		expect(empty.digest.summary).toBe("[ja]");
 	});

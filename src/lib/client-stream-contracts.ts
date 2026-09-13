@@ -53,56 +53,36 @@ const profileContextSchema = z.looseObject({
 	}),
 });
 
-const runResultSchema = <T extends z.ZodType>(context: T) =>
-	z.looseObject({
-		context,
-		markdown: z.string(),
-		cached: z.boolean(),
-	});
+function reportEventSchema(context: z.ZodType, withStatus = true) {
+	const events = [
+		z.object({ type: z.literal("start"), context, cached: z.boolean() }),
+		deltaEventSchema,
+		z.object({
+			type: z.literal("done"),
+			result: z.looseObject({
+				context,
+				markdown: z.string(),
+				cached: z.boolean(),
+			}),
+		}),
+		errorEventSchema,
+	] as const;
+	return z.discriminatedUnion(
+		"type",
+		withStatus ? [statusEventSchema, ...events] : events,
+	);
+}
 
-export const periodDigestStreamEventSchema = z.discriminatedUnion("type", [
-	statusEventSchema,
-	z.object({
-		type: z.literal("start"),
-		context: periodContextSchema,
-		cached: z.boolean(),
-	}),
-	deltaEventSchema,
-	z.object({
-		type: z.literal("done"),
-		result: runResultSchema(periodContextSchema),
-	}),
-	errorEventSchema,
-]) as unknown as z.ZodType<PeriodDigestStreamEvent>;
-
-export const searchDiscussionStreamEventSchema = z.discriminatedUnion("type", [
-	z.object({
-		type: z.literal("start"),
-		context: discussionContextSchema,
-		cached: z.boolean(),
-	}),
-	deltaEventSchema,
-	z.object({
-		type: z.literal("done"),
-		result: runResultSchema(discussionContextSchema),
-	}),
-	errorEventSchema,
-]) as unknown as z.ZodType<SearchDiscussionStreamEvent>;
-
-export const profileAnalysisStreamEventSchema = z.discriminatedUnion("type", [
-	statusEventSchema,
-	z.object({
-		type: z.literal("start"),
-		context: profileContextSchema,
-		cached: z.boolean(),
-	}),
-	deltaEventSchema,
-	z.object({
-		type: z.literal("done"),
-		result: runResultSchema(profileContextSchema),
-	}),
-	errorEventSchema,
-]) as unknown as z.ZodType<ProfileAnalysisStreamEvent>;
+export const periodDigestStreamEventSchema = reportEventSchema(
+	periodContextSchema,
+) as z.ZodType<PeriodDigestStreamEvent>;
+export const searchDiscussionStreamEventSchema = reportEventSchema(
+	discussionContextSchema,
+	false,
+) as z.ZodType<SearchDiscussionStreamEvent>;
+export const profileAnalysisStreamEventSchema = reportEventSchema(
+	profileContextSchema,
+) as z.ZodType<ProfileAnalysisStreamEvent>;
 
 export function isTerminalStreamEvent(event: { type: string }) {
 	return event.type === "done" || event.type === "error";
