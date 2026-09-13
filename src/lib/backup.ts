@@ -44,6 +44,7 @@ import {
 import { getNativeDb, refreshReadDatabasePoolAfterBulkWrite } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import {
+	toError,
 	runEffectBackground,
 	runEffectPromise,
 	trySync,
@@ -3816,82 +3817,49 @@ export function validateBackupEffect(
 			manifest.files,
 			(expected) =>
 				Effect.gen(function* () {
-					const fileErrors: string[] = [];
-					let file: BackupFileManifest | undefined;
 					const filePath = yield* trySync(() =>
 						resolveBackupFilePath(resolvedRepoPath, expected.path),
-					).pipe(
-						Effect.match({
-							onFailure: (error) => {
-								fileErrors.push(
-									`${expected.path}: ${error instanceof Error ? error.message : String(error)}`,
-								);
-								return undefined;
-							},
-							onSuccess: (value) => value,
-						}),
 					);
-					if (!filePath) {
-						return { file, errors: fileErrors };
-					}
-					const stat = yield* assertReadableBackupFileEffect(
+					yield* assertReadableBackupFileEffect(
 						resolvedRepoPath,
 						filePath,
 						expected.path,
-					).pipe(
-						Effect.match({
-							onFailure: (error) => {
-								fileErrors.push(
-									`${expected.path}: ${error instanceof Error ? error.message : String(error)}`,
-								);
-								return undefined;
-							},
-							onSuccess: (value) => value,
-						}),
 					);
-					if (!stat) {
-						return { file, errors: fileErrors };
+					const content = yield* tryPromise(() => fs.readFile(filePath));
+					const rows = content
+						.toString("utf8")
+						.split("\n")
+						.filter((line) => line.length > 0);
+					const fileErrors: string[] = [];
+					for (const [index, line] of rows.entries()) {
+						yield* trySync(() => JSON.parse(line)).pipe(
+							Effect.match({
+								onFailure: (error) => {
+									fileErrors.push(
+										`${expected.path}:${index + 1}: ${error.message}`,
+									);
+								},
+								onSuccess: () => undefined,
+							}),
+						);
 					}
-					const content = yield* tryPromise(() => fs.readFile(filePath)).pipe(
-						Effect.match({
-							onFailure: (error) => {
-								fileErrors.push(
-									`${expected.path}: ${error instanceof Error ? error.message : String(error)}`,
-								);
-								return undefined;
-							},
-							onSuccess: (value) => value,
-						}),
-					);
-					if (content) {
-						const text = content.toString("utf8");
-						const rows = text.split("\n").filter((line) => line.length > 0);
-						for (const [index, line] of rows.entries()) {
-							const parseError = yield* trySync(() => JSON.parse(line)).pipe(
-								Effect.match({
-									onFailure: (error) => error,
-									onSuccess: () => undefined,
-								}),
-							);
-							if (parseError) {
-								fileErrors.push(
-									`${expected.path}:${index + 1}: ${
-										parseError instanceof Error
-											? parseError.message
-											: String(parseError)
-									}`,
-								);
-							}
-						}
-						file = {
+					return {
+						file: {
 							path: expected.path,
 							rows: rows.length,
 							sha256: sha256(content),
 							bytes: content.byteLength,
-						};
-					}
-					return { file, errors: fileErrors };
-				}),
+						},
+						errors: fileErrors,
+					};
+				}).pipe(
+					Effect.catchAll((error) =>
+						Effect.succeed({
+							file: undefined,
+							errors: [`${expected.path}: ${toError(error).message}`],
+						}),
+					),
+				),
 			{ concurrency: 1 },
 		);
 
