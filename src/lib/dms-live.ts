@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import {
-	type BirdDmConversation,
+	type BirdDmsResponse,
 	type BirdDmEvent,
 	type BirdDmUser,
 	listDirectMessagesViaBirdEffect,
@@ -39,6 +39,8 @@ const XURL_DMS_MAX_RESULTS = 100;
 
 export type DirectMessagesSyncMode = LiveSyncMode;
 
+type DirectMessagesPayload = Pick<BirdDmsResponse, "conversations" | "events">;
+
 export interface SyncDirectMessagesViaCachedBirdOptions {
 	account?: string;
 	mode?: DirectMessagesSyncMode;
@@ -75,10 +77,7 @@ function toIsoTimestamp(value?: string) {
 }
 
 function collectUsers(
-	payload: {
-		conversations: BirdDmConversation[];
-		events: BirdDmEvent[];
-	},
+	payload: DirectMessagesPayload,
 	accountExternalUserId?: string,
 ) {
 	const users = new Map<string, BirdDmUser>();
@@ -181,10 +180,7 @@ function conversationIdReferencesExternalUserId(
 }
 
 function payloadReferencesExternalUserId(
-	payload: {
-		conversations: BirdDmConversation[];
-		events: BirdDmEvent[];
-	},
+	payload: DirectMessagesPayload,
 	externalUserId: string,
 ) {
 	for (const conversation of payload.conversations) {
@@ -244,10 +240,7 @@ function mergeDirectMessagesIntoLocalStore(
 	accountId: string,
 	accountUsername: string,
 	accountExternalUserId: string | undefined,
-	payload: {
-		conversations: BirdDmConversation[];
-		events: BirdDmEvent[];
-	},
+	payload: DirectMessagesPayload,
 ) {
 	const users = collectUsers(payload, accountExternalUserId);
 	const localExternalUserId = getLocalExternalUserId(
@@ -537,7 +530,7 @@ function adaptXurlDmEventsToBirdPayload({
 	payload: XurlDmEventsResponse;
 	localExternalUserId: string;
 	accountUsername: string;
-}): { conversations: BirdDmConversation[]; events: BirdDmEvent[] } {
+}): DirectMessagesPayload {
 	const users = new Map<string, BirdDmUser>();
 	const addUser = (user?: BirdDmUser) => {
 		if (!user?.id) return;
@@ -725,12 +718,8 @@ export function syncDirectMessagesViaCachedBirdEffect({
 		const pageKey = allPages
 			? "all-pages"
 			: `max-pages:${String(maxPages ?? 0)}`;
-		const cacheMode = parsedMode === "auto" ? "auto" : parsedMode;
-		const cacheKey = `dms:${cacheMode}:${resolvedAccount.accountId}:${String(limit)}:${inbox}:${pageKey}`;
-		const cache = inspectSyncCache<{
-			conversations: BirdDmConversation[];
-			events: BirdDmEvent[];
-		}>(
+		const cacheKey = `dms:${parsedMode}:${resolvedAccount.accountId}:${String(limit)}:${inbox}:${pageKey}`;
+		const cache = inspectSyncCache<DirectMessagesPayload>(
 			cacheKey,
 			{ ttlMs: cacheTtlMs, defaultTtlMs: DEFAULT_DMS_CACHE_TTL_MS },
 			db,
@@ -739,12 +728,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 
 		const cacheHit = !refresh && cached && cache.fresh;
 		let accountExternalUserId = resolvedAccount.externalUserId;
-		let payload:
-			| {
-					conversations: BirdDmConversation[];
-					events: BirdDmEvent[];
-			  }
-			| undefined;
+		let payload: DirectMessagesPayload | undefined;
 		let source: "bird" | "xurl" | undefined;
 		if (cacheHit) {
 			payload = cached.value;
