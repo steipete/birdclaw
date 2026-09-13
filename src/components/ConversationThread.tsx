@@ -8,7 +8,7 @@ import {
 	feedRowTimestampClass,
 } from "#/lib/ui";
 import { AvatarChip } from "./AvatarChip";
-import { BirdclawEmpty, BirdclawLoading } from "./BrandMark";
+import { BirdclawLoading } from "./BrandMark";
 import { ProfilePreview } from "./ProfilePreview";
 import { OpenTweetLink } from "./OpenTweetLink";
 import { SmartTimestamp } from "./SmartTimestamp";
@@ -47,14 +47,7 @@ export function ConversationThread({
 	}
 
 	if (items.length <= 1) {
-		return (
-			<section className="mt-3 rounded-2xl border border-[var(--line)]">
-				<BirdclawEmpty
-					detail="This post has no other archived replies locally."
-					label="No thread context yet"
-				/>
-			</section>
-		);
+		return null;
 	}
 
 	return (

@@ -2,6 +2,8 @@
 
 ## 0.12.7 - Unreleased
 
+- Show “no threads” in feed cards when no other archived replies are found, instead of opening an empty conversation panel.
+
 - Give digest, discussion, and profile analysis one report-generation lifecycle for request construction, persistence, cache replay, and completion events; retain their refresh, citation, and streaming behavior.
 
 - Stabilize backup integration tests under slow filesystem I/O with focused fixtures and independent invalid-path cases, while retaining real durability and publication checks.

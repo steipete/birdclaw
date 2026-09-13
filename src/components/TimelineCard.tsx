@@ -306,6 +306,8 @@ export const TimelineCard = memo(function TimelineCard({
 			: displayTweetId;
 	const displayAuthor = displayTweet.author;
 	const conversation = useConversationSurface(item.id, interactionTweetId);
+	const noThreads =
+		conversation.status === "ready" && conversation.items.length <= 1;
 	const visibleEntities = getVisibleEntities(
 		displayTweet.entities,
 		displayTweet.media,
@@ -341,13 +343,14 @@ export const TimelineCard = memo(function TimelineCard({
 		<article
 			className={cx(
 				feedRowClass,
-				"cursor-pointer [content-visibility:auto] [contain-intrinsic-size:auto_280px]",
+				"[content-visibility:auto] [contain-intrinsic-size:auto_280px]",
+				!noThreads && "cursor-pointer",
 			)}
 			data-perf="timeline-card"
 			onFocus={conversation.prefetch}
 			onMouseEnter={conversation.prefetch}
 			onClick={(event) => {
-				if (isInteractiveTarget(event.target)) return;
+				if (noThreads || isInteractiveTarget(event.target)) return;
 				conversation.toggle();
 			}}
 		>
@@ -428,28 +431,42 @@ export const TimelineCard = memo(function TimelineCard({
 				/>
 				<footer className={feedRowActionsClass}>
 					<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[var(--ink-soft)]">
-						<button
-							aria-expanded={conversation.isOpen}
-							aria-label={
-								conversation.isOpen ? "Hide conversation" : "Show conversation"
-							}
-							className={feedActionButtonClass}
-							onClick={(event) => {
-								event.stopPropagation();
-								conversation.toggle();
-							}}
-							type="button"
-						>
-							<span className={feedActionIconWrapClass}>
-								<MessageCircle
-									className={feedActionIconClass}
-									strokeWidth={1.7}
-								/>
+						{noThreads ? (
+							<span className="inline-flex items-center gap-1 px-2 py-1 text-[13px]">
+								<span className={feedActionIconWrapClass}>
+									<MessageCircle
+										className={feedActionIconClass}
+										strokeWidth={1.7}
+									/>
+								</span>
+								no threads
 							</span>
-							<span className="text-[13px]">
-								{conversation.isOpen ? "Hide thread" : "Thread"}
-							</span>
-						</button>
+						) : (
+							<button
+								aria-expanded={conversation.isOpen}
+								aria-label={
+									conversation.isOpen
+										? "Hide conversation"
+										: "Show conversation"
+								}
+								className={feedActionButtonClass}
+								onClick={(event) => {
+									event.stopPropagation();
+									conversation.toggle();
+								}}
+								type="button"
+							>
+								<span className={feedActionIconWrapClass}>
+									<MessageCircle
+										className={feedActionIconClass}
+										strokeWidth={1.7}
+									/>
+								</span>
+								<span className="text-[13px]">
+									{conversation.isOpen ? "Hide thread" : "Thread"}
+								</span>
+							</button>
+						)}
 						<OpenTweetLink tweetId={interactionTweetId} />
 						{canReply ? (
 							<button
@@ -526,7 +543,7 @@ export const TimelineCard = memo(function TimelineCard({
 						) : null}
 					</div>
 				</footer>
-				{conversation.isOpen ? (
+				{conversation.isOpen && !noThreads ? (
 					<ConversationThread
 						anchorId={interactionTweetId}
 						error={conversation.error}
