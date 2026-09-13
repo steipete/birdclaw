@@ -1873,18 +1873,24 @@ describe("xurl transport", () => {
 
 	it("blocks and unblocks users via raw endpoints", async () => {
 		execFileAsyncMock
-			.mockResolvedValueOnce({ stdout: '{"data":true}', stderr: "" })
-			.mockResolvedValueOnce({ stdout: "", stderr: "deleted" });
+			.mockResolvedValueOnce({
+				stdout: '{"data":{"blocking":true}}',
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				stdout: '{"data":{"blocking":false}}',
+				stderr: "",
+			});
 		const { blockUserViaXurlEffect, unblockUserViaXurlEffect } =
 			await import("./xurl");
 
 		await expect(run(blockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
-			output: '{"data":true}',
+			output: '{"data":{"blocking":true}}\nverified blocking=true',
 		});
 		await expect(run(unblockUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
-			output: "deleted",
+			output: '{"data":{"blocking":false}}\nverified blocking=false',
 		});
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
 			"-X",
@@ -1943,37 +1949,43 @@ describe("xurl transport", () => {
 		});
 	});
 
-	it("uses ok as the default mutation output", async () => {
-		execFileAsyncMock
-			.mockResolvedValueOnce({ stdout: "", stderr: "" })
-			.mockResolvedValueOnce({ stdout: "", stderr: "" });
-		const { blockUserViaXurlEffect, muteUserViaXurlEffect } =
-			await import("./xurl");
-
-		await expect(run(blockUserViaXurlEffect("1", "2"))).resolves.toEqual({
-			ok: true,
-			output: "ok",
-		});
-		await expect(run(muteUserViaXurlEffect("1", "2"))).resolves.toEqual({
-			ok: true,
-			output: "ok",
-		});
-	});
+	it.each([
+		"",
+		"not JSON",
+		"null",
+		'{"data":true}',
+		'{"data":{"blocking":"true"}}',
+		'{"data":{"blocking":false}}',
+		'{"data":{"blocking":true},"errors":[{"message":"denied"}]}',
+	])(
+		"rejects unconfirmed block responses without replaying the mutation: %s",
+		async (stdout) => {
+			execFileAsyncMock.mockResolvedValueOnce({ stdout, stderr: "" });
+			const { blockUserViaXurlEffect } = await import("./xurl");
+			await expect(
+				run(blockUserViaXurlEffect("1", "2")),
+			).resolves.toMatchObject({ ok: false });
+			expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
+		},
+	);
 
 	it("mutes and unmutes users via raw endpoints", async () => {
 		execFileAsyncMock
-			.mockResolvedValueOnce({ stdout: '{"data":true}', stderr: "" })
-			.mockResolvedValueOnce({ stdout: "", stderr: "deleted" });
+			.mockResolvedValueOnce({ stdout: '{"data":{"muting":true}}', stderr: "" })
+			.mockResolvedValueOnce({
+				stdout: '{"data":{"muting":false}}',
+				stderr: "",
+			});
 		const { muteUserViaXurlEffect, unmuteUserViaXurlEffect } =
 			await import("./xurl");
 
 		await expect(run(muteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
-			output: '{"data":true}',
+			output: '{"data":{"muting":true}}\nverified muting=true',
 		});
 		await expect(run(unmuteUserViaXurlEffect("1", "2"))).resolves.toEqual({
 			ok: true,
-			output: "deleted",
+			output: '{"data":{"muting":false}}\nverified muting=false',
 		});
 		expect(execFileAsyncMock).toHaveBeenNthCalledWith(1, "xurl", [
 			"-X",

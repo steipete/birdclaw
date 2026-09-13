@@ -108,7 +108,7 @@ describe("blocklist", () => {
 		});
 		mocks.blockUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "blocked via xurl",
+			output: "blocked via xurl\nverified blocking=true",
 		});
 		mocks.unblockUserViaBird.mockResolvedValue({
 			ok: true,
@@ -116,7 +116,7 @@ describe("blocklist", () => {
 		});
 		mocks.unblockUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "unblocked via xurl",
+			output: "unblocked via xurl\nverified blocking=false",
 		});
 		mocks.lookupUsersByHandles.mockResolvedValue([
 			{

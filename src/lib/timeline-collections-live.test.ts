@@ -1137,6 +1137,7 @@ describe("live timeline collection sync", () => {
 		const { syncHomeTimeline } = await import("./timeline-live");
 
 		const result = await syncHomeTimeline({
+			mode: "bird",
 			limit: 25,
 			refresh: true,
 		});

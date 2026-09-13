@@ -90,7 +90,7 @@ birdclaw unban @amelia --account acct_primary --transport bird --json
 
 - `--transport auto` — try `bird` first, then verified `xurl`
 - `--transport bird` — force `bird`
-- `--transport xurl` — force `xurl`; verifies through `bird status` before mutating SQLite
+- `--transport xurl` — force `xurl`; requires X's response to confirm the expected `blocking`/`muting` state before mutating SQLite, without calling bird
 
 ## Mutes
 
@@ -111,7 +111,7 @@ OAuth2 block writes are the most common failure case. Twitter intermittently rej
 
 - `auto` is the default everywhere
 - `auto` stops after the verified `xurl` fallback
-- forced `xurl` writes still verify through `bird status` before sqlite changes
+- forced `xurl` writes require X's boolean confirmation before SQLite changes; a successful subprocess exit alone is insufficient
 - failed live writes never leave the local DB in an inconsistent state — either the local row reflects the live state or it is rolled back
 
 If your account chronically rejects OAuth2 blocks, just set:

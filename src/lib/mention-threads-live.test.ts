@@ -111,6 +111,7 @@ describe("mention thread sync", () => {
 		const { syncMentionThreadsEffect } = await import("./mention-threads-live");
 
 		const effect = syncMentionThreadsEffect({
+			mode: "bird",
 			limit: 1,
 			delayMs: 0,
 			timeoutMs: 5000,
@@ -141,7 +142,7 @@ describe("mention thread sync", () => {
 		setupTempHome();
 		const { syncMentionThreadsEffect } = await import("./mention-threads-live");
 
-		const effect = syncMentionThreadsEffect({ limit: 0 });
+		const effect = syncMentionThreadsEffect({ mode: "bird", limit: 0 });
 
 		await expect(Effect.runPromise(effect)).rejects.toThrow(
 			"--limit must be at least 1",
@@ -191,6 +192,7 @@ describe("mention thread sync", () => {
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
 		const result = await syncMentionThreads({
+			mode: "bird",
 			limit: 1,
 			delayMs: 0,
 			timeoutMs: 5000,
@@ -254,6 +256,7 @@ describe("mention thread sync", () => {
 		const progress: unknown[] = [];
 
 		const result = await syncMentionThreads({
+			mode: "bird",
 			tweetIds: ["mention_1"],
 			limit: 5,
 			delayMs: 0,
@@ -282,6 +285,7 @@ describe("mention thread sync", () => {
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
 		const result = await syncMentionThreads({
+			mode: "bird",
 			tweetIds: [],
 			limit: 5,
 			delayMs: 0,
@@ -333,7 +337,12 @@ describe("mention thread sync", () => {
 		});
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
-		await syncMentionThreads({ limit: 1, delayMs: 0, timeoutMs: 5000 });
+		await syncMentionThreads({
+			mode: "bird",
+			limit: 1,
+			delayMs: 0,
+			timeoutMs: 5000,
+		});
 		const row = getNativeDb()
 			.prepare("select media_count, media_json from tweets where id = ?")
 			.get("mention_1") as { media_count: number; media_json: string };
@@ -378,7 +387,12 @@ describe("mention thread sync", () => {
 		});
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
-		await syncMentionThreads({ limit: 1, delayMs: 0, timeoutMs: 5000 });
+		await syncMentionThreads({
+			mode: "bird",
+			limit: 1,
+			delayMs: 0,
+			timeoutMs: 5000,
+		});
 		const row = getNativeDb()
 			.prepare("select media_count, media_json from tweets where id = ?")
 			.get("mention_1") as { media_count: number; media_json: string };
@@ -393,6 +407,7 @@ describe("mention thread sync", () => {
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
 		const result = await syncMentionThreads({
+			mode: "bird",
 			limit: 1,
 			delayMs: 0,
 			timeoutMs: 1000,
@@ -439,6 +454,7 @@ describe("mention thread sync", () => {
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
 		const result = await syncMentionThreads({
+			mode: "bird",
 			limit: 2,
 			delayMs: 1,
 			timeoutMs: 1200,
@@ -499,6 +515,7 @@ describe("mention thread sync", () => {
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
 		const result = await syncMentionThreads({
+			mode: "bird",
 			limit: 2,
 			delayMs: 0,
 			timeoutMs: 5000,
@@ -565,7 +582,6 @@ describe("mention thread sync", () => {
 		const { syncMentionThreads } = await import("./mention-threads-live");
 
 		const result = await syncMentionThreads({
-			mode: "xurl",
 			limit: 1,
 			delayMs: 0,
 		});

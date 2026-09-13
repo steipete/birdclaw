@@ -9,7 +9,15 @@ import { getNativeDb, resetDatabaseForTests } from "./db";
 
 const mocks = vi.hoisted(() => ({
 	lookupProfileViaBird: vi.fn(),
+	lookupUsersByHandles: vi.fn(),
 }));
+
+vi.mock("./xurl", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		lookupUsersByHandlesEffect: effectFromMock(mocks.lookupUsersByHandles),
+	};
+});
 
 vi.mock("./bird", () => ({
 	lookupProfileViaBird: mocks.lookupProfileViaBird,
@@ -63,6 +71,7 @@ describe("profile affiliation hydration", () => {
 		resetBirdclawPathsForTests();
 		resetDatabaseForTests();
 		mocks.lookupProfileViaBird.mockReset();
+		mocks.lookupUsersByHandles.mockReset().mockResolvedValue([]);
 	});
 
 	afterEach(() => {
@@ -151,7 +160,33 @@ describe("profile affiliation hydration", () => {
 		});
 	});
 
-	it("skips empty handles, bird misses, and records lookup errors", async () => {
+	it("resolves an uncached organization through xurl when bird is absent", async () => {
+		seedProfile("profile_user_42", "aditya");
+		seedSyntheticAffiliation(
+			"profile_user_42",
+			"profile_affiliation_blacksmith",
+			"@useblacksmith",
+		);
+		mocks.lookupProfileViaBird.mockRejectedValue(new Error("bird absent"));
+		mocks.lookupUsersByHandles.mockResolvedValue([
+			{ id: "999", username: "useblacksmith", name: "Blacksmith" },
+		]);
+		const { hydrateProfileAffiliationOrganizations } =
+			await import("./profile-affiliation-hydration");
+		await expect(
+			hydrateProfileAffiliationOrganizations(getNativeDb(), "profile_user_42"),
+		).resolves.toEqual({ checked: 1, hydrated: 1, skipped: 0, errors: [] });
+		expect(mocks.lookupUsersByHandles).toHaveBeenCalledWith(["useblacksmith"]);
+		expect(
+			getNativeDb()
+				.prepare(
+					"select organization_profile_id from profile_affiliations where subject_profile_id = ?",
+				)
+				.get("profile_user_42"),
+		).toEqual({ organization_profile_id: "profile_user_999" });
+	});
+
+	it("honors disabled xurl fallback when bird cannot resolve organizations", async () => {
 		seedProfile("profile_user_42", "aditya");
 		seedSyntheticAffiliation(
 			"profile_user_42",
@@ -188,7 +223,9 @@ describe("profile affiliation hydration", () => {
 			await import("./profile-affiliation-hydration");
 
 		await expect(
-			hydrateProfileAffiliationOrganizations(getNativeDb(), "profile_user_42"),
+			hydrateProfileAffiliationOrganizations(getNativeDb(), "profile_user_42", {
+				xurlFallback: false,
+			}),
 		).resolves.toEqual({
 			checked: 3,
 			hydrated: 0,
@@ -197,5 +234,6 @@ describe("profile affiliation hydration", () => {
 		});
 		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("missingco");
 		expect(mocks.lookupProfileViaBird).toHaveBeenCalledWith("errorco");
+		expect(mocks.lookupUsersByHandles).not.toHaveBeenCalled();
 	});
 });

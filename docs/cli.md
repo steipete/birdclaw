@@ -336,9 +336,9 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,follo
 - refresh FTS incrementally
 - `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
 - `sync authored` uses `xurl`, includes retweets, and resumes from a stored `since_id`
-- `sync timeline` stores the live home timeline through `bird`; it defaults to the chronological Following feed
+- `sync timeline` stores the live home timeline through `auto`, with xurl fallback when bird is unavailable; it defaults to the chronological Following feed
 - `sync mentions` ingests recent mentions through `xurl` (default) or `bird` and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
-- `sync mention-threads` fetches conversation context for recent mentions through `bird thread` or `xurl`; pass `--mode xurl` when the `bird` CLI is unavailable, otherwise use `--delay-ms` and `--timeout-ms` to stay gentle on live X
+- `sync mention-threads` fetches conversation context for recent mentions through xurl by default; explicit `--mode bird` remains available, and `--delay-ms`/`--timeout-ms` bound live work
 - `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` prefers `bird`, then falls back to `xurl`
 - `sync lists` is an explicit read-only walk; it defaults to 20 members, one page, and 1,000 ms pacing per List, and stores `complete|inferred|partial|error` membership state
 
@@ -726,7 +726,7 @@ Flags:
 - `--refresh`
 - `--cache-ttl <seconds>`
 
-`--mode bird` is the default and the only mode that can sync message requests. `--mode xurl` reads recent OAuth2 `/2/dm_events` as accepted conversations; `--mode auto` tries xurl first for accepted DMs and falls back to bird.
+`--mode auto` is the default. Native `--mode web` uses `AUTH_TOKEN` and `CT0` to read accepted DMs and message requests without a bird executable or browser. Auto selects native web for request/full-default-account inboxes when cookies are available; other reads use xurl with available fallback. `--mode xurl` reads recent OAuth2 `/2/dm_events`, which does not expose request state. `dms accept`, `dms reject`, and `dms block` default to native web; explicit `--mode bird` remains supported.
 
 ### `inbox`
 

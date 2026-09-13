@@ -76,7 +76,7 @@ Selection is per operation. Birdclaw resolves the existing account row, routes x
 
 - `auto` — try `bird` first for block/unblock/mute, then fall back to verified `xurl`
 - `bird` — force `bird`
-- `xurl` — force `xurl`; verifies through `bird status` before mutating SQLite
+- `xurl` — force `xurl`; verifies X's mutation-response boolean before mutating SQLite, without requiring bird
 
 Twitter still rejects pure OAuth2 block writes for many accounts, so `auto` is the safe default.
 
@@ -97,6 +97,7 @@ See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge 
 | Variable                       | Purpose                                                                                                                                              |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BIRDCLAW_HOME`                | Override the storage root (`~/.birdclaw` by default)                                                                                                 |
+| `AUTH_TOKEN`, `CT0`            | Optional X session cookies for native DM request access (`--mode web`); store them in a protected environment, never command arguments               |
 | `BIRDCLAW_CONFIG`              | Read and write config at a non-default path                                                                                                          |
 | `BIRDCLAW_ACTIONS_TRANSPORT`   | Override moderation action transport with `auto`, `xurl`, or `bird` for one process                                                                  |
 | `BIRDCLAW_BIRD_COMMAND`        | Override the `bird` executable used by live Bird transports                                                                                          |

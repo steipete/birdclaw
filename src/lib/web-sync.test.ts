@@ -367,6 +367,32 @@ describe("web sync dispatcher", () => {
 		});
 	});
 
+	it("keeps DM accounts and inbox options separate when coalescing jobs", async () => {
+		const pending = deferred<{
+			ok: boolean;
+			source: string;
+			messages: number;
+		}>();
+		syncDirectMessagesViaCachedBirdMock.mockReturnValue(pending.promise);
+		const primary = startWebSync("dms", "acct_primary", { inbox: "requests" });
+		const other = startWebSync("dms", "acct_studio", { inbox: "requests" });
+		const accepted = startWebSync("dms", "acct_primary", { inbox: "accepted" });
+		expect(new Set([primary.id, other.id, accepted.id]).size).toBe(3);
+		expect(startWebSync("dms", "acct_primary", { inbox: "requests" }).id).toBe(
+			primary.id,
+		);
+		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith(
+			expect.objectContaining({ account: "acct_studio", inbox: "requests" }),
+		);
+		pending.resolve({ ok: true, source: "web", messages: 1 });
+		await vi.waitFor(() =>
+			expect(getWebSyncJob(primary.id)).toMatchObject({
+				status: "succeeded",
+				accountId: "acct_primary",
+			}),
+		);
+	});
+
 	it("keeps timeline web syncs account-scoped", async () => {
 		const pending = deferred<{ ok: boolean; source: string; count: number }>();
 		syncHomeTimelineMock.mockReturnValue(pending.promise);

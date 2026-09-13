@@ -26,7 +26,7 @@ import { getTweetByIdEffect, searchRecentByConversationIdEffect } from "./xurl";
 const DEFAULT_LIMIT = 30;
 const DEFAULT_DELAY_MS = 1500;
 const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_MODE = "bird";
+const DEFAULT_MODE = "xurl";
 const DEFAULT_FALLBACK_DEPTH = 12;
 const MAX_XURL_SEARCH_RESULTS = 100;
 

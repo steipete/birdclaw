@@ -107,7 +107,7 @@ export function syncHomeTimelineEffect({
 			try: () => parseStartTime(startTime),
 			catch: (error) => error,
 		});
-		const parsedMode = parseLiveSyncMode(mode, "bird");
+		const parsedMode = parseLiveSyncMode(mode, "auto");
 		if (limit !== undefined) parseLivePageSize(limit);
 		const requestedMaxPages = parseOptionalMaxPages(maxPages);
 		const finiteFallbackLimit = limit ?? (parsedStartTime ? 300 : 100);

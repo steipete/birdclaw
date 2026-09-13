@@ -22,11 +22,15 @@ export function parseDmInboxOption(
 export function parseDmSyncModeOption(
 	value: string | undefined,
 ): DirectMessagesSyncMode {
-	const normalized = (value ?? "bird").trim().toLowerCase();
-	if (normalized === "auto" || normalized === "bird" || normalized === "xurl") {
+	const normalized = (value ?? "auto").trim().toLowerCase();
+	if (
+		normalized === "auto" ||
+		normalized === "bird" ||
+		normalized === "web" ||
+		normalized === "xurl"
+	)
 		return normalized;
-	}
-	throw new CliInputError("--mode must be auto, bird, or xurl");
+	throw new CliInputError("--mode must be auto, bird, web, or xurl");
 }
 
 export async function enrichDmItems(

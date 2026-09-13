@@ -56,6 +56,7 @@ const listTimelineItemsMock = vi.fn();
 const listDmConversationsMock = vi.fn();
 const applyDmRequestMutationToLocalStoreMock = vi.fn();
 const runDirectMessageRequestMutationViaBirdMock = vi.fn();
+const mutateWebDirectMessageMock = vi.fn();
 const getAuthenticatedBirdAccountMock = vi.fn();
 const getConversationThreadMock = vi.fn();
 const hydrateProfilesFromXMock = vi.fn();
@@ -356,6 +357,11 @@ vi.mock("#/lib/bird", () => ({
 		runDirectMessageRequestMutationViaBirdMock(...args),
 }));
 
+vi.mock("#/lib/x-web-dms", () => ({
+	mutateWebDirectMessage: (...args: unknown[]) =>
+		mutateWebDirectMessageMock(...args),
+}));
+
 vi.mock("#/lib/timeline-collections-live", () => ({
 	syncTimelineCollection: (...args: unknown[]) =>
 		syncTimelineCollectionMock(...args),
@@ -435,6 +441,7 @@ describe("cli", () => {
 		listDmConversationsMock.mockReset();
 		applyDmRequestMutationToLocalStoreMock.mockReset();
 		runDirectMessageRequestMutationViaBirdMock.mockReset();
+		mutateWebDirectMessageMock.mockReset().mockResolvedValue({ success: true });
 		getAuthenticatedBirdAccountMock.mockReset();
 		getConversationThreadMock.mockReset();
 		hydrateProfilesFromXMock.mockReset();
@@ -2414,14 +2421,14 @@ describe("cli", () => {
 		});
 		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith({
 			account: "acct_primary",
-			mode: "bird",
+			mode: "auto",
 			limit: 12,
 			refresh: true,
 			cacheTtlMs: 120_000,
 		});
 		expect(syncDirectMessagesViaCachedBirdMock).toHaveBeenCalledWith({
 			account: "acct_primary",
-			mode: "bird",
+			mode: "auto",
 			limit: 7,
 			refresh: true,
 			cacheTtlMs: 45_000,
@@ -2505,7 +2512,15 @@ describe("cli", () => {
 	it("updates local DM request state after live mutations", async () => {
 		const { runCli } = await loadCli();
 
-		await runCli(["node", "birdclaw", "dms", "accept", "dm_1"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"dms",
+			"accept",
+			"dm_1",
+			"--mode",
+			"bird",
+		]);
 
 		expect(runDirectMessageRequestMutationViaBirdMock).toHaveBeenCalledWith({
 			action: "accept",
@@ -2530,6 +2545,8 @@ describe("cli", () => {
 			"dm_1",
 			"--max-pages",
 			"8",
+			"--mode",
+			"bird",
 		]);
 
 		expect(runDirectMessageRequestMutationViaBirdMock).toHaveBeenCalledWith({
@@ -2546,8 +2563,42 @@ describe("cli", () => {
 		});
 		const { runCli } = await loadCli();
 
-		await runCli(["node", "birdclaw", "dms", "reject", "dm_1"]);
+		await runCli([
+			"node",
+			"birdclaw",
+			"dms",
+			"reject",
+			"dm_1",
+			"--mode",
+			"bird",
+		]);
 
+		expect(applyDmRequestMutationToLocalStoreMock).not.toHaveBeenCalled();
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("uses native DM request actions by default and only records confirmed success", async () => {
+		const { runCli } = await loadCli();
+		await runCli(["node", "birdclaw", "dms", "accept", "dm_1"]);
+		expect(mutateWebDirectMessageMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationId: "dm_1",
+				action: "accept",
+				account: expect.objectContaining({ accountId: "acct_primary" }),
+			}),
+		);
+		expect(getAuthenticatedBirdAccountMock).not.toHaveBeenCalled();
+		expect(runDirectMessageRequestMutationViaBirdMock).not.toHaveBeenCalled();
+		expect(applyDmRequestMutationToLocalStoreMock).toHaveBeenCalledWith(
+			"dm_1",
+			"accept",
+		);
+		applyDmRequestMutationToLocalStoreMock.mockClear();
+		mutateWebDirectMessageMock.mockResolvedValueOnce({
+			success: false,
+			error: "unconfirmed",
+		});
+		await runCli(["node", "birdclaw", "dms", "reject", "dm_1"]);
 		expect(applyDmRequestMutationToLocalStoreMock).not.toHaveBeenCalled();
 		expect(process.exitCode).toBe(1);
 	});

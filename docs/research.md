@@ -18,7 +18,7 @@ What it does:
 
 - queries the local `tweets` table for matches inside the bookmarks collection
 - expands each match into its full thread using the local store first
-- when ancestors are missing locally, falls back to live thread lookup through `bird thread`
+- when ancestors are missing locally, looks up missing tweets through xurl, with optional bird fallback
 - renders one markdown file with each thread as a section: original tweet + replies as block quotes
 - pulls out `https://` URLs and `@handle` references into a deduped list at the end
 
@@ -34,7 +34,7 @@ The output is meant to be read in Obsidian, a chat draft, or piped into another 
 
 ## Live thread expansion
 
-When a thread ancestor is not in the local store, `research` makes a single `bird thread` call per missing chain. This is gentle on the live API by design — rate-limit-aware with `--delay-ms` semantics inherited from [`sync mention-threads`](sync.md#sync-mention-threads).
+When a thread ancestor is not in the local store, `research` follows the bounded parent chain with the shared tweet lookup: xurl first, with bird fallback if needed. Local ancestors need no live request, and xurl-only installations can expand missing ancestors without bird.
 
 If you do this kind of expansion regularly, run `birdclaw sync mention-threads` and `birdclaw sync bookmarks --all` first. That populates the local store with everything `research` needs and removes the live calls from the hot path.
 

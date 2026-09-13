@@ -377,6 +377,7 @@ export function resolveProfilesForIdsEffect(
 					yield* hydrateProfileAffiliationOrganizationsEffect(
 						db,
 						resolved.profile.id,
+						{ xurlFallback },
 					);
 				yield* trySync(() => updateConversationTitles(resolved.profile, db));
 				results.push({

@@ -14,6 +14,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { smokeWithoutBird } from "./birdless-smoke.mjs";
+import { smokeNativeDms } from "./native-dm-smoke.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -343,6 +345,20 @@ async function smokeRuntime({
 		}
 	}
 	if (shutdownError) throw shutdownError;
+	const birdless = await smokeWithoutBird({
+		directory: path.join(tempRoot, `birdless-${runtime.name}`),
+		runCli: (args, env) => runRuntime(runtime, args, { cwd: installDir, env }),
+	});
+	const nativeDms = await smokeNativeDms({
+		directory: path.join(tempRoot, `native-dms-${runtime.name}`),
+		entry: runtime.prefix.at(-1),
+		runFixture: (launcher, args, env) =>
+			runRuntime(
+				{ ...runtime, prefix: [...runtime.prefix.slice(0, -1), launcher] },
+				args,
+				{ cwd: installDir, env },
+			),
+	});
 
 	return {
 		name: runtime.name,
@@ -350,6 +366,8 @@ async function smokeRuntime({
 		entry: runtime.prefix.at(-1),
 		versionMs: Math.round(versionMs),
 		installedRoot,
+		birdless,
+		nativeDms,
 	};
 }
 
@@ -359,6 +377,10 @@ try {
 		throw new Error(`Unexpected Bun revision: ${bunRevision}`);
 	}
 	const { stdout: nodeVersionOutput } = await run(nodeBin, ["--version"]);
+	const { stdout: nodeExecutablePath } = await run(nodeBin, [
+		"-p",
+		"process.execPath",
+	]);
 	const nodeVersion = nodeVersionOutput.trim();
 	const nodeMatch = nodeVersion.match(/^v26\.(\d+)\.(\d+)$/);
 	if (
@@ -498,7 +520,7 @@ try {
 		},
 		{
 			name: "node",
-			executable: nodeBin,
+			executable: nodeExecutablePath.trim(),
 			prefix: [launcher],
 		},
 	];

@@ -1,7 +1,6 @@
 import {
 	blockUserViaBirdEffect,
 	muteUserViaBirdEffect,
-	readBirdStatusViaBirdEffect,
 	unblockUserViaBirdEffect,
 	unmuteUserViaBirdEffect,
 } from "./bird-actions";
@@ -113,21 +112,8 @@ function runBirdActionEffect(
 	});
 }
 
-function getVerifyExpectation(action: ModerationAction) {
-	return action === "block" || action === "unblock"
-		? {
-				field: "blocking" as const,
-				expected: action === "block",
-			}
-		: {
-				field: "muting" as const,
-				expected: action === "mute",
-			};
-}
-
 function runXurlActionEffect(
 	action: ModerationAction,
-	query: string,
 	targetUserId?: string,
 	verifiedSourceUserId?: string | null,
 ): Effect.Effect<ActionTransportResult, unknown> {
@@ -162,40 +148,8 @@ function runXurlActionEffect(
 					? muteUserViaXurlEffect(sourceUserId, targetUserId)
 					: unmuteUserViaXurlEffect(sourceUserId, targetUserId);
 
-		if (!result.ok) {
-			return {
-				...result,
-				transport: "xurl",
-			};
-		}
-
-		const status = yield* readBirdStatusViaBirdEffect(query);
-		const { field: verifyField, expected: expectedValue } =
-			getVerifyExpectation(action);
-		const actualValue =
-			status && typeof status[verifyField] === "boolean"
-				? Boolean(status[verifyField])
-				: null;
-
-		if (actualValue === null) {
-			return {
-				ok: false,
-				output: `${result.output}\nxurl verify unavailable from bird status`,
-				transport: "xurl",
-			};
-		}
-
-		if (actualValue !== expectedValue) {
-			return {
-				ok: false,
-				output: `${result.output}\nxurl verify mismatch ${verifyField}=${String(actualValue)}`,
-				transport: "xurl",
-			};
-		}
-
 		return {
-			ok: true,
-			output: `${result.output}\nverified ${verifyField}=${String(actualValue)}`,
+			...result,
 			transport: "xurl",
 		};
 	});
@@ -234,7 +188,6 @@ export function runModerationActionEffect({
 			}
 			return yield* runXurlActionEffect(
 				action,
-				query,
 				targetUserId,
 				typeof accountCheck === "string" ? accountCheck : null,
 			);
@@ -270,7 +223,6 @@ export function runModerationActionEffect({
 		}
 		const xurlResult = yield* runXurlActionEffect(
 			action,
-			query,
 			targetUserId,
 			typeof accountCheck === "string" ? accountCheck : null,
 		);

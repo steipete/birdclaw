@@ -109,7 +109,7 @@ describe("mutes", () => {
 		});
 		mocks.muteUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "muted via xurl",
+			output: "muted via xurl\nverified muting=true",
 		});
 		mocks.unmuteUserViaBird.mockResolvedValue({
 			ok: true,
@@ -117,7 +117,7 @@ describe("mutes", () => {
 		});
 		mocks.unmuteUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "unmuted via xurl",
+			output: "unmuted via xurl\nverified muting=false",
 		});
 	});
 

@@ -101,19 +101,19 @@ describe("actions transport", () => {
 		});
 		mocks.blockUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "xurl block ok",
+			output: "xurl block ok\nverified blocking=true",
 		});
 		mocks.unblockUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "xurl unblock ok",
+			output: "xurl unblock ok\nverified blocking=false",
 		});
 		mocks.muteUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "xurl mute ok",
+			output: "xurl mute ok\nverified muting=true",
 		});
 		mocks.unmuteUserViaXurl.mockResolvedValue({
 			ok: true,
-			output: "xurl unmute ok",
+			output: "xurl unmute ok\nverified muting=false",
 		});
 	});
 
@@ -349,37 +349,26 @@ describe("actions transport", () => {
 		expect(mocks.blockUserViaXurl).not.toHaveBeenCalled();
 	});
 
-	it("reports xurl verification gaps and mismatches", async () => {
-		mocks.readBirdStatusViaBird
-			.mockResolvedValueOnce(null)
-			.mockResolvedValueOnce({ blocking: false, muting: false });
-		const { runModerationAction } = await import("./actions-transport");
-
-		await expect(
-			runModerationAction({
-				action: "block",
-				query: "7",
-				targetUserId: "7",
-				transport: "xurl",
-			}),
-		).resolves.toEqual({
-			ok: false,
-			output: "xurl block ok\nxurl verify unavailable from bird status",
-			transport: "xurl",
-		});
-		await expect(
-			runModerationAction({
-				action: "block",
-				query: "7",
-				targetUserId: "7",
-				transport: "xurl",
-			}),
-		).resolves.toEqual({
-			ok: false,
-			output: "xurl block ok\nxurl verify mismatch blocking=false",
-			transport: "xurl",
-		});
-	});
+	it.each(["block", "unblock", "mute", "unmute"] as const)(
+		"executes %s with xurl without consulting bird",
+		async (action) => {
+			mocks.readBirdStatusViaBird.mockRejectedValue(new Error("bird absent"));
+			mocks.getAuthenticatedBirdAccount.mockRejectedValue(
+				new Error("bird absent"),
+			);
+			const { runModerationAction } = await import("./actions-transport");
+			await expect(
+				runModerationAction({
+					action,
+					query: "7",
+					targetUserId: "7",
+					transport: "xurl",
+				}),
+			).resolves.toMatchObject({ ok: true, transport: "xurl" });
+			expect(mocks.readBirdStatusViaBird).not.toHaveBeenCalled();
+			expect(mocks.getAuthenticatedBirdAccount).not.toHaveBeenCalled();
+		},
+	);
 
 	it("checks expected xurl account identities before live writes", async () => {
 		mocks.lookupAuthenticatedUser.mockResolvedValueOnce({

@@ -2,6 +2,8 @@
 
 ## 0.13.1 - Unreleased
 
+- Make bird optional across live workflows: verify xurl moderation directly, add native cookie-backed DM requests and accept/reject/block actions, preserve DM account selection and invalidate all transport caches, and provide xurl defaults/fallbacks for sync and profile enrichment.
+
 ## 0.13.0 - 2026-09-13
 
 ### Highlights

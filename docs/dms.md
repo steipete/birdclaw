@@ -20,7 +20,7 @@ birdclaw dms list --unreplied --min-followers 500 --min-influence-score 90 --sor
 Flags:
 
 - `--refresh` — refresh live DMs before listing
-- `--mode bird|xurl|auto` — choose the live transport for refreshes
+- `--mode web|bird|xurl|auto` — choose the live transport for refreshes
 - `--cache-ttl <seconds>` — tune freshness
 - `--participant <handle-or-id>`
 - `--min-followers <n>` / `--max-followers <n>`
@@ -42,14 +42,37 @@ birdclaw dms sync --mode auto --limit 50 --refresh --json
 Flags:
 
 - `--account <account-id>`
-- `--mode bird|xurl|auto`
+- `--mode web|bird|xurl|auto`
 - `--limit <n>`
 - `--refresh` — force a live fetch
 - `--cache-ttl <seconds>`
 
 Sync is idempotent — re-running merges new events without disturbing already-imported message bodies.
 
-`--mode bird` remains the default because it can read accepted DMs and message requests with accept/reject state. `--mode xurl` imports recent OAuth2 `/2/dm_events` as accepted conversations only; use `--mode auto` to try xurl for accepted DMs and fall back to bird. Message-request inbox syncs always require `bird`.
+`--mode auto` is the default. It uses native `web` for request inboxes when session cookies are configured, and for the default account's full inbox so request state is retained. Other reads try xurl, with native-cookie and legacy bird fallback when available. `--mode xurl` imports recent OAuth2 `/2/dm_events` as accepted conversations; that API does not expose accept/reject state. Explicit non-default account reads prefer account-scoped xurl; `--mode web` requires cookies matching the selected account.
+
+## Message requests without bird
+
+Set `AUTH_TOKEN` and `CT0` in a protected environment, then use the native web transport:
+
+```bash
+birdclaw dms sync --mode web --inbox requests --limit 20 --max-pages 3 --refresh --json
+birdclaw dms accept <conversation-id> --json
+birdclaw dms reject <conversation-id> --json
+birdclaw dms block <conversation-id> --json
+```
+
+Actions default to native `web`; pass `--mode bird` for an existing legacy installation.
+Auto read failures can fall back to xurl for accepted/all inboxes or independently
+verified bird for request inboxes. Select `--mode web` to require native behavior;
+request actions never switch transports or replay a failed mutation.
+Blocking requires a single other participant in a one-to-one conversation. Account
+verification runs before remote operations, and local request state changes only
+after success. All DM transport caches are invalidated after an action so an older
+cached request cannot reappear. Native requests never launch a browser or read its
+cookie database. Native pagination uses `--max-pages`, or a maximum of 250 extra
+pages per inbox with `--all-pages`, with a 15-second timeout per HTTP request,
+32 MiB per response, and 128 MiB per operation. See [Sign in](auth.md#run-without-bird).
 
 ## Search
 

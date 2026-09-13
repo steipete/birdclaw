@@ -41,6 +41,48 @@ bird whoami
 
 Existing bird configurations continue to provide cookie-backed fallback for supported reads and writes.
 
+## Run without bird
+
+An authenticated xurl installation is sufficient for archive search, normal feed
+and accepted-DM synchronization, profile lookup, research, posting/replies, and
+moderation. No browser, browser cookies, or bird executable is needed for these
+workflows. Select xurl explicitly to avoid optional transport fallback:
+
+```text
+birdclaw auth use xurl
+birdclaw sync timeline --mode xurl --refresh --json
+birdclaw sync mentions --mode xurl --refresh --json
+birdclaw sync mention-threads --mode xurl --json
+birdclaw dms sync --mode xurl --refresh --json
+```
+
+Home and DM sync default to `auto`; mention-thread sync defaults to `xurl`.
+Moderation verifies the `blocking` or `muting` boolean returned by X itself.
+Malformed, missing, or contradictory confirmation is a failure, even when xurl
+exits successfully; the mutation is never replayed just to obtain confirmation.
+
+X's official DM API does not expose the message-request inbox or its accept/reject
+state. Birdclaw's native `web` transport supplies these operations using your own
+X session cookies, without a bird executable, browser process, or browser-cookie
+database access. Configure `AUTH_TOKEN` and `CT0` through a secret manager or a
+protected service environment; never pass cookie values as command arguments.
+
+```text
+birdclaw dms sync --mode web --inbox requests --limit 20 --refresh --json
+birdclaw dms accept <conversation-id> --json
+birdclaw dms reject <conversation-id> --json
+birdclaw dms block <conversation-id> --json
+```
+
+Request actions default to `web`; `--mode bird` retains explicit legacy support.
+The native transport verifies the authenticated account before reading or changing
+DMs, rejects redirects, limits response sizes and pagination, and never retries a
+mutation automatically. It discovers the current public X web-client bearer and
+viewer query from X-owned assets; no bearer is embedded in the package. These are
+undocumented web endpoints, so X changes or expired cookies can require attention.
+The read-only deployment flag blocks this transport, and the live-write disable
+flag blocks request actions.
+
 ## Verify xurl in birdclaw
 
 ```text
@@ -91,7 +133,7 @@ Supported modes differ by command; use `birdclaw sync <command> --help`.
 ## Security
 
 - xurl stores developer-app credentials and OAuth tokens under `~/.xurl`.
-- bird uses browser session cookies. Treat `auth_token` and `ct0` as full account credentials.
+- Native `web` and bird use browser session cookies. Treat `AUTH_TOKEN` (`auth_token`) and `CT0` (`ct0`) as full account credentials.
 - Use archive-only mode when live access is unnecessary.
 - Set `BIRDCLAW_DISABLE_LIVE_WRITES=1` for development or dry runs.
 

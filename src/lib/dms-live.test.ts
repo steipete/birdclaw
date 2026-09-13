@@ -12,6 +12,12 @@ const listDirectMessagesViaBirdMock = vi.fn();
 const getAuthenticatedBirdAccountMock = vi.fn();
 const listDirectMessageEventsViaXurlMock = vi.fn();
 const lookupAuthenticatedUserMock = vi.fn();
+const readWebDirectMessagesMock = vi.fn();
+
+vi.mock("./x-web-dms", () => ({
+	readWebDirectMessages: (...args: unknown[]) =>
+		readWebDirectMessagesMock(...args),
+}));
 
 vi.mock("./bird", async () => {
 	const { effectFromMock } = await import("../test/effect-mocks");
@@ -60,6 +66,9 @@ function mockRepeatedXurlDmPages() {
 
 describe("cached live DMs", () => {
 	beforeEach(() => {
+		vi.stubEnv("AUTH_TOKEN", "");
+		vi.stubEnv("CT0", "");
+		readWebDirectMessagesMock.mockReset();
 		listDirectMessagesViaBirdMock.mockReset();
 		getAuthenticatedBirdAccountMock.mockReset();
 		listDirectMessageEventsViaXurlMock.mockReset();
@@ -75,6 +84,7 @@ describe("cached live DMs", () => {
 	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
@@ -82,6 +92,77 @@ describe("cached live DMs", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("falls back from failed native requests to independently verified Bird in auto mode", async () => {
+		makeTempHome();
+		vi.stubEnv("AUTH_TOKEN", "synthetic-cookie");
+		vi.stubEnv("CT0", "synthetic-csrf");
+		readWebDirectMessagesMock.mockRejectedValue(
+			new Error("expired native session"),
+		);
+		listDirectMessagesViaBirdMock.mockResolvedValue({
+			success: true,
+			conversations: [],
+			events: [],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+		await expect(
+			syncDirectMessagesViaCachedBird({
+				inbox: "requests",
+				mode: "auto",
+				refresh: true,
+			}),
+		).resolves.toMatchObject({ source: "bird", messages: 0 });
+		expect(getAuthenticatedBirdAccountMock).toHaveBeenCalledTimes(1);
+		expect(readWebDirectMessagesMock).toHaveBeenCalledTimes(1);
+		expect(listDirectMessageEventsViaXurlMock).not.toHaveBeenCalled();
+	});
+
+	it("falls back to xurl after a preferred native full-inbox read fails", async () => {
+		makeTempHome();
+		vi.stubEnv("AUTH_TOKEN", "synthetic-cookie");
+		vi.stubEnv("CT0", "synthetic-csrf");
+		readWebDirectMessagesMock.mockRejectedValue(
+			new Error("native metadata unavailable"),
+		);
+		listDirectMessageEventsViaXurlMock.mockResolvedValue({
+			data: [],
+			meta: { result_count: 0 },
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+		await expect(
+			syncDirectMessagesViaCachedBird({ mode: "auto", refresh: true }),
+		).resolves.toMatchObject({ source: "xurl", messages: 0 });
+		expect(readWebDirectMessagesMock).toHaveBeenCalledTimes(1);
+		expect(getAuthenticatedBirdAccountMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps explicit native failures and rejects wrong-account Bird fallbacks", async () => {
+		makeTempHome();
+		vi.stubEnv("AUTH_TOKEN", "synthetic-cookie");
+		vi.stubEnv("CT0", "synthetic-csrf");
+		readWebDirectMessagesMock.mockRejectedValue(
+			new Error("native unavailable"),
+		);
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+		await expect(
+			syncDirectMessagesViaCachedBird({ mode: "web", refresh: true }),
+		).rejects.toThrow("native unavailable");
+		expect(getAuthenticatedBirdAccountMock).not.toHaveBeenCalled();
+		expect(lookupAuthenticatedUserMock).not.toHaveBeenCalled();
+		getAuthenticatedBirdAccountMock.mockResolvedValue({
+			id: "999",
+			username: "other",
+		});
+		await expect(
+			syncDirectMessagesViaCachedBird({
+				mode: "auto",
+				inbox: "requests",
+				refresh: true,
+			}),
+		).rejects.toThrow("refusing to sync");
+		expect(listDirectMessagesViaBirdMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps cached DM sync effects lazy", async () => {
@@ -206,7 +287,7 @@ describe("cached live DMs", () => {
 		]);
 	});
 
-	it("fetches recent xurl DM events into the local store", async () => {
+	it("defaults to xurl DM events without requiring bird", async () => {
 		makeTempHome();
 		listDirectMessageEventsViaXurlMock.mockResolvedValueOnce({
 			data: [
@@ -232,7 +313,6 @@ describe("cached live DMs", () => {
 
 		const summary = await syncDirectMessagesViaCachedBird({
 			account: "acct_primary",
-			mode: "xurl",
 			limit: 5,
 			refresh: true,
 		});
@@ -270,6 +350,8 @@ describe("cached live DMs", () => {
 				sender: expect.objectContaining({ handle: "sam" }),
 			}),
 		]);
+		expect(listDirectMessagesViaBirdMock).not.toHaveBeenCalled();
+		expect(getAuthenticatedBirdAccountMock).not.toHaveBeenCalled();
 	});
 
 	it("paginates xurl DM events when requested", async () => {

@@ -144,6 +144,7 @@ describe("live home timeline sync", () => {
 		const { syncHomeTimeline } = await import("./timeline-live");
 
 		await syncHomeTimeline({
+			mode: "bird",
 			account: "acct_studio",
 			limit: 5,
 			refresh: true,

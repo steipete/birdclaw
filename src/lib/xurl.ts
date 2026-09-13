@@ -655,7 +655,7 @@ const runOAuth2JsonCommandEffect = Effect.fn("xurl.runOAuth2JsonCommand")(
 );
 
 const runMutationCommandEffect = Effect.fn("xurl.runMutationCommand")(
-	function* (args: string[]) {
+	function* (args: string[], field: "blocking" | "muting", expected: boolean) {
 		if (liveWritesDisabled()) {
 			if (e2eFakeLiveWritesEnabled()) {
 				return { ok: true, output: "e2e fake live write" };
@@ -671,10 +671,30 @@ const runMutationCommandEffect = Effect.fn("xurl.runMutationCommand")(
 			command: "xurl",
 			args: commandArgs,
 		}).pipe(
-			Effect.map(({ stdout, stderr }) => ({
-				ok: true,
-				output: stdout || stderr || "ok",
-			})),
+			Effect.map(({ stdout, stderr }) => {
+				const output = stdout || stderr || "empty response";
+				let confirmed: unknown;
+				try {
+					const payload = JSON.parse(stripAnsi(stdout));
+					const errors = payload?.errors;
+					if (errors != null && (!Array.isArray(errors) || errors.length > 0)) {
+						return { ok: false, output };
+					}
+					confirmed = payload?.data?.[field];
+				} catch {
+					// A successful subprocess exit alone does not prove an X mutation.
+				}
+				if (confirmed !== expected) {
+					return {
+						ok: false,
+						output: `${output}\nxurl response did not confirm ${field}=${String(expected)}`,
+					};
+				}
+				return {
+					ok: true,
+					output: `${output}\nverified ${field}=${String(expected)}`,
+				};
+			}),
 			Effect.catchAll((error) =>
 				Effect.succeed({
 					ok: false,
@@ -1256,46 +1276,54 @@ export function blockUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommandEffect([
-		"-X",
-		"POST",
-		`/2/users/${sourceUserId}/blocking`,
-		"-d",
-		JSON.stringify({ target_user_id: targetUserId }),
-	]);
+	return runMutationCommandEffect(
+		[
+			"-X",
+			"POST",
+			`/2/users/${sourceUserId}/blocking`,
+			"-d",
+			JSON.stringify({ target_user_id: targetUserId }),
+		],
+		"blocking",
+		true,
+	);
 }
 
 export function unblockUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommandEffect([
-		"-X",
-		"DELETE",
-		`/2/users/${sourceUserId}/blocking/${targetUserId}`,
-	]);
+	return runMutationCommandEffect(
+		["-X", "DELETE", `/2/users/${sourceUserId}/blocking/${targetUserId}`],
+		"blocking",
+		false,
+	);
 }
 
 export function muteUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommandEffect([
-		"-X",
-		"POST",
-		`/2/users/${sourceUserId}/muting`,
-		"-d",
-		JSON.stringify({ target_user_id: targetUserId }),
-	]);
+	return runMutationCommandEffect(
+		[
+			"-X",
+			"POST",
+			`/2/users/${sourceUserId}/muting`,
+			"-d",
+			JSON.stringify({ target_user_id: targetUserId }),
+		],
+		"muting",
+		true,
+	);
 }
 
 export function unmuteUserViaXurlEffect(
 	sourceUserId: string,
 	targetUserId: string,
 ) {
-	return runMutationCommandEffect([
-		"-X",
-		"DELETE",
-		`/2/users/${sourceUserId}/muting/${targetUserId}`,
-	]);
+	return runMutationCommandEffect(
+		["-X", "DELETE", `/2/users/${sourceUserId}/muting/${targetUserId}`],
+		"muting",
+		false,
+	);
 }

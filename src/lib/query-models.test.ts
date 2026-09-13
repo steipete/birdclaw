@@ -341,6 +341,10 @@ describe("query models", () => {
 		db.prepare(
 			"insert into sync_cache (cache_key, value_json, updated_at) values ('dms:bird:acct_primary:20:requests:max-pages:0', '{}', '2026-05-01T00:00:00.000Z')",
 		).run();
+		for (const mode of ["web", "auto", "xurl"])
+			db.prepare(
+				"insert into sync_cache(cache_key,value_json,updated_at) values(?, '{}', '2026-05-01T00:00:00Z')",
+			).run(`dms:${mode}:acct_primary:20:requests:max-pages:0`);
 
 		await expect(
 			applyDmRequestMutationToLocalStore("dm_003", "reject"),
@@ -349,7 +353,7 @@ describe("query models", () => {
 		expect(
 			db
 				.prepare(
-					"select count(*) as count from sync_cache where cache_key like 'dms:bird:%'",
+					"select count(*) as count from sync_cache where cache_key like 'dms:%'",
 				)
 				.get(),
 		).toEqual({ count: 0 });

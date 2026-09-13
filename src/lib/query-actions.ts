@@ -405,9 +405,7 @@ export async function applyDmRequestMutationToLocalStore(
 ) {
 	return runEffectPromise(
 		databaseWriteEffect((db) => {
-			db.prepare(
-				"delete from sync_cache where cache_key like 'dms:bird:%'",
-			).run();
+			db.prepare("delete from sync_cache where cache_key like 'dms:%'").run();
 			if (action === "accept") {
 				return db
 					.prepare(

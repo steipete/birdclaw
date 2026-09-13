@@ -7,6 +7,7 @@ import { syncProfileBioEntitiesForProfileId } from "./profile-bio-entities";
 import { recordProfileSnapshot } from "./profile-history";
 import { normalizeProfileHandle } from "./profile-row";
 import { upsertProfileFromXUser } from "./x-profile";
+import { lookupUsersByHandlesEffect } from "./xurl";
 
 export interface ProfileAffiliationHydrationResult {
 	checked: number;
@@ -113,6 +114,7 @@ function findLocalOrganizationProfileId(db: Database, handle: string) {
 export function hydrateProfileAffiliationOrganizationsEffect(
 	db: Database,
 	subjectProfileId: string,
+	{ xurlFallback = true }: { xurlFallback?: boolean } = {},
 ): Effect.Effect<ProfileAffiliationHydrationResult, unknown> {
 	return Effect.gen(function* () {
 		const rows = yield* trySync(
@@ -160,7 +162,16 @@ export function hydrateProfileAffiliationOrganizationsEffect(
 					return true;
 				}
 
-				const user = yield* lookupProfileViaBirdEffect(handle);
+				const birdUser = yield* lookupProfileViaBirdEffect(handle).pipe(
+					Effect.catchAll((error) =>
+						xurlFallback ? Effect.succeed(null) : Effect.fail(error),
+					),
+				);
+				const user =
+					birdUser ??
+					(xurlFallback
+						? (yield* lookupUsersByHandlesEffect([handle]))[0]
+						: null);
 				if (!user) {
 					result.skipped += 1;
 					return true;
@@ -206,8 +217,9 @@ export function hydrateProfileAffiliationOrganizationsEffect(
 export function hydrateProfileAffiliationOrganizations(
 	db: Database,
 	subjectProfileId: string,
+	options: { xurlFallback?: boolean } = {},
 ): Promise<ProfileAffiliationHydrationResult> {
 	return runEffectPromise(
-		hydrateProfileAffiliationOrganizationsEffect(db, subjectProfileId),
+		hydrateProfileAffiliationOrganizationsEffect(db, subjectProfileId, options),
 	);
 }

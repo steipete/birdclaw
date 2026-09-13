@@ -7,7 +7,10 @@ import { getConversationThread } from "#/lib/dm-read-model";
 import { syncDirectMessagesViaCachedBird } from "#/lib/dms-live";
 import { assertLiveAccountMatches } from "#/lib/live-sync-engine";
 import { applyDmRequestMutationToLocalStore } from "#/lib/query-actions";
+import { mutateWebDirectMessage } from "#/lib/x-web-dms";
+import { getExternalUserId } from "#/lib/x-profile";
 import type { CliCommandContext } from "./command-context";
+import { CliInputError } from "./numeric-options";
 import {
 	enrichDmItems,
 	parseDmInboxOption,
@@ -27,7 +30,7 @@ export function registerDirectMessageCommands({
 	dmsCommand
 		.command("list")
 		.option("--account <username>", "Account username or id")
-		.option("--mode <mode>", "auto, bird, or xurl", "bird")
+		.option("--mode <mode>", "auto, bird, web, or xurl", "auto")
 		.option("--refresh", "Refresh live DMs before listing")
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 		.option("--inbox <kind>", "all, accepted, or requests", "all")
@@ -130,7 +133,7 @@ export function registerDirectMessageCommands({
 		.command("sync")
 		.description("Refresh live direct messages into the local store")
 		.option("--account <username>", "Account username or id")
-		.option("--mode <mode>", "auto, bird, or xurl", "bird")
+		.option("--mode <mode>", "auto, bird, web, or xurl", "auto")
 		.option("--limit <n>", "Limit messages", "20")
 		.option("--inbox <kind>", "all, accepted, or requests", "all")
 		.option("--max-pages <n>", "Additional accepted/request pages to sync", "0")
@@ -168,14 +171,19 @@ export function registerDirectMessageCommands({
 	for (const action of ["accept", "reject", "block"] as const) {
 		const command = dmsCommand
 			.command(`${action} <conversationId>`)
-			.description(`${action} a live DM message request through bird`)
-			.option("--account <username>", "Account username or id");
+			.description(`${action} a live DM message request`)
+			.option("--account <username>", "Account username or id")
+			.option("--mode <mode>", "web (native session cookies) or bird", "web");
 		if (action === "block") {
 			command
 				.option("--max-pages <n>", "Additional timeline pages to search", "3")
 				.option("--all-pages", "Search all accepted/request timeline pages");
 		}
 		command.action(async (conversationId, options) => {
+			if (options.mode !== "web" && options.mode !== "bird")
+				throw new CliInputError(
+					"DM request actions support --mode web or bird; xurl has no request-state API",
+				);
 			const conversation = getConversationThread(conversationId);
 			if (!conversation) throw new Error("Conversation not found");
 			const selected = resolveOperationAccount(
@@ -186,7 +194,10 @@ export function registerDirectMessageCommands({
 					`Conversation belongs to ${conversation.conversation.accountId}, not ${selected.id}`,
 				);
 			}
-			if (process.env.BIRDCLAW_DISABLE_LIVE_WRITES !== "1") {
+			if (
+				options.mode === "bird" &&
+				process.env.BIRDCLAW_DISABLE_LIVE_WRITES !== "1"
+			) {
 				const authenticated = await getAuthenticatedBirdAccount();
 				assertLiveAccountMatches({
 					source: "bird",
@@ -205,12 +216,33 @@ export function registerDirectMessageCommands({
 					? parseNonNegativeIntegerOption(options.maxPages, "--max-pages")
 					: undefined;
 
-			const result = await runDirectMessageRequestMutationViaBird({
-				action,
-				conversationId,
-				...(action === "block" && maxPages !== undefined ? { maxPages } : {}),
-				...(action === "block" && options.allPages ? { allPages: true } : {}),
-			});
+			const result =
+				options.mode === "web"
+					? await mutateWebDirectMessage({
+							account: {
+								accountId: selected.id,
+								username: selected.username,
+								externalUserId: selected.externalUserId ?? undefined,
+							},
+							action,
+							conversationId,
+							targetUserId:
+								action === "block"
+									? (getExternalUserId(
+											conversation.conversation.participant.id,
+										) ?? undefined)
+									: undefined,
+						})
+					: await runDirectMessageRequestMutationViaBird({
+							action,
+							conversationId,
+							...(action === "block" && maxPages !== undefined
+								? { maxPages }
+								: {}),
+							...(action === "block" && options.allPages
+								? { allPages: true }
+								: {}),
+						});
 			if (result.success) {
 				await applyDmRequestMutationToLocalStore(conversationId, action);
 			} else {

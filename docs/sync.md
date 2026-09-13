@@ -91,7 +91,7 @@ Bookmarks are queried via `birdclaw search tweets --bookmarked` and drive the [r
 
 ## sync timeline
 
-Pull the chronological Following timeline through `bird`:
+Pull the chronological Following timeline through `auto` (bird when available, with xurl fallback), or select `--mode xurl` explicitly:
 
 ```bash
 birdclaw sync timeline --limit 100 --refresh --json
@@ -175,7 +175,7 @@ birdclaw sync mention-threads --mode xurl --limit 30 --json
 
 Flags:
 
-- `--mode bird|xurl` — transport; defaults to `bird`
+- `--mode bird|xurl` — transport; defaults to `xurl`
 - `--delay-ms <ms>` — delay between thread fetches; raise this when X starts rate-limiting (bird mode)
 - `--timeout-ms <ms>` — per-thread network timeout
 - `--all`, `--max-pages <n>` — paged thread retrieval
@@ -212,11 +212,12 @@ birdclaw sync all --transport auto
 
 ## DMs sync
 
-DMs sit on a separate command. `bird` is still the default and required for message-request state; `xurl` can import recent OAuth2 DM events for accepted conversations:
+DMs sit on a separate command. The default `auto` mode supports account-scoped xurl reads and native cookie-backed `web` access. Native web access preserves message-request state without bird; xurl can import recent OAuth2 DM events for accepted conversations:
 
 ```bash
 birdclaw dms sync --limit 50 --refresh --json
 birdclaw dms sync --mode auto --limit 50 --refresh --json
+birdclaw dms sync --mode web --inbox requests --limit 50 --refresh --json
 birdclaw dms list --refresh --limit 10 --json
 ```
 
