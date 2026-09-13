@@ -516,6 +516,10 @@ birdclaw/
 
 SQLite connection ownership lives in `src/lib/db.ts`; ordered schema definitions live in `src/lib/database-schema.ts`, and `src/lib/database-migrations.ts` applies them transactionally. `src/lib/backup-filesystem.ts` owns backup path safety and durable filesystem operations; `src/lib/backup.ts` coordinates export, import, recovery, and Git synchronization.
 
+Portable backup tables declare their columns and merge policies once in `backup-table-codecs.ts`; export projections, insert bindings, and conflict assignments are derived from that declaration. Complex retention and revision rules stay explicit SQL expressions. API-facing domain types are inferred from the existing Zod output schemas in `api-contracts.ts`, with type-only imports keeping validation and server workflows out of consumers that need only types.
+
+`analysis-report.ts` owns report metadata, cache serialization, and event replay; individual analyses retain their input collection, prompts, and result schemas. CLI input parsers throw to the existing command error boundary instead of printing an error and returning a failure sentinel.
+
 Transport adapters shell out to `bird` and `xurl`; they do not own those tools' credentials or configuration. CLI and HTTP handlers share the canonical repositories and query models in `src/lib/`. The browser API boundary remains independent of the server's Effect workflows.
 
 ## Testing Plan

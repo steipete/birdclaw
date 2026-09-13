@@ -1,22 +1,5 @@
 import { z } from "zod";
 import type {
-	AccountRecord,
-	ArchiveCandidate,
-	DmConversationItem,
-	DmMessageItem,
-	DmSearchMatchItem,
-	EmbeddedTweet,
-	LinkInsightItem,
-	NoteTweet,
-	ProfileAffiliation,
-	ProfileRecord,
-	TimelineItem,
-	TransportStatus,
-	TweetEntities,
-	TweetMediaItem,
-	UrlExpansionItem,
-} from "./types";
-import type {
 	WebSyncJobSnapshot,
 	WebSyncResponse,
 	WebSyncStep,
@@ -28,7 +11,7 @@ import {
 } from "./api-enums";
 
 const jsonRecordSchema = z.record(z.string(), z.unknown());
-const unknownProfile: ProfileRecord = {
+const unknownProfile = {
 	id: "profile_unknown",
 	handle: "unknown",
 	displayName: "Unknown",
@@ -38,20 +21,18 @@ const unknownProfile: ProfileRecord = {
 	createdAt: "",
 };
 
-export const profileAffiliationSchema: z.ZodType<ProfileAffiliation> = z.object(
-	{
-		organizationProfileId: z.string(),
-		organizationName: z.string().optional(),
-		organizationHandle: z.string().optional(),
-		badgeUrl: z.string().nullable().optional(),
-		url: z.string().nullable().optional(),
-		label: z.string().nullable().optional(),
-		source: z.string(),
-		firstSeenAt: z.string(),
-		lastSeenAt: z.string(),
-		isActive: z.boolean(),
-	},
-);
+export const profileAffiliationSchema = z.object({
+	organizationProfileId: z.string(),
+	organizationName: z.string().optional(),
+	organizationHandle: z.string().optional(),
+	badgeUrl: z.string().nullable().optional(),
+	url: z.string().nullable().optional(),
+	label: z.string().nullable().optional(),
+	source: z.string(),
+	firstSeenAt: z.string(),
+	lastSeenAt: z.string(),
+	isActive: z.boolean(),
+});
 
 export const profileRecordSchema = z.object({
 	id: z.string().default("profile_unknown"),
@@ -69,9 +50,9 @@ export const profileRecordSchema = z.object({
 	affiliations: z.array(profileAffiliationSchema).optional(),
 	primaryAffiliation: profileAffiliationSchema.optional(),
 	createdAt: z.string().default(""),
-}) satisfies z.ZodType<ProfileRecord>;
+});
 
-export const tweetEntitiesSchema: z.ZodType<TweetEntities> = z.object({
+export const tweetEntitiesSchema = z.object({
 	mentions: z
 		.array(
 			z.object({
@@ -117,7 +98,7 @@ export const tweetEntitiesSchema: z.ZodType<TweetEntities> = z.object({
 		.optional(),
 });
 
-export const tweetMediaSchema: z.ZodType<TweetMediaItem> = z.object({
+export const tweetMediaSchema = z.object({
 	url: z.string(),
 	type: z.preprocess(
 		(value) =>
@@ -140,12 +121,12 @@ export const tweetMediaSchema: z.ZodType<TweetMediaItem> = z.object({
 		.optional(),
 });
 
-export const noteTweetSchema: z.ZodType<NoteTweet> = z.object({
+export const noteTweetSchema = z.object({
 	text: z.string(),
 	entities: tweetEntitiesSchema,
 });
 
-export const embeddedTweetSchema: z.ZodType<EmbeddedTweet> = z.object({
+export const embeddedTweetSchema = z.object({
 	id: z.string(),
 	text: z.string(),
 	noteTweet: noteTweetSchema.optional(),
@@ -161,7 +142,7 @@ export const embeddedTweetSchema: z.ZodType<EmbeddedTweet> = z.object({
 	media: z.array(tweetMediaSchema).default([]),
 });
 
-export const timelineItemSchema: z.ZodType<TimelineItem> = z.object({
+export const timelineItemSchema = z.object({
 	id: z.string(),
 	accountId: z.string().default("acct_primary"),
 	accountHandle: z.string().default(""),
@@ -187,7 +168,7 @@ export const timelineItemSchema: z.ZodType<TimelineItem> = z.object({
 	qualityReason: z.string().nullable().optional(),
 });
 
-export const dmMessageSchema: z.ZodType<DmMessageItem> = z.object({
+export const dmMessageSchema = z.object({
 	id: z.string(),
 	conversationId: z.string().default(""),
 	text: z.string(),
@@ -198,7 +179,7 @@ export const dmMessageSchema: z.ZodType<DmMessageItem> = z.object({
 	sender: profileRecordSchema.default(unknownProfile),
 });
 
-const urlExpansionSchema: z.ZodType<UrlExpansionItem> = z.object({
+export const urlExpansionSchema = z.object({
 	url: z.string(),
 	expandedUrl: z.string(),
 	finalUrl: z.string(),
@@ -210,14 +191,14 @@ const urlExpansionSchema: z.ZodType<UrlExpansionItem> = z.object({
 	updatedAt: z.string(),
 });
 
-const dmSearchMatchSchema: z.ZodType<DmSearchMatchItem> = z.object({
+export const dmSearchMatchSchema = z.object({
 	message: dmMessageSchema,
 	before: z.array(dmMessageSchema),
 	after: z.array(dmMessageSchema),
 	urlExpansions: z.array(urlExpansionSchema).optional(),
 });
 
-export const dmConversationSchema: z.ZodType<DmConversationItem> = z.object({
+export const dmConversationSchema = z.object({
 	id: z.string(),
 	accountId: z.string(),
 	accountHandle: z.string().default(""),
@@ -235,7 +216,7 @@ export const dmConversationSchema: z.ZodType<DmConversationItem> = z.object({
 	matches: z.array(dmSearchMatchSchema).optional(),
 });
 
-const accountRecordSchema: z.ZodType<AccountRecord> = z.object({
+export const accountRecordSchema = z.object({
 	id: z.string(),
 	name: z.string().default(""),
 	handle: z.string().default(""),
@@ -248,7 +229,7 @@ const accountRecordSchema: z.ZodType<AccountRecord> = z.object({
 	createdAt: z.string().default(""),
 });
 
-const archiveCandidateSchema: z.ZodType<ArchiveCandidate> = z.object({
+export const archiveCandidateSchema = z.object({
 	path: z.string(),
 	name: z.string().default(""),
 	size: z.number().default(0),
@@ -257,7 +238,7 @@ const archiveCandidateSchema: z.ZodType<ArchiveCandidate> = z.object({
 	dateFormatted: z.string().default(""),
 });
 
-const transportStatusSchema: z.ZodType<TransportStatus> = z.object({
+export const transportStatusSchema = z.object({
 	installed: z.boolean().default(false),
 	availableTransport: z.enum(["xurl", "local"]).default("local"),
 	statusText: z.string(),
@@ -348,14 +329,14 @@ export const tweetConversationResponseSchema = z.object({
 	items: z.array(embeddedTweetSchema),
 });
 
-const blockItemSchema = z.object({
+export const blockItemSchema = z.object({
 	accountId: z.string(),
 	accountHandle: z.string(),
 	source: z.string(),
 	blockedAt: z.string(),
 	profile: profileRecordSchema,
 });
-const blockSearchItemSchema = z.object({
+export const blockSearchItemSchema = z.object({
 	profile: profileRecordSchema,
 	isBlocked: z.boolean(),
 	blockedAt: z.string().optional(),
@@ -366,7 +347,7 @@ export const blockListResponseSchema = z.object({
 });
 export type BlockListResponse = z.infer<typeof blockListResponseSchema>;
 
-const inboxItemSchema = z.object({
+export const inboxItemSchema = z.object({
 	id: z.string(),
 	entityId: z.string().default(""),
 	entityKind: z.enum(["mention", "dm"]).default("dm"),
@@ -393,7 +374,7 @@ export const inboxResponseSchema = z.object({
 });
 export type InboxResponse = z.infer<typeof inboxResponseSchema>;
 
-const linkInsightMentionSchema = z.object({
+export const linkInsightMentionSchema = z.object({
 	id: z.string(),
 	sourceKind: z.enum(["dm", "tweet"]),
 	sourceId: z.string(),
@@ -418,7 +399,7 @@ const linkInsightMentionSchema = z.object({
 	sharedBy: profileRecordSchema.nullable().optional(),
 	participant: profileRecordSchema.nullable().optional(),
 });
-const linkInsightItemSchema: z.ZodType<LinkInsightItem> = z.object({
+export const linkInsightItemSchema = z.object({
 	id: z.string(),
 	kind: z.enum(["links", "videos"]),
 	url: z.string(),
@@ -453,14 +434,14 @@ export const linkInsightResponseSchema = z.object({
 export type LinkInsightResponse = z.infer<typeof linkInsightResponseSchema>;
 
 const liveDataSourceKindSchema = z.enum(["birdclaw", "bird", "xurl"]);
-const liveDataSourceAccountSchema = z.object({
+export const liveDataSourceAccountSchema = z.object({
 	id: z.string().optional(),
 	username: z.string().optional(),
 	handle: z.string().optional(),
 	app: z.string().optional(),
 	isDefault: z.boolean().optional(),
 });
-const liveDataSourceStatusSchema = z.object({
+export const liveDataSourceStatusSchema = z.object({
 	source: liveDataSourceKindSchema,
 	label: z.string(),
 	works: z.boolean(),
@@ -469,7 +450,7 @@ const liveDataSourceStatusSchema = z.object({
 	detail: z.string(),
 	accounts: z.array(liveDataSourceAccountSchema),
 });
-const liveDataSourceCapabilitySchema = z.object({
+export const liveDataSourceCapabilitySchema = z.object({
 	key: z.string(),
 	label: z.string(),
 	primary: liveDataSourceKindSchema,

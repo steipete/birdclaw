@@ -19,6 +19,20 @@ const PROFILE_COLUMNS = {
 	createdAt: "created_at",
 } as const;
 
+export type ProfileSqlRow<Prefix extends string> = {
+	[
+		Key in keyof typeof PROFILE_COLUMNS as `${Prefix}${(typeof PROFILE_COLUMNS)[Key]}`
+	]: Key extends "followersCount" | "followingCount" | "avatarHue"
+		? number | null
+		: string | null;
+};
+
+export function profileSelect(table: string, prefix: string) {
+	return Object.values(PROFILE_COLUMNS)
+		.map((column) => `${table}.${column} as ${prefix}${column}`)
+		.join(", ");
+}
+
 function valueAt(
 	row: ProfileDbRow,
 	prefix: string,

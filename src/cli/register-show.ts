@@ -39,7 +39,7 @@ export function registerShowCommands({
 		.option("--limit <n>", "Maximum tweets in the conversation", "80")
 		.action(async (id: string, options) => {
 			const limit = parsePositiveLimitOption(options.limit, "--limit");
-			if (limit === undefined) return;
+
 			await autoUpdateBeforeRead();
 			const account = resolveOperationAccount(options.account);
 			const conversation = getTweetConversation(

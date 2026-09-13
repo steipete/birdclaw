@@ -78,15 +78,7 @@ export function registerDirectMessageCommands({
 				options.maxFollowers,
 				"--max-followers",
 			);
-			if (
-				inbox === undefined ||
-				mode === undefined ||
-				maxPages === undefined ||
-				pageDelayMs === undefined ||
-				(options.minFollowers !== undefined && minFollowers === undefined) ||
-				(options.maxFollowers !== undefined && maxFollowers === undefined)
-			)
-				return;
+
 			if (options.refresh) {
 				await syncDirectMessagesViaCachedBird({
 					account: options.account,
@@ -157,13 +149,7 @@ export function registerDirectMessageCommands({
 				options.pageDelayMs,
 				"--page-delay-ms",
 			);
-			if (
-				inbox === undefined ||
-				mode === undefined ||
-				maxPages === undefined ||
-				pageDelayMs === undefined
-			)
-				return;
+
 			const result = await syncDirectMessagesViaCachedBird({
 				account: options.account,
 				mode,
@@ -218,7 +204,7 @@ export function registerDirectMessageCommands({
 				action === "block"
 					? parseNonNegativeIntegerOption(options.maxPages, "--max-pages")
 					: undefined;
-			if (action === "block" && maxPages === undefined) return;
+
 			const result = await runDirectMessageRequestMutationViaBird({
 				action,
 				conversationId,

@@ -118,7 +118,7 @@ export function registerSearchCommands({
 					options.maxPages,
 					"--max-pages",
 				);
-				if (limit === undefined || maxPages === undefined) return;
+
 				try {
 					const result = await importSearchViaFxTwitter(query, {
 						limit,
@@ -147,9 +147,9 @@ export function registerSearchCommands({
 				options.minLikes,
 				"--min-likes",
 			);
-			if (options.minLikes !== undefined && minLikes === undefined) return;
+
 			const limit = parseLimitOption(options.limit, "--limit");
-			if (limit === undefined) return;
+
 			await autoUpdateBeforeRead();
 			const selectedList =
 				options.list || options.listId
@@ -226,24 +226,22 @@ export function registerSearchCommands({
 				options.minFollowers,
 				"--min-followers",
 			);
-			if (options.minFollowers !== undefined && minFollowers === undefined)
-				return;
+
 			const maxFollowers = parseFiniteNumberOption(
 				options.maxFollowers,
 				"--max-followers",
 			);
-			if (options.maxFollowers !== undefined && maxFollowers === undefined)
-				return;
+
 			const limit = parseLimitOption(options.limit, "--limit");
-			if (limit === undefined) return;
+
 			await autoUpdateBeforeRead();
 			const context = parseNonNegativeIntegerOption(
 				options.context,
 				"--context",
 			);
-			if (context === undefined) return;
+
 			const inbox = parseDmInboxOption(options.inbox);
-			if (inbox === undefined) return;
+
 			const replyFilter = options.replied
 				? "replied"
 				: options.unreplied
@@ -337,17 +335,17 @@ export function registerSearchCommands({
 		.option("--timeout-ms <n>", "Per-redirect fetch timeout", "15000")
 		.action(async (options) => {
 			const limit = parseNonNegativeIntegerOption(options.limit, "--limit");
-			if (options.limit !== undefined && limit === undefined) return;
+
 			const concurrency = parseNonNegativeIntegerOption(
 				options.concurrency,
 				"--concurrency",
 			);
-			if (concurrency === undefined) return;
+
 			const timeoutMs = parseNonNegativeIntegerOption(
 				options.timeoutMs,
 				"--timeout-ms",
 			);
-			if (timeoutMs === undefined) return;
+
 			const result = await backfillLinkIndex({
 				includeAllUrls: Boolean(options.allUrls),
 				refresh: Boolean(options.refreshUrlCache),
@@ -391,7 +389,7 @@ export function registerSearchCommands({
 		.option("--json", "Emit JSON output")
 		.action(async (options) => {
 			const limit = parseNonNegativeIntegerOption(options.limit, "--limit");
-			if (options.limit !== undefined && limit === undefined) return;
+
 			const parallel =
 				parsePositiveIntegerOption(options.parallel, "--parallel") ?? 1;
 			const pacingMs =
@@ -456,13 +454,13 @@ export function registerSearchCommands({
 		.option("--limit <n>", "Limit candidates", "10")
 		.action(async (query, options) => {
 			const limit = parseLimitOption(options.limit, "--limit");
-			if (limit === undefined) return;
+
 			await autoUpdateBeforeRead();
 			const context = parseNonNegativeIntegerOption(
 				options.context,
 				"--context",
 			);
-			if (context === undefined) return;
+
 			const result = await runWhois(query, {
 				account: options.account,
 				dms: options.dms,

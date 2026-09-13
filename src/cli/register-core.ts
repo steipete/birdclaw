@@ -307,7 +307,7 @@ export function registerCoreCommands({
 				) => {
 					if (!requireFxTwitterOptIn(options.fxtwitter)) return;
 					const limit = parsePositiveIntegerOption(options.limit, "--limit");
-					if (limit === undefined) return;
+
 					const result = await runFxTwitterCommand(() =>
 						endpointFamily === "thread"
 							? importThreadViaFxTwitter(tweet, { limit })

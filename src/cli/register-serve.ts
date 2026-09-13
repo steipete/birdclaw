@@ -27,7 +27,7 @@ export function registerServeCommand(
 				return;
 			}
 			const port = parseNonNegativeIntegerOption(options.port, "--port");
-			if (port === undefined) return;
+
 			if (port > 65535) {
 				printError("--port must be between 0 and 65535");
 				process.exitCode = 2;

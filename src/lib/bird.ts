@@ -5,7 +5,7 @@ import { join, win32 as win32Path } from "node:path";
 import { promisify } from "node:util";
 import { Effect } from "effect";
 import { getBirdCommand } from "./config";
-import { runEffectPromise } from "./effect-runtime";
+import { runEffectPromise, tryPromise, trySync } from "./effect-runtime";
 import type {
 	XurlMentionData,
 	XurlFollowUsersResponse,
@@ -359,69 +359,19 @@ function getBirdStdoutShellEnv(
 	return { ...env, MSYS2_ARG_CONV_EXCL: "*" };
 }
 
-export const runBirdJsonCommandEffect = Effect.fn("bird.runJsonCommand")(
-	(args: string[], timeoutMs?: number) =>
-		Effect.scoped(
-			Effect.gen(function* () {
-				const birdCommand = yield* Effect.try({
-					try: () => getBirdCommand(),
-					catch: (error) =>
-						error instanceof Error ? error : new Error(String(error)),
-				});
-				const { stdoutPath } = yield* makeBirdStdoutTempEffect();
-				const shellCommand = yield* Effect.try({
-					try: () => getBirdStdoutShellCommand(),
-					catch: (error) =>
-						error instanceof Error ? error : new Error(String(error)),
-				});
-				yield* Effect.tryPromise({
-					try: () =>
-						execFileAsync(
-							shellCommand,
-							[
-								"-c",
-								BIRD_STDOUT_REDIRECT_SCRIPT,
-								"birdclaw-bird",
-								stdoutPath,
-								birdCommand,
-								...args,
-							],
-							{
-								env: getBirdStdoutShellEnv(),
-								maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES,
-								timeout: timeoutMs,
-							},
-						),
-					catch: (error) =>
-						formatBirdCommandError(error, birdCommand, shellCommand),
-				});
-				return yield* Effect.try({
-					try: () => readFileSync(stdoutPath, "utf8"),
-					catch: (error) => error,
-				});
-			}),
-		),
-);
-
-const runBirdJsonCommandAllowFailureEffect = Effect.fn(
-	"bird.runJsonCommandAllowFailure",
-)((args: string[], timeoutMs?: number) =>
-	Effect.scoped(
+function readBirdStdoutEffect(
+	args: string[],
+	timeoutMs?: number,
+	acceptFailedOutput = false,
+) {
+	return Effect.scoped(
 		Effect.gen(function* () {
-			const birdCommand = yield* Effect.try({
-				try: () => getBirdCommand(),
-				catch: (error) =>
-					error instanceof Error ? error : new Error(String(error)),
-			});
+			const birdCommand = yield* trySync(() => getBirdCommand());
 			const { stdoutPath } = yield* makeBirdStdoutTempEffect();
-			const shellCommand = yield* Effect.try({
-				try: () => getBirdStdoutShellCommand(),
-				catch: (error) =>
-					error instanceof Error ? error : new Error(String(error)),
-			});
-			yield* Effect.tryPromise({
-				try: () =>
-					execFileAsync(
+			const shellCommand = yield* trySync(() => getBirdStdoutShellCommand());
+			yield* tryPromise(async () => {
+				try {
+					await execFileAsync(
 						shellCommand,
 						[
 							"-c",
@@ -436,23 +386,29 @@ const runBirdJsonCommandAllowFailureEffect = Effect.fn(
 							maxBuffer: BIRD_JSON_MAX_BUFFER_BYTES,
 							timeout: timeoutMs,
 						},
-					).catch((error: unknown) => {
-						const stdout = existsSync(stdoutPath)
-							? readFileSync(stdoutPath, "utf8")
-							: "";
-						if (stdout.trim().length > 0) {
-							return { stdout: "", stderr: "" };
-						}
-						throw formatBirdCommandError(error, birdCommand, shellCommand);
-					}),
-				catch: (error) => error,
+					);
+				} catch (error) {
+					if (
+						acceptFailedOutput &&
+						existsSync(stdoutPath) &&
+						readFileSync(stdoutPath, "utf8").trim()
+					)
+						return;
+					throw formatBirdCommandError(error, birdCommand, shellCommand);
+				}
 			});
-			return yield* Effect.try({
-				try: () => readFileSync(stdoutPath, "utf8"),
-				catch: (error) => error,
-			});
+			return yield* trySync(() => readFileSync(stdoutPath, "utf8"));
 		}),
-	),
+	);
+}
+
+export const runBirdJsonCommandEffect = Effect.fn("bird.runJsonCommand")(
+	(args: string[], timeoutMs?: number) => readBirdStdoutEffect(args, timeoutMs),
+);
+const runBirdJsonCommandAllowFailureEffect = Effect.fn(
+	"bird.runJsonCommandAllowFailure",
+)((args: string[], timeoutMs?: number) =>
+	readBirdStdoutEffect(args, timeoutMs, true),
 );
 
 function runBirdTweetJsonCommandEffect(args: string[], timeoutMs?: number) {

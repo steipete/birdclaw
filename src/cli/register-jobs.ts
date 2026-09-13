@@ -102,7 +102,7 @@ export function registerJobCommands({
 				options.intervalSeconds,
 				"--interval-seconds",
 			);
-			if (intervalSeconds === undefined) return;
+
 			const result = await installAccountSyncLaunchAgent({
 				label: options.label,
 				intervalSeconds,
@@ -189,7 +189,7 @@ export function registerJobCommands({
 				options.intervalSeconds,
 				"--interval-seconds",
 			);
-			if (intervalSeconds === undefined) return;
+
 			const result = await installBookmarkSyncLaunchAgent({
 				account: options.account,
 				label: options.label,

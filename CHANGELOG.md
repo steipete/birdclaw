@@ -2,6 +2,8 @@
 
 ## 0.12.7 - Unreleased
 
+- Consolidate backup merge declarations, API data types, transport page handling, and analysis cache/event plumbing; route invalid CLI inputs through one error boundary while retaining command output and archive compatibility.
+
 - Preserve full X Note Tweets through live ingestion, search, archive/backup merges, and expandable timeline rendering. Keep schema-8 backup interoperability; older writers retain full text but omit the optional Note Tweet marker. Thanks @eferm (#134).
 - Compatibility: Note Tweet storage adds SQLite migration 11. Prepare existing read-only archive snapshots with writable initialization before serving the updated application.
 - Reconcile each tweet author once per ingested payload, avoiding repeated profile and history work for posts and included references by the same author.

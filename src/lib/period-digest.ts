@@ -1,3 +1,12 @@
+import {
+	type AnalysisReport,
+	type AnalysisHandlers,
+	type AnalysisEvent,
+	type AnalysisStatus,
+	saveAnalysisReport,
+	emitAnalysisDelta,
+	emitCachedAnalysis,
+} from "./analysis-report";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -6,7 +15,6 @@ import {
 	fitPromptCount,
 	type HybridAnalysisResult,
 	parseHybridAnalysis,
-	readHybridAnalysisStreamEffect,
 	resolveAnalysisModelSettings,
 	streamHybridAnalysisEffect,
 } from "./analysis-runtime";
@@ -17,10 +25,6 @@ import { syncMentionThreadsEffect } from "./mention-threads-live";
 import { syncMentionsEffect } from "./mentions-live";
 import { listDmConversations } from "./dm-read-model";
 import { getTweetsByIds, listTimelineItems } from "./timeline-read-model";
-import {
-	type OpenAIStreamState,
-	processOpenAIResponseSseChunk,
-} from "./openai-response-runtime";
 import { readSyncCache, writeSyncCache } from "./sync-cache";
 import { syncHomeTimelineEffect, type HomeTimelineMode } from "./timeline-live";
 import { defaultDigestLiveSyncMode } from "./digest-live-mode";
@@ -69,28 +73,18 @@ export interface PeriodDigestWindow {
 	until: string;
 }
 
-export interface PeriodDigestRunResult {
-	context: PeriodDigestContext;
-	digest: PeriodDigest;
-	markdown: string;
-	model: string;
-	reasoningEffort: string;
-	serviceTier: string;
-	cached: boolean;
-	updatedAt: string;
-}
+export type PeriodDigestRunResult = AnalysisReport<
+	PeriodDigestContext,
+	PeriodDigest,
+	"digest"
+>;
 
-export interface PeriodDigestStreamHandlers {
-	onDelta?: (delta: string) => void;
-	onEvent?: (event: PeriodDigestStreamEvent) => void;
-}
+export type PeriodDigestStreamHandlers =
+	AnalysisHandlers<PeriodDigestStreamEvent>;
 
 export type PeriodDigestStreamEvent =
-	| { type: "status"; label: string; detail?: string }
-	| { type: "start"; context: PeriodDigestContext; cached: boolean }
-	| { type: "delta"; delta: string }
-	| { type: "done"; result: PeriodDigestRunResult }
-	| { type: "error"; error: string };
+	| AnalysisEvent<PeriodDigestRunResult>
+	| AnalysisStatus;
 
 const PeriodDigestSchema = z.object({
 	title: z.string().min(1),
@@ -969,16 +963,6 @@ function isFreshDigestCache(updatedAt: string) {
 	);
 }
 
-function emitCachedDigest(
-	result: PeriodDigestRunResult,
-	handlers: PeriodDigestStreamHandlers,
-) {
-	handlers.onEvent?.({ type: "start", context: result.context, cached: true });
-	handlers.onDelta?.(result.markdown);
-	handlers.onEvent?.({ type: "delta", delta: result.markdown });
-	handlers.onEvent?.({ type: "done", result });
-}
-
 function buildPrompt(
 	context: PeriodDigestContext,
 	options?: { language?: string },
@@ -1116,20 +1100,6 @@ function parseDigestFromHybridText(
 	return { markdown: parsed.markdown, digest: parsed.value };
 }
 
-function processSseChunk(
-	state: OpenAIStreamState,
-	chunk: string,
-	handlers: PeriodDigestStreamHandlers,
-) {
-	processOpenAIResponseSseChunk(state, chunk, {
-		delimiterPattern: DELIMITER_PATTERN,
-		onDelta: (delta) => {
-			handlers.onDelta?.(delta);
-			handlers.onEvent?.({ type: "delta", delta });
-		},
-	});
-}
-
 function createOpenAIRequestBody(
 	context: PeriodDigestContext,
 	options: PeriodDigestOptions,
@@ -1151,72 +1121,28 @@ function completeOpenAIStreamEffect(
 	options: PeriodDigestOptions,
 	handlers: PeriodDigestStreamHandlers,
 ): Effect.Effect<PeriodDigestRunResult, Error> {
-	return Effect.gen(function* () {
-		const enrichedContext = yield* trySync(() =>
-			enrichContextWithCitedTweets(context, stream.value),
+	return trySync(() => {
+		const enrichedContext = enrichContextWithCitedTweets(context, stream.value);
+		const result = saveAnalysisReport(
+			digestCacheKey(context, options),
+			enrichedContext,
+			"digest",
+			stream,
+			resolveAnalysisModelSettings(options),
+			true,
 		);
-		const cacheKey = digestCacheKey(context, options);
-		const updatedAt = yield* trySync(() =>
-			writeSyncCache(cacheKey, {
-				digest: stream.value,
-				markdown: stream.markdown,
-				model: modelFromOptions(options),
-				reasoningEffort: reasoningEffortFromOptions(options),
-				serviceTier: serviceTierFromOptions(options),
-				usage: stream.usage,
-				responseId: stream.responseId,
-			}),
-		);
-		const result: PeriodDigestRunResult = {
-			context: enrichedContext,
-			digest: stream.value,
-			markdown: stream.markdown,
-			model: modelFromOptions(options),
-			reasoningEffort: reasoningEffortFromOptions(options),
-			serviceTier: serviceTierFromOptions(options),
-			cached: false,
-			updatedAt,
-		};
-		yield* trySync(() =>
-			writeSyncCache(latestDigestCacheKey(options), {
-				context: result.context,
-				digest: result.digest,
-				markdown: result.markdown,
-				model: result.model,
-				reasoningEffort: result.reasoningEffort,
-				serviceTier: result.serviceTier,
-				updatedAt: result.updatedAt,
-			}),
-		);
+		cacheLatestDigest(result, options);
 		handlers.onEvent?.({ type: "done", result });
 		return result;
 	});
 }
 
-function readOpenAIStreamEffect(
-	response: Response,
-	context: PeriodDigestContext,
+function cacheLatestDigest(
+	result: PeriodDigestRunResult,
 	options: PeriodDigestOptions,
-	handlers: PeriodDigestStreamHandlers,
-): Effect.Effect<PeriodDigestRunResult, Error> {
-	return Effect.gen(function* () {
-		const stream = yield* readHybridAnalysisStreamEffect(response, {
-			parse: (value) => PeriodDigestSchema.parse(value),
-			fallback: (markdown) =>
-				fallbackDigest(context, markdown, languageFromOptions(options)),
-			delimiterPattern: DELIMITER_PATTERN,
-			onDelta: (delta) => {
-				handlers.onDelta?.(delta);
-				handlers.onEvent?.({ type: "delta", delta });
-			},
-		});
-		return yield* completeOpenAIStreamEffect(
-			stream,
-			context,
-			options,
-			handlers,
-		);
-	});
+) {
+	const { cached: _cached, ...value } = result;
+	writeSyncCache(latestDigestCacheKey(options), value);
 }
 
 export function streamPeriodDigestEffect(
@@ -1246,7 +1172,7 @@ export function streamPeriodDigestEffect(
 			const result = yield* trySync(() =>
 				cachedDigestResult(latestCached, latestContext),
 			);
-			emitCachedDigest(result, handlers);
+			emitCachedAnalysis(result, handlers);
 			return result;
 		}
 
@@ -1265,18 +1191,8 @@ export function streamPeriodDigestEffect(
 
 		if (cached) {
 			const result = yield* trySync(() => cachedDigestResult(cached, context));
-			yield* trySync(() =>
-				writeSyncCache(latestDigestCacheKey(resolvedOptions), {
-					context: result.context,
-					digest: result.digest,
-					markdown: result.markdown,
-					model: result.model,
-					reasoningEffort: result.reasoningEffort,
-					serviceTier: result.serviceTier,
-					updatedAt: result.updatedAt,
-				}),
-			);
-			emitCachedDigest(result, handlers);
+			yield* trySync(() => cacheLatestDigest(result, resolvedOptions));
+			emitCachedAnalysis(result, handlers);
 			return result;
 		}
 
@@ -1305,8 +1221,7 @@ export function streamPeriodDigestEffect(
 				fallbackDigest(context, markdown, languageFromOptions(resolvedOptions)),
 			delimiterPattern: DELIMITER_PATTERN,
 			onDelta: (delta) => {
-				handlers.onDelta?.(delta);
-				handlers.onEvent?.({ type: "delta", delta });
+				emitAnalysisDelta(handlers, delta);
 			},
 		});
 		return yield* completeOpenAIStreamEffect(
@@ -1331,8 +1246,6 @@ export const __test__ = {
 	digestCacheKey,
 	languageFromOptions,
 	normalizeDigestLanguage,
-	readOpenAIStreamEffect,
 	parseDigestFromHybridText,
-	processSseChunk,
 	resolvePeriodDigestWindow,
 };

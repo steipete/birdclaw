@@ -1,3 +1,4 @@
+import { profileSelect } from "./profile-row";
 import { parseJsonField } from "./json-codec";
 import { Effect } from "effect";
 import { getNativeDb } from "./db";
@@ -532,32 +533,8 @@ export function searchLinks(query: string, options: LinkSearchOptions = {}) {
       e.updated_at,
       coalesce(dm.text, source_tweet.text, '') as source_text,
       account.handle as account_handle,
-      source_author.id as source_author_id,
-      source_author.handle as source_author_handle,
-      source_author.display_name as source_author_display_name,
-      source_author.bio as source_author_bio,
-      source_author.followers_count as source_author_followers_count,
-      source_author.following_count as source_author_following_count,
-      source_author.avatar_hue as source_author_avatar_hue,
-      source_author.avatar_url as source_author_avatar_url,
-      source_author.location as source_author_location,
-      source_author.url as source_author_url,
-      source_author.verified_type as source_author_verified_type,
-      source_author.entities_json as source_author_entities_json,
-      source_author.created_at as source_author_created_at,
-      participant.id as participant_id,
-      participant.handle as participant_handle,
-      participant.display_name as participant_display_name,
-      participant.bio as participant_bio,
-      participant.followers_count as participant_followers_count,
-      participant.following_count as participant_following_count,
-      participant.avatar_hue as participant_avatar_hue,
-      participant.avatar_url as participant_avatar_url,
-      participant.location as participant_location,
-      participant.url as participant_url,
-      participant.verified_type as participant_verified_type,
-      participant.entities_json as participant_entities_json,
-      participant.created_at as participant_created_at,
+      ${profileSelect("source_author", "source_author_")},
+      ${profileSelect("participant", "participant_")},
       linked.id as linked_id,
 			coalesce(
 				o.account_id,
@@ -582,19 +559,7 @@ export function searchLinks(query: string, options: LinkSearchOptions = {}) {
 			exists(select 1 from tweet_collections collection where collection.tweet_id = linked.id and collection.kind = 'likes') as linked_liked,
       linked.entities_json as linked_entities_json,
       linked.media_json as linked_media_json,
-      linked_author.id as linked_author_id,
-      linked_author.handle as linked_author_handle,
-      linked_author.display_name as linked_author_display_name,
-      linked_author.bio as linked_author_bio,
-      linked_author.followers_count as linked_author_followers_count,
-      linked_author.following_count as linked_author_following_count,
-      linked_author.avatar_hue as linked_author_avatar_hue,
-      linked_author.avatar_url as linked_author_avatar_url,
-      linked_author.location as linked_author_location,
-      linked_author.url as linked_author_url,
-      linked_author.verified_type as linked_author_verified_type,
-      linked_author.entities_json as linked_author_entities_json,
-      linked_author.created_at as linked_author_created_at
+      ${profileSelect("linked_author", "linked_author_")}
     from link_occurrences o
     join url_expansions e on e.short_url = o.short_url
     left join accounts account on account.id = o.account_id

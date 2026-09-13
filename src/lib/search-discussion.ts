@@ -1,3 +1,12 @@
+import {
+	type AnalysisReport,
+	type AnalysisHandlers,
+	type AnalysisEvent,
+	cachedAnalysisReport,
+	saveAnalysisReport,
+	emitAnalysisDelta,
+	emitCachedAnalysis,
+} from "./analysis-report";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -23,7 +32,7 @@ import {
 } from "./openai-response-runtime";
 import { parseJsonField } from "./query-read-model-shared";
 import { listTimelineItems } from "./timeline-read-model";
-import { readSyncCache, writeSyncCache } from "./sync-cache";
+import { readSyncCache } from "./sync-cache";
 import {
 	syncTweetSearchEffect,
 	type SyncTweetSearchResult,
@@ -61,10 +70,8 @@ export interface SearchDiscussionOptions {
 	prefetchAvatars?: boolean;
 }
 
-export interface SearchDiscussionStreamHandlers {
-	onDelta?: (delta: string) => void;
-	onEvent?: (event: SearchDiscussionStreamEvent) => void;
-}
+export type SearchDiscussionStreamHandlers =
+	AnalysisHandlers<SearchDiscussionStreamEvent>;
 
 interface CompactSearchTweet {
 	id: string;
@@ -128,22 +135,14 @@ const SearchDiscussionSchema = z.object({
 
 export type SearchDiscussion = z.infer<typeof SearchDiscussionSchema>;
 
-export interface SearchDiscussionRunResult {
-	context: SearchDiscussionContext;
-	discussion: SearchDiscussion;
-	markdown: string;
-	model: string;
-	reasoningEffort: string;
-	serviceTier: string;
-	cached: boolean;
-	updatedAt: string;
-}
+export type SearchDiscussionRunResult = AnalysisReport<
+	SearchDiscussionContext,
+	SearchDiscussion,
+	"discussion"
+>;
 
 export type SearchDiscussionStreamEvent =
-	| { type: "start"; context: SearchDiscussionContext; cached: boolean }
-	| { type: "delta"; delta: string }
-	| { type: "done"; result: SearchDiscussionRunResult }
-	| { type: "error"; error: string };
+	AnalysisEvent<SearchDiscussionRunResult>;
 
 const DEFAULT_LIMIT = 20_000;
 const DEFAULT_MAX_PAGES = 200;
@@ -642,8 +641,7 @@ function processSseChunk(
 	processOpenAIResponseSseChunk(state, chunk, {
 		delimiterPattern: DELIMITER_PATTERN,
 		onDelta: (delta) => {
-			handlers.onDelta?.(delta);
-			handlers.onEvent?.({ type: "delta", delta });
+			emitAnalysisDelta(handlers, delta);
 		},
 	});
 }
@@ -667,28 +665,15 @@ function completeOpenAIStreamEffect(
 	options: SearchDiscussionOptions,
 	handlers: SearchDiscussionStreamHandlers,
 ): Effect.Effect<SearchDiscussionRunResult, Error> {
-	return Effect.gen(function* () {
-		const updatedAt = yield* trySync(() =>
-			writeSyncCache(cacheKey(context, options), {
-				discussion: stream.value,
-				markdown: stream.markdown,
-				model: modelFromOptions(options),
-				reasoningEffort: reasoningEffortFromOptions(options),
-				serviceTier: serviceTierFromOptions(options),
-				usage: stream.usage,
-				responseId: stream.responseId,
-			}),
-		);
-		const result = {
+	return trySync(() => {
+		const result = saveAnalysisReport(
+			cacheKey(context, options),
 			context,
-			discussion: stream.value,
-			markdown: stream.markdown,
-			model: modelFromOptions(options),
-			reasoningEffort: reasoningEffortFromOptions(options),
-			serviceTier: serviceTierFromOptions(options),
-			cached: false,
-			updatedAt,
-		};
+			"discussion",
+			stream,
+			resolveAnalysisModelSettings(options),
+			true,
+		);
 		handlers.onEvent?.({ type: "done", result });
 		return result;
 	});
@@ -743,20 +728,12 @@ export function streamSearchDiscussionEffect(
 					}>(cacheKey(context, options)),
 				);
 		if (cached) {
-			const result: SearchDiscussionRunResult = yield* trySync(() => ({
-				context,
-				discussion: SearchDiscussionSchema.parse(cached.value.discussion),
-				markdown: cached.value.markdown,
-				model: cached.value.model,
-				reasoningEffort: cached.value.reasoningEffort,
-				serviceTier: cached.value.serviceTier,
-				cached: true,
-				updatedAt: cached.updatedAt,
-			}));
-			handlers.onEvent?.({ type: "start", context, cached: true });
-			handlers.onDelta?.(result.markdown);
-			handlers.onEvent?.({ type: "delta", delta: result.markdown });
-			handlers.onEvent?.({ type: "done", result });
+			const result = yield* trySync(() =>
+				cachedAnalysisReport(cached, context, "discussion", (value) =>
+					SearchDiscussionSchema.parse(value),
+				),
+			);
+			emitCachedAnalysis(result, handlers);
 			return result;
 		}
 
@@ -768,8 +745,7 @@ export function streamSearchDiscussionEffect(
 			fallback: (markdown) => fallbackDiscussion(context, markdown),
 			delimiterPattern: DELIMITER_PATTERN,
 			onDelta: (delta) => {
-				handlers.onDelta?.(delta);
-				handlers.onEvent?.({ type: "delta", delta });
+				emitAnalysisDelta(handlers, delta);
 			},
 		});
 		return yield* completeOpenAIStreamEffect(

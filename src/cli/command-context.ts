@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { NumericOptionError } from "./numeric-options";
 import {
 	resolveOperationAccount,
 	type OperationAccount,
@@ -6,33 +7,53 @@ import {
 import { maybeAutoSyncBackup, maybeAutoUpdateBackup } from "#/lib/backup";
 import { getDefaultAccountSelector } from "#/lib/config";
 
-export interface CliCommandContext {
-	program: Command;
-	print: (data: unknown, asJson: boolean) => void;
-	asJson: () => boolean;
-	autoSyncAfterWrite: () => Promise<void>;
-	autoUpdateBeforeRead: () => Promise<void>;
-	parseNonNegativeIntegerOption: (
-		value: string | undefined,
-		option: string,
-	) => number | undefined;
-	parseFiniteNumberOption: (
-		value: string | undefined,
-		option: string,
-	) => number | undefined;
-	parseLimitOption: (
-		value: string | undefined,
-		option: string,
-	) => number | undefined;
-	parsePositiveLimitOption: (
-		value: string | undefined,
-		option: string,
-	) => number | undefined;
-	parsePositiveIntegerOption: (
-		value: string | undefined,
-		option: string,
-	) => number | undefined;
+export type CliCommandContext = ReturnType<typeof createCommandContext>;
+
+type NumericOptionParser = {
+	(value: string, option: string): number;
+	(value: string | undefined, option: string): number | undefined;
+};
+
+function numericOptionParser({
+	decimal = false,
+	positive = false,
+	finite = false,
+} = {}): NumericOptionParser {
+	function parse(value: string, option: string): number;
+	function parse(value: string | undefined, option: string): number | undefined;
+	function parse(value: string | undefined, option: string) {
+		if (value === undefined) return undefined;
+		const number = Number(value);
+		const message = finite
+			? "must be a finite number"
+			: "must be a non-negative integer";
+		if (
+			finite
+				? !Number.isFinite(number)
+				: !Number.isSafeInteger(number) ||
+					number < 0 ||
+					(decimal && !/^\d+$/.test(value.trim()))
+		) {
+			throw new NumericOptionError(`${option} ${message}`);
+		}
+		if (positive && number < 1)
+			throw new NumericOptionError(`${option} must be at least 1`);
+		return number;
+	}
+	return parse;
 }
+
+export const parseNonNegativeIntegerOption = numericOptionParser({
+	decimal: true,
+});
+export const parsePositiveIntegerOption = numericOptionParser({
+	decimal: true,
+	positive: true,
+});
+export const parseFiniteNumberOption = numericOptionParser({ finite: true });
+// Limits retain Number() spellings such as 1e3 and 0x10; integer-only flags do not.
+export const parseLimitOption = numericOptionParser();
+export const parsePositiveLimitOption = numericOptionParser({ positive: true });
 
 let previousXurlUsername:
 	| { existed: boolean; value: string | undefined }
@@ -103,85 +124,6 @@ export function errorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export function parseNonNegativeIntegerOption(
-	value: string | undefined,
-	option: string,
-) {
-	if (value === undefined) return undefined;
-	const trimmed = value.trim();
-	if (!/^\d+$/.test(trimmed)) {
-		printError(`${option} must be a non-negative integer`);
-		process.exitCode = 1;
-		return undefined;
-	}
-	const parsed = Number.parseInt(trimmed, 10);
-	if (!Number.isSafeInteger(parsed)) {
-		printError(`${option} must be a non-negative integer`);
-		process.exitCode = 1;
-		return undefined;
-	}
-	return parsed;
-}
-
-export function parseFiniteNumberOption(
-	value: string | undefined,
-	option: string,
-) {
-	if (value === undefined) return undefined;
-	// Thresholds already accept fractional values and Number() spellings.
-	const parsed = Number(value);
-	if (!Number.isFinite(parsed)) {
-		printError(`${option} must be a finite number`);
-		process.exitCode = 1;
-		return undefined;
-	}
-	return parsed;
-}
-
-export function parseLimitOption(value: string | undefined, option: string) {
-	if (value === undefined) return undefined;
-	// `--limit` accepted any spelling `Number()` understands before this validation
-	// existed, so keep that grammar and validate the result instead. This still
-	// rejects fractional, negative, non-numeric and unsafe values.
-	const parsed = Number(value);
-	if (!Number.isSafeInteger(parsed) || parsed < 0) {
-		printError(`${option} must be a non-negative integer`);
-		process.exitCode = 1;
-		return undefined;
-	}
-	return parsed;
-}
-
-export function parsePositiveLimitOption(
-	value: string | undefined,
-	option: string,
-) {
-	// Mirrors parsePositiveIntegerOption but keeps the Number() grammar that
-	// parseLimitOption preserves, so spellings such as 1e3 and 0x10 still work.
-	const parsed = parseLimitOption(value, option);
-	if (parsed === undefined) return undefined;
-	if (parsed < 1) {
-		printError(`${option} must be at least 1`);
-		process.exitCode = 1;
-		return undefined;
-	}
-	return parsed;
-}
-
-export function parsePositiveIntegerOption(
-	value: string | undefined,
-	option: string,
-) {
-	const parsed = parseNonNegativeIntegerOption(value, option);
-	if (parsed === undefined) return undefined;
-	if (parsed < 1) {
-		printError(`${option} must be at least 1`);
-		process.exitCode = 1;
-		return undefined;
-	}
-	return parsed;
-}
-
 async function autoUpdateBeforeRead() {
 	try {
 		const result = await maybeAutoUpdateBackup();
@@ -204,7 +146,7 @@ async function autoSyncAfterWrite() {
 	}
 }
 
-export function createCommandContext(program: Command): CliCommandContext {
+export function createCommandContext(program: Command) {
 	return {
 		program,
 		print,

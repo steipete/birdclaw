@@ -166,341 +166,323 @@ function sanitizeImportedUrlExpansions(rows: BackupJsonRecord[]) {
 	});
 }
 
+type MergeExpression =
+	| string
+	| ((table: string, column: string) => string)
+	| null;
+
+const incoming = (_table: string, column: string) => `excluded.${column}`;
+const incomingNonNull = (table: string, column: string) =>
+	`coalesce(excluded.${column}, ${table}.${column})`;
+const incomingNonEmpty = (table: string, column: string) =>
+	`coalesce(nullif(excluded.${column}, ''), ${table}.${column})`;
+const maximum = (table: string, column: string) =>
+	`max(${table}.${column}, excluded.${column})`;
+const minimum = (table: string, column: string) =>
+	`min(${table}.${column}, excluded.${column})`;
+const newest = (table: string, column: string) =>
+	`case when excluded.updated_at >= ${table}.updated_at then excluded.${column} else ${table}.${column} end`;
+
+type BackupTableSpec = Omit<
+	BackupTableCodecDefinition,
+	"exportSql" | "merge"
+> & {
+	columns: Record<string, MergeExpression>;
+	exportColumns?: readonly string[];
+	orderBy: string;
+	merge: Omit<BackupMergeCodec, "sql" | "columns"> & {
+		values?: Record<string, string>;
+		conflictKey: string;
+	};
+};
+
+function defineTable(
+	name: string,
+	spec: BackupTableSpec,
+): BackupTableCodecDefinition {
+	const {
+		columns: expressions,
+		exportColumns,
+		orderBy,
+		merge,
+		...shards
+	} = spec;
+	const columns = Object.keys(expressions);
+	const { values = {}, conflictKey, ...mergeOptions } = merge;
+	const updates = Object.entries(expressions).flatMap(([column, expression]) =>
+		expression === null
+			? []
+			: [
+					`${column} = ${typeof expression === "function" ? expression(name, column) : expression}`,
+				],
+	);
+	const conflict = `on conflict${conflictKey} do ${updates.length ? "update set " + updates.join(", ") : "nothing"}`;
+	return {
+		...shards,
+		exportSql: `select ${(exportColumns ?? columns).join(", ")} from ${name} order by ${orderBy}`,
+		merge: {
+			...mergeOptions,
+			columns,
+			sql: `insert into ${name} (${columns.join(", ")}) values (${columns.map((column) => values[column] ?? "?").join(", ")}) ${conflict}`,
+		},
+	};
+}
+
 const definitions = {
-	accounts: {
-		exportSql: `
-      select id, name, handle, external_user_id, transport, is_default, created_at
-      from accounts
-      order by id
-    `,
+	accounts: defineTable("accounts", {
+		columns: {
+			id: null,
+			name: incomingNonEmpty,
+			handle: incomingNonEmpty,
+			external_user_id: incomingNonNull,
+			transport: incomingNonEmpty,
+			is_default: maximum,
+			created_at: minimum,
+		},
+		orderBy: "id",
 		...fixedShard("data/accounts.jsonl", "accounts"),
 		merge: {
 			order: 0,
-			sql: `
-      insert into accounts (id, name, handle, external_user_id, transport, is_default, created_at)
-      values (?, ?, ?, ?, ?, ?, ?)
-      on conflict(id) do update set
-        name = coalesce(nullif(excluded.name, ''), accounts.name),
-        handle = coalesce(nullif(excluded.handle, ''), accounts.handle),
-        external_user_id = coalesce(excluded.external_user_id, accounts.external_user_id),
-        transport = coalesce(nullif(excluded.transport, ''), accounts.transport),
-        is_default = max(accounts.is_default, excluded.is_default),
-        created_at = min(accounts.created_at, excluded.created_at)
-      `,
-			columns: [
-				"id",
-				"name",
-				"handle",
-				"external_user_id",
-				"transport",
-				"is_default",
-				"created_at",
-			],
+			conflictKey: "(id)",
 		},
-	},
-	profiles: {
-		exportSql: `
-      select id, handle, display_name, bio, followers_count,
-        following_count, public_metrics_json, avatar_hue, avatar_url,
-        location, url, verified_type, entities_json, raw_json, created_at
-      from profiles
-      order by id
-    `,
+	}),
+	profiles: defineTable("profiles", {
+		columns: {
+			id: null,
+			handle: incomingNonEmpty,
+			display_name: incomingNonEmpty,
+			bio: incomingNonEmpty,
+			followers_count: maximum,
+			following_count: maximum,
+			public_metrics_json: `case
+          when excluded.public_metrics_json not in ('', '{}', 'null') then excluded.public_metrics_json
+          else profiles.public_metrics_json
+        end`,
+			avatar_hue: `case when profiles.avatar_hue = 0 then excluded.avatar_hue else profiles.avatar_hue end`,
+			avatar_url: incomingNonNull,
+			location: incomingNonNull,
+			url: incomingNonNull,
+			verified_type: incomingNonNull,
+			entities_json: `case
+          when excluded.entities_json not in ('', '{}', 'null') then excluded.entities_json
+          else profiles.entities_json
+        end`,
+			raw_json: `case
+          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
+          else profiles.raw_json
+        end`,
+			created_at: minimum,
+		},
+		orderBy: "id",
 		...fixedShard("data/profiles.jsonl", "profiles"),
 		merge: {
 			order: 1,
-			sql: `
-      insert into profiles (
-        id, handle, display_name, bio, followers_count, following_count,
-        public_metrics_json, avatar_hue, avatar_url, location, url,
-        verified_type, entities_json, raw_json, created_at
-      ) values (?, ?, ?, ?, ?, coalesce(?, 0), coalesce(?, '{}'), ?, ?, ?, ?, ?, coalesce(?, '{}'), coalesce(?, '{}'), ?)
-      on conflict(id) do update set
-        handle = coalesce(nullif(excluded.handle, ''), profiles.handle),
-        display_name = coalesce(nullif(excluded.display_name, ''), profiles.display_name),
-        bio = coalesce(nullif(excluded.bio, ''), profiles.bio),
-        followers_count = max(profiles.followers_count, excluded.followers_count),
-        following_count = max(profiles.following_count, excluded.following_count),
-        public_metrics_json = case
-          when excluded.public_metrics_json not in ('', '{}', 'null') then excluded.public_metrics_json
-          else profiles.public_metrics_json
-        end,
-        avatar_hue = case when profiles.avatar_hue = 0 then excluded.avatar_hue else profiles.avatar_hue end,
-        avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url),
-        location = coalesce(excluded.location, profiles.location),
-        url = coalesce(excluded.url, profiles.url),
-        verified_type = coalesce(excluded.verified_type, profiles.verified_type),
-        entities_json = case
-          when excluded.entities_json not in ('', '{}', 'null') then excluded.entities_json
-          else profiles.entities_json
-        end,
-        raw_json = case
-          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
-          else profiles.raw_json
-        end,
-        created_at = min(profiles.created_at, excluded.created_at)
-      `,
-			columns: [
-				"id",
-				"handle",
-				"display_name",
-				"bio",
-				"followers_count",
-				"following_count",
-				"public_metrics_json",
-				"avatar_hue",
-				"avatar_url",
-				"location",
-				"url",
-				"verified_type",
-				"entities_json",
-				"raw_json",
-				"created_at",
-			],
+			values: {
+				following_count: "coalesce(?, 0)",
+				public_metrics_json: "coalesce(?, '{}')",
+				entities_json: "coalesce(?, '{}')",
+				raw_json: "coalesce(?, '{}')",
+			},
+			conflictKey: "(id)",
 		},
-	},
-	profile_affiliations: {
-		exportSql: `
-      select subject_profile_id, organization_profile_id, organization_name,
-        organization_handle, badge_url, url, label, source, is_active,
-        first_seen_at, last_seen_at, raw_json, updated_at
-      from profile_affiliations
-      order by subject_profile_id, organization_profile_id
-    `,
+	}),
+	profile_affiliations: defineTable("profile_affiliations", {
+		columns: {
+			subject_profile_id: null,
+			organization_profile_id: null,
+			organization_name: `coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.organization_name else profile_affiliations.organization_name end, ''), profile_affiliations.organization_name, excluded.organization_name)`,
+			organization_handle: `coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.organization_handle else profile_affiliations.organization_handle end, ''), profile_affiliations.organization_handle, excluded.organization_handle)`,
+			badge_url: `coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.badge_url else profile_affiliations.badge_url end, ''), profile_affiliations.badge_url, excluded.badge_url)`,
+			url: `coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.url else profile_affiliations.url end, ''), profile_affiliations.url, excluded.url)`,
+			label: `coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.label else profile_affiliations.label end, ''), profile_affiliations.label, excluded.label)`,
+			source: `coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.source else profile_affiliations.source end, ''), profile_affiliations.source, excluded.source)`,
+			is_active: `case when excluded.updated_at > profile_affiliations.updated_at then excluded.is_active else profile_affiliations.is_active end`,
+			first_seen_at: minimum,
+			last_seen_at: maximum,
+			raw_json: `coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.raw_json else profile_affiliations.raw_json end, '{}'), nullif(profile_affiliations.raw_json, '{}'), nullif(excluded.raw_json, '{}'), '{}')`,
+			updated_at: maximum,
+		},
+		orderBy: "subject_profile_id, organization_profile_id",
 		...fixedShard("data/profile_affiliations.jsonl", "profile_affiliations"),
 		merge: {
 			order: 4,
-			sql: `
-      insert into profile_affiliations (
-        subject_profile_id, organization_profile_id, organization_name,
-        organization_handle, badge_url, url, label, source, is_active,
-        first_seen_at, last_seen_at, raw_json, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, coalesce(?, '{}'), ?)
-      on conflict(subject_profile_id, organization_profile_id) do update set
-        organization_name = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.organization_name else profile_affiliations.organization_name end, ''), profile_affiliations.organization_name, excluded.organization_name),
-        organization_handle = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.organization_handle else profile_affiliations.organization_handle end, ''), profile_affiliations.organization_handle, excluded.organization_handle),
-        badge_url = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.badge_url else profile_affiliations.badge_url end, ''), profile_affiliations.badge_url, excluded.badge_url),
-        url = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.url else profile_affiliations.url end, ''), profile_affiliations.url, excluded.url),
-        label = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.label else profile_affiliations.label end, ''), profile_affiliations.label, excluded.label),
-        source = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.source else profile_affiliations.source end, ''), profile_affiliations.source, excluded.source),
-        is_active = case when excluded.updated_at > profile_affiliations.updated_at then excluded.is_active else profile_affiliations.is_active end,
-        first_seen_at = min(profile_affiliations.first_seen_at, excluded.first_seen_at),
-        last_seen_at = max(profile_affiliations.last_seen_at, excluded.last_seen_at),
-        raw_json = coalesce(nullif(case when excluded.updated_at > profile_affiliations.updated_at then excluded.raw_json else profile_affiliations.raw_json end, '{}'), nullif(profile_affiliations.raw_json, '{}'), nullif(excluded.raw_json, '{}'), '{}'),
-        updated_at = max(profile_affiliations.updated_at, excluded.updated_at)
-      `,
-			columns: [
-				"subject_profile_id",
-				"organization_profile_id",
-				"organization_name",
-				"organization_handle",
-				"badge_url",
-				"url",
-				"label",
-				"source",
-				"is_active",
-				"first_seen_at",
-				"last_seen_at",
-				"raw_json",
-				"updated_at",
-			],
+			values: {
+				source: "coalesce(?, 'backup')",
+				is_active: "coalesce(?, 1)",
+				raw_json: "coalesce(?, '{}')",
+			},
+			conflictKey: "(subject_profile_id, organization_profile_id)",
 		},
-	},
-	profile_snapshots: {
-		exportSql: `
-      select profile_id, snapshot_hash, observed_at, last_seen_at, source,
-        handle, display_name, bio, location, url, verified_type,
-        followers_count, following_count, affiliations_json, raw_json
-      from profile_snapshots
-      order by profile_id, last_seen_at, snapshot_hash
-    `,
+	}),
+	profile_snapshots: defineTable("profile_snapshots", {
+		columns: {
+			profile_id: null,
+			snapshot_hash: null,
+			observed_at: minimum,
+			last_seen_at: maximum,
+			source: `case
+          when excluded.last_seen_at > profile_snapshots.last_seen_at
+            or (excluded.last_seen_at = profile_snapshots.last_seen_at
+              and (excluded.source || char(0) || excluded.raw_json) >
+                (profile_snapshots.source || char(0) || profile_snapshots.raw_json))
+          then excluded.source else profile_snapshots.source end`,
+			handle: null,
+			display_name: null,
+			bio: null,
+			location: null,
+			url: null,
+			verified_type: null,
+			followers_count: null,
+			following_count: null,
+			affiliations_json: null,
+			raw_json: `case
+          when excluded.last_seen_at > profile_snapshots.last_seen_at
+            or (excluded.last_seen_at = profile_snapshots.last_seen_at
+              and (excluded.source || char(0) || excluded.raw_json) >
+                (profile_snapshots.source || char(0) || profile_snapshots.raw_json))
+          then excluded.raw_json else profile_snapshots.raw_json end`,
+		},
+		orderBy: "profile_id, last_seen_at, snapshot_hash",
 		...fixedShard("data/profile_snapshots.jsonl", "profile_snapshots"),
 		merge: {
 			order: 2,
-			sql: `
-      insert into profile_snapshots (
-        profile_id, snapshot_hash, observed_at, last_seen_at, source, handle,
-        display_name, bio, location, url, verified_type, followers_count,
-        following_count, affiliations_json, raw_json
-      ) values (?, ?, ?, ?, coalesce(?, 'backup'), ?, ?, ?, ?, ?, ?, coalesce(?, 0), coalesce(?, 0), coalesce(?, '[]'), coalesce(?, '{}'))
-      on conflict(profile_id, snapshot_hash) do update set
-        observed_at = min(profile_snapshots.observed_at, excluded.observed_at),
-        last_seen_at = max(profile_snapshots.last_seen_at, excluded.last_seen_at),
-        source = case
-          when excluded.last_seen_at > profile_snapshots.last_seen_at
-            or (excluded.last_seen_at = profile_snapshots.last_seen_at
-              and (excluded.source || char(0) || excluded.raw_json) >
-                (profile_snapshots.source || char(0) || profile_snapshots.raw_json))
-          then excluded.source else profile_snapshots.source end,
-        raw_json = case
-          when excluded.last_seen_at > profile_snapshots.last_seen_at
-            or (excluded.last_seen_at = profile_snapshots.last_seen_at
-              and (excluded.source || char(0) || excluded.raw_json) >
-                (profile_snapshots.source || char(0) || profile_snapshots.raw_json))
-          then excluded.raw_json else profile_snapshots.raw_json end
-      `,
-			columns: [
-				"profile_id",
-				"snapshot_hash",
-				"observed_at",
-				"last_seen_at",
-				"source",
-				"handle",
-				"display_name",
-				"bio",
-				"location",
-				"url",
-				"verified_type",
-				"followers_count",
-				"following_count",
-				"affiliations_json",
-				"raw_json",
-			],
+			values: {
+				source: "coalesce(?, 'backup')",
+				followers_count: "coalesce(?, 0)",
+				following_count: "coalesce(?, 0)",
+				affiliations_json: "coalesce(?, '[]')",
+				raw_json: "coalesce(?, '{}')",
+			},
+			conflictKey: "(profile_id, snapshot_hash)",
 		},
-	},
-	profile_bio_entities: {
-		exportSql: `
-      select profile_id, kind, value, source, is_active, first_seen_at,
-        last_seen_at, raw_json
-      from profile_bio_entities
-      order by profile_id, kind, value
-    `,
+	}),
+	profile_bio_entities: defineTable("profile_bio_entities", {
+		columns: {
+			profile_id: null,
+			kind: null,
+			value: null,
+			source: `coalesce(nullif(case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.source else profile_bio_entities.source end, ''), profile_bio_entities.source, excluded.source)`,
+			is_active: `case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.is_active else profile_bio_entities.is_active end`,
+			first_seen_at: minimum,
+			last_seen_at: maximum,
+			raw_json: `coalesce(nullif(case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.raw_json else profile_bio_entities.raw_json end, '{}'), nullif(profile_bio_entities.raw_json, '{}'), nullif(excluded.raw_json, '{}'), '{}')`,
+		},
+		orderBy: "profile_id, kind, value",
 		...fixedShard("data/profile_bio_entities.jsonl", "profile_bio_entities"),
 		merge: {
 			order: 3,
-			sql: `
-      insert into profile_bio_entities (
-        profile_id, kind, value, source, is_active, first_seen_at, last_seen_at, raw_json
-      ) values (?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, coalesce(?, '{}'))
-      on conflict(profile_id, kind, value) do update set
-        source = coalesce(nullif(case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.source else profile_bio_entities.source end, ''), profile_bio_entities.source, excluded.source),
-        is_active = case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.is_active else profile_bio_entities.is_active end,
-        first_seen_at = min(profile_bio_entities.first_seen_at, excluded.first_seen_at),
-        last_seen_at = max(profile_bio_entities.last_seen_at, excluded.last_seen_at),
-        raw_json = coalesce(nullif(case when excluded.last_seen_at > profile_bio_entities.last_seen_at then excluded.raw_json else profile_bio_entities.raw_json end, '{}'), nullif(profile_bio_entities.raw_json, '{}'), nullif(excluded.raw_json, '{}'), '{}')
-      `,
-			columns: [
-				"profile_id",
-				"kind",
-				"value",
-				"source",
-				"is_active",
-				"first_seen_at",
-				"last_seen_at",
-				"raw_json",
-			],
+			values: {
+				source: "coalesce(?, 'backup')",
+				is_active: "coalesce(?, 1)",
+				raw_json: "coalesce(?, '{}')",
+			},
+			conflictKey: "(profile_id, kind, value)",
 		},
-	},
-	x_lists: {
-		exportSql: `
-      select account_id, list_id, name, description, owner_profile_id,
-        owner_external_user_id, is_private, member_count, follower_count,
-        source, membership_status, lists_synced_at, members_synced_at,
-        member_page_count, member_result_count, rate_limit_json, raw_json,
-        updated_at
-      from x_lists
-      order by account_id, name collate nocase, list_id
-    `,
+	}),
+	x_lists: defineTable("x_lists", {
+		columns: {
+			account_id: null,
+			list_id: null,
+			name: incoming,
+			description: incoming,
+			owner_profile_id: incomingNonNull,
+			owner_external_user_id: incomingNonNull,
+			is_private: newest,
+			member_count: incomingNonNull,
+			follower_count: incomingNonNull,
+			source: newest,
+			membership_status: newest,
+			lists_synced_at: maximum,
+			members_synced_at: `nullif(max(coalesce(x_lists.members_synced_at, ''), coalesce(excluded.members_synced_at, '')), '')`,
+			member_page_count: newest,
+			member_result_count: newest,
+			rate_limit_json: newest,
+			raw_json: newest,
+			updated_at: maximum,
+		},
+		orderBy: "account_id, name collate nocase, list_id",
 		...fixedShard("data/lists/lists.jsonl", "x_lists"),
 		merge: {
 			order: 9,
-			sql: `
-      insert into x_lists (
-        account_id, list_id, name, description, owner_profile_id,
-        owner_external_user_id, is_private, member_count, follower_count,
-        source, membership_status, lists_synced_at, members_synced_at,
-        member_page_count, member_result_count, rate_limit_json, raw_json,
-        updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(account_id, list_id) do update set
-        name = excluded.name,
-        description = excluded.description,
-        owner_profile_id = coalesce(excluded.owner_profile_id, x_lists.owner_profile_id),
-        owner_external_user_id = coalesce(excluded.owner_external_user_id, x_lists.owner_external_user_id),
-        is_private = case when excluded.updated_at >= x_lists.updated_at then excluded.is_private else x_lists.is_private end,
-        member_count = coalesce(excluded.member_count, x_lists.member_count),
-        follower_count = coalesce(excluded.follower_count, x_lists.follower_count),
-        source = case when excluded.updated_at >= x_lists.updated_at then excluded.source else x_lists.source end,
-        membership_status = case when excluded.updated_at >= x_lists.updated_at then excluded.membership_status else x_lists.membership_status end,
-        lists_synced_at = max(x_lists.lists_synced_at, excluded.lists_synced_at),
-        members_synced_at = nullif(max(coalesce(x_lists.members_synced_at, ''), coalesce(excluded.members_synced_at, '')), ''),
-        member_page_count = case when excluded.updated_at >= x_lists.updated_at then excluded.member_page_count else x_lists.member_page_count end,
-        member_result_count = case when excluded.updated_at >= x_lists.updated_at then excluded.member_result_count else x_lists.member_result_count end,
-        rate_limit_json = case when excluded.updated_at >= x_lists.updated_at then excluded.rate_limit_json else x_lists.rate_limit_json end,
-        raw_json = case when excluded.updated_at >= x_lists.updated_at then excluded.raw_json else x_lists.raw_json end,
-        updated_at = max(x_lists.updated_at, excluded.updated_at)
-      `,
-			columns: [
-				"account_id",
-				"list_id",
-				"name",
-				"description",
-				"owner_profile_id",
-				"owner_external_user_id",
-				"is_private",
-				"member_count",
-				"follower_count",
-				"source",
-				"membership_status",
-				"lists_synced_at",
-				"members_synced_at",
-				"member_page_count",
-				"member_result_count",
-				"rate_limit_json",
-				"raw_json",
-				"updated_at",
-			],
+			conflictKey: "(account_id, list_id)",
 		},
-	},
-	x_list_members: {
-		exportSql: `
-      select account_id, list_id, profile_id, external_user_id, source,
-        current, first_seen_at, last_seen_at, ended_at, raw_json, updated_at
-      from x_list_members
-      order by account_id, list_id, profile_id
-    `,
+	}),
+	x_list_members: defineTable("x_list_members", {
+		columns: {
+			account_id: null,
+			list_id: null,
+			profile_id: null,
+			external_user_id: incomingNonEmpty,
+			source: newest,
+			current: newest,
+			first_seen_at: minimum,
+			last_seen_at: maximum,
+			ended_at: newest,
+			raw_json: newest,
+			updated_at: maximum,
+		},
+		orderBy: "account_id, list_id, profile_id",
 		...fixedShard("data/lists/members.jsonl", "x_list_members"),
 		merge: {
 			order: 10,
-			sql: `
-      insert into x_list_members (
-        account_id, list_id, profile_id, external_user_id, source, current,
-        first_seen_at, last_seen_at, ended_at, raw_json, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(account_id, list_id, profile_id) do update set
-        external_user_id = coalesce(nullif(excluded.external_user_id, ''), x_list_members.external_user_id),
-        source = case when excluded.updated_at >= x_list_members.updated_at then excluded.source else x_list_members.source end,
-        current = case when excluded.updated_at >= x_list_members.updated_at then excluded.current else x_list_members.current end,
-        first_seen_at = min(x_list_members.first_seen_at, excluded.first_seen_at),
-        last_seen_at = max(x_list_members.last_seen_at, excluded.last_seen_at),
-        ended_at = case when excluded.updated_at >= x_list_members.updated_at then excluded.ended_at else x_list_members.ended_at end,
-        raw_json = case when excluded.updated_at >= x_list_members.updated_at then excluded.raw_json else x_list_members.raw_json end,
-        updated_at = max(x_list_members.updated_at, excluded.updated_at)
-      `,
-			columns: [
-				"account_id",
-				"list_id",
-				"profile_id",
-				"external_user_id",
-				"source",
-				"current",
-				"first_seen_at",
-				"last_seen_at",
-				"ended_at",
-				"raw_json",
-				"updated_at",
-			],
+			conflictKey: "(account_id, list_id, profile_id)",
 		},
-	},
-	tweets: {
-		exportSql: `
-      select id, author_profile_id, text, created_at, is_replied, reply_to_id,
-		like_count, media_count, entities_json, note_tweet_json, media_json,
-		quoted_tweet_id,
-		deleted_at, deletion_source, deletion_reason, superseded_at, superseded_by_id
-      from tweets
-      order by created_at, id
-    `,
+	}),
+	tweets: defineTable("tweets", {
+		columns: {
+			id: null,
+			author_profile_id: incomingNonEmpty,
+			text: `case
+		  when excluded.note_tweet_json is not null then excluded.text
+		  when tweets.note_tweet_json is not null then tweets.text
+		  else coalesce(nullif(excluded.text, ''), tweets.text)
+		end`,
+			created_at: minimum,
+			is_replied: maximum,
+			reply_to_id: incomingNonNull,
+			like_count: maximum,
+			media_count: maximum,
+			entities_json: `case
+		  when excluded.note_tweet_json is not null then excluded.entities_json
+		  when tweets.note_tweet_json is not null then tweets.entities_json
+		  when excluded.entities_json not in ('', '{}', 'null') then excluded.entities_json
+		  else tweets.entities_json
+		end`,
+			note_tweet_json: incomingNonNull,
+			media_json: `case
+          when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
+          else tweets.media_json
+        end`,
+			quoted_tweet_id: incomingNonNull,
+			deleted_at: `case
+		  when tweets.deleted_at is null then excluded.deleted_at
+		  when excluded.deleted_at is null then tweets.deleted_at
+		  else min(tweets.deleted_at, excluded.deleted_at)
+		end`,
+			deletion_source: `case
+		  when excluded.deleted_at is not null
+		    and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
+		    then excluded.deletion_source
+		  when excluded.deleted_at = tweets.deleted_at
+		    then coalesce(tweets.deletion_source, excluded.deletion_source)
+		  else tweets.deletion_source
+		end`,
+			deletion_reason: `case
+		  when excluded.deleted_at is not null
+		    and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
+		    then excluded.deletion_reason
+		  when excluded.deleted_at = tweets.deleted_at
+		    then coalesce(tweets.deletion_reason, excluded.deletion_reason)
+		  else tweets.deletion_reason
+		end`,
+			superseded_at: `case
+		  when tweets.superseded_at is null then excluded.superseded_at
+		  when excluded.superseded_at is null then tweets.superseded_at
+		  else min(tweets.superseded_at, excluded.superseded_at)
+		end`,
+			superseded_by_id: incomingNonNull,
+		},
+		orderBy: "created_at, id",
 		shardPath: (row) =>
 			`data/tweets/${yearFromTimestamp(row.created_at)}.jsonl`,
 		matchesPath: (candidate) => candidate.startsWith("data/tweets/"),
@@ -508,151 +490,50 @@ const definitions = {
 		merge: {
 			order: 11,
 			transform: sanitizeImportedTweets,
-			sql: `
-      insert into tweets (
-        id, author_profile_id, text, created_at, is_replied, reply_to_id,
-		like_count, media_count, entities_json, note_tweet_json, media_json,
-		quoted_tweet_id,
-		deleted_at, deletion_source, deletion_reason, superseded_at, superseded_by_id
-	  ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(id) do update set
-        author_profile_id = coalesce(nullif(excluded.author_profile_id, ''), tweets.author_profile_id),
-		text = case
-		  when excluded.note_tweet_json is not null then excluded.text
-		  when tweets.note_tweet_json is not null then tweets.text
-		  else coalesce(nullif(excluded.text, ''), tweets.text)
-		end,
-        created_at = min(tweets.created_at, excluded.created_at),
-        is_replied = max(tweets.is_replied, excluded.is_replied),
-        reply_to_id = coalesce(excluded.reply_to_id, tweets.reply_to_id),
-        like_count = max(tweets.like_count, excluded.like_count),
-        media_count = max(tweets.media_count, excluded.media_count),
-		entities_json = case
-		  when excluded.note_tweet_json is not null then excluded.entities_json
-		  when tweets.note_tweet_json is not null then tweets.entities_json
-		  when excluded.entities_json not in ('', '{}', 'null') then excluded.entities_json
-		  else tweets.entities_json
-		end,
-		note_tweet_json = coalesce(excluded.note_tweet_json, tweets.note_tweet_json),
-        media_json = case
-          when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
-          else tweets.media_json
-        end,
-        quoted_tweet_id = coalesce(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
-		deleted_at = case
-		  when tweets.deleted_at is null then excluded.deleted_at
-		  when excluded.deleted_at is null then tweets.deleted_at
-		  else min(tweets.deleted_at, excluded.deleted_at)
-		end,
-		deletion_source = case
-		  when excluded.deleted_at is not null
-		    and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
-		    then excluded.deletion_source
-		  when excluded.deleted_at = tweets.deleted_at
-		    then coalesce(tweets.deletion_source, excluded.deletion_source)
-		  else tweets.deletion_source
-		end,
-		deletion_reason = case
-		  when excluded.deleted_at is not null
-		    and (tweets.deleted_at is null or excluded.deleted_at < tweets.deleted_at)
-		    then excluded.deletion_reason
-		  when excluded.deleted_at = tweets.deleted_at
-		    then coalesce(tweets.deletion_reason, excluded.deletion_reason)
-		  else tweets.deletion_reason
-		end,
-		superseded_at = case
-		  when tweets.superseded_at is null then excluded.superseded_at
-		  when excluded.superseded_at is null then tweets.superseded_at
-		  else min(tweets.superseded_at, excluded.superseded_at)
-		end,
-		superseded_by_id = coalesce(excluded.superseded_by_id, tweets.superseded_by_id)
-      `,
-			columns: [
-				"id",
-				"author_profile_id",
-				"text",
-				"created_at",
-				"is_replied",
-				"reply_to_id",
-				"like_count",
-				"media_count",
-				"entities_json",
-				"note_tweet_json",
-				"media_json",
-				"quoted_tweet_id",
-				"deleted_at",
-				"deletion_source",
-				"deletion_reason",
-				"superseded_at",
-				"superseded_by_id",
-			],
 			fts: {
 				target: { table: "tweets_fts", idColumn: "tweet_id" },
 				idKey: "id",
 				textKey: "text",
 			},
+			conflictKey: "(id)",
 		},
-	},
-	tweet_revisions: {
-		exportSql: `
-      select root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
-      from tweet_revisions
-      order by root_tweet_id, revision_index, revision_id
-    `,
-		...fixedShard("data/tweet_revisions.jsonl", "tweet_revisions"),
-		merge: {
-			order: 12,
-			transform: sanitizeImportedTweetRevisions,
-			sql: `
-      insert into tweet_revisions (
-        root_tweet_id, revision_id, revision_index, payload_json, source, observed_at
-      ) values (?, ?, ?, ?, ?, ?)
-      on conflict(revision_id) do update set
-        root_tweet_id = case
+	}),
+	tweet_revisions: defineTable("tweet_revisions", {
+		columns: {
+			root_tweet_id: `case
           when tweet_revisions.root_tweet_id = tweet_revisions.revision_id
             and excluded.root_tweet_id <> excluded.revision_id
             then excluded.root_tweet_id
           else tweet_revisions.root_tweet_id
-        end,
-        revision_index = case
+        end`,
+			revision_id: null,
+			revision_index: `case
           when tweet_revisions.root_tweet_id = tweet_revisions.revision_id
             and excluded.root_tweet_id <> excluded.revision_id
             then excluded.revision_index
           else tweet_revisions.revision_index
-        end,
-        payload_json = coalesce(tweet_revisions.payload_json, excluded.payload_json),
-        source = case
+        end`,
+			payload_json: `coalesce(tweet_revisions.payload_json, excluded.payload_json)`,
+			source: `case
           when tweet_revisions.payload_json is null and excluded.payload_json is not null
             then excluded.source
           else tweet_revisions.source
-        end,
-        observed_at = max(tweet_revisions.observed_at, excluded.observed_at)
-      `,
-			columns: [
-				"root_tweet_id",
-				"revision_id",
-				"revision_index",
-				"payload_json",
-				"source",
-				"observed_at",
-			],
+        end`,
+			observed_at: maximum,
 		},
-	},
-	tweet_revision_edges: {
-		exportSql: `
-      select older_revision_id, newer_revision_id, source, observed_at
-      from tweet_revision_edges
-      order by older_revision_id, newer_revision_id
-    `,
-		...fixedShard("data/tweet_revision_edges.jsonl", "tweet_revision_edges"),
+		orderBy: "root_tweet_id, revision_index, revision_id",
+		...fixedShard("data/tweet_revisions.jsonl", "tweet_revisions"),
 		merge: {
-			order: 13,
-			sql: `
-      insert into tweet_revision_edges (
-        older_revision_id, newer_revision_id, source, observed_at
-      ) values (?, ?, ?, ?)
-      on conflict(older_revision_id, newer_revision_id) do update set
-        source = case
+			order: 12,
+			transform: sanitizeImportedTweetRevisions,
+			conflictKey: "(revision_id)",
+		},
+	}),
+	tweet_revision_edges: defineTable("tweet_revision_edges", {
+		columns: {
+			older_revision_id: null,
+			newer_revision_id: null,
+			source: `case
           when excluded.observed_at > tweet_revision_edges.observed_at
             then excluded.source
           when excluded.observed_at = tweet_revision_edges.observed_at then case
@@ -665,170 +546,131 @@ const definitions = {
             else min(tweet_revision_edges.source, excluded.source)
           end
           else tweet_revision_edges.source
-        end,
-        observed_at = max(tweet_revision_edges.observed_at, excluded.observed_at)
-      `,
-			columns: [
-				"older_revision_id",
-				"newer_revision_id",
-				"source",
-				"observed_at",
-			],
+        end`,
+			observed_at: maximum,
 		},
-	},
-	tweet_subordinate_tombstones: {
-		exportSql: `
-      select tweet_id, kind, subordinate_id, deleted_at, deletion_source, deletion_reason
-      from tweet_subordinate_tombstones
-      order by tweet_id, kind, subordinate_id
-    `,
+		orderBy: "older_revision_id, newer_revision_id",
+		...fixedShard("data/tweet_revision_edges.jsonl", "tweet_revision_edges"),
+		merge: {
+			order: 13,
+			conflictKey: "(older_revision_id, newer_revision_id)",
+		},
+	}),
+	tweet_subordinate_tombstones: defineTable("tweet_subordinate_tombstones", {
+		columns: {
+			tweet_id: null,
+			kind: null,
+			subordinate_id: null,
+			deleted_at: minimum,
+			deletion_source: `case
+		  when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
+		    then excluded.deletion_source
+		  when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
+		    then coalesce(tweet_subordinate_tombstones.deletion_source, excluded.deletion_source)
+		  else tweet_subordinate_tombstones.deletion_source
+		end`,
+			deletion_reason: `case
+		  when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
+		    then excluded.deletion_reason
+		  when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
+		    then coalesce(tweet_subordinate_tombstones.deletion_reason, excluded.deletion_reason)
+		  else tweet_subordinate_tombstones.deletion_reason
+		end`,
+		},
+		orderBy: "tweet_id, kind, subordinate_id",
 		...fixedShard(
 			"data/tweet_subordinate_tombstones.jsonl",
 			"tweet_subordinate_tombstones",
 		),
 		merge: {
 			order: 14,
-			sql: `
-      insert into tweet_subordinate_tombstones (
-        tweet_id, kind, subordinate_id, deleted_at, deletion_source, deletion_reason
-      ) values (?, ?, ?, ?, ?, ?)
-      on conflict(tweet_id, kind, subordinate_id) do update set
-		deleted_at = min(tweet_subordinate_tombstones.deleted_at, excluded.deleted_at),
-		deletion_source = case
-		  when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
-		    then excluded.deletion_source
-		  when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
-		    then coalesce(tweet_subordinate_tombstones.deletion_source, excluded.deletion_source)
-		  else tweet_subordinate_tombstones.deletion_source
-		end,
-		deletion_reason = case
-		  when excluded.deleted_at < tweet_subordinate_tombstones.deleted_at
-		    then excluded.deletion_reason
-		  when excluded.deleted_at = tweet_subordinate_tombstones.deleted_at
-		    then coalesce(tweet_subordinate_tombstones.deletion_reason, excluded.deletion_reason)
-		  else tweet_subordinate_tombstones.deletion_reason
-		end
-      `,
-			columns: [
-				"tweet_id",
-				"kind",
-				"subordinate_id",
-				"deleted_at",
-				"deletion_source",
-				"deletion_reason",
-			],
+			conflictKey: "(tweet_id, kind, subordinate_id)",
 		},
-	},
-	tweet_sources: {
-		exportSql: `
-      select tweet_id, source, source_url, observed_at
-      from tweet_sources
-      order by tweet_id, source
-    `,
+	}),
+	tweet_sources: defineTable("tweet_sources", {
+		columns: {
+			tweet_id: null,
+			source: null,
+			source_url: `case
+          when excluded.observed_at >= tweet_sources.observed_at then excluded.source_url
+          else tweet_sources.source_url
+        end`,
+			observed_at: maximum,
+		},
+		orderBy: "tweet_id, source",
 		...fixedShard("data/tweet_sources.jsonl", "tweet_sources"),
 		merge: {
 			order: 15,
-			sql: `
-      insert into tweet_sources (tweet_id, source, source_url, observed_at)
-      values (?, ?, ?, ?)
-      on conflict(tweet_id, source) do update set
-        source_url = case
-          when excluded.observed_at >= tweet_sources.observed_at then excluded.source_url
-          else tweet_sources.source_url
-        end,
-        observed_at = max(tweet_sources.observed_at, excluded.observed_at)
-      `,
-			columns: ["tweet_id", "source", "source_url", "observed_at"],
+			conflictKey: "(tweet_id, source)",
 		},
-	},
-	fxtwitter_fetches: {
-		exportSql: `
-      select id, endpoint_family, request_key, source_url, retrieved_at,
-        collection_state, partial_reasons_json, pages_fetched, items_observed,
-        terminal_cursor, next_cursor, upstream_count, failure_json
-      from fxtwitter_fetches
-      order by retrieved_at, id
-    `,
+	}),
+	fxtwitter_fetches: defineTable("fxtwitter_fetches", {
+		columns: {
+			id: null,
+			endpoint_family: null,
+			request_key: null,
+			source_url: null,
+			retrieved_at: null,
+			collection_state: null,
+			partial_reasons_json: null,
+			pages_fetched: null,
+			items_observed: null,
+			terminal_cursor: null,
+			next_cursor: null,
+			upstream_count: null,
+			failure_json: null,
+		},
+		orderBy: "retrieved_at, id",
 		...fixedShard("data/fxtwitter/fetches.jsonl", "fxtwitter_fetches"),
 		merge: {
 			order: 26,
-			sql: `
-      insert into fxtwitter_fetches (
-        id, endpoint_family, request_key, source_url, retrieved_at,
-        collection_state, partial_reasons_json, pages_fetched, items_observed,
-        terminal_cursor, next_cursor, upstream_count, failure_json
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(id) do nothing
-      `,
-			columns: [
-				"id",
-				"endpoint_family",
-				"request_key",
-				"source_url",
-				"retrieved_at",
-				"collection_state",
-				"partial_reasons_json",
-				"pages_fetched",
-				"items_observed",
-				"terminal_cursor",
-				"next_cursor",
-				"upstream_count",
-				"failure_json",
-			],
+			conflictKey: "(id)",
 		},
-	},
-	fxtwitter_observations: {
-		exportSql: `
-      select endpoint_family, request_key, item_kind, item_id, source_url,
-        first_seen_at, last_seen_at, seen_count, last_fetch_id
-      from fxtwitter_observations
-      order by endpoint_family, request_key, item_kind, item_id
-    `,
+	}),
+	fxtwitter_observations: defineTable("fxtwitter_observations", {
+		columns: {
+			endpoint_family: null,
+			request_key: null,
+			item_kind: null,
+			item_id: null,
+			source_url: `case
+          when excluded.last_seen_at >= fxtwitter_observations.last_seen_at
+            then excluded.source_url
+          else fxtwitter_observations.source_url
+        end`,
+			first_seen_at: minimum,
+			last_seen_at: maximum,
+			seen_count: maximum,
+			last_fetch_id: `case
+          when excluded.last_seen_at >= fxtwitter_observations.last_seen_at
+            then excluded.last_fetch_id
+          else fxtwitter_observations.last_fetch_id
+        end`,
+		},
+		orderBy: "endpoint_family, request_key, item_kind, item_id",
 		...fixedShard(
 			"data/fxtwitter/observations.jsonl",
 			"fxtwitter_observations",
 		),
 		merge: {
 			order: 27,
-			sql: `
-      insert into fxtwitter_observations (
-        endpoint_family, request_key, item_kind, item_id, source_url,
-        first_seen_at, last_seen_at, seen_count, last_fetch_id
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(endpoint_family, request_key, item_kind, item_id) do update set
-        source_url = case
-          when excluded.last_seen_at >= fxtwitter_observations.last_seen_at
-            then excluded.source_url
-          else fxtwitter_observations.source_url
-        end,
-        first_seen_at = min(fxtwitter_observations.first_seen_at, excluded.first_seen_at),
-        last_seen_at = max(fxtwitter_observations.last_seen_at, excluded.last_seen_at),
-        seen_count = max(fxtwitter_observations.seen_count, excluded.seen_count),
-        last_fetch_id = case
-          when excluded.last_seen_at >= fxtwitter_observations.last_seen_at
-            then excluded.last_fetch_id
-          else fxtwitter_observations.last_fetch_id
-        end
-      `,
-			columns: [
-				"endpoint_family",
-				"request_key",
-				"item_kind",
-				"item_id",
-				"source_url",
-				"first_seen_at",
-				"last_seen_at",
-				"seen_count",
-				"last_fetch_id",
-			],
+			conflictKey: "(endpoint_family, request_key, item_kind, item_id)",
 		},
-	},
-	tweet_collections: {
-		exportSql: `
-      select account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
-      from tweet_collections
-      order by kind, account_id, coalesce(collected_at, ''), tweet_id
-    `,
+	}),
+	tweet_collections: defineTable("tweet_collections", {
+		columns: {
+			account_id: null,
+			tweet_id: null,
+			kind: null,
+			collected_at: `coalesce(tweet_collections.collected_at, excluded.collected_at)`,
+			source: incomingNonEmpty,
+			raw_json: `case
+          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
+          else tweet_collections.raw_json
+        end`,
+			updated_at: maximum,
+		},
+		orderBy: "kind, account_id, coalesce(collected_at, ''), tweet_id",
 		shardPath: (row) => {
 			const kind =
 				row.kind === "likes" || row.kind === "bookmarks" ? row.kind : "unknown";
@@ -839,37 +681,25 @@ const definitions = {
 			`collections_${pathLeaf(candidate).replace(/\.jsonl$/, "") || "unknown"}`,
 		merge: {
 			order: 16,
-			sql: `
-      insert into tweet_collections (
-        account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?)
-      on conflict(account_id, tweet_id, kind) do update set
-        collected_at = coalesce(tweet_collections.collected_at, excluded.collected_at),
-        source = coalesce(nullif(excluded.source, ''), tweet_collections.source),
-        raw_json = case
-          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
-          else tweet_collections.raw_json
-        end,
-        updated_at = max(tweet_collections.updated_at, excluded.updated_at)
-      `,
-			columns: [
-				"account_id",
-				"tweet_id",
-				"kind",
-				"collected_at",
-				"source",
-				"raw_json",
-				"updated_at",
-			],
+			conflictKey: "(account_id, tweet_id, kind)",
 		},
-	},
-	tweet_account_edges: {
-		exportSql: `
-      select account_id, tweet_id, kind, first_seen_at, last_seen_at,
-        seen_count, source, raw_json, updated_at
-      from tweet_account_edges
-      order by kind, account_id, last_seen_at, tweet_id
-    `,
+	}),
+	tweet_account_edges: defineTable("tweet_account_edges", {
+		columns: {
+			account_id: null,
+			tweet_id: null,
+			kind: null,
+			first_seen_at: minimum,
+			last_seen_at: maximum,
+			seen_count: maximum,
+			source: incomingNonEmpty,
+			raw_json: `case
+          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
+          else tweet_account_edges.raw_json
+        end`,
+			updated_at: maximum,
+		},
+		orderBy: "kind, account_id, last_seen_at, tweet_id",
 		shardPath: (row) => {
 			const kind =
 				row.kind === "home" ||
@@ -885,81 +715,49 @@ const definitions = {
 			`timeline_edges_${pathLeaf(candidate).replace(/\.jsonl$/, "") || "unknown"}`,
 		merge: {
 			order: 17,
-			sql: `
-      insert into tweet_account_edges (
-        account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
-        source, raw_json, updated_at
-      ) values (?, ?, ?, ?, ?, coalesce(?, 1), coalesce(?, 'backup'), coalesce(?, '{}'), ?)
-      on conflict(account_id, tweet_id, kind) do update set
-        first_seen_at = min(tweet_account_edges.first_seen_at, excluded.first_seen_at),
-        last_seen_at = max(tweet_account_edges.last_seen_at, excluded.last_seen_at),
-        seen_count = max(tweet_account_edges.seen_count, excluded.seen_count),
-        source = coalesce(nullif(excluded.source, ''), tweet_account_edges.source),
-        raw_json = case
-          when excluded.raw_json not in ('', '{}', 'null') then excluded.raw_json
-          else tweet_account_edges.raw_json
-        end,
-        updated_at = max(tweet_account_edges.updated_at, excluded.updated_at)
-      `,
-			columns: [
-				"account_id",
-				"tweet_id",
-				"kind",
-				"first_seen_at",
-				"last_seen_at",
-				"seen_count",
-				"source",
-				"raw_json",
-				"updated_at",
-			],
+			values: {
+				seen_count: "coalesce(?, 1)",
+				source: "coalesce(?, 'backup')",
+				raw_json: "coalesce(?, '{}')",
+			},
+			conflictKey: "(account_id, tweet_id, kind)",
 		},
-	},
-	dm_conversations: {
-		exportSql: `
-      select id, account_id, participant_profile_id, title, inbox_kind,
-        last_message_at, unread_count, needs_reply
-      from dm_conversations
-      order by last_message_at, id
-    `,
-		...fixedShard("data/dms/conversations.jsonl", "dm_conversations"),
-		merge: {
-			order: 18,
-			sql: `
-      insert into dm_conversations (
-        id, account_id, participant_profile_id, title, inbox_kind, last_message_at, unread_count, needs_reply
-      ) values (?, ?, ?, ?, coalesce(?, 'accepted'), ?, ?, ?)
-      on conflict(id) do update set
-        account_id = coalesce(nullif(excluded.account_id, ''), dm_conversations.account_id),
-        participant_profile_id = coalesce(nullif(excluded.participant_profile_id, ''), dm_conversations.participant_profile_id),
-        title = coalesce(nullif(excluded.title, ''), dm_conversations.title),
-        inbox_kind = case
+	}),
+	dm_conversations: defineTable("dm_conversations", {
+		columns: {
+			id: null,
+			account_id: incomingNonEmpty,
+			participant_profile_id: incomingNonEmpty,
+			title: incomingNonEmpty,
+			inbox_kind: `case
           when excluded.last_message_at > dm_conversations.last_message_at
             then coalesce(nullif(excluded.inbox_kind, ''), dm_conversations.inbox_kind)
           else dm_conversations.inbox_kind
-        end,
-        last_message_at = max(dm_conversations.last_message_at, excluded.last_message_at),
-        unread_count = max(dm_conversations.unread_count, excluded.unread_count),
-        needs_reply = max(dm_conversations.needs_reply, excluded.needs_reply)
-      `,
-			columns: [
-				"id",
-				"account_id",
-				"participant_profile_id",
-				"title",
-				"inbox_kind",
-				"last_message_at",
-				"unread_count",
-				"needs_reply",
-			],
+        end`,
+			last_message_at: maximum,
+			unread_count: maximum,
+			needs_reply: maximum,
 		},
-	},
-	dm_messages: {
-		exportSql: `
-      select id, conversation_id, sender_profile_id, text, created_at, direction,
-        is_replied, media_count
-      from dm_messages
-      order by conversation_id, created_at, id
-    `,
+		orderBy: "last_message_at, id",
+		...fixedShard("data/dms/conversations.jsonl", "dm_conversations"),
+		merge: {
+			order: 18,
+			values: { inbox_kind: "coalesce(?, 'accepted')" },
+			conflictKey: "(id)",
+		},
+	}),
+	dm_messages: defineTable("dm_messages", {
+		columns: {
+			id: null,
+			conversation_id: incomingNonEmpty,
+			sender_profile_id: incomingNonEmpty,
+			text: incomingNonEmpty,
+			created_at: minimum,
+			direction: incomingNonEmpty,
+			is_replied: maximum,
+			media_count: maximum,
+		},
+		orderBy: "conversation_id, created_at, id",
 		shardPath: (row) => `data/dms/${yearFromTimestamp(row.created_at)}.jsonl`,
 		matchesPath: (candidate) =>
 			candidate.startsWith("data/dms/") &&
@@ -967,355 +765,203 @@ const definitions = {
 		countKey: () => "dm_messages",
 		merge: {
 			order: 19,
-			sql: `
-      insert into dm_messages (
-        id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count
-      ) values (?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(id) do update set
-        conversation_id = coalesce(nullif(excluded.conversation_id, ''), dm_messages.conversation_id),
-        sender_profile_id = coalesce(nullif(excluded.sender_profile_id, ''), dm_messages.sender_profile_id),
-        text = coalesce(nullif(excluded.text, ''), dm_messages.text),
-        created_at = min(dm_messages.created_at, excluded.created_at),
-        direction = coalesce(nullif(excluded.direction, ''), dm_messages.direction),
-        is_replied = max(dm_messages.is_replied, excluded.is_replied),
-        media_count = max(dm_messages.media_count, excluded.media_count)
-      `,
-			columns: [
-				"id",
-				"conversation_id",
-				"sender_profile_id",
-				"text",
-				"created_at",
-				"direction",
-				"is_replied",
-				"media_count",
-			],
 			fts: {
 				target: { table: "dm_fts", idColumn: "message_id" },
 				idKey: "id",
 				textKey: "text",
 			},
+			conflictKey: "(id)",
 		},
-	},
-	url_expansions: {
-		exportSql: `
-      select short_url, expanded_url, final_url, status, expanded_tweet_id,
-        expanded_handle, title, description, image_url, site_name, error,
-        source, updated_at
-      from url_expansions
-      order by short_url
-    `,
+	}),
+	url_expansions: defineTable("url_expansions", {
+		columns: {
+			short_url: null,
+			expanded_url: incoming,
+			final_url: incoming,
+			status: incoming,
+			expanded_tweet_id: incoming,
+			expanded_handle: incoming,
+			title: incoming,
+			description: incoming,
+			image_url: incoming,
+			site_name: incoming,
+			error: incoming,
+			source: incoming,
+			updated_at: incoming,
+		},
+		orderBy: "short_url",
 		...fixedShard("data/links/url_expansions.jsonl", "url_expansions"),
 		merge: {
 			order: 20,
 			transform: sanitizeImportedUrlExpansions,
-			sql: `
-      insert into url_expansions (
-        short_url, expanded_url, final_url, status, expanded_tweet_id,
-        expanded_handle, title, description, image_url, site_name, error, source,
-        updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(short_url) do update set
-        expanded_url = excluded.expanded_url,
-        final_url = excluded.final_url,
-        status = excluded.status,
-        expanded_tweet_id = excluded.expanded_tweet_id,
-        expanded_handle = excluded.expanded_handle,
-        title = excluded.title,
-        description = excluded.description,
-        image_url = excluded.image_url,
-        site_name = excluded.site_name,
-        error = excluded.error,
-        source = excluded.source,
-        updated_at = excluded.updated_at
-      `,
-			columns: [
-				"short_url",
-				"expanded_url",
-				"final_url",
-				"status",
-				"expanded_tweet_id",
-				"expanded_handle",
-				"title",
-				"description",
-				"image_url",
-				"site_name",
-				"error",
-				"source",
-				"updated_at",
-			],
+			conflictKey: "(short_url)",
 		},
-	},
-	link_occurrences: {
-		exportSql: `
-      select source_kind, source_id, source_position, short_url, account_id,
-        conversation_id, direction, created_at
-      from link_occurrences
-      order by source_kind, source_id, source_position, short_url
-    `,
+	}),
+	link_occurrences: defineTable("link_occurrences", {
+		columns: {
+			source_kind: null,
+			source_id: null,
+			source_position: null,
+			short_url: null,
+			account_id: incoming,
+			conversation_id: incoming,
+			direction: incoming,
+			created_at: incoming,
+		},
+		orderBy: "source_kind, source_id, source_position, short_url",
 		...fixedShard("data/links/occurrences.jsonl", "link_occurrences"),
 		merge: {
 			order: 21,
-			sql: `
-      insert into link_occurrences (
-        source_kind, source_id, source_position, short_url, account_id,
-        conversation_id, direction, created_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(source_kind, source_id, source_position, short_url) do update set
-        account_id = excluded.account_id,
-        conversation_id = excluded.conversation_id,
-        direction = excluded.direction,
-        created_at = excluded.created_at
-      `,
-			columns: [
-				"source_kind",
-				"source_id",
-				"source_position",
-				"short_url",
-				"account_id",
-				"conversation_id",
-				"direction",
-				"created_at",
-			],
+			conflictKey: "(source_kind, source_id, source_position, short_url)",
 		},
-	},
-	blocks: {
-		exportSql: `
-      select account_id, profile_id, source, created_at
-      from blocks
-      order by account_id, profile_id
-    `,
+	}),
+	blocks: defineTable("blocks", {
+		columns: {
+			account_id: null,
+			profile_id: null,
+			source: incomingNonEmpty,
+			created_at: minimum,
+		},
+		orderBy: "account_id, profile_id",
 		...fixedShard("data/moderation/blocks.jsonl", "blocks"),
 		merge: {
 			order: 22,
-			sql: `
-      insert into blocks (account_id, profile_id, source, created_at)
-      values (?, ?, ?, ?)
-      on conflict(account_id, profile_id) do update set
-        source = coalesce(nullif(excluded.source, ''), blocks.source),
-        created_at = min(blocks.created_at, excluded.created_at)
-      `,
-			columns: ["account_id", "profile_id", "source", "created_at"],
+			conflictKey: "(account_id, profile_id)",
 		},
-	},
-	mutes: {
-		exportSql: `
-      select account_id, profile_id, source, created_at
-      from mutes
-      order by account_id, profile_id
-    `,
+	}),
+	mutes: defineTable("mutes", {
+		columns: {
+			account_id: null,
+			profile_id: null,
+			source: incomingNonEmpty,
+			created_at: minimum,
+		},
+		orderBy: "account_id, profile_id",
 		...fixedShard("data/moderation/mutes.jsonl", "mutes"),
 		merge: {
 			order: 23,
-			sql: `
-      insert into mutes (account_id, profile_id, source, created_at)
-      values (?, ?, ?, ?)
-      on conflict(account_id, profile_id) do update set
-        source = coalesce(nullif(excluded.source, ''), mutes.source),
-        created_at = min(mutes.created_at, excluded.created_at)
-      `,
-			columns: ["account_id", "profile_id", "source", "created_at"],
+			conflictKey: "(account_id, profile_id)",
 		},
-	},
-	tweet_actions: {
-		exportSql: `
-      select id, account_id, tweet_id, kind, body, created_at
-      from tweet_actions
-      order by created_at, id
-    `,
+	}),
+	tweet_actions: defineTable("tweet_actions", {
+		columns: {
+			id: null,
+			account_id: incomingNonEmpty,
+			tweet_id: incomingNonNull,
+			kind: incomingNonEmpty,
+			body: incomingNonEmpty,
+			created_at: minimum,
+		},
+		orderBy: "created_at, id",
 		...fixedShard("data/actions/tweet_actions.jsonl", "tweet_actions"),
 		merge: {
 			order: 24,
-			sql: `
-      insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at)
-      values (?, ?, ?, ?, ?, ?)
-      on conflict(id) do update set
-        account_id = coalesce(nullif(excluded.account_id, ''), tweet_actions.account_id),
-        tweet_id = coalesce(excluded.tweet_id, tweet_actions.tweet_id),
-        kind = coalesce(nullif(excluded.kind, ''), tweet_actions.kind),
-        body = coalesce(nullif(excluded.body, ''), tweet_actions.body),
-        created_at = min(tweet_actions.created_at, excluded.created_at)
-      `,
-			columns: ["id", "account_id", "tweet_id", "kind", "body", "created_at"],
+			conflictKey: "(id)",
 		},
-	},
-	ai_scores: {
-		exportSql: `
-      select entity_kind, entity_id, model, score, summary, reasoning, updated_at
-      from ai_scores
-      order by entity_kind, entity_id, model
-    `,
+	}),
+	ai_scores: defineTable("ai_scores", {
+		columns: {
+			entity_kind: null,
+			entity_id: null,
+			model: incomingNonEmpty,
+			score: maximum,
+			summary: incomingNonEmpty,
+			reasoning: incomingNonEmpty,
+			updated_at: maximum,
+		},
+		orderBy: "entity_kind, entity_id, model",
 		...fixedShard("data/ai_scores.jsonl", "ai_scores"),
 		merge: {
 			order: 25,
-			sql: `
-      insert into ai_scores (
-        entity_kind, entity_id, model, score, summary, reasoning, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?)
-      on conflict(entity_kind, entity_id) do update set
-        model = coalesce(nullif(excluded.model, ''), ai_scores.model),
-        score = max(ai_scores.score, excluded.score),
-        summary = coalesce(nullif(excluded.summary, ''), ai_scores.summary),
-        reasoning = coalesce(nullif(excluded.reasoning, ''), ai_scores.reasoning),
-        updated_at = max(ai_scores.updated_at, excluded.updated_at)
-      `,
-			columns: [
-				"entity_kind",
-				"entity_id",
-				"model",
-				"score",
-				"summary",
-				"reasoning",
-				"updated_at",
-			],
+			conflictKey: "(entity_kind, entity_id)",
 		},
-	},
-	follow_snapshots: {
-		exportSql: `
-      select id, account_id, direction, source, status, page_count,
-        result_count, started_at, completed_at, raw_meta_json
-      from follow_snapshots
-      order by account_id, direction, completed_at, id
-    `,
+	}),
+	follow_snapshots: defineTable("follow_snapshots", {
+		columns: {
+			id: null,
+			account_id: incomingNonEmpty,
+			direction: incomingNonEmpty,
+			source: incomingNonEmpty,
+			status: incomingNonEmpty,
+			page_count: maximum,
+			result_count: maximum,
+			started_at: minimum,
+			completed_at: maximum,
+			raw_meta_json: `case
+          when excluded.raw_meta_json not in ('', '{}', 'null') then excluded.raw_meta_json
+          else follow_snapshots.raw_meta_json
+        end`,
+		},
+		orderBy: "account_id, direction, completed_at, id",
 		...fixedShard("data/follow_snapshots.jsonl", "follow_snapshots"),
 		merge: {
 			order: 5,
-			sql: `
-      insert into follow_snapshots (
-        id, account_id, direction, source, status, page_count, result_count,
-        started_at, completed_at, raw_meta_json
-      ) values (?, ?, ?, coalesce(?, 'backup'), ?, coalesce(?, 0), coalesce(?, 0), ?, ?, coalesce(?, '{}'))
-      on conflict(id) do update set
-        account_id = coalesce(nullif(excluded.account_id, ''), follow_snapshots.account_id),
-        direction = coalesce(nullif(excluded.direction, ''), follow_snapshots.direction),
-        source = coalesce(nullif(excluded.source, ''), follow_snapshots.source),
-        status = coalesce(nullif(excluded.status, ''), follow_snapshots.status),
-        page_count = max(follow_snapshots.page_count, excluded.page_count),
-        result_count = max(follow_snapshots.result_count, excluded.result_count),
-        started_at = min(follow_snapshots.started_at, excluded.started_at),
-        completed_at = max(follow_snapshots.completed_at, excluded.completed_at),
-        raw_meta_json = case
-          when excluded.raw_meta_json not in ('', '{}', 'null') then excluded.raw_meta_json
-          else follow_snapshots.raw_meta_json
-        end
-      `,
-			columns: [
-				"id",
-				"account_id",
-				"direction",
-				"source",
-				"status",
-				"page_count",
-				"result_count",
-				"started_at",
-				"completed_at",
-				"raw_meta_json",
-			],
+			values: {
+				source: "coalesce(?, 'backup')",
+				page_count: "coalesce(?, 0)",
+				result_count: "coalesce(?, 0)",
+				raw_meta_json: "coalesce(?, '{}')",
+			},
+			conflictKey: "(id)",
 		},
-	},
-	follow_snapshot_members: {
-		exportSql: `
-      select snapshot_id, profile_id, external_user_id, position
-      from follow_snapshot_members
-      order by snapshot_id, position, profile_id
-    `,
+	}),
+	follow_snapshot_members: defineTable("follow_snapshot_members", {
+		columns: {
+			snapshot_id: null,
+			profile_id: null,
+			external_user_id: incomingNonEmpty,
+			position: incoming,
+		},
+		orderBy: "snapshot_id, position, profile_id",
 		...fixedShard(
 			"data/follow_snapshot_members.jsonl",
 			"follow_snapshot_members",
 		),
 		merge: {
 			order: 6,
-			sql: `
-      insert into follow_snapshot_members (
-        snapshot_id, profile_id, external_user_id, position
-      ) values (?, ?, ?, coalesce(?, 0))
-      on conflict(snapshot_id, profile_id) do update set
-        external_user_id = coalesce(nullif(excluded.external_user_id, ''), follow_snapshot_members.external_user_id),
-        position = excluded.position
-      `,
-			columns: ["snapshot_id", "profile_id", "external_user_id", "position"],
+			values: { position: "coalesce(?, 0)" },
+			conflictKey: "(snapshot_id, profile_id)",
 		},
-	},
-	follow_edges: {
-		exportSql: `
-      select account_id, direction, profile_id, external_user_id, source,
-        current, first_seen_at, last_seen_at, ended_at, updated_at
-      from follow_edges
-      order by account_id, direction, profile_id
-    `,
+	}),
+	follow_edges: defineTable("follow_edges", {
+		columns: {
+			account_id: null,
+			direction: null,
+			profile_id: null,
+			external_user_id: incomingNonEmpty,
+			source: incomingNonEmpty,
+			current: newest,
+			first_seen_at: minimum,
+			last_seen_at: maximum,
+			ended_at: newest,
+			updated_at: maximum,
+		},
+		orderBy: "account_id, direction, profile_id",
 		...fixedShard("data/follow_edges.jsonl", "follow_edges"),
 		merge: {
 			order: 7,
-			sql: `
-      insert into follow_edges (
-        account_id, direction, profile_id, external_user_id, source, current,
-        first_seen_at, last_seen_at, ended_at, updated_at
-      ) values (?, ?, ?, ?, coalesce(?, 'backup'), coalesce(?, 1), ?, ?, ?, ?)
-      on conflict(account_id, direction, profile_id) do update set
-        external_user_id = coalesce(nullif(excluded.external_user_id, ''), follow_edges.external_user_id),
-        source = coalesce(nullif(excluded.source, ''), follow_edges.source),
-        current = case
-          when excluded.updated_at >= follow_edges.updated_at then excluded.current
-          else follow_edges.current
-        end,
-        first_seen_at = min(follow_edges.first_seen_at, excluded.first_seen_at),
-        last_seen_at = max(follow_edges.last_seen_at, excluded.last_seen_at),
-        ended_at = case
-          when excluded.updated_at >= follow_edges.updated_at then excluded.ended_at
-          else follow_edges.ended_at
-        end,
-        updated_at = max(follow_edges.updated_at, excluded.updated_at)
-      `,
-			columns: [
-				"account_id",
-				"direction",
-				"profile_id",
-				"external_user_id",
-				"source",
-				"current",
-				"first_seen_at",
-				"last_seen_at",
-				"ended_at",
-				"updated_at",
-			],
+			values: { source: "coalesce(?, 'backup')", current: "coalesce(?, 1)" },
+			conflictKey: "(account_id, direction, profile_id)",
 		},
-	},
-	follow_events: {
-		exportSql: `
-      select id, account_id, direction, profile_id, external_user_id, kind,
-        event_at, snapshot_id
-      from follow_events
-      order by account_id, direction, event_at, kind, profile_id, id
-    `,
+	}),
+	follow_events: defineTable("follow_events", {
+		columns: {
+			id: null,
+			account_id: incomingNonEmpty,
+			direction: incomingNonEmpty,
+			profile_id: incomingNonEmpty,
+			external_user_id: incomingNonEmpty,
+			kind: incomingNonEmpty,
+			event_at: incomingNonEmpty,
+			snapshot_id: incomingNonEmpty,
+		},
+		orderBy: "account_id, direction, event_at, kind, profile_id, id",
 		...fixedShard("data/follow_events.jsonl", "follow_events"),
 		merge: {
 			order: 8,
-			sql: `
-      insert into follow_events (
-        id, account_id, direction, profile_id, external_user_id, kind, event_at,
-        snapshot_id
-      ) values (?, ?, ?, ?, ?, ?, ?, ?)
-      on conflict(id) do update set
-        account_id = coalesce(nullif(excluded.account_id, ''), follow_events.account_id),
-        direction = coalesce(nullif(excluded.direction, ''), follow_events.direction),
-        profile_id = coalesce(nullif(excluded.profile_id, ''), follow_events.profile_id),
-        external_user_id = coalesce(nullif(excluded.external_user_id, ''), follow_events.external_user_id),
-        kind = coalesce(nullif(excluded.kind, ''), follow_events.kind),
-        event_at = coalesce(nullif(excluded.event_at, ''), follow_events.event_at),
-        snapshot_id = coalesce(nullif(excluded.snapshot_id, ''), follow_events.snapshot_id)
-      `,
-			columns: [
-				"id",
-				"account_id",
-				"direction",
-				"profile_id",
-				"external_user_id",
-				"kind",
-				"event_at",
-				"snapshot_id",
-			],
+			conflictKey: "(id)",
 		},
-	},
+	}),
 } as const satisfies Record<string, BackupTableCodecDefinition>;
 
 export type BackupTableName = keyof typeof definitions;

@@ -1,11 +1,19 @@
+import {
+	type AnalysisReport,
+	type AnalysisHandlers,
+	type AnalysisEvent,
+	type AnalysisStatus,
+	cachedAnalysisReport,
+	saveAnalysisReport,
+	emitAnalysisDelta,
+	emitCachedAnalysis,
+} from "./analysis-report";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { z } from "zod";
 import {
 	createAnalysisRequestBody,
 	fitPromptCount,
-	extractOpenAIResponseText,
-	parseHybridAnalysis,
 	requestHybridAnalysisEffect,
 	resolveAnalysisModelSettings,
 } from "./analysis-runtime";
@@ -56,10 +64,8 @@ export interface ProfileAnalysisOptions {
 	signal?: AbortSignal;
 }
 
-export interface ProfileAnalysisStreamHandlers {
-	onDelta?: (delta: string) => void;
-	onEvent?: (event: ProfileAnalysisStreamEvent) => void;
-}
+export type ProfileAnalysisStreamHandlers =
+	AnalysisHandlers<ProfileAnalysisStreamEvent>;
 
 export interface CompactProfileTweet {
 	id: string;
@@ -128,23 +134,15 @@ const ProfileAnalysisSchema = z.object({
 
 export type ProfileAnalysis = z.infer<typeof ProfileAnalysisSchema>;
 
-export interface ProfileAnalysisRunResult {
-	context: ProfileAnalysisContext;
-	analysis: ProfileAnalysis;
-	markdown: string;
-	model: string;
-	reasoningEffort: string;
-	serviceTier: string;
-	cached: boolean;
-	updatedAt: string;
-}
+export type ProfileAnalysisRunResult = AnalysisReport<
+	ProfileAnalysisContext,
+	ProfileAnalysis,
+	"analysis"
+>;
 
 export type ProfileAnalysisStreamEvent =
-	| { type: "status"; label: string; detail?: string }
-	| { type: "start"; context: ProfileAnalysisContext; cached: boolean }
-	| { type: "delta"; delta: string }
-	| { type: "done"; result: ProfileAnalysisRunResult }
-	| { type: "error"; error: string };
+	| AnalysisEvent<ProfileAnalysisRunResult>
+	| AnalysisStatus;
 
 const DEFAULT_MAX_TWEETS = 10_000;
 const DEFAULT_MAX_PAGES = 100;
@@ -909,23 +907,6 @@ function fallbackAnalysis(
 	};
 }
 
-function parseAnalysisFromHybridText(
-	context: ProfileAnalysisContext,
-	rawText: string,
-): { analysis: ProfileAnalysis; markdown: string } {
-	const parsed = parseHybridAnalysis({
-		rawText,
-		parse: (value) => ProfileAnalysisSchema.parse(value),
-		fallback: (markdown) => fallbackAnalysis(context, markdown),
-		delimiterPattern: DELIMITER_PATTERN,
-	});
-	return { markdown: parsed.markdown, analysis: parsed.value };
-}
-
-function extractResponseText(payload: Record<string, unknown>) {
-	return extractOpenAIResponseText(payload);
-}
-
 function createOpenAIRequestBody(
 	context: ProfileAnalysisContext,
 	options: ProfileAnalysisOptions,
@@ -960,20 +941,12 @@ export function streamProfileAnalysisEffect(
 					}>(resultCacheKey(context, options)),
 				);
 		if (cached) {
-			const result: ProfileAnalysisRunResult = yield* trySync(() => ({
-				context,
-				analysis: ProfileAnalysisSchema.parse(cached.value.analysis),
-				markdown: cached.value.markdown,
-				model: cached.value.model,
-				reasoningEffort: cached.value.reasoningEffort,
-				serviceTier: cached.value.serviceTier,
-				cached: true,
-				updatedAt: cached.updatedAt,
-			}));
-			handlers.onEvent?.({ type: "start", context, cached: true });
-			handlers.onDelta?.(result.markdown);
-			handlers.onEvent?.({ type: "delta", delta: result.markdown });
-			handlers.onEvent?.({ type: "done", result });
+			const result = yield* trySync(() =>
+				cachedAnalysisReport(cached, context, "analysis", (value) =>
+					ProfileAnalysisSchema.parse(value),
+				),
+			);
+			emitCachedAnalysis(result, handlers);
 			return result;
 		}
 
@@ -986,27 +959,16 @@ export function streamProfileAnalysisEffect(
 			fallback: (markdown) => fallbackAnalysis(context, markdown),
 			delimiterPattern: DELIMITER_PATTERN,
 		});
-		const updatedAt = yield* trySync(() =>
-			writeSyncCache(resultCacheKey(context, options), {
-				analysis: analysisResponse.value,
-				markdown: analysisResponse.markdown,
-				model: modelFromOptions(options),
-				reasoningEffort: reasoningEffortFromOptions(options),
-				serviceTier: serviceTierFromOptions(options),
-			}),
+		const result = yield* trySync(() =>
+			saveAnalysisReport(
+				resultCacheKey(context, options),
+				context,
+				"analysis",
+				analysisResponse,
+				resolveAnalysisModelSettings(options),
+			),
 		);
-		const result: ProfileAnalysisRunResult = {
-			context,
-			analysis: analysisResponse.value,
-			markdown: analysisResponse.markdown,
-			model: modelFromOptions(options),
-			reasoningEffort: reasoningEffortFromOptions(options),
-			serviceTier: serviceTierFromOptions(options),
-			cached: false,
-			updatedAt,
-		};
-		handlers.onDelta?.(result.markdown);
-		handlers.onEvent?.({ type: "delta", delta: result.markdown });
+		emitAnalysisDelta(handlers, result.markdown);
 		handlers.onEvent?.({ type: "done", result });
 		return result;
 	});
@@ -1022,6 +984,4 @@ export function streamProfileAnalysis(
 export const __test__ = {
 	ProfileAnalysisSchema,
 	buildPrompt,
-	extractResponseText,
-	parseAnalysisFromHybridText,
 };

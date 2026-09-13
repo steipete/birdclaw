@@ -19,9 +19,9 @@ export function registerInboxCommand({
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (options) => {
 			const minScore = parseFiniteNumberOption(options.minScore, "--min-score");
-			if (minScore === undefined) return;
+
 			const limit = parseLimitOption(options.limit, "--limit");
-			if (limit === undefined) return;
+
 			await autoUpdateBeforeRead();
 			const kind =
 				options.kind === "mentions" || options.kind === "dms"

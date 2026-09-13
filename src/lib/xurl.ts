@@ -926,467 +926,261 @@ const resolveUserIdEffect = Effect.fn("xurl.resolveUserId")(function* ({
 	return String(user.id);
 });
 
-export const listMentionsViaXurlEffect = Effect.fn("xurl.listMentions")(
-	function* ({
-		maxResults,
-		username,
-		userId,
-		paginationToken,
-		sinceId,
-		startTime,
-	}: {
-		maxResults: number;
-		username?: string;
-		userId?: string;
-		paginationToken?: string;
-		sinceId?: string;
-		startTime?: string;
-	}) {
-		const resolvedUserId = yield* resolveUserIdEffect({ username, userId });
-		const query = new URLSearchParams({
-			max_results: String(maxResults),
-			expansions: AUTHOR_MEDIA_EXPANSIONS,
-			"tweet.fields":
-				"created_at,conversation_id,entities,note_tweet,public_metrics",
-			"media.fields": MEDIA_FIELDS,
-			"user.fields":
-				"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
-		});
-		if (paginationToken) {
-			query.set("pagination_token", paginationToken);
-		}
-		if (sinceId) {
-			query.set("since_id", sinceId);
-		}
-		if (startTime) {
-			query.set("start_time", startTime);
-		}
+interface PageOptions {
+	maxResults: number;
+	username?: string;
+	userId?: string;
+	paginationToken?: string;
+}
+type QueryParams = Record<string, string | number | undefined>;
 
-		const payload = yield* runOAuth2JsonCommandEffect({
-			args: [`/2/users/${resolvedUserId}/mentions?${query.toString()}`],
-			username,
-		});
-		return toXurlMentionsResponse(payload);
-	},
-);
+function queryArgs(endpoint: string, params: QueryParams) {
+	const query = new URLSearchParams();
+	for (const [key, value] of Object.entries(params)) {
+		if (value !== undefined) query.set(key, String(value));
+	}
+	return [`${endpoint}?${query}`];
+}
 
-export const listHomeTimelineViaXurlEffect = Effect.fn("xurl.listHomeTimeline")(
-	function* ({
-		maxResults,
-		username,
-		userId,
-		paginationToken,
-		timeoutMs,
-	}: {
-		maxResults: number;
-		username?: string;
-		userId?: string;
-		paginationToken?: string;
-		timeoutMs?: number;
-	}) {
-		const resolvedUserId = yield* resolveUserIdEffect({ username, userId });
-		const query = new URLSearchParams({
-			max_results: String(maxResults),
-			expansions: AUTHOR_MEDIA_EXPANSIONS,
-			"tweet.fields":
-				"created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets",
-			"media.fields": MEDIA_FIELDS,
-			"user.fields": RICH_USER_FIELDS,
-		});
-		if (paginationToken) {
-			query.set("pagination_token", paginationToken);
-		}
-
-		const payload = yield* runOAuth2JsonCommandEffect({
-			args: [
-				`/2/users/${resolvedUserId}/timelines/reverse_chronological?${query.toString()}`,
-			],
-			username,
-			options: { timeoutMs },
-		});
-		return toXurlMentionsResponse(payload);
-	},
-);
-
-function toXurlMentionsResponse(
-	payload: Record<string, unknown>,
-): XurlMentionsResponse {
+function tweetQuery(
+	params: QueryParams,
+	fields = "created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets",
+): QueryParams {
 	return {
-		data: Array.isArray(payload.data)
-			? (payload.data as XurlMentionsResponse["data"])
-			: [],
+		...params,
+		expansions: AUTHOR_MEDIA_EXPANSIONS,
+		"tweet.fields": fields,
+		"media.fields": MEDIA_FIELDS,
+		"user.fields": RICH_USER_FIELDS,
+	};
+}
+
+function responsePage<T>(payload: Record<string, unknown>) {
+	return {
+		data: Array.isArray(payload.data) ? (payload.data as T[]) : [],
 		includes:
 			payload.includes && typeof payload.includes === "object"
-				? (payload.includes as XurlMentionsResponse["includes"])
+				? payload.includes
 				: undefined,
 		meta:
 			payload.meta && typeof payload.meta === "object"
-				? (payload.meta as XurlMentionsResponse["meta"])
+				? (payload.meta as Record<string, unknown>)
 				: undefined,
 	};
 }
 
-const listTimelineCollectionViaXurlEffect = Effect.fn(
-	"xurl.listTimelineCollection",
-)(function* ({
-	collection,
-	maxResults,
-	username,
-	userId,
-	isPaginatedWalk = false,
-	paginationToken,
-}: {
-	collection: TimelineCollectionEndpoint;
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	isPaginatedWalk?: boolean;
-	paginationToken?: string;
-}) {
-	const resolvedUserId = yield* resolveUserIdEffect({ username, userId });
-	const requestMaxResults = capTimelineCollectionMaxResults(
-		collection,
-		maxResults,
-		isPaginatedWalk,
-	);
-	const query = new URLSearchParams({
-		max_results: String(requestMaxResults),
-		expansions: AUTHOR_MEDIA_EXPANSIONS,
-		"tweet.fields":
-			"created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets",
-		"media.fields": MEDIA_FIELDS,
-		"user.fields":
-			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
-	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
+function toXurlTweetsResponse(
+	payload: Record<string, unknown>,
+): XurlTweetsResponse {
+	return responsePage<XurlTweetsResponse["data"][number]>(payload);
+}
 
-	const payload = yield* runOAuth2JsonCommandEffect({
-		args: [`/2/users/${resolvedUserId}/${collection}?${query.toString()}`],
-		username,
-	});
-	return toXurlMentionsResponse(payload);
-});
-
-export function listLikedTweetsViaXurlEffect(options: {
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	paginationToken?: string;
-}) {
-	return listTimelineCollectionViaXurlEffect({
-		...options,
-		collection: "liked_tweets",
+function userTweetPageEffect(
+	endpoint: string,
+	options: PageOptions & JsonCommandOptions,
+	params: QueryParams,
+) {
+	return Effect.gen(function* () {
+		const userId = yield* resolveUserIdEffect(options);
+		const payload = yield* runOAuth2JsonCommandEffect({
+			args: queryArgs(`/2/users/${userId}/${endpoint}`, params),
+			username: options.username,
+			options: { timeoutMs: options.timeoutMs },
+		});
+		return toXurlTweetsResponse(payload) as XurlMentionsResponse;
 	});
 }
 
-export function listBookmarkedTweetsViaXurlEffect(options: {
-	maxResults: number;
-	username?: string;
-	userId?: string;
-	isPaginatedWalk?: boolean;
-	paginationToken?: string;
-}) {
-	return listTimelineCollectionViaXurlEffect({
-		...options,
-		collection: "bookmarks",
+export const listMentionsViaXurlEffect = Effect.fn("xurl.listMentions")(
+	(options: PageOptions & { sinceId?: string; startTime?: string }) =>
+		userTweetPageEffect("mentions", options, {
+			...tweetQuery(
+				{ max_results: options.maxResults },
+				"created_at,conversation_id,entities,note_tweet,public_metrics",
+			),
+			pagination_token: options.paginationToken || undefined,
+			since_id: options.sinceId || undefined,
+			start_time: options.startTime || undefined,
+		}),
+);
+
+export const listHomeTimelineViaXurlEffect = Effect.fn("xurl.listHomeTimeline")(
+	(options: PageOptions & { timeoutMs?: number }) =>
+		userTweetPageEffect("timelines/reverse_chronological", options, {
+			...tweetQuery({ max_results: options.maxResults }),
+			pagination_token: options.paginationToken || undefined,
+		}),
+);
+
+function listTimelineCollectionViaXurlEffect(
+	collection: TimelineCollectionEndpoint,
+	options: PageOptions & { isPaginatedWalk?: boolean },
+) {
+	return userTweetPageEffect(collection, options, {
+		...tweetQuery({
+			max_results: capTimelineCollectionMaxResults(
+				collection,
+				options.maxResults,
+				options.isPaginatedWalk ?? false,
+			),
+		}),
+		pagination_token: options.paginationToken || undefined,
 	});
 }
 
-export function listDirectMessageEventsViaXurlEffect({
-	maxResults,
-	username,
-	paginationToken,
-}: {
-	maxResults: number;
-	username?: string;
-	paginationToken?: string;
-}): Effect.Effect<XurlDmEventsResponse, Error> {
-	const query = new URLSearchParams({
-		max_results: String(maxResults),
-		event_types: "MessageCreate",
-		"dm_event.fields": DM_EVENT_FIELDS,
-		expansions: "sender_id,participant_ids",
-		"user.fields": RICH_USER_FIELDS,
-	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
+export function listLikedTweetsViaXurlEffect(options: PageOptions) {
+	return listTimelineCollectionViaXurlEffect("liked_tweets", options);
+}
 
+export function listBookmarkedTweetsViaXurlEffect(
+	options: PageOptions & { isPaginatedWalk?: boolean },
+) {
+	return listTimelineCollectionViaXurlEffect("bookmarks", options);
+}
+
+export function listDirectMessageEventsViaXurlEffect(
+	options: PageOptions,
+): Effect.Effect<XurlDmEventsResponse, Error> {
 	return runOAuth2JsonCommandEffect({
-		args: [`/2/dm_events?${query.toString()}`],
-		username,
-	}).pipe(
-		Effect.map((payload) => ({
-			data: Array.isArray(payload.data)
-				? (payload.data as XurlDmEventsResponse["data"])
-				: [],
-			includes:
-				payload.includes && typeof payload.includes === "object"
-					? (payload.includes as XurlDmEventsResponse["includes"])
-					: undefined,
-			meta:
-				payload.meta && typeof payload.meta === "object"
-					? (payload.meta as Record<string, unknown>)
-					: undefined,
-		})),
-	);
+		args: queryArgs("/2/dm_events", {
+			max_results: options.maxResults,
+			event_types: "MessageCreate",
+			"dm_event.fields": DM_EVENT_FIELDS,
+			expansions: "sender_id,participant_ids",
+			"user.fields": RICH_USER_FIELDS,
+			pagination_token: options.paginationToken || undefined,
+		}),
+		username: options.username,
+	}).pipe(Effect.map(responsePage<XurlDmEventsResponse["data"][number]>));
 }
 
 export const listFollowUsersViaXurlEffect = Effect.fn("xurl.listFollowUsers")(
-	function* ({
-		direction,
-		maxResults,
-		username,
-		userId,
-		paginationToken,
-	}: {
-		direction: FollowDirection;
-		maxResults: number;
-		username?: string;
-		userId?: string;
-		paginationToken?: string;
-	}) {
-		const resolvedUserId = yield* resolveUserIdEffect({ username, userId });
-		const query = new URLSearchParams({
-			max_results: String(maxResults),
-			"user.fields":
-				"id,username,name,description,verified,protected,public_metrics,profile_image_url,created_at",
-		});
-		if (paginationToken) {
-			query.set("pagination_token", paginationToken);
-		}
-
+	function* (options: PageOptions & { direction: FollowDirection }) {
+		const userId = yield* resolveUserIdEffect(options);
 		const payload = yield* runOAuth2JsonCommandEffect({
-			args: [`/2/users/${resolvedUserId}/${direction}?${query.toString()}`],
-			username,
+			args: queryArgs(`/2/users/${userId}/${options.direction}`, {
+				max_results: options.maxResults,
+				"user.fields":
+					"id,username,name,description,verified,protected,public_metrics,profile_image_url,created_at",
+				pagination_token: options.paginationToken || undefined,
+			}),
+			username: options.username,
 		});
-		return {
-			data: Array.isArray(payload.data)
-				? (payload.data as XurlMentionUser[])
-				: [],
-			meta:
-				payload.meta && typeof payload.meta === "object"
-					? (payload.meta as Record<string, unknown>)
-					: undefined,
-		};
+		const { data, meta } = responsePage<XurlMentionUser>(payload);
+		return { data, meta };
 	},
 );
 
-export const listBlockedUsersEffect = Effect.fn("xurl.listBlockedUsers")((
-	userId: string,
-	paginationToken?: string,
-): Effect.Effect<
-	{ items: XurlMentionUser[]; nextToken: string | null },
-	XurlCommandError
-> => {
-	const query = new URLSearchParams({
-		max_results: "100",
-		"user.fields":
-			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
-	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
+function nextToken(meta: Record<string, unknown> | undefined) {
+	return typeof meta?.next_token === "string" ? meta.next_token : null;
+}
 
-	return runJsonCommandEffect([`/2/users/${userId}/blocking?${query}`]).pipe(
-		Effect.map((payload) => {
-			const data = Array.isArray(payload.data)
-				? (payload.data as XurlMentionUser[])
-				: [];
-			const meta =
-				payload.meta && typeof payload.meta === "object"
-					? (payload.meta as Record<string, unknown>)
-					: null;
+export const listBlockedUsersEffect = Effect.fn("xurl.listBlockedUsers")(
+	(userId: string, paginationToken?: string) =>
+		runJsonCommandEffect(
+			queryArgs(`/2/users/${userId}/blocking`, {
+				max_results: "100",
+				"user.fields": RICH_USER_FIELDS,
+				pagination_token: paginationToken || undefined,
+			}),
+		).pipe(
+			Effect.map((payload) => {
+				const { data, meta } = responsePage<XurlMentionUser>(payload);
+				return { items: data, nextToken: nextToken(meta) };
+			}),
+		),
+);
 
-			return {
-				items: data,
-				nextToken:
-					typeof meta?.next_token === "string" ? String(meta.next_token) : null,
-			};
-		}),
-	);
-});
+interface UserTweetsOptions extends PageOptions {
+	excludeRetweets?: boolean;
+	sinceId?: string;
+	untilId?: string;
+	tweetFields?: string[];
+	expansions?: string[];
+	userFields?: string[];
+	mediaFields?: string[];
+	auth?: "oauth2";
+	signal?: AbortSignal;
+	onAttempt?: JsonCommandOptions["onAttempt"];
+	useConfiguredCandidate?: boolean;
+}
 
 export const listUserTweetsEffect = Effect.fn("xurl.listUserTweets")((
 	userId: string,
-	{
-		maxResults,
-		paginationToken,
-		excludeRetweets = true,
-		sinceId,
-		untilId,
-		tweetFields,
-		expansions,
-		userFields,
-		mediaFields,
-		auth,
-		username,
-		signal,
-		onAttempt,
-		useConfiguredCandidate,
-	}: {
-		maxResults: number;
-		paginationToken?: string;
-		excludeRetweets?: boolean;
-		sinceId?: string;
-		untilId?: string;
-		tweetFields?: string[];
-		expansions?: string[];
-		userFields?: string[];
-		mediaFields?: string[];
-		auth?: "oauth2";
-		username?: string;
-		signal?: AbortSignal;
-		onAttempt?: JsonCommandOptions["onAttempt"];
-		useConfiguredCandidate?: boolean;
-	},
+	options: UserTweetsOptions,
 ): Effect.Effect<XurlUserTweetsResponse, Error> => {
-	const query = new URLSearchParams({
-		max_results: String(maxResults),
-		expansions: MEDIA_EXPANSION,
+	const { signal, onAttempt } = options;
+	const args = queryArgs(`/2/users/${userId}/tweets`, {
+		max_results: options.maxResults,
+		expansions: options.expansions?.length
+			? options.expansions.join(",")
+			: MEDIA_EXPANSION,
 		"tweet.fields":
-			tweetFields?.join(",") ??
+			options.tweetFields?.join(",") ??
 			"created_at,conversation_id,note_tweet,public_metrics,referenced_tweets",
-		"media.fields": MEDIA_FIELDS,
+		"media.fields": options.mediaFields?.length
+			? options.mediaFields.join(",")
+			: MEDIA_FIELDS,
+		"user.fields": options.userFields?.length
+			? options.userFields.join(",")
+			: undefined,
+		since_id: options.sinceId || undefined,
+		until_id: options.untilId || undefined,
+		exclude: (options.excludeRetweets ?? true) ? "retweets" : undefined,
+		pagination_token: options.paginationToken || undefined,
 	});
-	if (expansions && expansions.length > 0) {
-		query.set("expansions", expansions.join(","));
-	}
-	if (userFields && userFields.length > 0) {
-		query.set("user.fields", userFields.join(","));
-	}
-	if (mediaFields && mediaFields.length > 0) {
-		query.set("media.fields", mediaFields.join(","));
-	}
-	if (sinceId) {
-		query.set("since_id", sinceId);
-	}
-	if (untilId) {
-		query.set("until_id", untilId);
-	}
-	if (excludeRetweets) {
-		query.set("exclude", "retweets");
-	}
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
-
-	const endpoint = `/2/users/${userId}/tweets?${query}`;
 	const command =
-		auth === "oauth2"
+		options.auth === "oauth2"
 			? runOAuth2JsonCommandEffect({
-					args: [endpoint],
-					username,
+					args,
+					username: options.username,
 					options: { signal, onAttempt },
-					useConfiguredCandidate,
+					useConfiguredCandidate: options.useConfiguredCandidate,
 				})
-			: runJsonCommandEffect([endpoint], { signal, onAttempt });
+			: runJsonCommandEffect(args, { signal, onAttempt });
 	return command.pipe(
 		Effect.map((payload) => {
-			const data = Array.isArray(payload.data)
-				? (payload.data as XurlUserTweet[])
-				: [];
-			const meta =
-				payload.meta && typeof payload.meta === "object"
-					? (payload.meta as Record<string, unknown>)
-					: null;
-			const includes =
-				payload.includes && typeof payload.includes === "object"
-					? (payload.includes as XurlUserTweetsResponse["includes"])
-					: undefined;
-
+			const { data, meta, includes } = responsePage<XurlUserTweet>(payload);
 			return {
 				items: data,
-				nextToken:
-					typeof meta?.next_token === "string" ? String(meta.next_token) : null,
+				nextToken: nextToken(meta),
 				...(includes ? { includes } : {}),
 			};
 		}),
 	);
 });
 
-function toXurlTweetsResponse(
-	payload: Record<string, unknown>,
-): XurlTweetsResponse {
-	return {
-		data: Array.isArray(payload.data)
-			? (payload.data as XurlTweetsResponse["data"])
-			: [],
-		includes:
-			payload.includes && typeof payload.includes === "object"
-				? (payload.includes as XurlTweetsResponse["includes"])
-				: undefined,
-		meta:
-			payload.meta && typeof payload.meta === "object"
-				? (payload.meta as XurlTweetsResponse["meta"])
-				: undefined,
-	};
-}
-
-export const lookupTweetsByIdsEffect = Effect.fn("xurl.lookupTweetsByIds")((
-	ids: string[],
-): Effect.Effect<XurlTweetsResponse, XurlCommandError> => {
-	if (ids.length === 0) {
-		return Effect.succeed({ data: [] });
-	}
-
-	const query = new URLSearchParams({
-		ids: ids.join(","),
-		expansions: AUTHOR_MEDIA_EXPANSIONS,
-		"tweet.fields":
-			"created_at,conversation_id,entities,note_tweet,public_metrics,referenced_tweets",
-		"media.fields": MEDIA_FIELDS,
-		"user.fields":
-			"description,entities,location,public_metrics,profile_image_url,url,created_at,verified,verified_type",
-	});
-
-	return runJsonCommandEffect([`/2/tweets?${query.toString()}`]).pipe(
-		Effect.map(toXurlTweetsResponse),
-	);
-});
+export const lookupTweetsByIdsEffect = Effect.fn("xurl.lookupTweetsByIds")(
+	(ids: string[]): Effect.Effect<XurlTweetsResponse, XurlCommandError> =>
+		ids.length === 0
+			? Effect.succeed({ data: [] })
+			: runJsonCommandEffect(
+					queryArgs("/2/tweets", tweetQuery({ ids: ids.join(",") })),
+				).pipe(Effect.map(toXurlTweetsResponse)),
+);
 
 export const searchRecentByConversationIdEffect = Effect.fn(
 	"xurl.searchRecentByConversationId",
 )((
 	conversationId: string,
-	{
-		maxResults,
-		paginationToken,
-		timeoutMs,
-		auth,
-		username,
-		signal,
-		onAttempt,
-	}: {
-		maxResults: number;
-		paginationToken?: string;
-		timeoutMs?: number;
-		auth?: "oauth2";
-		username?: string;
-		signal?: AbortSignal;
-		onAttempt?: JsonCommandOptions["onAttempt"];
-	},
+	options: PageOptions & JsonCommandOptions & { auth?: "oauth2" },
 ): Effect.Effect<XurlTweetsResponse, Error> => {
-	const query = new URLSearchParams({
-		query: `conversation_id:${conversationId}`,
-		max_results: String(maxResults),
-		expansions: AUTHOR_MEDIA_EXPANSIONS,
-		"tweet.fields": THREAD_TWEET_FIELDS,
-		"media.fields": MEDIA_FIELDS,
-		"user.fields": RICH_USER_FIELDS,
+	const { timeoutMs, signal, onAttempt } = options;
+	const args = queryArgs("/2/tweets/search/recent", {
+		...tweetQuery(
+			{
+				query: `conversation_id:${conversationId}`,
+				max_results: options.maxResults,
+			},
+			THREAD_TWEET_FIELDS,
+		),
+		pagination_token: options.paginationToken || undefined,
 	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
-
-	const args = [`/2/tweets/search/recent?${query.toString()}`];
 	const command =
-		auth === "oauth2"
+		options.auth === "oauth2"
 			? runOAuth2JsonCommandEffect({
 					args,
-					username,
+					username: options.username,
 					options: { timeoutMs, signal, onAttempt },
 					useConfiguredCandidate: false,
 				})
@@ -1394,88 +1188,53 @@ export const searchRecentByConversationIdEffect = Effect.fn(
 	return command.pipe(Effect.map(toXurlTweetsResponse));
 });
 
-export const searchRecentTweetsEffect = Effect.fn("xurl.searchRecentTweets")((
-	searchQuery: string,
-	{
-		maxResults,
-		paginationToken,
-		startTime,
-		endTime,
-		username,
-		timeoutMs,
-	}: {
-		maxResults: number;
-		paginationToken?: string;
-		startTime?: string;
-		endTime?: string;
-		username?: string;
-		timeoutMs?: number;
-	},
-): Effect.Effect<XurlTweetsResponse, Error> => {
-	const query = new URLSearchParams({
-		query: searchQuery,
-		max_results: String(maxResults),
-		expansions: AUTHOR_MEDIA_EXPANSIONS,
-		"tweet.fields": THREAD_TWEET_FIELDS,
-		"media.fields": MEDIA_FIELDS,
-		"user.fields": RICH_USER_FIELDS,
-	});
-	if (paginationToken) {
-		query.set("pagination_token", paginationToken);
-	}
-	if (startTime) {
-		query.set("start_time", startTime);
-	}
-	if (endTime) {
-		query.set("end_time", endTime);
-	}
+export const searchRecentTweetsEffect = Effect.fn("xurl.searchRecentTweets")(
+	(
+		searchQuery: string,
+		options: PageOptions & {
+			startTime?: string;
+			endTime?: string;
+			timeoutMs?: number;
+		},
+	): Effect.Effect<XurlTweetsResponse, Error> =>
+		runOAuth2JsonCommandEffect({
+			args: queryArgs("/2/tweets/search/recent", {
+				...tweetQuery(
+					{ query: searchQuery, max_results: options.maxResults },
+					THREAD_TWEET_FIELDS,
+				),
+				pagination_token: options.paginationToken || undefined,
+				start_time: options.startTime || undefined,
+				end_time: options.endTime || undefined,
+			}),
+			username: options.username,
+			options: { timeoutMs: options.timeoutMs },
+			useConfiguredCandidate: false,
+		}).pipe(Effect.map(toXurlTweetsResponse)),
+);
 
-	return runOAuth2JsonCommandEffect({
-		args: [`/2/tweets/search/recent?${query.toString()}`],
-		username,
-		options: { timeoutMs },
-		useConfiguredCandidate: false,
-	}).pipe(Effect.map(toXurlTweetsResponse));
-});
-
-export const getTweetByIdEffect = Effect.fn("xurl.getTweetById")((
-	id: string,
-	{ timeoutMs }: { timeoutMs?: number } = {},
-): Effect.Effect<XurlTweetsResponse, XurlCommandError> => {
-	const query = new URLSearchParams({
-		expansions: AUTHOR_MEDIA_EXPANSIONS,
-		"tweet.fields": THREAD_TWEET_FIELDS,
-		"media.fields": MEDIA_FIELDS,
-		"user.fields": RICH_USER_FIELDS,
-	});
-
-	return runJsonCommandEffect([`/2/tweets/${id}?${query.toString()}`], {
-		timeoutMs,
-	}).pipe(
-		Effect.map((payload) => {
-			const data =
-				payload.data &&
-				typeof payload.data === "object" &&
-				!Array.isArray(payload.data)
-					? [payload.data as XurlTweetsResponse["data"][number]]
-					: Array.isArray(payload.data)
-						? (payload.data as XurlTweetsResponse["data"])
-						: [];
-
-			return {
-				data,
-				includes:
-					payload.includes && typeof payload.includes === "object"
-						? (payload.includes as XurlTweetsResponse["includes"])
-						: undefined,
-				meta:
-					payload.meta && typeof payload.meta === "object"
-						? (payload.meta as XurlTweetsResponse["meta"])
-						: undefined,
-			};
-		}),
-	);
-});
+export const getTweetByIdEffect = Effect.fn("xurl.getTweetById")(
+	(
+		id: string,
+		{ timeoutMs }: { timeoutMs?: number } = {},
+	): Effect.Effect<XurlTweetsResponse, XurlCommandError> =>
+		runJsonCommandEffect(
+			queryArgs(`/2/tweets/${id}`, tweetQuery({}, THREAD_TWEET_FIELDS)),
+			{ timeoutMs },
+		).pipe(
+			Effect.map((payload) =>
+				toXurlTweetsResponse({
+					...payload,
+					data:
+						payload.data &&
+						typeof payload.data === "object" &&
+						!Array.isArray(payload.data)
+							? [payload.data]
+							: payload.data,
+				}),
+			),
+		),
+);
 
 export function postViaXurlEffect(text: string) {
 	return runShortcutEffect(["post", text]);

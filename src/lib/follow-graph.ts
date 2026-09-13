@@ -284,96 +284,34 @@ function fetchFollowGraphViaBirdEffect({
 	});
 }
 
-function fetchFollowGraphEffect({
-	mode,
-	direction,
-	username,
-	userId,
-	limit,
-	maxPages,
-	maxResources,
-}: {
-	mode: FollowGraphSyncMode;
-	direction: FollowDirection;
-	username: string;
-	userId?: string;
-	limit: number;
-	maxPages?: number;
-	maxResources?: number;
-}): Effect.Effect<
+function fetchFollowGraphEffect(
+	options: Parameters<typeof fetchFollowGraphViaXurlEffect>[0] & {
+		mode: FollowGraphSyncMode;
+	},
+): Effect.Effect<
 	{ source: FollowGraphLiveSource; payload: MergedFollowPayload },
 	unknown
 > {
-	return Effect.gen(function* () {
-		if (mode === "bird") {
-			return {
-				source: "bird",
-				payload: yield* fetchFollowGraphViaBirdEffect({
-					direction,
-					userId,
-					limit,
-					maxPages,
-					maxResources,
-				}),
-			};
-		}
-		if (mode === "xurl") {
-			return {
-				source: "xurl",
-				payload: yield* fetchFollowGraphViaXurlEffect({
-					direction,
-					username,
-					userId,
-					limit,
-					maxPages,
-					maxResources,
-				}),
-			};
-		}
-
-		const birdResult = yield* fetchFollowGraphViaBirdEffect({
-			direction,
-			userId,
-			limit,
-			maxPages,
-			maxResources,
-		}).pipe(
-			Effect.map((payload) => ({ ok: true as const, payload })),
-			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
-		);
-		if (birdResult.ok) {
-			return {
-				source: "bird",
-				payload: birdResult.payload,
-			};
-		}
-
-		const xurlResult = yield* fetchFollowGraphViaXurlEffect({
-			direction,
-			username,
-			userId,
-			limit,
-			maxPages,
-			maxResources,
-		}).pipe(
-			Effect.map((payload) => ({ ok: true as const, payload })),
-			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
-		);
-		if (xurlResult.ok) {
-			return {
-				source: "xurl",
-				payload: xurlResult.payload,
-			};
-		}
-
-		return yield* Effect.fail(
-			new Error(
-				`follow graph sync failed via bird and xurl: bird: ${errorMessage(
-					birdResult.error,
-				)}; xurl: ${errorMessage(xurlResult.error)}`,
+	const bird = fetchFollowGraphViaBirdEffect(options).pipe(
+		Effect.map((payload) => ({ source: "bird" as const, payload })),
+	);
+	const xurl = fetchFollowGraphViaXurlEffect(options).pipe(
+		Effect.map((payload) => ({ source: "xurl" as const, payload })),
+	);
+	if (options.mode === "bird") return bird;
+	if (options.mode === "xurl") return xurl;
+	return bird.pipe(
+		Effect.catchAll((birdError) =>
+			xurl.pipe(
+				Effect.mapError(
+					(xurlError) =>
+						new Error(
+							`follow graph sync failed via bird and xurl: bird: ${errorMessage(birdError)}; xurl: ${errorMessage(xurlError)}`,
+						),
+				),
 			),
-		);
-	});
+		),
+	);
 }
 
 function getExistingEdges(

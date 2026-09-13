@@ -2,11 +2,11 @@ import type { DirectMessagesSyncMode } from "#/lib/dms-live";
 import { resolveProfilesForIds } from "#/lib/profile-resolver";
 import { listDmConversations } from "#/lib/dm-read-model";
 import { expandUrlsFromTexts } from "#/lib/url-expansion";
-import { printError } from "./command-context";
+import { NumericOptionError } from "./numeric-options";
 
 export function parseDmInboxOption(
 	value: string | undefined,
-): "all" | "accepted" | "requests" | undefined {
+): "all" | "accepted" | "requests" {
 	const normalized = (value ?? "all").trim().toLowerCase();
 	if (
 		normalized === "all" ||
@@ -16,21 +16,17 @@ export function parseDmInboxOption(
 		return normalized;
 	}
 	if (normalized === "request") return "requests";
-	printError("--inbox must be all, accepted, or requests");
-	process.exitCode = 1;
-	return undefined;
+	throw new NumericOptionError("--inbox must be all, accepted, or requests");
 }
 
 export function parseDmSyncModeOption(
 	value: string | undefined,
-): DirectMessagesSyncMode | undefined {
+): DirectMessagesSyncMode {
 	const normalized = (value ?? "bird").trim().toLowerCase();
 	if (normalized === "auto" || normalized === "bird" || normalized === "xurl") {
 		return normalized;
 	}
-	printError("--mode must be auto, bird, or xurl");
-	process.exitCode = 1;
-	return undefined;
+	throw new NumericOptionError("--mode must be auto, bird, or xurl");
 }
 
 export async function enrichDmItems(

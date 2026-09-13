@@ -1,3 +1,4 @@
+import { profileSelect, type ProfileSqlRow } from "./profile-row";
 import { parseJsonField } from "./json-codec";
 import { getNativeDb } from "./db";
 import type { LinkInsightResponse } from "./api-contracts";
@@ -49,7 +50,12 @@ const RAW_URL_PATTERN = /https?:\/\/[^\s<>"'`]+/g;
 const SQL_URL_EXPRESSION =
 	"lower(coalesce(nullif(e.final_url, ''), nullif(e.expanded_url, ''), e.short_url))";
 
-interface LinkInsightRow {
+interface LinkInsightRow
+	extends
+		ProfileSqlRow<"source_author_">,
+		ProfileSqlRow<"dm_sender_">,
+		ProfileSqlRow<"participant_">,
+		ProfileSqlRow<"linked_author_"> {
 	[key: string]: string | number | null;
 	source_kind: "dm" | "tweet";
 	source_id: string;
@@ -68,60 +74,8 @@ interface LinkInsightRow {
 	source_text: string;
 	source_media_json: string | null;
 	account_handle: string | null;
-	source_author_id: string | null;
-	source_author_handle: string | null;
-	source_author_display_name: string | null;
-	source_author_bio: string | null;
-	source_author_followers_count: number | null;
-	source_author_following_count: number | null;
-	source_author_avatar_hue: number | null;
-	source_author_avatar_url: string | null;
-	source_author_location: string | null;
-	source_author_url: string | null;
-	source_author_verified_type: string | null;
-	source_author_entities_json: string | null;
-	source_author_created_at: string | null;
-	dm_sender_id: string | null;
-	dm_sender_handle: string | null;
-	dm_sender_display_name: string | null;
-	dm_sender_bio: string | null;
-	dm_sender_followers_count: number | null;
-	dm_sender_following_count: number | null;
-	dm_sender_avatar_hue: number | null;
-	dm_sender_avatar_url: string | null;
-	dm_sender_location: string | null;
-	dm_sender_url: string | null;
-	dm_sender_verified_type: string | null;
-	dm_sender_entities_json: string | null;
-	dm_sender_created_at: string | null;
-	participant_id: string | null;
-	participant_handle: string | null;
-	participant_display_name: string | null;
-	participant_bio: string | null;
-	participant_followers_count: number | null;
-	participant_following_count: number | null;
-	participant_avatar_hue: number | null;
-	participant_avatar_url: string | null;
-	participant_location: string | null;
-	participant_url: string | null;
-	participant_verified_type: string | null;
-	participant_entities_json: string | null;
-	participant_created_at: string | null;
 	linked_text: string | null;
 	linked_media_json: string | null;
-	linked_author_id: string | null;
-	linked_author_handle: string | null;
-	linked_author_display_name: string | null;
-	linked_author_bio: string | null;
-	linked_author_followers_count: number | null;
-	linked_author_following_count: number | null;
-	linked_author_avatar_hue: number | null;
-	linked_author_avatar_url: string | null;
-	linked_author_location: string | null;
-	linked_author_url: string | null;
-	linked_author_verified_type: string | null;
-	linked_author_entities_json: string | null;
-	linked_author_created_at: string | null;
 }
 
 interface LinkInsightRankRow {
@@ -860,60 +814,12 @@ export function getLinkInsights(
         coalesce(dm.text, source_tweet.text, '') as source_text,
         source_tweet.media_json as source_media_json,
         account.handle as account_handle,
-        source_author.id as source_author_id,
-        source_author.handle as source_author_handle,
-        source_author.display_name as source_author_display_name,
-        source_author.bio as source_author_bio,
-        source_author.followers_count as source_author_followers_count,
-        source_author.following_count as source_author_following_count,
-        source_author.avatar_hue as source_author_avatar_hue,
-        source_author.avatar_url as source_author_avatar_url,
-        source_author.location as source_author_location,
-        source_author.url as source_author_url,
-        source_author.verified_type as source_author_verified_type,
-        source_author.entities_json as source_author_entities_json,
-        source_author.created_at as source_author_created_at,
-        dm_sender.id as dm_sender_id,
-        dm_sender.handle as dm_sender_handle,
-        dm_sender.display_name as dm_sender_display_name,
-        dm_sender.bio as dm_sender_bio,
-        dm_sender.followers_count as dm_sender_followers_count,
-        dm_sender.following_count as dm_sender_following_count,
-        dm_sender.avatar_hue as dm_sender_avatar_hue,
-        dm_sender.avatar_url as dm_sender_avatar_url,
-        dm_sender.location as dm_sender_location,
-        dm_sender.url as dm_sender_url,
-        dm_sender.verified_type as dm_sender_verified_type,
-        dm_sender.entities_json as dm_sender_entities_json,
-        dm_sender.created_at as dm_sender_created_at,
-        participant.id as participant_id,
-        participant.handle as participant_handle,
-        participant.display_name as participant_display_name,
-        participant.bio as participant_bio,
-        participant.followers_count as participant_followers_count,
-        participant.following_count as participant_following_count,
-        participant.avatar_hue as participant_avatar_hue,
-        participant.avatar_url as participant_avatar_url,
-        participant.location as participant_location,
-        participant.url as participant_url,
-        participant.verified_type as participant_verified_type,
-        participant.entities_json as participant_entities_json,
-        participant.created_at as participant_created_at,
+        ${profileSelect("source_author", "source_author_")},
+        ${profileSelect("dm_sender", "dm_sender_")},
+        ${profileSelect("participant", "participant_")},
         linked.text as linked_text,
         linked.media_json as linked_media_json,
-        linked_author.id as linked_author_id,
-        linked_author.handle as linked_author_handle,
-        linked_author.display_name as linked_author_display_name,
-        linked_author.bio as linked_author_bio,
-        linked_author.followers_count as linked_author_followers_count,
-        linked_author.following_count as linked_author_following_count,
-        linked_author.avatar_hue as linked_author_avatar_hue,
-        linked_author.avatar_url as linked_author_avatar_url,
-        linked_author.location as linked_author_location,
-        linked_author.url as linked_author_url,
-        linked_author.verified_type as linked_author_verified_type,
-        linked_author.entities_json as linked_author_entities_json,
-        linked_author.created_at as linked_author_created_at
+        ${profileSelect("linked_author", "linked_author_")}
       from link_occurrences o
       join url_expansions e on e.short_url = o.short_url
       left join accounts account on account.id = o.account_id
