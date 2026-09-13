@@ -2,6 +2,7 @@
 
 ## 0.13.1 - Unreleased
 
+- Update TanStack Router to 1.170.36, TanStack Start to 1.168.53, Zod to 4.6.4, and compatible transitive dependencies.
 - Make bird optional across live workflows: verify xurl moderation directly, add native cookie-backed DM requests and accept/reject/block actions, preserve DM account selection and invalidate all transport caches, and provide xurl defaults/fallbacks for sync and profile enrichment.
 - Keep Bird optional in scheduled account sync, enable manual and automatic web DM sync for secondary accounts, and reject malformed native DM page containers instead of reporting empty success.
 

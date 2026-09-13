@@ -58,7 +58,7 @@
 		"@floating-ui/dom": "1.8.0",
 		"@modelcontextprotocol/sdk": "^1.30.0",
 		"@tanstack/react-query": "^5.102.8",
-		"@tanstack/react-router": "1.170.35",
+		"@tanstack/react-router": "1.170.36",
 		"commander": "^15.0.0",
 		"effect": "^3.22.2",
 		"lucide-react": "^1.45.0",
@@ -67,13 +67,13 @@
 		"react-dom": "^19.3.0",
 		"react-map-gl": "^8.1.3",
 		"supercluster": "^9.1.0",
-		"zod": "^4.6.2"
+		"zod": "^4.6.4"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.63.0",
 		"@tailwindcss/typography": "^0.5.20",
 		"@tailwindcss/vite": "^4.3.3",
-		"@tanstack/react-start": "1.168.52",
+		"@tanstack/react-start": "1.168.53",
 		"@testing-library/dom": "^10.4.1",
 		"@testing-library/jest-dom": "^7.0.1",
 		"@testing-library/react": "^16.3.3",
