@@ -2,7 +2,7 @@ import type { DirectMessagesSyncMode } from "#/lib/dms-live";
 import { resolveProfilesForIds } from "#/lib/profile-resolver";
 import { listDmConversations } from "#/lib/dm-read-model";
 import { expandUrlsFromTexts } from "#/lib/url-expansion";
-import { NumericOptionError } from "./numeric-options";
+import { CliInputError } from "./numeric-options";
 
 export function parseDmInboxOption(
 	value: string | undefined,
@@ -16,7 +16,7 @@ export function parseDmInboxOption(
 		return normalized;
 	}
 	if (normalized === "request") return "requests";
-	throw new NumericOptionError("--inbox must be all, accepted, or requests");
+	throw new CliInputError("--inbox must be all, accepted, or requests");
 }
 
 export function parseDmSyncModeOption(
@@ -26,7 +26,7 @@ export function parseDmSyncModeOption(
 	if (normalized === "auto" || normalized === "bird" || normalized === "xurl") {
 		return normalized;
 	}
-	throw new NumericOptionError("--mode must be auto, bird, or xurl");
+	throw new CliInputError("--mode must be auto, bird, or xurl");
 }
 
 export async function enrichDmItems(

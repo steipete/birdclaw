@@ -10,10 +10,7 @@ import {
 	printError,
 	resetOperationAccountSelection,
 } from "#/cli/command-context";
-import {
-	configureNumericOptions,
-	NumericOptionError,
-} from "#/cli/numeric-options";
+import { configureNumericOptions, CliInputError } from "#/cli/numeric-options";
 import { registerAnalysisCommands } from "#/cli/register-analysis";
 import { registerComposeCommands } from "#/cli/register-compose";
 import { registerCoreCommands } from "#/cli/register-core";
@@ -97,7 +94,7 @@ export async function runCli(argv = process.argv) {
 	try {
 		await program.parseAsync(argv);
 	} catch (error) {
-		if (error instanceof NumericOptionError) {
+		if (error instanceof CliInputError) {
 			printError(error.message);
 			process.exitCode = 1;
 			return;

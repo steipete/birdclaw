@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-export class NumericOptionError extends Error {}
+export class CliInputError extends Error {}
 
 const thresholds = new Set([
 	"minFollowers",
@@ -21,18 +21,16 @@ export function configureNumericOptions(program: Command) {
 			const number = Number(text);
 			if (thresholds.has(name)) {
 				if (!text || !Number.isFinite(number)) {
-					throw new NumericOptionError(
-						`${option.long} must be a finite number`,
-					);
+					throw new CliInputError(`${option.long} must be a finite number`);
 				}
 			} else if (name === "cacheTtl") {
 				if (!text || !Number.isFinite(number) || number < 0) {
-					throw new NumericOptionError(
+					throw new CliInputError(
 						`${option.long} must be a non-negative finite number`,
 					);
 				}
 			} else if (!text || !Number.isSafeInteger(number) || number < 0) {
-				throw new NumericOptionError(
+				throw new CliInputError(
 					`${option.long} must be a non-negative integer`,
 				);
 			}

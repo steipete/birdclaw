@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { NumericOptionError } from "./numeric-options";
+import { CliInputError } from "./numeric-options";
 import {
 	resolveOperationAccount,
 	type OperationAccount,
@@ -34,10 +34,10 @@ function numericOptionParser({
 					number < 0 ||
 					(decimal && !/^\d+$/.test(value.trim()))
 		) {
-			throw new NumericOptionError(`${option} ${message}`);
+			throw new CliInputError(`${option} ${message}`);
 		}
 		if (positive && number < 1)
-			throw new NumericOptionError(`${option} must be at least 1`);
+			throw new CliInputError(`${option} must be at least 1`);
 		return number;
 	}
 	return parse;

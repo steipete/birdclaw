@@ -1,4 +1,4 @@
-import { NumericOptionError } from "./numeric-options";
+import { CliInputError } from "./numeric-options";
 import type { CliCommandContext } from "./command-context";
 import { defaultDigestLiveSyncMode } from "#/lib/digest-live-mode";
 import {
@@ -25,6 +25,26 @@ export function registerAnalysisCommands({
 	parseNonNegativeIntegerOption,
 	parsePositiveIntegerOption,
 }: CliCommandContext) {
+	function printAnalysisStream<Result extends { markdown: string }>(
+		run: (
+			onDelta: ((delta: string) => void) | undefined,
+			asJson: boolean,
+		) => Promise<Result>,
+	) {
+		const asJson = Boolean(program.opts().json);
+		return run(
+			asJson
+				? undefined
+				: (delta) => {
+						process.stdout.write(delta);
+					},
+			asJson,
+		).then((result) => {
+			if (asJson) print(result, true);
+			else if (!result.markdown.endsWith("\n")) process.stdout.write("\n");
+		});
+	}
+
 	function parseDigestLiveModeOption(
 		value: string | undefined,
 	): PeriodDigestOptions["liveSyncMode"] {
@@ -38,7 +58,7 @@ export function registerAnalysisCommands({
 		) {
 			return normalized;
 		}
-		throw new NumericOptionError("--live-mode must be auto, bird, or xurl");
+		throw new CliInputError("--live-mode must be auto, bird, or xurl");
 	}
 	function parseDigestPeriod(value: string | undefined): PeriodDigestPreset {
 		const normalized = value?.trim().toLowerCase();
@@ -80,7 +100,7 @@ export function registerAnalysisCommands({
 		try {
 			language = normalizeDigestLanguage(options.language);
 		} catch (error) {
-			throw new NumericOptionError(
+			throw new CliInputError(
 				error instanceof Error ? error.message : String(error),
 			);
 		}
@@ -101,22 +121,9 @@ export function registerAnalysisCommands({
 	}
 
 	function runDigestCli(options: PeriodDigestOptions) {
-		const asJson = Boolean(program.opts().json);
-		return streamPeriodDigest(options, {
-			onDelta: asJson
-				? undefined
-				: (delta) => {
-						process.stdout.write(delta);
-					},
-		}).then((result) => {
-			if (asJson) {
-				print(result, true);
-				return;
-			}
-			if (!result.markdown.endsWith("\n")) {
-				process.stdout.write("\n");
-			}
-		});
+		return printAnalysisStream((onDelta) =>
+			streamPeriodDigest(options, { onDelta }),
+		);
 	}
 
 	function parseSearchDiscussionSource(
@@ -134,7 +141,7 @@ export function registerAnalysisCommands({
 		) {
 			return normalized;
 		}
-		throw new NumericOptionError(
+		throw new CliInputError(
 			"--source must be all, search, home, mentions, authored, likes, or bookmarks",
 		);
 	}
@@ -149,7 +156,7 @@ export function registerAnalysisCommands({
 		) {
 			return normalized;
 		}
-		throw new NumericOptionError("--mode must be auto, bird, xurl, or local");
+		throw new CliInputError("--mode must be auto, bird, xurl, or local");
 	}
 
 	function buildSearchDiscussionOptions(
@@ -200,22 +207,9 @@ export function registerAnalysisCommands({
 	}
 
 	function runSearchDiscussionCli(options: SearchDiscussionOptions) {
-		const asJson = Boolean(program.opts().json);
-		return streamSearchDiscussion(options, {
-			onDelta: asJson
-				? undefined
-				: (delta) => {
-						process.stdout.write(delta);
-					},
-		}).then((result) => {
-			if (asJson) {
-				print(result, true);
-				return;
-			}
-			if (!result.markdown.endsWith("\n")) {
-				process.stdout.write("\n");
-			}
-		});
+		return printAnalysisStream((onDelta) =>
+			streamSearchDiscussion(options, { onDelta }),
+		);
 	}
 
 	function buildProfileAnalysisOptions(
@@ -284,33 +278,21 @@ export function registerAnalysisCommands({
 	}
 
 	function runProfileAnalysisCli(options: ProfileAnalysisOptions) {
-		const asJson = Boolean(program.opts().json);
-		return streamProfileAnalysis(options, {
-			onDelta: asJson
-				? undefined
-				: (delta) => {
-						process.stdout.write(delta);
-					},
-			onEvent: asJson
-				? undefined
-				: (event) => {
-						if (event.type === "status") {
-							process.stderr.write(
-								event.detail
-									? `${event.label}: ${event.detail}\n`
-									: `${event.label}\n`,
-							);
-						}
-					},
-		}).then((result) => {
-			if (asJson) {
-				print(result, true);
-				return;
-			}
-			if (!result.markdown.endsWith("\n")) {
-				process.stdout.write("\n");
-			}
-		});
+		return printAnalysisStream((onDelta, asJson) =>
+			streamProfileAnalysis(options, {
+				onDelta,
+				onEvent: asJson
+					? undefined
+					: (event) => {
+							if (event.type === "status")
+								process.stderr.write(
+									event.detail
+										? `${event.label}: ${event.detail}\n`
+										: `${event.label}\n`,
+								);
+						},
+			}),
+		);
 	}
 	program
 		.command("research [query]")
@@ -360,7 +342,6 @@ export function registerAnalysisCommands({
 		.action(async (query, options) => {
 			await autoUpdateBeforeRead();
 			const discussionOptions = buildSearchDiscussionOptions(query, options);
-			if (!discussionOptions) return;
 			await runSearchDiscussionCli(discussionOptions);
 		});
 
@@ -395,7 +376,6 @@ export function registerAnalysisCommands({
 		.action(async (handle, options) => {
 			await autoUpdateBeforeRead();
 			const analysisOptions = buildProfileAnalysisOptions(handle, options);
-			if (!analysisOptions) return;
 			await runProfileAnalysisCli(analysisOptions);
 		});
 
@@ -421,7 +401,6 @@ export function registerAnalysisCommands({
 		.action(async (options) => {
 			await autoUpdateBeforeRead();
 			const digestOptions = buildDigestOptions("today", options);
-			if (!digestOptions) return;
 			await runDigestCli(digestOptions);
 		});
 
@@ -449,7 +428,6 @@ export function registerAnalysisCommands({
 		.action(async (period, options) => {
 			await autoUpdateBeforeRead();
 			const digestOptions = buildDigestOptions(period, options);
-			if (!digestOptions) return;
 			await runDigestCli(digestOptions);
 		});
 }
