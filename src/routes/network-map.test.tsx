@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NetworkMapRouteView } from "./network-map";
 import { MAP_TYPES, WORLD_VIEWPORT } from "#/components/network-map-model";
-import type { NetworkMapResponse } from "#/lib/api-contracts";
+import type { NetworkMapViewResponse } from "#/lib/api-contracts";
 
 vi.mock("react-map-gl/mapbox", () => ({
 	default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -32,14 +32,18 @@ vi.mock("#/components/network-map-controller", () => ({
 		loading: false,
 		error: null,
 		refresh: vi.fn(),
-		visibleFeatures: data.features,
-		filteredVisibleFeatures: data.features,
+		updating: false,
+		setOffset: vi.fn(),
 		mapTypes: MAP_TYPES,
 	}),
 }));
 
-const data: NetworkMapResponse = {
-	type: "FeatureCollection",
+const data: NetworkMapViewResponse = {
+	markers: [],
+	visibleProfiles: 3,
+	matchingProfiles: 3,
+	offset: 0,
+	pageSize: 160,
 	features: [
 		{ name: "Avery", coordinates: [-122.4, 37.8] },
 		{ name: "Blair", coordinates: [16.4, 48.2] },
@@ -76,6 +80,19 @@ const data: NetworkMapResponse = {
 	},
 	config: { mapboxToken: "fixture" },
 };
+
+data.markers = [
+	{ kind: "profile", feature: data.features[0] },
+	{
+		kind: "cluster",
+		id: 1,
+		coordinates: [16.4, 48.2],
+		count: 2,
+		expansionZoom: 12,
+		stats: { mutual: 2, following: 0, followers: 0 },
+		features: data.features.slice(1),
+	},
+];
 
 afterEach(cleanup);
 
@@ -117,5 +134,20 @@ describe("network map avatars", () => {
 		render(<NetworkMapRouteView />);
 		fireEvent.click(await screen.findByRole("button", { name: button }));
 		expectAvatarRecovery(screen.getByRole("dialog"), count);
+	});
+	it("keeps relationship colors in the lightweight map", () => {
+		const token = data.config.mapboxToken;
+		data.config.mapboxToken = null;
+		try {
+			const { container } = render(<NetworkMapRouteView />);
+			const points = container.querySelectorAll(
+				'svg[aria-label="Network map"] circle',
+			);
+			expect(points).toHaveLength(2);
+			for (const point of points)
+				expect(point).toHaveAttribute("fill", "#22c55e");
+		} finally {
+			data.config.mapboxToken = token;
+		}
 	});
 });

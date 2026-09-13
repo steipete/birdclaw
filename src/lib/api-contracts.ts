@@ -503,6 +503,39 @@ export const networkMapResponseSchema = z.object({
 });
 export type NetworkMapResponse = z.infer<typeof networkMapResponseSchema>;
 
+export const networkMapViewResponseSchema = networkMapResponseSchema
+	.omit({ type: true })
+	.extend({
+		markers: z.array(
+			z.discriminatedUnion("kind", [
+				z.object({
+					kind: z.literal("profile"),
+					feature: networkMapResponseSchema.shape.features.element,
+				}),
+				z.object({
+					kind: z.literal("cluster"),
+					id: z.number(),
+					coordinates: z.tuple([z.number(), z.number()]),
+					count: z.number(),
+					expansionZoom: z.number(),
+					stats: z.object({
+						followers: z.number(),
+						following: z.number(),
+						mutual: z.number(),
+					}),
+					features: networkMapResponseSchema.shape.features,
+				}),
+			]),
+		),
+		visibleProfiles: z.number(),
+		matchingProfiles: z.number(),
+		offset: z.number(),
+		pageSize: z.number(),
+	});
+export type NetworkMapViewResponse = z.infer<
+	typeof networkMapViewResponseSchema
+>;
+
 const xurlRateLimitEndpointKeySchema = z.enum([
 	"tweets_search_recent",
 	"users_id_tweets",

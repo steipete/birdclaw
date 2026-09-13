@@ -7,6 +7,22 @@ description: "Map current followers/following by profile location."
 
 The web app has a **Map** view at `/network-map`. It reads current `follow_edges` plus hydrated `profiles.location`, normalizes free-form locations, geocodes them into the local SQLite cache, and plots followers, following, and mutuals.
 
+The map covers the full selected network. Clustering runs on the server, which
+returns markers for the current viewport and 160 people at a time. Use **Next**
+and **Previous** to browse everyone in view; search includes every matching
+person, including those on later pages. Panning keeps the current map visible
+while the next view loads.
+
+Ordinary map views use cached geocodes and coordinate locations without waiting
+for external geocoding. **Refresh** can resolve additional locations on writable
+deployments. The server reuses its map index for panning, searching, and paging,
+and invalidates it after local or external database writes.
+
+The UI requests `/api/network-map?format=view` with `bounds=west,south,east,north`,
+`zoom`, `q`, and a zero-based `offset`. This response contains viewport markers,
+cluster counts and profile previews, a page of people, and full-network totals.
+The existing GeoJSON response remains available when `format` is omitted.
+
 Runtime keys:
 
 ```bash

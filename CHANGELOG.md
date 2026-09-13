@@ -2,6 +2,8 @@
 
 ## 0.13.1 - Unreleased
 
+- Load large follower maps through cached server-side clustering and paginated viewport reads, preserving full-network search and counts while avoiding full-profile downloads and geocoding delays during navigation.
+
 - Play tweet videos and GIF clips directly in the feed with posters and native controls, choose playable video variants, and make link previews compact with readable metadata and no repeated URLs or empty image panels.
 - Update TanStack Router to 1.170.36, TanStack Start to 1.168.53, Zod to 4.6.4, and compatible transitive dependencies.
 - Make bird optional across live workflows: verify xurl moderation directly, add native cookie-backed DM requests and accept/reject/block actions, preserve DM account selection and invalidate all transport caches, and provide xurl defaults/fallbacks for sync and profile enrichment.

@@ -51,7 +51,7 @@ interface ProfileLocationRow {
 interface NetworkMapOptions {
 	account?: string;
 	type?: NetworkMapKind;
-	limit?: number;
+	limit?: number | null;
 	geocodeLimit?: number;
 	refresh?: boolean;
 	signal?: AbortSignal;
@@ -127,6 +127,15 @@ function fetchNetworkRows({
 	const rows = db
 		.prepare(
 			`
+      with membership as (
+        select profile_id,
+          max(case when direction = 'followers' then 1 else 0 end) as in_followers,
+          max(case when direction = 'following' then 1 else 0 end) as in_following
+        from follow_edges fe
+        where account_id = ? and current = 1
+        group by profile_id
+        ${having}
+      )
       select
         p.id,
         p.handle,
@@ -136,14 +145,10 @@ function fetchNetworkRows({
         p.avatar_url,
         p.location,
         p.verified_type,
-        max(case when fe.direction = 'followers' then 1 else 0 end) as in_followers,
-        max(case when fe.direction = 'following' then 1 else 0 end) as in_following
-      from follow_edges fe
+        fe.in_followers,
+        fe.in_following
+      from membership fe
       join profiles p on p.id = fe.profile_id
-      where fe.account_id = ?
-        and fe.current = 1
-      group by p.id
-      ${having}
       order by p.followers_count desc, p.handle asc
       limit ?
       `,
@@ -157,10 +162,17 @@ function collectKeys(rows: ProfileLocationRow[]) {
 	const keyByProfile = new Map<string, string>();
 	const seen = new Set<string>();
 	const keys: string[] = [];
+	const normalizedLocations = new Map<string, string>();
 	for (const row of rows) {
 		const location = row.location;
-		if (!location || !isMeaningfulLocation(location)) continue;
-		const key = normalizeLocationKey(location);
+		if (!location) continue;
+		let key = normalizedLocations.get(location);
+		if (key === undefined) {
+			key = isMeaningfulLocation(location)
+				? normalizeLocationKey(location)
+				: "";
+			normalizedLocations.set(location, key);
+		}
 		if (!key) continue;
 		keyByProfile.set(row.id, key);
 		if (!originalByKey.has(key)) originalByKey.set(key, location);
@@ -242,8 +254,14 @@ async function fillMissingGeocodes({
 			if (error instanceof GeocodeRateLimitError) break;
 		}
 	}
-	const updatedCache = readCachedGeocodes(keys, db);
-	const updatedSuppressed = readSuppressedGeocodeKeys(keys, db);
+	const updatedCache =
+		coordinateKeys.length || openCageKeys.length
+			? readCachedGeocodes(keys, db)
+			: cache;
+	const updatedSuppressed =
+		coordinateKeys.length || openCageKeys.length
+			? readSuppressedGeocodeKeys(keys, db)
+			: suppressed;
 	return {
 		cache: updatedCache,
 		missingCount: keys.filter(
@@ -309,7 +327,10 @@ export async function getNetworkMap(
 	const account = resolveOperationAccount(options.account, db);
 	const accountId = account.id;
 	const type = options.type ?? "all";
-	const limit = parseLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
+	const limit =
+		options.limit === null
+			? -1
+			: parseLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const geocodeLimit = parseLimit(
 		options.geocodeLimit,
 		DEFAULT_GEOCODE_LIMIT,
@@ -318,10 +339,10 @@ export async function getNetworkMap(
 	);
 	const rows = fetchNetworkRows({ db, accountId, type, limit });
 	const rowsWithLocation = rows.filter((row) => row.location);
+	const { keys, keyByProfile, originalByKey } = collectKeys(rowsWithLocation);
 	const meaningfulRows = rowsWithLocation.filter((row) =>
-		row.location ? isMeaningfulLocation(row.location) : false,
+		keyByProfile.has(row.id),
 	);
-	const { keys, keyByProfile, originalByKey } = collectKeys(meaningfulRows);
 	const geocodes = await fillMissingGeocodes({
 		db,
 		keys,
