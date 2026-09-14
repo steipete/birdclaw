@@ -126,9 +126,15 @@ export function readSuppressedGeocodeKeys(
 	keys: readonly string[],
 	db = getNativeDb(),
 ) {
-	if (keys.length === 0) return new Set<string>();
+	return readSuppressedGeocodes(keys, db).keys;
+}
+
+export function readSuppressedGeocodes(
+	keys: readonly string[],
+	db = getNativeDb(),
+) {
 	const now = new Date().toISOString();
-	const rows: Array<{ normalized_key: string }> = [];
+	const rows: Array<{ normalized_key: string; ttl_until: string | null }> = [];
 	for (let index = 0; index < keys.length; index += SQLITE_IN_CHUNK_SIZE) {
 		const chunk = keys.slice(index, index + SQLITE_IN_CHUNK_SIZE);
 		const placeholders = chunk.map(() => "?").join(",");
@@ -136,16 +142,27 @@ export function readSuppressedGeocodeKeys(
 			...(db
 				.prepare(
 					`
-          select normalized_key
+          select normalized_key, ttl_until
           from geocoded_locations_unresolved
           where normalized_key in (${placeholders})
             and (ttl_until is null or ttl_until > ?)
           `,
 				)
-				.all(...chunk, now) as Array<{ normalized_key: string }>),
+				.all(...chunk, now) as typeof rows),
 		);
 	}
-	return new Set(rows.map((row) => row.normalized_key));
+	let expiresAt: string | null = null;
+	for (const row of rows)
+		if (
+			row.ttl_until !== null &&
+			(expiresAt === null || row.ttl_until < expiresAt)
+		)
+			expiresAt = row.ttl_until;
+	return {
+		keys: new Set(rows.map((row) => row.normalized_key)),
+		expiresAt,
+		asOf: now,
+	};
 }
 
 export function storeGeocode(result: GeocodeResult, db = getNativeDb()) {

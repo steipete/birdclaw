@@ -20,7 +20,7 @@ while the next view loads.
 Ordinary map views use cached geocodes and coordinate locations without waiting
 for external geocoding. **Refresh** can resolve additional locations on writable
 deployments. The server reuses its map index for panning, searching, and paging,
-and invalidates it after local or external database writes.
+and invalidates it when its database inputs change.
 
 The UI requests `/api/network-map?format=view` with `bounds=west,south,east,north`,
 `zoom`, `q`, and a zero-based `offset`. This response contains viewport markers,
@@ -43,6 +43,21 @@ on the index's original connection, so concurrent syncs cannot mix snapshots.
 Following and Mutual views start from the indexed Following edges instead of
 aggregating the entire follower network. Full GeoJSON exports and writable
 geocoding retain their existing behavior.
+
+Schema 14 tracks map inputs separately from other archive data. Read-only maps
+survive unrelated external tweet/DM writes and sync timestamp updates. Display
+changes clear the profile cache while retaining clustering, ranking, and search
+state; relevant profile, relationship, and geocode changes rebuild the index.
+Suppressed geocodes expire at their recorded deadline even without another write.
+Explicit refresh still rebuilds the map. Prepare read-only deployments with a
+writable initialization to schema 14 before serving this version.
+
+Panning uses a 10-degree spatial grid to select nearby point candidates, followed
+by the same exact bounds filter and rank ordering. Broad views retain a linear
+scan when that is cheaper. Dateline crossings, wrapped worlds, and boundary
+points preserve the existing behavior. The grid stores one numeric index per
+in-range point across at most 648 cells; unusually ranged longitudes are checked
+separately.
 
 ## Profiling
 
@@ -68,6 +83,12 @@ every response digest:
 ```
 
 Use `-` in place of the home to generate and remove a fixture automatically.
+
+Generated fixtures also measure reads after unrelated tweet commits, unchanged
+profile refreshes, display changes, and follower-count changes through a separate
+writer. Writes are outside the read timer. Existing homes are never modified.
+Measure trigger overhead independently with `scripts/network-map-write-perf.ts`,
+which creates and removes matching schema-13 and schema-14 fixtures.
 
 Rebuild medians exclude the first two samples. Request times include response
 validation and serialization, while generation and database times are also

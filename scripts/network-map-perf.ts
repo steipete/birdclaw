@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { getNativeDb, resetDatabaseForTests } from "../src/lib/db";
-import { getDatabasePerformanceTotals } from "../src/lib/database-metrics";
+import {
+	getDatabasePerformanceTotals,
+	recordDatabaseStatement,
+} from "../src/lib/database-metrics";
+import NativeSqliteDatabase from "../src/lib/sqlite";
 import { networkMapViewResponseSchema } from "../src/lib/api-contracts";
 import {
 	getNetworkMapView,
@@ -33,10 +37,11 @@ const home =
 	fixture ?? mkdtempSync(path.join(os.tmpdir(), "birdclaw-map-perf-"));
 process.env.BIRDCLAW_HOME = home;
 process.env.BIRDCLAW_DEPLOYMENT_READ_ONLY = fixture ? "1" : "0";
+let reader: NativeSqliteDatabase | undefined;
 try {
-	const db = getNativeDb({ seedDemoData: false });
+	const writer = getNativeDb({ seedDemoData: false });
 	if (!fixture)
-		db.exec(`
+		writer.exec(`
   insert into accounts (id,name,handle,external_user_id,transport,is_default,created_at)
   values ('map-perf','Synthetic network','map-perf','1','archive',1,'2026-01-01');
   with recursive seq(n) as (select 1 union all select n+1 from seq where n<544560)
@@ -49,7 +54,15 @@ try {
   with recursive seq(n) as (select 0 union all select n+1 from seq where n<2047)
   insert into geocoded_locations (normalized_key,original,lat,lng,formatted,provider,hits,created_at,last_used_at)
   select 'synthetic city '||n,'Synthetic City '||n,-75+150.0*(n/64)/31,-175+350.0*(n%64)/63,'Synthetic City '||n,'opencage',1,'2026-01-01','2026-01-01' from seq;
+  insert into tweets(id,author_profile_id,text,created_at) values('perf-tweet','profile_1','Synthetic post','2026-01-01');
  `);
+	const db = (reader = new NativeSqliteDatabase(
+		path.join(home, "birdclaw.sqlite"),
+		{
+			readonly: true,
+			onStatement: (sql, ms) => recordDatabaseStatement("reader", sql, ms),
+		},
+	));
 	process.env.BIRDCLAW_DEPLOYMENT_READ_ONLY = "1";
 	process.env.OPENCAGE_API_KEY = "";
 	process.env.BIRDCLAW_MAPBOX_ACCESS_TOKEN = "";
@@ -77,7 +90,12 @@ try {
 		};
 	};
 	const scenarios: Array<
-		[string, number, (i: number) => NetworkMapViewOptions]
+		[
+			string,
+			number,
+			(i: number) => NetworkMapViewOptions,
+			((i: number) => void)?,
+		]
 	> = [
 		["cold", 1, () => ({})],
 		...["followers", "following", "mutual"].map(
@@ -105,7 +123,57 @@ try {
 			(i) => ({ viewport: { bounds: [i / 10, 40, 30 + i / 10, 55], zoom: 4 } }),
 		],
 	];
-	for (const [scenario, count, options] of scenarios) {
+	// Writes are restricted to the fixture this process creates, never an existing home.
+	if (!fixture)
+		scenarios.push(
+			[
+				"after-tweet-commit",
+				10,
+				() => ({}),
+				(i) => {
+					writer
+						.prepare("update tweets set text=? where id='perf-tweet'")
+						.run(`Synthetic post ${i}`);
+				},
+			],
+			[
+				"after-profile-heartbeat",
+				10,
+				() => ({}),
+				(i) => {
+					writer
+						.prepare(
+							"update profiles set raw_json=?, followers_count=followers_count, location=location where id='profile_1'",
+						)
+						.run(JSON.stringify({ observed: i }));
+				},
+			],
+			[
+				"after-display-change",
+				10,
+				() => ({}),
+				(i) => {
+					writer
+						.prepare(
+							"update profiles set avatar_url=?, following_count=? where id='profile_1'",
+						)
+						.run(`https://example.com/avatar-${i}.png`, i);
+				},
+			],
+			[
+				"after-geometry-change",
+				10,
+				() => ({}),
+				(i) => {
+					writer
+						.prepare(
+							"update profiles set followers_count=? where id='profile_1'",
+						)
+						.run(800000 + i);
+				},
+			],
+		);
+	for (const [scenario, count, options, mutate] of scenarios) {
 		const samplesByVariant = new Map(
 			[...readers.keys()].map((name) => [
 				name,
@@ -117,6 +185,7 @@ try {
 			if (i % 2) order.reverse();
 			const digests = new Set<string>();
 			for (const [name, read] of order) {
+				mutate?.(i);
 				const sample = await measure(read, options(i));
 				samplesByVariant.get(name)!.push(sample);
 				digests.add(sample.digest);
@@ -125,9 +194,9 @@ try {
 				throw new Error(`${scenario}: response digests differ`);
 		}
 		for (const [variant, samples] of samplesByVariant) {
-			const measured = scenario.startsWith("rebuild-")
-				? samples.slice(2)
-				: samples;
+			const repeatedRead =
+				scenario.startsWith("rebuild-") || scenario.startsWith("after-");
+			const measured = repeatedRead ? samples.slice(2) : samples;
 			const percentile = (
 				key: "generateMs" | "totalMs" | "databaseMs",
 				p: number,
@@ -141,7 +210,7 @@ try {
 					variant,
 					iterations: count,
 					first: samples[0],
-					samples: scenario.startsWith("rebuild-") ? samples : undefined,
+					samples: repeatedRead ? samples : undefined,
 					medianGenerateMs: percentile("generateMs", 0.5),
 					medianTotalMs: percentile("totalMs", 0.5),
 					p95TotalMs: percentile("totalMs", 0.95),
@@ -154,6 +223,7 @@ try {
 		}
 	}
 } finally {
+	reader?.close();
 	resetDatabaseForTests();
 	if (!fixture) rmSync(home, { recursive: true, force: true });
 }

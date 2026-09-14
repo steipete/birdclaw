@@ -45,6 +45,7 @@ function hasStoredContent(db: Database) {
 			  and name not like 'sqlite_%'
 			  and name not glob 'tweets_fts_*'
 			  and name not glob 'dm_fts_*'
+			  and name != 'network_map_revision'
 			order by name
 		`)
 		.all() as Array<{ name: string }>;

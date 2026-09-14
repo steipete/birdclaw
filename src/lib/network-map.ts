@@ -8,6 +8,7 @@ import {
 	getOpenCageApiKey,
 	readCachedGeocodes,
 	readSuppressedGeocodeKeys,
+	readSuppressedGeocodes,
 	type GeocodeResult,
 } from "./geocoding";
 import { isMeaningfulLocation, normalizeLocationKey } from "./location";
@@ -396,7 +397,8 @@ export function readMapIndexData(
 		.all(accountId, -1) as MapProfileRow[];
 	const locations = collectLocations(rows);
 	const cache = readCachedGeocodes(locations.keys, db);
-	const suppressed = readSuppressedGeocodeKeys(locations.keys, db);
+	const suppression = readSuppressedGeocodes(locations.keys, db);
+	const suppressed = suppression.keys;
 	// Recover the full-map order using only located groups, avoiding a SQLite sort
 	// of every network member. BINARY text order also preserves Unicode/tied handles.
 	const compareRows = (a: MapProfileRow, b: MapProfileRow) =>
@@ -412,6 +414,8 @@ export function readMapIndexData(
 	});
 	return {
 		features,
+		expiresAt: suppression.expiresAt,
+		asOf: suppression.asOf,
 		meta: {
 			accountId,
 			type,

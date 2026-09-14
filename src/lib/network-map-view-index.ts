@@ -3,7 +3,6 @@ import type { MapIndexFeature } from "./network-map";
 import {
 	buildClusterIndex,
 	compareClusterFeatures,
-	createBoundsFilter,
 	featureSearchText,
 	getClusterDisplayAnchor,
 	isCluster,
@@ -12,6 +11,7 @@ import {
 	type MapFeature,
 	type MapViewport,
 } from "./network-map-geometry";
+import { NetworkMapBoundsIndex } from "./network-map-bounds-index";
 
 const PAGE_SIZE = 160;
 const MAX_MARKERS = 200;
@@ -36,6 +36,7 @@ type View = {
 
 export class NetworkMapViewIndex {
 	private readonly index: ReturnType<typeof buildClusterIndex>;
+	private readonly boundsIndex: NetworkMapBoundsIndex;
 	private readonly views = new Map<string, View>();
 	private readonly markers = new Map<number, IndexedMarker>();
 	private readonly searchTexts: Array<string | undefined> = [];
@@ -53,6 +54,7 @@ export class NetworkMapViewIndex {
 		this.hydrate = hydrate;
 		features.sort(compareClusterFeatures);
 		this.index = buildClusterIndex(features);
+		this.boundsIndex = new NetworkMapBoundsIndex(features);
 	}
 
 	private view(viewport: MapViewport): View {
@@ -69,10 +71,7 @@ export class NetworkMapViewIndex {
 		while (clusters.length > MAX_MARKERS && zoom > 0)
 			clusters = this.index.getClusters(viewport.bounds, --zoom);
 		const markers = clusters.map((item) => this.marker(item));
-		const contains = createBoundsFilter(viewport.bounds);
-		const indices: number[] = [];
-		for (let i = 0; i < this.features.length; i++)
-			if (contains(this.features[i])) indices.push(i);
+		const indices = this.boundsIndex.read(viewport.bounds);
 		const view = { markers, indices, search: "", matches: indices };
 		this.views.set(key, view);
 		if (this.views.size > MAX_CACHED_VIEWS)
@@ -146,6 +145,10 @@ export class NetworkMapViewIndex {
 		while (this.profiles.size > MAX_CACHED_PROFILES)
 			this.profiles.delete(this.profiles.keys().next().value!);
 		return result;
+	}
+
+	clearProfileCache() {
+		this.profiles.clear();
 	}
 
 	read(viewport: MapViewport, search: string, requestedOffset: number) {

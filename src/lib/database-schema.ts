@@ -1,6 +1,7 @@
 import type { Database } from "./sqlite";
 import type { DatabaseMigration } from "./database-migrations";
 import { installSearchRowIds } from "./search-index";
+import { installNetworkMapRevision } from "./network-map-revision";
 
 const BASE_SCHEMA_SQL = `
   create table if not exists accounts (
@@ -1184,5 +1185,10 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 		version: 13,
 		name: "give search documents stable indexed row IDs",
 		up: installSearchRowIds,
+	},
+	{
+		version: 14,
+		name: "track map geometry and display metadata revisions",
+		up: installNetworkMapRevision,
 	},
 ];

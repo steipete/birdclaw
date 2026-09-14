@@ -218,8 +218,8 @@ groups, retaining the full GeoJSON point order. Display-only fields (avatar,
 following count, verification) are loaded for each response in one batch and
 retained in a 4,096-profile LRU. Cluster previews keep point indices, so they do
 not retain evicted profile metadata. The owning connection pins validation,
-index construction, and hydration to the same read transaction. An external
-commit invalidates the index on the next request, including metadata-only changes.
+index construction, and hydration to the same read transaction. The follow-up
+below narrows external-write invalidation while retaining these snapshot boundaries.
 
 Following and Mutual membership uses the existing direction index and indexed
 opposite-edge lookups. It no longer aggregates every follower before selecting
@@ -261,3 +261,63 @@ A separate Bun CPU profile of the updated large-fixture harness still attributed
 67% of sampled self time to native SQLite `.all` calls. Location grouping was
 about 2% and native sorting about 1.5%. The profile supports reducing database
 work as the main target; profiled timings are excluded from the comparison table.
+
+## Map invalidation and spatial reads
+
+The next pass targets unnecessary rebuilds and fresh viewport reads. Schema 14
+adds transactional counters for map index inputs and display metadata. An
+unrelated external commit no longer discards the map. Avatar, following-count,
+and verification changes clear only the metadata LRU; actual index changes and
+explicit refresh still rebuild it. Null-safe trigger comparisons skip unchanged
+fields, and suppression deadlines prevent time-based metadata from staying stale.
+The counters are global to the database, while account/type cache keys and owner
+snapshot boundaries remain unchanged. Inserts and deletes invalidate conservatively.
+
+Fresh pans use a bounded spatial grid before the existing exact bounds filter.
+Small views sort only their matching point indices back into rank order. Broad
+views keep the existing scan. This costs one additional numeric index per point
+and at most 648 cell arrays; it adds no dependency or database index.
+
+The paired synthetic 544,560-profile / 224,706-point audit measured these median
+response times, including schema validation and JSON serialization:
+
+| Request | Before | After |
+| --- | ---: | ---: |
+| Fresh regional pan | 6.70 ms | 0.52 ms |
+| Map after unrelated tweet commit | 762.76 ms | 1.11 ms |
+| Map after profile refresh with unchanged map fields | 692.40 ms | 1.57 ms |
+| Map after avatar/following-count change | 691.90 ms | 4.47 ms |
+| Pagination | 1.32 ms | 1.35 ms |
+| Forced follower-map rebuild | 692.13 ms | 696.77 ms |
+| Map after follower-count change | 691.96 ms | 767.85 ms |
+
+Every corresponding response digest matched. The improvement is in avoiding
+unnecessary work and finding visible people; initial construction still costs
+roughly 0.7 seconds on this fixture. Actual index changes retain that full cost,
+with some extra grid construction and variable host/GC overhead. These are local
+model timings, not hosted browser measurements. Writes happen before each read
+timer on a separate connection; the index, revision, and hydrated details are
+read within one snapshot.
+
+Reproduce both sides against a trusted checkout of the preceding version:
+
+```bash
+./scripts/bun-canary.sh scripts/network-map-perf.ts - /path/to/baseline-checkout
+./scripts/bun-canary.sh scripts/network-map-write-perf.ts
+```
+
+The write audit uses separate, identical 10,000-profile/edge databases with
+schema 13 and 14. It alternates execution order and checks complete canonical
+rows outside the timed operation. DML is rolled back, so these measurements omit
+commit latency. The schema adds 8 KiB on this fixture. Updates to 100 profiles
+measured 0.32 → 0.40 ms for an unchanged-fields refresh, 0.19 → 0.25 ms for display
+changes, and 0.14 → 0.20 ms for follower counts. Ending 10,000 follow edges measured
+114.5 → 124.9 ms; inserting 1,000 Following edges measured 106.6 → 131.6 ms.
+Other bulk write samples varied with page-cache and host I/O behavior; no write
+speedup is claimed. WAL, synchronization, and foreign-key settings are unchanged.
+
+The [raw record](https://github.com/steipete/birdclaw/blob/main/docs/benchmarks/map-invalidation-performance.json)
+contains all rebuild/post-commit samples, navigation summaries, and write controls.
+Further SQL join, covering-index, array-row, and JSON-aggregation experiments did
+not provide a reliable improvement over the existing compact scan and were not
+adopted.

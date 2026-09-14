@@ -1,0 +1,2067 @@
+{
+  "baseline": "52ee05ccf7cfe1d7f212447a485285a5cc4c36c0",
+  "method": "Alternating before/after reads against one generated synthetic archive with 544,560 profiles and 224,706 located people. Rebuild and post-commit medians exclude the first two of ten samples; navigation uses 30 samples. Each post-commit write occurs outside the read timer on a separate connection. All schema-normalized response digests match. These local model timings may use warm filesystem pages and exclude hosted HTTP/browser latency.",
+  "reads": [
+    {
+      "scenario": "cold",
+      "variant": "before",
+      "iterations": 1,
+      "first": {
+        "generateMs": 689.2939580000002,
+        "totalMs": 694.4420000000009,
+        "databaseMs": 513.942541999997,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "medianGenerateMs": 689.2939580000002,
+      "medianTotalMs": 694.4420000000009,
+      "p95TotalMs": 694.4420000000009,
+      "medianDatabaseMs": 513.942541999997,
+      "digest": "91a5c3c55d03715862dc9ffde422432d01b34ef92cf3460dfeb0c06d8c88cfb4"
+    },
+    {
+      "scenario": "cold",
+      "variant": "after",
+      "iterations": 1,
+      "first": {
+        "generateMs": 673.483959000001,
+        "totalMs": 675.3930839999994,
+        "databaseMs": 488.17162599999756,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "medianGenerateMs": 673.483959000001,
+      "medianTotalMs": 675.3930839999994,
+      "p95TotalMs": 675.3930839999994,
+      "medianDatabaseMs": 488.17162599999756,
+      "digest": "91a5c3c55d03715862dc9ffde422432d01b34ef92cf3460dfeb0c06d8c88cfb4"
+    },
+    {
+      "scenario": "rebuild-followers",
+      "variant": "before",
+      "iterations": 10,
+      "first": {
+        "generateMs": 694.6552080000001,
+        "totalMs": 696.0203330000004,
+        "databaseMs": 541.3868289999955,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "samples": [
+        {
+          "generateMs": 694.6552080000001,
+          "totalMs": 696.0203330000004,
+          "databaseMs": 541.3868289999955,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 687.420458999999,
+          "totalMs": 688.8039589999989,
+          "databaseMs": 537.023833999996,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 690.7847920000004,
+          "totalMs": 692.1261250000007,
+          "databaseMs": 538.0600400000003,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 667.3117080000011,
+          "totalMs": 670.1699169999993,
+          "databaseMs": 527.9556679999914,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 882.3310410000013,
+          "totalMs": 883.3794159999998,
+          "databaseMs": 733.6371660000041,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 757.7079169999997,
+          "totalMs": 758.6412079999973,
+          "databaseMs": 574.7452489999923,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 687.0733340000006,
+          "totalMs": 688.2568750000028,
+          "databaseMs": 540.7905839999912,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 795.2930410000008,
+          "totalMs": 796.4094160000022,
+          "databaseMs": 539.9426669999957,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 679.9266250000001,
+          "totalMs": 681.0633749999979,
+          "databaseMs": 535.4684169999964,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 1125.6467080000002,
+          "totalMs": 1126.6108749999985,
+          "databaseMs": 971.0249600000097,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        }
+      ],
+      "medianGenerateMs": 690.7847920000004,
+      "medianTotalMs": 692.1261250000007,
+      "p95TotalMs": 1126.6108749999985,
+      "medianDatabaseMs": 539.9426669999957,
+      "digest": "f4b647ceda187af8c2aa3049371819285becce5f76d32a0bfd1f41ca48a1429a"
+    },
+    {
+      "scenario": "rebuild-followers",
+      "variant": "after",
+      "iterations": 10,
+      "first": {
+        "generateMs": 795.6786670000001,
+        "totalMs": 797.0501249999998,
+        "databaseMs": 606.2352469999987,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "samples": [
+        {
+          "generateMs": 795.6786670000001,
+          "totalMs": 797.0501249999998,
+          "databaseMs": 606.2352469999987,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 747.9177080000009,
+          "totalMs": 749.2318329999998,
+          "databaseMs": 558.0913739999996,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 762.0015000000003,
+          "totalMs": 763.219791999998,
+          "databaseMs": 598.7637080000059,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 681.6084169999995,
+          "totalMs": 682.570375000003,
+          "databaseMs": 537.5042490000124,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 726.4334579999995,
+          "totalMs": 727.3024580000019,
+          "databaseMs": 530.7499599999937,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 683.6677920000002,
+          "totalMs": 684.632916999999,
+          "databaseMs": 529.9971659999974,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 683.8437919999997,
+          "totalMs": 684.794167,
+          "databaseMs": 534.8846260000064,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 695.6935420000009,
+          "totalMs": 696.7685420000016,
+          "databaseMs": 543.8298329999961,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 705.940166999997,
+          "totalMs": 706.8761669999985,
+          "databaseMs": 539.9142090000023,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 696.0187499999993,
+          "totalMs": 697.0398339999992,
+          "databaseMs": 535.9939599999998,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        }
+      ],
+      "medianGenerateMs": 695.6935420000009,
+      "medianTotalMs": 696.7685420000016,
+      "p95TotalMs": 763.219791999998,
+      "medianDatabaseMs": 535.9939599999998,
+      "digest": "f4b647ceda187af8c2aa3049371819285becce5f76d32a0bfd1f41ca48a1429a"
+    },
+    {
+      "scenario": "rebuild-following",
+      "variant": "before",
+      "iterations": 10,
+      "first": {
+        "generateMs": 41.94391700000051,
+        "totalMs": 42.552208000000974,
+        "databaseMs": 35.6125419999953,
+        "bytes": 279955,
+        "profiles": 5445,
+        "located": 2247,
+        "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+      },
+      "samples": [
+        {
+          "generateMs": 41.94391700000051,
+          "totalMs": 42.552208000000974,
+          "databaseMs": 35.6125419999953,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 41.75404200000048,
+          "totalMs": 42.40233299999818,
+          "databaseMs": 35.82208499999251,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 40.80879200000345,
+          "totalMs": 41.36133300000074,
+          "databaseMs": 34.53762799999822,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 43.30462500000067,
+          "totalMs": 43.906834000001254,
+          "databaseMs": 37.52116500000557,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 41.92033300000185,
+          "totalMs": 42.498875000001135,
+          "databaseMs": 35.791792000003625,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 45.61608299999716,
+          "totalMs": 46.136124999997264,
+          "databaseMs": 39.33395799999562,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 46.768167000001995,
+          "totalMs": 47.47041700000045,
+          "databaseMs": 39.43679300000076,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 46.04520799999955,
+          "totalMs": 46.68170800000007,
+          "databaseMs": 39.50170800000342,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 46.6137920000001,
+          "totalMs": 47.273542000002635,
+          "databaseMs": 40.15737600000284,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 44.842915999997786,
+          "totalMs": 45.46662499999729,
+          "databaseMs": 38.38054299999931,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        }
+      ],
+      "medianGenerateMs": 44.842915999997786,
+      "medianTotalMs": 45.46662499999729,
+      "p95TotalMs": 47.47041700000045,
+      "medianDatabaseMs": 38.38054299999931,
+      "digest": "6eb2c60f74b619a0d4236968a9e7fbad913833ff3d3973627beb4331e8631279"
+    },
+    {
+      "scenario": "rebuild-following",
+      "variant": "after",
+      "iterations": 10,
+      "first": {
+        "generateMs": 43.11924999999974,
+        "totalMs": 43.72991700000057,
+        "databaseMs": 36.754956999997376,
+        "bytes": 279955,
+        "profiles": 5445,
+        "located": 2247,
+        "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+      },
+      "samples": [
+        {
+          "generateMs": 43.11924999999974,
+          "totalMs": 43.72991700000057,
+          "databaseMs": 36.754956999997376,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 42.348916999999346,
+          "totalMs": 42.99925000000076,
+          "databaseMs": 36.33245900000475,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 41.25041599999895,
+          "totalMs": 41.86095800000112,
+          "databaseMs": 35.30070700000215,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 42.17558399999689,
+          "totalMs": 42.744291999999405,
+          "databaseMs": 36.323542000005546,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 54.61095799999748,
+          "totalMs": 57.110749999999825,
+          "databaseMs": 41.8825419999921,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 73.44658299999719,
+          "totalMs": 74.1394999999975,
+          "databaseMs": 66.66879199999676,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 45.43645799999649,
+          "totalMs": 46.2823329999992,
+          "databaseMs": 39.31379199998628,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 48.95020800000202,
+          "totalMs": 49.68116600000212,
+          "databaseMs": 42.396918000005826,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 44.569917000000714,
+          "totalMs": 45.13379200000054,
+          "databaseMs": 38.83941700000287,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        },
+        {
+          "generateMs": 45.33966700000019,
+          "totalMs": 45.879667000001064,
+          "databaseMs": 38.99441599999409,
+          "bytes": 279955,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "dae03c98f4795368a2b8928d0fdf71410a2aa752cbbf00e23dc0544bfde750a1"
+        }
+      ],
+      "medianGenerateMs": 45.33966700000019,
+      "medianTotalMs": 45.879667000001064,
+      "p95TotalMs": 74.1394999999975,
+      "medianDatabaseMs": 38.99441599999409,
+      "digest": "6eb2c60f74b619a0d4236968a9e7fbad913833ff3d3973627beb4331e8631279"
+    },
+    {
+      "scenario": "rebuild-mutual",
+      "variant": "before",
+      "iterations": 10,
+      "first": {
+        "generateMs": 44.74408400000175,
+        "totalMs": 45.3950420000001,
+        "databaseMs": 38.52037299999938,
+        "bytes": 279952,
+        "profiles": 5445,
+        "located": 2247,
+        "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+      },
+      "samples": [
+        {
+          "generateMs": 44.74408400000175,
+          "totalMs": 45.3950420000001,
+          "databaseMs": 38.52037299999938,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 47.449916000001394,
+          "totalMs": 48.19395799999984,
+          "databaseMs": 40.89129099999991,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 44.67904200000339,
+          "totalMs": 45.34566700000141,
+          "databaseMs": 38.546752000002016,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 45.30083400000149,
+          "totalMs": 45.98079200000211,
+          "databaseMs": 38.57629199999792,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 45.075291000001016,
+          "totalMs": 45.67108300000109,
+          "databaseMs": 38.94346000000223,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 44.297458999997616,
+          "totalMs": 44.844084000000294,
+          "databaseMs": 37.805083999999624,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 44.097750000000815,
+          "totalMs": 44.62208299999838,
+          "databaseMs": 38.50695799999812,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 43.40679200000159,
+          "totalMs": 44.059250000002066,
+          "databaseMs": 37.64808300000004,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 43.601957999999286,
+          "totalMs": 44.13974999999846,
+          "databaseMs": 37.56862299999921,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 90.66420899999866,
+          "totalMs": 91.4821669999983,
+          "databaseMs": 74.8457070000004,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        }
+      ],
+      "medianGenerateMs": 44.297458999997616,
+      "medianTotalMs": 44.844084000000294,
+      "p95TotalMs": 91.4821669999983,
+      "medianDatabaseMs": 38.50695799999812,
+      "digest": "a254c8a05f4645e2ee142ed58a44103cfc028d6e186c38f72daed9a36fb47cd8"
+    },
+    {
+      "scenario": "rebuild-mutual",
+      "variant": "after",
+      "iterations": 10,
+      "first": {
+        "generateMs": 44.78087499999674,
+        "totalMs": 45.540249999998196,
+        "databaseMs": 38.83491800000047,
+        "bytes": 279952,
+        "profiles": 5445,
+        "located": 2247,
+        "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+      },
+      "samples": [
+        {
+          "generateMs": 44.78087499999674,
+          "totalMs": 45.540249999998196,
+          "databaseMs": 38.83491800000047,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 45.89270899999974,
+          "totalMs": 46.53687499999796,
+          "databaseMs": 39.572791999999026,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 45.83879099999831,
+          "totalMs": 46.57758299999841,
+          "databaseMs": 39.404085999995004,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 45.07733400000143,
+          "totalMs": 45.603125000001455,
+          "databaseMs": 39.21912299999531,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 43.9641249999986,
+          "totalMs": 44.67095799999879,
+          "databaseMs": 37.6890399999902,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 43.93600000000151,
+          "totalMs": 44.733250000001135,
+          "databaseMs": 38.12562700000126,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 43.96062499999971,
+          "totalMs": 44.49529099999927,
+          "databaseMs": 38.01562400000694,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 43.55041600000186,
+          "totalMs": 44.05587500000183,
+          "databaseMs": 38.10158400000364,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 42.78862500000105,
+          "totalMs": 43.374667000000045,
+          "databaseMs": 36.755499999992026,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        },
+        {
+          "generateMs": 55.13875000000189,
+          "totalMs": 57.317833000000974,
+          "databaseMs": 48.21783400001004,
+          "bytes": 279952,
+          "profiles": 5445,
+          "located": 2247,
+          "digest": "cb7536ebc4fc3afa17c8c39487d781b3f3b7f0809284846740a7cf9cf8457dcc"
+        }
+      ],
+      "medianGenerateMs": 43.96062499999971,
+      "medianTotalMs": 44.67095799999879,
+      "p95TotalMs": 57.317833000000974,
+      "medianDatabaseMs": 38.10158400000364,
+      "digest": "a254c8a05f4645e2ee142ed58a44103cfc028d6e186c38f72daed9a36fb47cd8"
+    },
+    {
+      "scenario": "pagination",
+      "variant": "before",
+      "iterations": 30,
+      "first": {
+        "generateMs": 0.9102080000011483,
+        "totalMs": 2.1237079999991693,
+        "databaseMs": 0.47904099999868777,
+        "bytes": 359992,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "450cf00f21197d50a48ddce922ea9f662390c6724b03be1f0d51997e7c8845f9"
+      },
+      "medianGenerateMs": 0.5363330000000133,
+      "medianTotalMs": 1.3179170000003069,
+      "p95TotalMs": 2.1237079999991693,
+      "medianDatabaseMs": 0.28137499999138527,
+      "digest": "bcb84a418b6742fa0235baa6eed6f5fee9a32afa2e77432eb9796c8628cb3a45"
+    },
+    {
+      "scenario": "pagination",
+      "variant": "after",
+      "iterations": 30,
+      "first": {
+        "generateMs": 0.6625830000011774,
+        "totalMs": 9.086749999998574,
+        "databaseMs": 0.31345900000451365,
+        "bytes": 359992,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "450cf00f21197d50a48ddce922ea9f662390c6724b03be1f0d51997e7c8845f9"
+      },
+      "medianGenerateMs": 0.581332999998267,
+      "medianTotalMs": 1.3531250000014552,
+      "p95TotalMs": 5.466082999999344,
+      "medianDatabaseMs": 0.2909579999977723,
+      "digest": "bcb84a418b6742fa0235baa6eed6f5fee9a32afa2e77432eb9796c8628cb3a45"
+    },
+    {
+      "scenario": "changing-search",
+      "variant": "before",
+      "iterations": 30,
+      "first": {
+        "generateMs": 57.03495800000019,
+        "totalMs": 57.740750000000844,
+        "databaseMs": 0.152791000000434,
+        "bytes": 298429,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "b07b134608829c20718895247dda872d2757e063eccd323349888ecb988bd298"
+      },
+      "medianGenerateMs": 4.961583000000246,
+      "medianTotalMs": 5.644333000000188,
+      "p95TotalMs": 6.092415999999503,
+      "medianDatabaseMs": 0.11783399999694666,
+      "digest": "d466c86c08878fdd0c2749179cf3ed05e6cf8e582d5f2c02212946ae318d5268"
+    },
+    {
+      "scenario": "changing-search",
+      "variant": "after",
+      "iterations": 30,
+      "first": {
+        "generateMs": 57.51224999999977,
+        "totalMs": 58.34270800000013,
+        "databaseMs": 0.1406669999996666,
+        "bytes": 298429,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "b07b134608829c20718895247dda872d2757e063eccd323349888ecb988bd298"
+      },
+      "medianGenerateMs": 4.778042000001733,
+      "medianTotalMs": 5.512166000000434,
+      "p95TotalMs": 5.900999999998021,
+      "medianDatabaseMs": 0.12279200000193669,
+      "digest": "d466c86c08878fdd0c2749179cf3ed05e6cf8e582d5f2c02212946ae318d5268"
+    },
+    {
+      "scenario": "typing-search",
+      "variant": "before",
+      "iterations": 30,
+      "first": {
+        "generateMs": 10.082542000000103,
+        "totalMs": 11.037499999998545,
+        "databaseMs": 0.6458740000016405,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "medianGenerateMs": 1.3643749999973807,
+      "medianTotalMs": 2.2258750000000873,
+      "p95TotalMs": 9.402375000001484,
+      "medianDatabaseMs": 0.0663330000024871,
+      "digest": "08bcb0aa888a711422528e4eed45e612f6ad9540554178caf83d90041a986162"
+    },
+    {
+      "scenario": "typing-search",
+      "variant": "after",
+      "iterations": 30,
+      "first": {
+        "generateMs": 10.73254100000122,
+        "totalMs": 11.876916000001074,
+        "databaseMs": 0.4096669999998994,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "medianGenerateMs": 1.3992089999992459,
+      "medianTotalMs": 2.3927089999997406,
+      "p95TotalMs": 11.277709000001778,
+      "medianDatabaseMs": 0.07229200000438141,
+      "digest": "08bcb0aa888a711422528e4eed45e612f6ad9540554178caf83d90041a986162"
+    },
+    {
+      "scenario": "fresh-pan",
+      "variant": "before",
+      "iterations": 30,
+      "first": {
+        "generateMs": 19.230208999997558,
+        "totalMs": 19.41070899999977,
+        "databaseMs": 0.43179099999542814,
+        "bytes": 100860,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "dfda141a1132fdd6a642ec1bbfdd0e68d19f43f6f45be343ddcb5fe20999d9e1"
+      },
+      "medianGenerateMs": 6.4095410000009,
+      "medianTotalMs": 6.695166999998037,
+      "p95TotalMs": 10.304416999999376,
+      "medianDatabaseMs": 0.047916999996232335,
+      "digest": "a4bb4faa3166855449f7eefcd76fecddbdd08482cc1a61cec9add701df2b567c"
+    },
+    {
+      "scenario": "fresh-pan",
+      "variant": "after",
+      "iterations": 30,
+      "first": {
+        "generateMs": 1.4629170000007434,
+        "totalMs": 1.6055420000011509,
+        "databaseMs": 0.18704100000468316,
+        "bytes": 100860,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "dfda141a1132fdd6a642ec1bbfdd0e68d19f43f6f45be343ddcb5fe20999d9e1"
+      },
+      "medianGenerateMs": 0.3562500000007276,
+      "medianTotalMs": 0.5217499999998836,
+      "p95TotalMs": 0.7537090000005264,
+      "medianDatabaseMs": 0.04966699999204138,
+      "digest": "a4bb4faa3166855449f7eefcd76fecddbdd08482cc1a61cec9add701df2b567c"
+    },
+    {
+      "scenario": "after-tweet-commit",
+      "variant": "before",
+      "iterations": 10,
+      "first": {
+        "generateMs": 726.8947499999995,
+        "totalMs": 727.6499999999978,
+        "databaseMs": 547.7912899999938,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "samples": [
+        {
+          "generateMs": 726.8947499999995,
+          "totalMs": 727.6499999999978,
+          "databaseMs": 547.7912899999938,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 744.6437079999996,
+          "totalMs": 745.8337500000016,
+          "databaseMs": 559.6171629999953,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 791.4860829999998,
+          "totalMs": 792.4227500000015,
+          "databaseMs": 600.6928310000076,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 751.2847499999989,
+          "totalMs": 752.039082999996,
+          "databaseMs": 558.8898719999852,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 1407.9259590000001,
+          "totalMs": 1412.4290839999958,
+          "databaseMs": 990.3371239999979,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 1917.7307080000028,
+          "totalMs": 1918.6627500000031,
+          "databaseMs": 1655.9750839999833,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 854.4174169999969,
+          "totalMs": 855.3557920000021,
+          "databaseMs": 626.4324590000033,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 702.7414590000044,
+          "totalMs": 703.8680000000022,
+          "databaseMs": 540.4242059999888,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 761.9835000000021,
+          "totalMs": 762.7559580000016,
+          "databaseMs": 557.2277909999975,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 693.0838750000039,
+          "totalMs": 693.9715419999993,
+          "databaseMs": 546.8879179999785,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        }
+      ],
+      "medianGenerateMs": 761.9835000000021,
+      "medianTotalMs": 762.7559580000016,
+      "p95TotalMs": 1918.6627500000031,
+      "medianDatabaseMs": 558.8898719999852,
+      "digest": "f4b647ceda187af8c2aa3049371819285becce5f76d32a0bfd1f41ca48a1429a"
+    },
+    {
+      "scenario": "after-tweet-commit",
+      "variant": "after",
+      "iterations": 10,
+      "first": {
+        "generateMs": 19.860458999999537,
+        "totalMs": 20.606917000000976,
+        "databaseMs": 0.06262600000627572,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "samples": [
+        {
+          "generateMs": 19.860458999999537,
+          "totalMs": 20.606917000000976,
+          "databaseMs": 0.06262600000627572,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.2849580000001879,
+          "totalMs": 0.8340419999985897,
+          "databaseMs": 0.1394170000057784,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.3031249999985448,
+          "totalMs": 1.1144580000036513,
+          "databaseMs": 0.06450000000768341,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.23920799999905284,
+          "totalMs": 0.7452499999999418,
+          "databaseMs": 0.11554099999921164,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.9975829999966663,
+          "totalMs": 2.7169579999972484,
+          "databaseMs": 0.3205420000012964,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.7077090000020689,
+          "totalMs": 3.513208999997005,
+          "databaseMs": 0.1486659999936819,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.29112500000337604,
+          "totalMs": 1.0932910000046832,
+          "databaseMs": 0.07249999998748535,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.2559170000022277,
+          "totalMs": 0.7953330000018468,
+          "databaseMs": 0.11808300000120653,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.3314170000012382,
+          "totalMs": 1.3729999999995925,
+          "databaseMs": 0.07204199999250704,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.40887500000098953,
+          "totalMs": 1.2127499999987776,
+          "databaseMs": 0.14691700000548735,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        }
+      ],
+      "medianGenerateMs": 0.3031249999985448,
+      "medianTotalMs": 1.1144580000036513,
+      "p95TotalMs": 3.513208999997005,
+      "medianDatabaseMs": 0.11554099999921164,
+      "digest": "f4b647ceda187af8c2aa3049371819285becce5f76d32a0bfd1f41ca48a1429a"
+    },
+    {
+      "scenario": "after-profile-heartbeat",
+      "variant": "before",
+      "iterations": 10,
+      "first": {
+        "generateMs": 677.7848330000052,
+        "totalMs": 678.8274579999998,
+        "databaseMs": 540.5817510000124,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "samples": [
+        {
+          "generateMs": 677.7848330000052,
+          "totalMs": 678.8274579999998,
+          "databaseMs": 540.5817510000124,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 705.3522920000032,
+          "totalMs": 706.2772499999992,
+          "databaseMs": 563.1621219999724,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 764.9627079999991,
+          "totalMs": 765.9965830000001,
+          "databaseMs": 622.7936659999978,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 686.7609999999986,
+          "totalMs": 687.6362089999966,
+          "databaseMs": 541.7153309999776,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 679.0425840000025,
+          "totalMs": 679.8551250000019,
+          "databaseMs": 541.6358729999993,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 925.0792079999956,
+          "totalMs": 925.8964999999953,
+          "databaseMs": 766.5215819999939,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 743.5567079999964,
+          "totalMs": 744.2915829999984,
+          "databaseMs": 613.2736640000148,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 681.2087080000056,
+          "totalMs": 682.002790999999,
+          "databaseMs": 545.9522500000166,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 704.8756250000006,
+          "totalMs": 705.8700830000016,
+          "databaseMs": 541.0117060000048,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 691.2791250000009,
+          "totalMs": 692.3997919999965,
+          "databaseMs": 541.181292000023,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        }
+      ],
+      "medianGenerateMs": 691.2791250000009,
+      "medianTotalMs": 692.3997919999965,
+      "p95TotalMs": 925.8964999999953,
+      "medianDatabaseMs": 541.7153309999776,
+      "digest": "f4b647ceda187af8c2aa3049371819285becce5f76d32a0bfd1f41ca48a1429a"
+    },
+    {
+      "scenario": "after-profile-heartbeat",
+      "variant": "after",
+      "iterations": 10,
+      "first": {
+        "generateMs": 0.6305000000065775,
+        "totalMs": 1.8682079999998678,
+        "databaseMs": 0.3106669999906444,
+        "bytes": 358503,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+      },
+      "samples": [
+        {
+          "generateMs": 0.6305000000065775,
+          "totalMs": 1.8682079999998678,
+          "databaseMs": 0.3106669999906444,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.3007499999948777,
+          "totalMs": 1.0112499999959255,
+          "databaseMs": 0.0761659999989206,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.42962500000430737,
+          "totalMs": 1.5695410000043921,
+          "databaseMs": 0.14429199999722186,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.36366699999780394,
+          "totalMs": 1.2046669999981532,
+          "databaseMs": 0.09516700000676792,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.47437499999796273,
+          "totalMs": 1.604708999999275,
+          "databaseMs": 0.15533399999549147,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.29200000000128057,
+          "totalMs": 1.2427089999982854,
+          "databaseMs": 0.06658299999980954,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.6183749999981956,
+          "totalMs": 2.0757079999966663,
+          "databaseMs": 0.2268330000079004,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 0.4428330000009737,
+          "totalMs": 1.5045419999951264,
+          "databaseMs": 0.10000000000582077,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 1.152249999999185,
+          "totalMs": 2.525000000001455,
+          "databaseMs": 0.19970900000771508,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        },
+        {
+          "generateMs": 12.765458000001672,
+          "totalMs": 27.504832999999053,
+          "databaseMs": 0.3303319999977248,
+          "bytes": 358503,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "31dd2b244654f10e6926afb4efb85e1baf209905bf1ef0e1facd9196e4fe5b92"
+        }
+      ],
+      "medianGenerateMs": 0.4428330000009737,
+      "medianTotalMs": 1.5695410000043921,
+      "p95TotalMs": 27.504832999999053,
+      "medianDatabaseMs": 0.14429199999722186,
+      "digest": "f4b647ceda187af8c2aa3049371819285becce5f76d32a0bfd1f41ca48a1429a"
+    },
+    {
+      "scenario": "after-display-change",
+      "variant": "before",
+      "iterations": 10,
+      "first": {
+        "generateMs": 697.9871669999993,
+        "totalMs": 699.0398330000025,
+        "databaseMs": 547.3718330000193,
+        "bytes": 358533,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "5277733588ab36f1b72fadc3ceffac5c346e7e40898ee2d6e36c809675eaddd2"
+      },
+      "samples": [
+        {
+          "generateMs": 697.9871669999993,
+          "totalMs": 699.0398330000025,
+          "databaseMs": 547.3718330000193,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "5277733588ab36f1b72fadc3ceffac5c346e7e40898ee2d6e36c809675eaddd2"
+        },
+        {
+          "generateMs": 693.961249999993,
+          "totalMs": 694.8904589999947,
+          "databaseMs": 546.0666649999985,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "48a61325f29c812d4d69a341a3ef8ac26b7c4986d4c4037ce6c663a933917928"
+        },
+        {
+          "generateMs": 691.0319159999999,
+          "totalMs": 691.9001659999994,
+          "databaseMs": 542.6777510000102,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "66bf9278ee774c82262fee14f40218543de842435af2ca34a8112b4b38873da6"
+        },
+        {
+          "generateMs": 808.9530419999937,
+          "totalMs": 809.8037499999991,
+          "databaseMs": 663.5764610000115,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "e338b7a3e743f162ec9d87b568012fe9dfe288b073fcf40581e88aa689898ab5"
+        },
+        {
+          "generateMs": 684.153624999999,
+          "totalMs": 685.2248749999999,
+          "databaseMs": 545.3780430000115,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "0fde2ff69ca135883c54cca043b3238c9070ca5c8c72f273422965abcfac200d"
+        },
+        {
+          "generateMs": 678.0139589999962,
+          "totalMs": 678.9614169999986,
+          "databaseMs": 541.5552490000046,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "95c18ef7ca99203416a79015279439bdc9db7cda5f036e909e6e5d6ef1e31563"
+        },
+        {
+          "generateMs": 661.7543750000041,
+          "totalMs": 662.4334170000002,
+          "databaseMs": 538.7243750000125,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "567b824467eec29baa4c5169bb5bec5ff6d461ea971155f66eb6361e973d3d63"
+        },
+        {
+          "generateMs": 958.6468339999992,
+          "totalMs": 960.7908749999988,
+          "databaseMs": 792.8957519999822,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "7dff3c1f67cb48a129d9a201b7c20b21a07f3d123df2aec117970a1facbf5bc5"
+        },
+        {
+          "generateMs": 900.5453750000015,
+          "totalMs": 901.4489590000012,
+          "databaseMs": 759.9600029999929,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "d3275b93f51d051483b7a9be5c7f1a20b155e298af57cfcce6a3f4ec15d109fe"
+        },
+        {
+          "generateMs": 876.6118329999954,
+          "totalMs": 878.429333,
+          "databaseMs": 625.5910830000066,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "bc960e99d7d485ccd38b0877c54d80c17bacd2cae99dc94d5cfc4cc15d8e0cb1"
+        }
+      ],
+      "medianGenerateMs": 691.0319159999999,
+      "medianTotalMs": 691.9001659999994,
+      "p95TotalMs": 960.7908749999988,
+      "medianDatabaseMs": 545.3780430000115,
+      "digest": "1b719ecb6015ed3abf859cc673117e77be22157cbc3e81be3403ea2f56f1902d"
+    },
+    {
+      "scenario": "after-display-change",
+      "variant": "after",
+      "iterations": 10,
+      "first": {
+        "generateMs": 4.023667000001296,
+        "totalMs": 4.986417000000074,
+        "databaseMs": 2.959041000001889,
+        "bytes": 358533,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "5277733588ab36f1b72fadc3ceffac5c346e7e40898ee2d6e36c809675eaddd2"
+      },
+      "samples": [
+        {
+          "generateMs": 4.023667000001296,
+          "totalMs": 4.986417000000074,
+          "databaseMs": 2.959041000001889,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "5277733588ab36f1b72fadc3ceffac5c346e7e40898ee2d6e36c809675eaddd2"
+        },
+        {
+          "generateMs": 3.898208999999042,
+          "totalMs": 4.765666999999667,
+          "databaseMs": 2.9138740000125836,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "48a61325f29c812d4d69a341a3ef8ac26b7c4986d4c4037ce6c663a933917928"
+        },
+        {
+          "generateMs": 3.71941599999991,
+          "totalMs": 4.56620799999655,
+          "databaseMs": 2.829416000007768,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "66bf9278ee774c82262fee14f40218543de842435af2ca34a8112b4b38873da6"
+        },
+        {
+          "generateMs": 4.029374999998254,
+          "totalMs": 4.912124999995285,
+          "databaseMs": 3.1421249999912106,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "e338b7a3e743f162ec9d87b568012fe9dfe288b073fcf40581e88aa689898ab5"
+        },
+        {
+          "generateMs": 3.609708000003593,
+          "totalMs": 4.472958000005747,
+          "databaseMs": 2.8398339999985183,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "0fde2ff69ca135883c54cca043b3238c9070ca5c8c72f273422965abcfac200d"
+        },
+        {
+          "generateMs": 3.8185000000012224,
+          "totalMs": 4.6695420000032755,
+          "databaseMs": 2.8680420000091544,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "95c18ef7ca99203416a79015279439bdc9db7cda5f036e909e6e5d6ef1e31563"
+        },
+        {
+          "generateMs": 4.008249999998952,
+          "totalMs": 4.909749999998894,
+          "databaseMs": 2.980290999992576,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "567b824467eec29baa4c5169bb5bec5ff6d461ea971155f66eb6361e973d3d63"
+        },
+        {
+          "generateMs": 3.271833000006154,
+          "totalMs": 4.143833000001905,
+          "databaseMs": 2.615166000003228,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "7dff3c1f67cb48a129d9a201b7c20b21a07f3d123df2aec117970a1facbf5bc5"
+        },
+        {
+          "generateMs": 3.4758340000043972,
+          "totalMs": 4.4589170000035665,
+          "databaseMs": 2.766582999989623,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "d3275b93f51d051483b7a9be5c7f1a20b155e298af57cfcce6a3f4ec15d109fe"
+        },
+        {
+          "generateMs": 3.1005829999994603,
+          "totalMs": 3.7807920000050217,
+          "databaseMs": 2.5965829999986454,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "bc960e99d7d485ccd38b0877c54d80c17bacd2cae99dc94d5cfc4cc15d8e0cb1"
+        }
+      ],
+      "medianGenerateMs": 3.609708000003593,
+      "medianTotalMs": 4.472958000005747,
+      "p95TotalMs": 4.912124999995285,
+      "medianDatabaseMs": 2.829416000007768,
+      "digest": "1b719ecb6015ed3abf859cc673117e77be22157cbc3e81be3403ea2f56f1902d"
+    },
+    {
+      "scenario": "after-geometry-change",
+      "variant": "before",
+      "iterations": 10,
+      "first": {
+        "generateMs": 759.8150000000023,
+        "totalMs": 760.8125419999997,
+        "databaseMs": 602.7045799999978,
+        "bytes": 358533,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "0baeb3971c5e6536566e33ff35edeba054c31b24e9583329f85d334792f18197"
+      },
+      "samples": [
+        {
+          "generateMs": 759.8150000000023,
+          "totalMs": 760.8125419999997,
+          "databaseMs": 602.7045799999978,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "0baeb3971c5e6536566e33ff35edeba054c31b24e9583329f85d334792f18197"
+        },
+        {
+          "generateMs": 701.7412080000067,
+          "totalMs": 702.6570830000055,
+          "databaseMs": 553.3801250000033,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "93e0b80a230f6203fd807f431446186f182c78d6e1fc424ad2b388bfccc26574"
+        },
+        {
+          "generateMs": 684.9222919999957,
+          "totalMs": 685.7796669999952,
+          "databaseMs": 539.9141690000106,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "cf783a73f3b618763e7ff0428e5680af281df1d68cffb14d8e9754e553b4f325"
+        },
+        {
+          "generateMs": 710.6255830000009,
+          "totalMs": 711.4503750000003,
+          "databaseMs": 557.7815810000029,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "f2a89c4406853271dced1defda0ae2107058f958848f6705944104b3d1f647c2"
+        },
+        {
+          "generateMs": 691.0380420000074,
+          "totalMs": 691.9631670000017,
+          "databaseMs": 551.7720419999896,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "b0f61a1359f69c8c2f62d91f4adce877b7712f703b6eb35c3a91d3d31ea353ad"
+        },
+        {
+          "generateMs": 764.6664169999858,
+          "totalMs": 765.6806249999936,
+          "databaseMs": 621.7482090000121,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "4794d346255683344db4d92e08ce6587a6164781726c8b41bc9a72dbf4c38e54"
+        },
+        {
+          "generateMs": 864.7982499999925,
+          "totalMs": 865.9824999999983,
+          "databaseMs": 552.6249140000145,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "fb6eb3fc16cfd53693664cdf5a4d9954c73109f1de12fb159a2e76a41758b292"
+        },
+        {
+          "generateMs": 699.5782089999993,
+          "totalMs": 700.5887090000033,
+          "databaseMs": 553.9712070000242,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "5f0fe40e4d584a9a53f3e6ccb4c2c52648b62672bd8c39646eeab50e1162320b"
+        },
+        {
+          "generateMs": 686.9006249999948,
+          "totalMs": 687.861625000005,
+          "databaseMs": 552.6135419999919,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "eda67d183647e6c4c29671850e2af0467a6b8246075f4e435ffd667ead2efbcd"
+        },
+        {
+          "generateMs": 690.1145839999954,
+          "totalMs": 691.3401669999876,
+          "databaseMs": 549.0403330000263,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "3070fb9394573eb99cd4ad1aa358309e19ecdce3ec2f2d21cda366aafbb9a770"
+        }
+      ],
+      "medianGenerateMs": 691.0380420000074,
+      "medianTotalMs": 691.9631670000017,
+      "p95TotalMs": 865.9824999999983,
+      "medianDatabaseMs": 552.6135419999919,
+      "digest": "14af2da2fb767150b29a85f99d66bfdc8ff4ad36f85d3c29edd31e07047ae3f8"
+    },
+    {
+      "scenario": "after-geometry-change",
+      "variant": "after",
+      "iterations": 10,
+      "first": {
+        "generateMs": 783.820375000003,
+        "totalMs": 784.7144170000029,
+        "databaseMs": 575.7566249999945,
+        "bytes": 358533,
+        "profiles": 544560,
+        "located": 224706,
+        "digest": "0baeb3971c5e6536566e33ff35edeba054c31b24e9583329f85d334792f18197"
+      },
+      "samples": [
+        {
+          "generateMs": 783.820375000003,
+          "totalMs": 784.7144170000029,
+          "databaseMs": 575.7566249999945,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "0baeb3971c5e6536566e33ff35edeba054c31b24e9583329f85d334792f18197"
+        },
+        {
+          "generateMs": 713.6960420000032,
+          "totalMs": 714.7407090000052,
+          "databaseMs": 543.5744190000041,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "93e0b80a230f6203fd807f431446186f182c78d6e1fc424ad2b388bfccc26574"
+        },
+        {
+          "generateMs": 892.9159999999974,
+          "totalMs": 893.8400839999958,
+          "databaseMs": 717.4717909999817,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "cf783a73f3b618763e7ff0428e5680af281df1d68cffb14d8e9754e553b4f325"
+        },
+        {
+          "generateMs": 718.0105829999957,
+          "totalMs": 718.9674159999995,
+          "databaseMs": 544.9763319999984,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "f2a89c4406853271dced1defda0ae2107058f958848f6705944104b3d1f647c2"
+        },
+        {
+          "generateMs": 1361.8718329999974,
+          "totalMs": 1362.8237919999956,
+          "databaseMs": 1075.3544559999573,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "b0f61a1359f69c8c2f62d91f4adce877b7712f703b6eb35c3a91d3d31ea353ad"
+        },
+        {
+          "generateMs": 714.3318339999969,
+          "totalMs": 715.4264589999948,
+          "databaseMs": 551.6005840000144,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "4794d346255683344db4d92e08ce6587a6164781726c8b41bc9a72dbf4c38e54"
+        },
+        {
+          "generateMs": 788.5347500000062,
+          "totalMs": 789.345708000008,
+          "databaseMs": 621.9310850000038,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "fb6eb3fc16cfd53693664cdf5a4d9954c73109f1de12fb159a2e76a41758b292"
+        },
+        {
+          "generateMs": 700.1559589999961,
+          "totalMs": 701.0354999999981,
+          "databaseMs": 554.4872509999841,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "5f0fe40e4d584a9a53f3e6ccb4c2c52648b62672bd8c39646eeab50e1162320b"
+        },
+        {
+          "generateMs": 922.5831670000043,
+          "totalMs": 923.4220420000056,
+          "databaseMs": 770.1923780000507,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "eda67d183647e6c4c29671850e2af0467a6b8246075f4e435ffd667ead2efbcd"
+        },
+        {
+          "generateMs": 767.0273749999906,
+          "totalMs": 767.8484159999934,
+          "databaseMs": 609.7766670000128,
+          "bytes": 358533,
+          "profiles": 544560,
+          "located": 224706,
+          "digest": "3070fb9394573eb99cd4ad1aa358309e19ecdce3ec2f2d21cda366aafbb9a770"
+        }
+      ],
+      "medianGenerateMs": 767.0273749999906,
+      "medianTotalMs": 767.8484159999934,
+      "p95TotalMs": 1362.8237919999956,
+      "medianDatabaseMs": 609.7766670000128,
+      "digest": "14af2da2fb767150b29a85f99d66bfdc8ff4ad36f85d3c29edd31e07047ae3f8"
+    }
+  ],
+  "writes": {
+    "runtime": {
+      "bun": "1.4.0",
+      "sqlite": "3.54.0"
+    },
+    "method": "Schema 13 versus 14 on identical synthetic 10,000-profile/edge databases. Alternating execution order, ten samples, median excludes first two. Writes roll back; commit/fsync and canonical verification are excluded. All canonical row digests match.",
+    "databaseBytes": {
+      "before": 4255744,
+      "after": 4263936
+    },
+    "results": [
+      {
+        "scenario": "profile-heartbeat-100",
+        "digest": "87cec6ca08aee9570c27fdd02958cb099b151c6c24d6237d09d87e4836bd9d6d",
+        "variants": {
+          "before": {
+            "firstMs": 0.42074999999931606,
+            "medianMs": 0.320458499999404,
+            "samplesMs": [
+              0.42074999999931606,
+              0.2885000000005675,
+              0.9732079999994312,
+              0.8549169999987498,
+              0.3050419999999576,
+              0.510416000000987,
+              0.3233749999999418,
+              0.3130410000012489,
+              0.31754199999886623,
+              0.27299999999922875
+            ]
+          },
+          "after": {
+            "firstMs": 0.41320900000027905,
+            "medianMs": 0.40110400000048685,
+            "samplesMs": [
+              0.41320900000027905,
+              1.3687499999996362,
+              0.6304169999984879,
+              0.381083000000217,
+              0.33304099999986647,
+              0.4211250000007567,
+              0.5033329999987473,
+              1.0095409999994445,
+              0.36599999999998545,
+              0.359375
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "profile-display-100",
+        "digest": "641aefa2cc2a0377ddfdd1fb0b7f5cdfa2270db713c12a23916803b81f4ef84f",
+        "variants": {
+          "before": {
+            "firstMs": 0.3691660000004049,
+            "medianMs": 0.19049999999970169,
+            "samplesMs": [
+              0.3691660000004049,
+              0.20941700000003038,
+              0.1851249999999709,
+              0.4721669999998994,
+              0.19191700000010314,
+              0.1838339999994787,
+              0.1750000000010914,
+              0.19658300000082818,
+              0.18908299999930023,
+              0.7692500000011933
+            ]
+          },
+          "after": {
+            "firstMs": 0.2579169999989972,
+            "medianMs": 0.2532499999997526,
+            "samplesMs": [
+              0.2579169999989972,
+              0.2866250000006403,
+              0.3048340000004828,
+              0.2312500000007276,
+              1.56158300000061,
+              0.3423750000001746,
+              0.23099999999976717,
+              0.2257500000014261,
+              0.2693749999998545,
+              0.23712499999965075
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "profile-geometry-100",
+        "digest": "eaf536ea6f5eb7e7000077bd996f50fb157172de97e3777591211d27fdd81417",
+        "variants": {
+          "before": {
+            "firstMs": 0.14325000000098953,
+            "medianMs": 0.14258299999983137,
+            "samplesMs": [
+              0.14325000000098953,
+              0.12183300000106101,
+              0.21837500000037835,
+              0.22487499999988358,
+              0.12524999999914144,
+              0.135707999999795,
+              0.14025000000037835,
+              0.3070420000003651,
+              0.13012499999967986,
+              0.1449159999992844
+            ]
+          },
+          "after": {
+            "firstMs": 0.3306250000005093,
+            "medianMs": 0.19491649999963556,
+            "samplesMs": [
+              0.3306250000005093,
+              0.32366600000023027,
+              0.26629200000024866,
+              0.18920800000159943,
+              0.17062499999883585,
+              0.3485000000000582,
+              0.1741249999995489,
+              0.19454100000075414,
+              0.25108300000101735,
+              0.19529199999851699
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "profile-geometry-10000",
+        "digest": "925f6f812663c5502470016bd79210d15584ea2a1f630c52ee80e323a59cf8b2",
+        "variants": {
+          "before": {
+            "firstMs": 538.902666,
+            "medianMs": 365.23554200000035,
+            "samplesMs": [
+              538.902666,
+              834.1162079999995,
+              141.88008400000035,
+              260.1025840000002,
+              1027.265707999999,
+              273.13979200000176,
+              457.33129199999894,
+              911.3106659999976,
+              260.4527500000004,
+              1118.361499999999
+            ]
+          },
+          "after": {
+            "firstMs": 475.2434580000008,
+            "medianMs": 347.8950834999996,
+            "samplesMs": [
+              475.2434580000008,
+              532.8838749999995,
+              160.77958300000319,
+              81.88979199999812,
+              423.9447909999981,
+              372.8138340000005,
+              334.22204200000124,
+              449.213416999999,
+              180.16541700000016,
+              361.56812499999796
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "follow-heartbeat-10000",
+        "digest": "8d01a152c6bf325ca0c254b26ba047cda86b62d2dce07d795190650b60b13b69",
+        "variants": {
+          "before": {
+            "firstMs": 333.7908749999988,
+            "medianMs": 431.5850210000008,
+            "samplesMs": [
+              333.7908749999988,
+              340.0147500000021,
+              277.91470800000025,
+              471.9651670000021,
+              458.945499999998,
+              534.6358749999999,
+              571.528624999999,
+              234.34170799999993,
+              217.41433300000062,
+              404.22454200000357
+            ]
+          },
+          "after": {
+            "firstMs": 146.36833399999887,
+            "medianMs": 423.5382914999973,
+            "samplesMs": [
+              146.36833399999887,
+              255.27941699999792,
+              762.7442500000034,
+              494.4581249999974,
+              216.47891700000037,
+              221.33091600000262,
+              463.02795799999876,
+              216.45483300000342,
+              1118.838917000001,
+              384.0486249999958
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "follow-ended-10000",
+        "digest": "acef8104f0d032253f8885d560c428acb4b5633e5c16aa9a7ca8c4ad4036b8a9",
+        "variants": {
+          "before": {
+            "firstMs": 340.4647499999992,
+            "medianMs": 114.46900000000096,
+            "samplesMs": [
+              340.4647499999992,
+              473.9057909999974,
+              84.265542000001,
+              97.73604199999681,
+              191.96708300000319,
+              124.9328749999986,
+              64.19974999999977,
+              157.1140000000014,
+              125.3804170000003,
+              104.00512500000332
+            ]
+          },
+          "after": {
+            "firstMs": 2117.099792000001,
+            "medianMs": 124.89818749999904,
+            "samplesMs": [
+              2117.099792000001,
+              700.5392920000013,
+              73.36420799999905,
+              59.64049999999406,
+              148.3069170000017,
+              192.5604999999996,
+              101.48945799999638,
+              223.94112500000483,
+              159.8471669999999,
+              98.77204200000415
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "insert-profiles-1000",
+        "digest": "38333c77083a75e8ccf4ddae64bdbd29e44b4550dc404ded00954d89a22edbde",
+        "variants": {
+          "before": {
+            "firstMs": 18.71020899999712,
+            "medianMs": 39.5826249999991,
+            "samplesMs": [
+              18.71020899999712,
+              8.378292000001238,
+              83.08937499999593,
+              12.978917000000365,
+              9.15324999999575,
+              18.642958000004,
+              47.746541000000434,
+              53.11783399999695,
+              31.41870899999776,
+              115.30308399999922
+            ]
+          },
+          "after": {
+            "firstMs": 10.247666000002937,
+            "medianMs": 25.347937000002275,
+            "samplesMs": [
+              10.247666000002937,
+              7.703042000001005,
+              32.21041699999478,
+              18.974458000004233,
+              13.327499999999418,
+              52.87108399999852,
+              18.57079099999828,
+              31.721416000000318,
+              13.761415999993915,
+              118.47833299999911
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "insert-following-1000",
+        "digest": "730f13a3fb732d37cb1aa8b76d918eb19c9c833352211e475969c128580ab56a",
+        "variants": {
+          "before": {
+            "firstMs": 317.7930419999975,
+            "medianMs": 106.5927920000031,
+            "samplesMs": [
+              317.7930419999975,
+              198.40158399999927,
+              175.1016660000023,
+              105.63850000000093,
+              47.08904199999961,
+              107.54708400000527,
+              114.92491600000358,
+              38.71270799999911,
+              86.76187500000378,
+              181.34224999999424
+            ]
+          },
+          "after": {
+            "firstMs": 228.73399999999674,
+            "medianMs": 131.6465210000024,
+            "samplesMs": [
+              228.73399999999674,
+              165.15950000000157,
+              97.53729100000055,
+              20.028041999998095,
+              521.2819170000002,
+              150.9290420000034,
+              92.40495799999917,
+              134.2972080000036,
+              138.03520800000115,
+              128.9958340000012
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

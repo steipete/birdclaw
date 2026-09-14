@@ -6,6 +6,10 @@ Live sync, replies, archive imports, and backup merges share this writer. Each c
 
 Schema 13 rebuilds search rows once from active canonical content, repairing legacy duplicate, orphan, deleted, and superseded entries. The FTS column names, query syntax, and snippets remain unchanged. Stop older writers before writable startup applies the migration; all subsequent writers must maintain the derived mapping. Read-only deployments require an upgraded snapshot.
 
+Schema 14 adds a singleton `network_map_revision` table and SQLite triggers for map inputs. Changes to profile identity, names, follower counts, locations, current graph membership, or consumed geocode fields advance the index revision. Avatar, following-count, and verification updates advance a separate display revision. Identical map fields and unrelated tweet, DM, profile-history, and sync timestamp writes leave these revisions unchanged. Inserts and deletes conservatively advance the index revision, including SQLite REPLACE operations. The counters commit or roll back with canonical data and are not part of portable backups.
+
+Read-only map validation and hydration remain inside the owning reader's transaction. Index changes rebuild the map; display changes clear only the bounded profile cache. Local writes through an explicitly supplied writable connection remain conservatively tracked through `total_changes()` to prevent reuse of uncommitted, rolled-back versions. Suppressed geocodes also impose an expiry boundary. Upgrade through writable initialization before serving a schema-14 snapshot read-only; WAL and durability settings are unchanged.
+
 ## Effect Runtime Boundary
 
 Birdclaw's core I/O code should be written as Effect programs. Use `Effect.gen` for multi-step workflows, typed failures for expected errors, and `Effect.forEach` / `Effect.sleep` for concurrency, retry, timeout, and pacing logic.

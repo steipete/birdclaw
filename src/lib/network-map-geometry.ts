@@ -178,7 +178,7 @@ export function readViewport(target: unknown): MapViewport | null {
 	};
 }
 
-export function createBoundsFilter(bounds: MapBounds) {
+export function normalizeMapBounds(bounds: MapBounds) {
 	const [west, south, east, north] = bounds;
 	const normalizedWest = (((west % 360) + 540) % 360) - 180;
 	const normalizedEast = (((east % 360) + 540) % 360) - 180;
@@ -186,6 +186,25 @@ export function createBoundsFilter(bounds: MapBounds) {
 	const maxLatitude = Math.min(85, north);
 	const allLongitudes = east - west >= 360;
 	const crossesAntimeridian = normalizedWest > normalizedEast;
+	return {
+		normalizedWest,
+		normalizedEast,
+		minLatitude,
+		maxLatitude,
+		allLongitudes,
+		crossesAntimeridian,
+	};
+}
+
+export function createBoundsFilter(bounds: MapBounds) {
+	const {
+		normalizedWest,
+		normalizedEast,
+		minLatitude,
+		maxLatitude,
+		allLongitudes,
+		crossesAntimeridian,
+	} = normalizeMapBounds(bounds);
 	return (feature: MapIndexFeature) => {
 		const [lng, lat] = feature.geometry.coordinates;
 		return (

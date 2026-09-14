@@ -181,14 +181,90 @@ describe("network map views", () => {
 				followingCount: 42,
 				verified: true,
 			});
-			expect(build).toHaveBeenCalledTimes(2);
+			expect(build).toHaveBeenCalledTimes(1);
 			owner.close();
 			expect(await getNetworkMapView({ offset: 160 }, reader)).toEqual(fresh);
-			expect(build).toHaveBeenCalledTimes(3);
+			expect(build).toHaveBeenCalledTimes(2);
 		} finally {
 			owner.close();
 			reader.close();
 		}
+	});
+
+	it("retains the index through unrelated external writes and unchanged map fields", async () => {
+		const writer = fixture();
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const reader = new NativeSqliteDatabase(getBirdclawPaths().dbPath, {
+			readonly: true,
+		});
+		const build = vi.spyOn(geometry, "buildClusterIndex");
+		try {
+			const original = await getNetworkMapView({}, reader);
+			writer.exec(`
+				insert into tweets(id,author_profile_id,text,created_at) values('unrelated','p1','New tweet','2026-01-01');
+				update profiles set bio = 'New bio', raw_json = '{"changed":true}', display_name = display_name, followers_count = followers_count;
+				update follow_edges set last_seen_at = '2026-09-14';
+				update geocoded_locations set hits = hits + 1, last_used_at = '2026-09-14';
+			`);
+			expect(await getNetworkMapView({}, reader)).toEqual(original);
+			expect(build).toHaveBeenCalledTimes(1);
+			writer.exec(
+				"update geocoded_locations set lng=17 where normalized_key='vienna'",
+			);
+			const moved = await getNetworkMapView({}, reader);
+			expect(
+				moved.features.find((f) => f.properties.location === "Vienna")?.geometry
+					.coordinates,
+			).toEqual([17, 48.2]);
+			expect(build).toHaveBeenCalledTimes(2);
+		} finally {
+			reader.close();
+		}
+	});
+
+	it("expires suppressed geocodes without waiting for another database write", async () => {
+		const db = fixture(1);
+		db.exec(`delete from geocoded_locations;
+			insert into geocoded_locations_unresolved(normalized_key,original,reason,last_attempted_at,ttl_until)
+			values('tokyo','Tokyo','fixture','2026-01-01','2026-09-14T00:00:01.000Z')`);
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-09-14T00:00:00.000Z"));
+			expect((await getNetworkMapView({}, db)).meta).toMatchObject({
+				suppressedGeocodes: 1,
+				missingGeocodes: 0,
+			});
+			vi.setSystemTime(new Date("2026-09-14T00:00:01.000Z"));
+			expect((await getNetworkMapView({}, db)).meta).toMatchObject({
+				suppressedGeocodes: 0,
+				missingGeocodes: 1,
+			});
+			vi.setSystemTime(new Date("2026-09-14T00:00:00.000Z"));
+			expect((await getNetworkMapView({}, db)).meta).toMatchObject({
+				suppressedGeocodes: 1,
+				missingGeocodes: 0,
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not reuse a view from a rolled-back local transaction with a repeated revision", async () => {
+		const db = fixture(1);
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		db.exec(
+			"begin; update profiles set display_name='Rolled back' where id='p1'",
+		);
+		expect((await getNetworkMapView({}, db)).features[0].properties.name).toBe(
+			"Rolled back",
+		);
+		db.exec(
+			"rollback; update profiles set display_name='Committed' where id='p1'",
+		);
+		expect((await getNetworkMapView({}, db)).features[0].properties.name).toBe(
+			"Committed",
+		);
 	});
 
 	it.each([false, true])(

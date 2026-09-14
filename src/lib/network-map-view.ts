@@ -17,6 +17,7 @@ import {
 import { WORLD_VIEWPORT, type MapViewport } from "./network-map-geometry";
 import { NetworkMapViewIndex } from "./network-map-view-index";
 import type { Database } from "./sqlite";
+import { readNetworkMapRevision } from "./network-map-revision";
 
 type IndexedMap = {
 	data: NetworkMapResponse;
@@ -32,7 +33,9 @@ const maps = new Map<Database["writeIdentity"], CachedMap>();
 const MAX_CACHED_DATABASES = 2;
 type ReadOnlyMap = {
 	db: Database;
-	revision: string;
+	revision: ReturnType<typeof readNetworkMapRevision>;
+	expiresAt: string | null;
+	asOf: string;
 	key: string;
 	meta: NetworkMapResponse["meta"];
 	index: NetworkMapViewIndex;
@@ -72,11 +75,15 @@ function readOnlyView(
 		// A real table read pins validation, index construction and hydration to one snapshot.
 		const account = resolveOperationAccount(options.account, owner);
 		const key = `${account.id}:${options.type ?? "all"}`;
-		const currentRevision = revision(owner);
+		const currentRevision = readNetworkMapRevision(owner);
+		const now = new Date().toISOString();
 		let entry =
 			cached?.db === owner &&
 			cached.key === key &&
-			cached.revision === currentRevision
+			cached.revision.geometry === currentRevision.geometry &&
+			cached.revision.localChanges === currentRevision.localChanges &&
+			cached.asOf <= now &&
+			(cached.expiresAt === null || cached.expiresAt > now)
 				? cached
 				: undefined;
 		if (!entry) {
@@ -86,10 +93,15 @@ function readOnlyView(
 				key,
 				revision: currentRevision,
 				meta: data.meta,
+				expiresAt: data.expiresAt,
+				asOf: data.asOf,
 				index: new NetworkMapViewIndex(data.features, (features) =>
 					hydrateMapFeatures(features, owner),
 				),
 			};
+		} else if (entry.revision.details !== currentRevision.details) {
+			entry.index.clearProfileCache();
+			entry.revision = currentRevision;
 		}
 		const view = entry.index.read(
 			options.viewport ?? WORLD_VIEWPORT,
