@@ -17,6 +17,79 @@ import {
 } from "./api-contracts";
 
 describe("API contracts", () => {
+	it("preserves nested defaults, media normalization, and stripping in compiled feeds", () => {
+		const input = {
+			resource: "home",
+			ignored: true,
+			items: [
+				{
+					id: "tweet_demo",
+					text: "Demo",
+					ignored: true,
+					media: [
+						{
+							url: "https://example.com/demo.mp4",
+							type: "animated_gif",
+							ignored: true,
+						},
+					],
+					quotedTweet: {
+						id: "quoted",
+						text: "Quote",
+						media: [{ url: "https://example.com/demo.jpg", type: "photo" }],
+					},
+				},
+			],
+		};
+		const result = queryResponseSchema.parse(input);
+		expect(result).toEqual(queryResponseSchema.clone().parse(input));
+		expect(result).not.toHaveProperty("ignored");
+		expect(result.items[0]).not.toHaveProperty("ignored");
+		expect(result.items[0]).toMatchObject({
+			accountId: "acct_primary",
+			author: { handle: "unknown" },
+			media: [{ url: "https://example.com/demo.mp4", type: "gif" }],
+			quotedTweet: { media: [{ type: "image" }] },
+		});
+		expect(input.items[0].media[0].type).toBe("animated_gif");
+	});
+
+	it.each([
+		{
+			resource: "home",
+			items: [
+				{
+					id: "tweet_demo",
+					text: "Demo",
+					media: [{ url: "https://example.com/demo", type: "invalid" }],
+				},
+			],
+		},
+		{
+			resource: "dms",
+			items: [],
+			selectedConversation: {
+				conversation: { id: "dm_demo", accountId: "acct_demo", title: "Demo" },
+				messages: [{ id: "message_demo", text: 42 }],
+			},
+		},
+		{ resource: "invalid", items: [] },
+	])(
+		"retains runtime issue details for malformed responses: $resource",
+		(input) => {
+			const result = queryResponseSchema.safeParse(input);
+			const runtime = queryResponseSchema.clone().safeParse(input);
+			expect(result.success).toBe(false);
+			expect(runtime.success).toBe(false);
+			if (result.success || runtime.success)
+				throw new Error("expected invalid response");
+			expect(result.error.issues).toEqual(runtime.error.issues);
+			expect(() => queryResponseSchema.parse(input)).toThrow(
+				runtime.error.message,
+			);
+		},
+	);
+
 	it("accepts search timeline responses", () => {
 		const result = queryResponseSchema.safeParse({
 			resource: "search",

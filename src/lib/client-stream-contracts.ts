@@ -67,9 +67,11 @@ function reportEventSchema(context: z.ZodType, withStatus = true) {
 		}),
 		errorEventSchema,
 	] as const;
-	return z.discriminatedUnion(
-		"type",
-		withStatus ? [statusEventSchema, ...events] : events,
+	return z.compile(
+		z.discriminatedUnion(
+			"type",
+			withStatus ? [statusEventSchema, ...events] : events,
+		),
 	);
 }
 

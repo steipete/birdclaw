@@ -241,7 +241,7 @@ export const transportStatusSchema = z.object({
 	rawStatus: z.string().optional(),
 });
 
-export const queryEnvelopeSchema = z.object({
+const queryEnvelopeContract = z.object({
 	readOnly: z.boolean().optional(),
 	accounts: z.array(accountRecordSchema),
 	archives: z.array(archiveCandidateSchema),
@@ -254,6 +254,7 @@ export const queryEnvelopeSchema = z.object({
 		inbox: z.number(),
 	}),
 });
+export const queryEnvelopeSchema = z.compile(queryEnvelopeContract);
 export type QueryEnvelope = z.infer<typeof queryEnvelopeSchema>;
 
 const timelineQueryResponseBaseSchema = z.object({
@@ -274,13 +275,15 @@ export const dmQueryResponseSchema = z.object({
 		.optional(),
 });
 
-export const queryResponseSchema = z.discriminatedUnion("resource", [
+const queryResponseContract = z.discriminatedUnion("resource", [
 	timelineQueryResponseBaseSchema.extend({ resource: z.literal("home") }),
 	timelineQueryResponseBaseSchema.extend({ resource: z.literal("mentions") }),
 	timelineQueryResponseBaseSchema.extend({ resource: z.literal("authored") }),
 	timelineQueryResponseBaseSchema.extend({ resource: z.literal("search") }),
 	dmQueryResponseSchema,
 ]);
+// Compile complete response boundaries once; shared field schemas remain composable.
+export const queryResponseSchema = z.compile(queryResponseContract);
 export type QueryResponse = z.infer<typeof queryResponseSchema>;
 export { webSyncKindSchema } from "./api-enums";
 
@@ -306,7 +309,7 @@ export const webSyncResponseSchema = z.object({
 	error: z.string().optional(),
 });
 
-export const webSyncJobSchema = z.object({
+const webSyncJobContract = z.object({
 	id: z.string(),
 	kind: webSyncKindSchema,
 	accountId: z.string().optional(),
@@ -319,12 +322,18 @@ export const webSyncJobSchema = z.object({
 	error: z.string().optional(),
 });
 
-export const tweetConversationResponseSchema = z.object({
+export const webSyncJobSchema = z.compile(webSyncJobContract);
+
+const tweetConversationResponseContract = z.object({
 	ok: z.literal(true),
 	anchorId: z.string().default(""),
 	items: z.array(embeddedTweetSchema),
 	truncated: z.boolean().default(false),
 });
+
+export const tweetConversationResponseSchema = z.compile(
+	tweetConversationResponseContract,
+);
 
 export const blockItemSchema = z.object({
 	accountId: z.string(),
@@ -338,10 +347,11 @@ export const blockSearchItemSchema = z.object({
 	isBlocked: z.boolean(),
 	blockedAt: z.string().optional(),
 });
-export const blockListResponseSchema = z.object({
+const blockListResponseContract = z.object({
 	items: z.array(blockItemSchema),
 	matches: z.array(blockSearchItemSchema),
 });
+export const blockListResponseSchema = z.compile(blockListResponseContract);
 export type BlockListResponse = z.infer<typeof blockListResponseSchema>;
 
 export const inboxItemSchema = z.object({
@@ -361,7 +371,7 @@ export const inboxItemSchema = z.object({
 	summary: z.string().default(""),
 	reasoning: z.string().default(""),
 });
-export const inboxResponseSchema = z.object({
+const inboxResponseContract = z.object({
 	items: z.array(inboxItemSchema),
 	stats: z.object({
 		total: z.number(),
@@ -369,6 +379,7 @@ export const inboxResponseSchema = z.object({
 		heuristic: z.number(),
 	}),
 });
+export const inboxResponseSchema = z.compile(inboxResponseContract);
 export type InboxResponse = z.infer<typeof inboxResponseSchema>;
 
 export const linkInsightMentionSchema = z.object({
@@ -418,7 +429,7 @@ export const linkInsightItemSchema = z.object({
 	sharers: z.array(profileRecordSchema),
 	mentions: z.array(linkInsightMentionSchema),
 });
-export const linkInsightResponseSchema = z.object({
+const linkInsightResponseContract = z.object({
 	kind: z.enum(["links", "videos"]),
 	range: z.enum(["today", "week", "month", "year", "all"]),
 	sort: z.enum(["rank", "recent", "comments"]),
@@ -428,6 +439,7 @@ export const linkInsightResponseSchema = z.object({
 	items: z.array(linkInsightItemSchema),
 	stats: z.object({ occurrences: z.number(), groups: z.number() }),
 });
+export const linkInsightResponseSchema = z.compile(linkInsightResponseContract);
 export type LinkInsightResponse = z.infer<typeof linkInsightResponseSchema>;
 
 const liveDataSourceKindSchema = z.enum(["birdclaw", "bird", "xurl"]);
@@ -463,7 +475,7 @@ export type LiveDataSourcesResponse = z.infer<
 	typeof liveDataSourcesResponseSchema
 >;
 
-export const networkMapResponseSchema = z.object({
+const networkMapResponseContract = z.object({
 	type: z.literal("FeatureCollection"),
 	features: z.array(
 		z.object({
@@ -502,9 +514,10 @@ export const networkMapResponseSchema = z.object({
 	}),
 	config: z.object({ mapboxToken: z.string().nullable() }),
 });
+export const networkMapResponseSchema = z.compile(networkMapResponseContract);
 export type NetworkMapResponse = z.infer<typeof networkMapResponseSchema>;
 
-export const networkMapViewResponseSchema = networkMapResponseSchema
+const networkMapViewResponseContract = networkMapResponseContract
 	.omit({ type: true })
 	.extend({
 		markers: z.array(
@@ -533,6 +546,9 @@ export const networkMapViewResponseSchema = networkMapResponseSchema
 		offset: z.number(),
 		pageSize: z.number(),
 	});
+export const networkMapViewResponseSchema = z.compile(
+	networkMapViewResponseContract,
+);
 export type NetworkMapViewResponse = z.infer<
 	typeof networkMapViewResponseSchema
 >;

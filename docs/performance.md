@@ -5,6 +5,51 @@ description: Profile page reads against a large synthetic archive.
 
 # Page performance
 
+## Compiled response validation
+
+Shared API response and report-event schemas use Zod's `compile()` once when
+their modules load. Server response checks and browser parsing reuse these
+schemas. Field schemas remain available for composition and type inference;
+defaults, media normalization, unknown-field handling, and detailed validation
+errors retain their existing behavior. Zod uses its ordinary parser when a
+schema cannot be compiled, including environments that disallow dynamic code
+generation.
+
+Run the synthetic parser benchmark with the pinned Bun runtime:
+
+```bash
+./scripts/bun-canary.sh scripts/validation-perf.ts
+```
+
+To compare on Node using the same installed dependencies:
+
+```bash
+./scripts/bun-canary.sh build scripts/validation-perf.ts --target=node --packages=external --outfile=node_modules/.cache/birdclaw-validation-perf.mjs
+node node_modules/.cache/birdclaw-validation-perf.mjs
+```
+
+The harness compares each compiled schema with an ordinary clone of the same
+definition, checks complete output equality, warms both parsers, and alternates
+their order over eight samples. It also verifies strict compilation support and
+reports compilation time separately. On this local synthetic workload:
+
+| Validation workload | Bun speedup | Node speedup |
+| --- | ---: | ---: |
+| Feed with 50 posts, media, and quoted posts | 1.50× | 1.78× |
+| DM conversation with 100 messages | 1.88× | 1.94× |
+| Map with 1,000 profiles | 9.18× | 6.96× |
+| Report text delta | 7.19× | 4.11× |
+
+These are warm parser timings, excluding SQL, JSON encoding/decoding, network,
+and rendering. Report deltas take well below a microsecond in either mode.
+Compilation adds module initialization work: the broad query schema took about
+52 ms on Bun and 26–29 ms on Node; the map and report-event schemas took less
+than 1 ms each. Type-only consumers do not load these validators. Absolute
+timings vary by runtime and host. Full samples and output hashes are in the
+[benchmark record](https://github.com/steipete/birdclaw/blob/main/docs/benchmarks/validation-performance.json).
+
+## Archive page reads
+
 Archive feeds select a bounded set of recent tweet candidates before hydrating
 profile, reply, quote, and collection details. Account selection, saved-post
 filters, dates, and pagination cursors apply within that selection. If it cannot

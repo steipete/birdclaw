@@ -2,6 +2,8 @@
 
 ## 0.13.1 - Unreleased
 
+- Compile shared API response and report-event validators once with Zod 4.6.5 to speed repeated feed, DM, and map validation while preserving defaults, media normalization, and detailed errors.
+
 - Reject empty map benchmark paths before they can fall back to the default archive.
 
 - Keep read-only maps cached through unrelated sync commits, refresh display metadata without rebuilding clusters, honor geocode-suppression expiry, and use a spatial grid for faster panning; schema 14 adds transactional map revision counters and requires writable initialization before read-only serving.
