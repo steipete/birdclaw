@@ -9,6 +9,7 @@ import {
 	recordDatabaseStatement,
 } from "../src/lib/database-metrics";
 import NativeSqliteDatabase from "../src/lib/sqlite";
+import { parsePerfFixturePath } from "./perf-fixture-path";
 import { networkMapViewResponseSchema } from "../src/lib/api-contracts";
 import {
 	getNetworkMapView,
@@ -16,7 +17,7 @@ import {
 } from "../src/lib/network-map-view";
 
 const iterations = 30;
-const fixture = process.argv[2] === "-" ? undefined : process.argv[2];
+const fixture = parsePerfFixturePath(process.argv[2]);
 const baseline = process.argv[3];
 const readers = new Map<string, typeof getNetworkMapView>();
 if (baseline)

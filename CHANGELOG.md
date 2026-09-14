@@ -2,6 +2,8 @@
 
 ## 0.13.1 - Unreleased
 
+- Reject empty map benchmark paths before they can fall back to the default archive.
+
 - Keep read-only maps cached through unrelated sync commits, refresh display metadata without rebuilding clusters, honor geocode-suppression expiry, and use a spatial grid for faster panning; schema 14 adds transactional map revision counters and requires writable initialization before read-only serving.
 
 - Build read-only maps from compact rows, sort only located groups, and batch visible profile metadata within one SQLite snapshot; accelerate Following and Mutual maps with directional index lookups while preserving full-network search, counts, and GeoJSON output.
