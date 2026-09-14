@@ -323,6 +323,7 @@ export const tweetConversationResponseSchema = z.object({
 	ok: z.literal(true),
 	anchorId: z.string().default(""),
 	items: z.array(embeddedTweetSchema),
+	truncated: z.boolean().default(false),
 });
 
 export const blockItemSchema = z.object({

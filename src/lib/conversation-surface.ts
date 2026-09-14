@@ -31,7 +31,7 @@ export function conversationQueryOptions(tweetId: string) {
 				undefined,
 				tweetConversationResponseSchema,
 				"Conversation unavailable",
-			).then((data) => data.items),
+			),
 		staleTime: Number.POSITIVE_INFINITY,
 	});
 }
@@ -87,7 +87,7 @@ export function useConversationSurface(surfaceId: string, tweetId = surfaceId) {
 	return {
 		error: query.error instanceof Error ? query.error.message : null,
 		isOpen,
-		items: query.data ?? [],
+		items: query.data?.items ?? [],
 		loading: query.isFetching,
 		prefetch,
 		status,

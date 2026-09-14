@@ -178,6 +178,9 @@ jobs:
       - name: End-to-end tests
         run: ./scripts/bun-canary.sh run --bun e2e
 
+      - name: Read-only permalink tests
+        run: BIRDCLAW_DEPLOYMENT_READ_ONLY=1 ./scripts/bun-canary.sh ./node_modules/@playwright/test/cli.js test playwright/permalinks.spec.ts
+
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

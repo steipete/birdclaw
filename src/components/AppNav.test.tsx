@@ -6,7 +6,8 @@ import { renderWithQueryClient as render } from "#/test/render";
 
 const routerState = vi.hoisted(() => ({ path: "/inbox" }));
 
-vi.mock("@tanstack/react-router", () => ({
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tanstack/react-router")>()),
 	Link: ({
 		children,
 		to,

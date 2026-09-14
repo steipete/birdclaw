@@ -41,6 +41,7 @@ import { Route as ApiStatusRouteImport } from './routes/api/status'
 import { Route as ApiSyncRouteImport } from './routes/api/sync'
 import { Route as ApiXurlRateLimitsRouteImport } from './routes/api/xurl-rate-limits'
 import { Route as ProfilesHandleRouteImport } from './routes/profiles.$handle'
+import { Route as TweetsTweetIdRouteImport } from './routes/tweets.$tweetId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -202,6 +203,11 @@ const ProfilesHandleRoute = ProfilesHandleRouteImport.update({
   path: '/profiles/$handle',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TweetsTweetIdRoute = TweetsTweetIdRouteImport.update({
+  id: '/tweets/$tweetId',
+  path: '/tweets/$tweetId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -236,6 +242,7 @@ export interface FileRoutesByFullPath {
   '/api/sync': typeof ApiSyncRoute
   '/api/xurl-rate-limits': typeof ApiXurlRateLimitsRoute
   '/profiles/$handle': typeof ProfilesHandleRoute
+  '/tweets/$tweetId': typeof TweetsTweetIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -270,6 +277,7 @@ export interface FileRoutesByTo {
   '/api/sync': typeof ApiSyncRoute
   '/api/xurl-rate-limits': typeof ApiXurlRateLimitsRoute
   '/profiles/$handle': typeof ProfilesHandleRoute
+  '/tweets/$tweetId': typeof TweetsTweetIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -305,6 +313,7 @@ export interface FileRoutesById {
   '/api/sync': typeof ApiSyncRoute
   '/api/xurl-rate-limits': typeof ApiXurlRateLimitsRoute
   '/profiles/$handle': typeof ProfilesHandleRoute
+  '/tweets/$tweetId': typeof TweetsTweetIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -341,6 +350,7 @@ export interface FileRouteTypes {
     | '/api/sync'
     | '/api/xurl-rate-limits'
     | '/profiles/$handle'
+    | '/tweets/$tweetId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -375,6 +385,7 @@ export interface FileRouteTypes {
     | '/api/sync'
     | '/api/xurl-rate-limits'
     | '/profiles/$handle'
+    | '/tweets/$tweetId'
   id:
     | '__root__'
     | '/'
@@ -409,6 +420,7 @@ export interface FileRouteTypes {
     | '/api/sync'
     | '/api/xurl-rate-limits'
     | '/profiles/$handle'
+    | '/tweets/$tweetId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -444,6 +456,7 @@ export interface RootRouteChildren {
   ApiSyncRoute: typeof ApiSyncRoute
   ApiXurlRateLimitsRoute: typeof ApiXurlRateLimitsRoute
   ProfilesHandleRoute: typeof ProfilesHandleRoute
+  TweetsTweetIdRoute: typeof TweetsTweetIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -672,6 +685,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfilesHandleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tweets/$tweetId': {
+      id: '/tweets/$tweetId'
+      path: '/tweets/$tweetId'
+      fullPath: '/tweets/$tweetId'
+      preLoaderRoute: typeof TweetsTweetIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -708,6 +728,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSyncRoute: ApiSyncRoute,
   ApiXurlRateLimitsRoute: ApiXurlRateLimitsRoute,
   ProfilesHandleRoute: ProfilesHandleRoute,
+  TweetsTweetIdRoute: TweetsTweetIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

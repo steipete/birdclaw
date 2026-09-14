@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	createMemoryHistory,
+	createRootRoute,
+	createRouter,
+	RouterContextProvider,
+} from "@tanstack/react-router";
+import {
 	render as testingLibraryRender,
 	type RenderOptions,
 } from "@testing-library/react";
@@ -48,16 +54,22 @@ export function renderWithQueryClient(
 			stats: { home: 0, mentions: 0, dms: 0, needsReply: 0, inbox: 0 },
 		} satisfies QueryEnvelope);
 	}
+	const router = createRouter({
+		routeTree: createRootRoute(),
+		history: createMemoryHistory(),
+	});
 	const result = testingLibraryRender(ui, {
 		...renderOptions,
 		wrapper: ({ children }) => (
-			<QueryClientProvider client={queryClient}>
-				{readOnly === undefined ? (
-					children
-				) : (
-					<DeploymentModeProvider>{children}</DeploymentModeProvider>
-				)}
-			</QueryClientProvider>
+			<RouterContextProvider router={router}>
+				<QueryClientProvider client={queryClient}>
+					{readOnly === undefined ? (
+						children
+					) : (
+						<DeploymentModeProvider>{children}</DeploymentModeProvider>
+					)}
+				</QueryClientProvider>
+			</RouterContextProvider>
 		),
 	});
 	return { ...result, queryClient };

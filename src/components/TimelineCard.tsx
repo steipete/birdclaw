@@ -44,6 +44,7 @@ import {
 } from "#/lib/ui";
 import { AvatarChip } from "./AvatarChip";
 import { ConversationThread } from "./ConversationThread";
+import { TweetPermalinkLink } from "./TweetPermalinkLink";
 import { EmbeddedTweetCard } from "./EmbeddedTweetCard";
 import { LinkPreviewCard } from "./LinkPreviewCard";
 import { OpenTweetLink } from "./OpenTweetLink";
@@ -470,6 +471,7 @@ export const TimelineCard = memo(function TimelineCard({
 							</button>
 						)}
 						<OpenTweetLink tweetId={interactionTweetId} />
+						<TweetPermalinkLink tweetId={interactionTweetId} />
 						{canReply ? (
 							<button
 								className={feedActionButtonClass}

@@ -10,6 +10,7 @@ import {
 } from "#/lib/ui";
 import { ProfilePreview } from "./ProfilePreview";
 import { OpenTweetLink } from "./OpenTweetLink";
+import { TweetPermalinkLink } from "./TweetPermalinkLink";
 import { SmartTimestamp } from "./SmartTimestamp";
 import { TweetArticleCard } from "./TweetArticleCard";
 import { TweetMediaGrid } from "./TweetMediaGrid";
@@ -26,7 +27,10 @@ export function EmbeddedTweetCard({
 		<section className={embeddedCardBodyClass}>
 			<div className="flex flex-wrap items-center justify-between gap-1">
 				<p className={embeddedCardLabelClass}>{label}</p>
-				<OpenTweetLink compact tweetId={item.id} />
+				<div className="flex flex-wrap gap-1">
+					<TweetPermalinkLink compact tweetId={item.id} />
+					<OpenTweetLink compact tweetId={item.id} />
+				</div>
 			</div>
 			<header className={embeddedCardHeaderClass}>
 				<ProfilePreview profile={item.author}>

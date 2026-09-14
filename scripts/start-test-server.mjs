@@ -40,7 +40,11 @@ const commonEnv = {
 const seed = spawnSync(
 	process.execPath,
 	[...runtimeArgs, cliEntry, "--json", "init", "--demo"],
-	{ cwd, env: commonEnv, stdio: "inherit" },
+	{
+		cwd,
+		env: { ...commonEnv, BIRDCLAW_DEPLOYMENT_READ_ONLY: "0" },
+		stdio: "inherit",
+	},
 );
 if (seed.status !== 0) {
 	throw new Error(`Could not seed Playwright demo (${String(seed.status)})`);

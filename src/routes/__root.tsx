@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AppNav } from "#/components/AppNav";
-import { READ_ONLY_ARCHIVE_PAGES } from "#/lib/api-enums";
+import { isReadOnlyArchivePage } from "#/lib/api-enums";
 import {
 	DeploymentModeProvider,
 	useDeploymentMode,
@@ -102,7 +102,7 @@ function ArchivePage({
 	children: ReactNode;
 }) {
 	const { readOnly } = useDeploymentMode();
-	if (readOnly && !READ_ONLY_ARCHIVE_PAGES.includes(pathname)) {
+	if (readOnly && !isReadOnlyArchivePage(pathname)) {
 		return (
 			<p className="p-6">
 				This page is unavailable in a read-only archive deployment.{" "}

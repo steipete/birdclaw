@@ -162,7 +162,12 @@ describe("conversation surface", () => {
 		const queryClient = createTestQueryClient();
 
 		expect(fetchMock).not.toHaveBeenCalled();
-		await expect(queryClient.fetchQuery(options)).resolves.toEqual([tweet]);
+		await expect(queryClient.fetchQuery(options)).resolves.toEqual({
+			ok: true,
+			anchorId: "",
+			items: [tweet],
+			truncated: false,
+		});
 		expect(fetchMock).toHaveBeenCalledWith("/api/conversation?tweetId=tweet_1");
 	});
 

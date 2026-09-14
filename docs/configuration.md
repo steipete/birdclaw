@@ -5,6 +5,9 @@ description: "birdclaw config files, env vars, transport precedence, and multi-a
 
 # Configuration
 
+Archive reverse proxies must forward `/tweets/<tweet-id>` as well as the existing
+archive pages and `/api/conversation` to support post and reply permalinks.
+
 Database schema version 11 adds the optional Note Tweet marker column. Writable
 access migrates older databases automatically. Before serving an existing archive
 in read-only mode, prepare it with this build using `birdclaw init`; read-only
