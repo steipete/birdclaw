@@ -126,7 +126,19 @@ Add it to `~/.profile` or your shell rc to persist. The inbox uses OpenAI for lo
 
 If the pinned Buildkite artifact is unavailable, use the previously verified archive through `BIRDCLAW_BUN_ARCHIVE`. Updating to a different Bun canary is a repository change with new artifact URLs, checksums, and a full compatibility/performance rerun, not an automatic upgrade.
 
-The local SQLite store is forward-compatible across point releases. Long-running schema migrations run on startup; `birdclaw db stats --json` reports the current schema version.
+### Upgrading to 0.14.0
+
+[Birdclaw 0.14.0](https://github.com/steipete/birdclaw/releases/tag/v0.14.0) adds feed video/GIF playback, faster follower maps, archive permalinks, and optional Bird transports. See the [changelog](https://github.com/steipete/birdclaw/blob/main/CHANGELOG.md) for all changes.
+
+Stop older web and scheduled writer processes before upgrading. Install the new version, then initialize each existing database with writable access before restarting services:
+
+```bash
+BIRDCLAW_DEPLOYMENT_READ_ONLY=0 BIRDCLAW_BACKUP_AUTO_SYNC=0 birdclaw init --json
+birdclaw --version
+birdclaw db stats --json
+```
+
+Use the same `BIRDCLAW_HOME` as the service. Writable initialization applies migrations in order through schema 14, including Note Tweet storage (11), read indexes (12), incremental search indexes (13), and map revision counters (14). Resume all writers with 0.14.0; older writers do not maintain the new search mappings. Read-only servers require this prepared schema and never run migrations themselves. Portable backups remain at schema 8.
 
 ## Uninstall
 

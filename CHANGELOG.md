@@ -1,33 +1,24 @@
 # CHANGELOG
 
-## 0.13.1 - Unreleased
+## 0.14.0 - 2026-09-14
 
-- Compile shared API response and report-event validators once with Zod 4.6.5 to speed repeated feed, DM, and map validation while preserving defaults, media normalization, and detailed errors.
-
-- Reject empty map benchmark paths before they can fall back to the default archive.
-
-- Keep read-only maps cached through unrelated sync commits, refresh display metadata without rebuilding clusters, honor geocode-suppression expiry, and use a spatial grid for faster panning; schema 14 adds transactional map revision counters and requires writable initialization before read-only serving.
-
-- Build read-only maps from compact rows, sort only located groups, and batch visible profile metadata within one SQLite snapshot; accelerate Following and Mutual maps with directional index lookups while preserving full-network search, counts, and GeoJSON output.
-
-- Speed up uncached Videos queries by rejecting unrelated URLs before exact host checks, and reduce map construction work by grouping locations in one pass while preserving point order and counts.
-
-- Make search updates incremental through indexed document lookups, skip unchanged text in small updates, and share final-content indexing across sync, replies, imports, and backup merges; reuse rolling Links results until a time boundary or database change alters their inputs.
-
-- Add shareable `/tweets/<id>` permalinks that open saved conversations, highlight and focus the selected reply, and work in read-only archives with clear missing-post and limited-context states.
-
-- Speed up large DM syncs with one batched search-index deletion, avoid sorting timestamp ties during tweet selection, and cover current network-map membership with a partial SQLite index; add a reproducible SQLite read/write audit.
-
-- Speed up account feeds, saved posts, Inbox, and archive navigation with bounded page selection and shared read-only response caches; preserve sparse matches and rolling date windows, and add a full-page performance audit.
-
-- Speed up map pagination, search, and panning by reusing bounded viewport and cluster-preview caches, normalizing search text once per profile, and avoiding repeated coordinate calculations; add a reproducible map CPU benchmark.
-
-- Load large follower maps through cached server-side clustering and paginated viewport reads, preserving full-network search and counts while avoiding full-profile downloads and geocoding delays during navigation.
+**Highlights:** Play videos and GIFs directly in the feed, explore faster follower maps, share archived conversations with permalinks, and run live workflows without Bird.
 
 - Play tweet videos and GIF clips directly in the feed with posters and native controls, choose playable video variants, and make link previews compact with readable metadata and no repeated URLs or empty image panels.
-- Update TanStack Router to 1.170.36, TanStack Start to 1.168.53, Zod to 4.6.4, and compatible transitive dependencies.
+- Load large follower maps through cached server-side clustering and paginated viewport reads, preserving full-network search and counts while avoiding full-profile downloads and geocoding delays during navigation.
+- Add shareable `/tweets/<id>` permalinks that open saved conversations, highlight and focus the selected reply, and work in read-only archives with clear missing-post and limited-context states.
 - Make bird optional across live workflows: verify xurl moderation directly, add native cookie-backed DM requests and accept/reject/block actions, preserve DM account selection and invalidate all transport caches, and provide xurl defaults/fallbacks for sync and profile enrichment.
 - Keep Bird optional in scheduled account sync, enable manual and automatic web DM sync for secondary accounts, and reject malformed native DM page containers instead of reporting empty success.
+- Speed up account feeds, saved posts, Inbox, and archive navigation with bounded page selection and shared read-only response caches; preserve sparse matches and rolling date windows, and add a full-page performance audit.
+- Speed up map pagination, search, and panning by reusing bounded viewport and cluster-preview caches, normalizing search text once per profile, and avoiding repeated coordinate calculations; add a reproducible map CPU benchmark.
+- Build read-only maps from compact rows, sort only located groups, and batch visible profile metadata within one SQLite snapshot; accelerate Following and Mutual maps with directional index lookups while preserving full-network search, counts, and GeoJSON output.
+- Speed up uncached Videos queries by rejecting unrelated URLs before exact host checks, and reduce map construction work by grouping locations in one pass while preserving point order and counts.
+- Make search updates incremental through indexed document lookups, skip unchanged text in small updates, and share final-content indexing across sync, replies, imports, and backup merges; reuse rolling Links results until a time boundary or database change alters their inputs.
+- Speed up large DM syncs with one batched search-index deletion, avoid sorting timestamp ties during tweet selection, and cover current network-map membership with a partial SQLite index; add a reproducible SQLite read/write audit.
+- Compile shared API response and report-event validators once with Zod 4.6.5 to speed repeated feed, DM, and map validation while preserving defaults, media normalization, and detailed errors.
+- Keep read-only maps cached through unrelated sync commits, refresh display metadata without rebuilding clusters, honor geocode-suppression expiry, and use a spatial grid for faster panning; schema 14 adds transactional map revision counters and requires writable initialization before read-only serving.
+- Reject empty map benchmark paths before they can fall back to the default archive.
+- Update TanStack Router to 1.170.36, TanStack Start to 1.168.53, Zod to 4.6.4, and compatible transitive dependencies.
 
 ## 0.13.0 - 2026-09-13
 
