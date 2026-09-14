@@ -138,7 +138,6 @@ it("reuses read-only status counts and invalidates after an external commit", as
 	vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
 	const first = await getQueryEnvelope({ includeArchives: false });
 	const expected = structuredClone(first);
-	await getQueryEnvelope({ includeArchives: false });
 	const prepare = vi.spyOn(NativeSqliteDatabase.prototype, "prepare");
 	first.stats.home = -1;
 	first.accounts[0].name = "mutated caller copy";

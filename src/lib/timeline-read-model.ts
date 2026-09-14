@@ -691,22 +691,9 @@ export function buildTimelineItemsQuery(
 	        where kind = ?
 	      )
 	    `;
-	const unwindowedTimelineEdgesCte = timelineEdgesCte;
-	let usedRecentEdgeWindow = false;
+	const usedRecentEdgeWindow =
+		!ftsSearch && !hasLiteralAccountId && Number.isFinite(limit) && limit > 0;
 	let where = "where e.kind = ?";
-
-	const canUseRecentEdgeWindow =
-		!likedOnly &&
-		!bookmarkedOnly &&
-		!listId &&
-		!effectiveAccountId &&
-		!hasLiteralAccountId &&
-		!search?.trim() &&
-		replyFilter === "all" &&
-		!since?.trim() &&
-		!until?.trim() &&
-		includeReplies &&
-		qualityFilter === "all";
 
 	if (likedOnly || bookmarkedOnly) {
 		// This CTE is also reused by the all-account dedupe subquery below. Keep
@@ -751,29 +738,6 @@ export function buildTimelineItemsQuery(
 			if (hasLiteralAccountId) cteParams.push(effectiveAccountId ?? "");
 		}
 		where = "where 1 = 1";
-	} else if (canUseRecentEdgeWindow) {
-		usedRecentEdgeWindow = true;
-		const candidateLimit = Math.max(
-			RECENT_TIMELINE_EDGE_CANDIDATES,
-			limit * 50,
-		);
-		timelineEdgesCte = `
-      with timeline_edges as (
-        select account_id, tweet_id, kind, raw_json
-        from tweet_account_edges
-        where kind = ?
-	          and tweet_id in (
-            select id
-            from tweets indexed by idx_tweets_created
-            where deleted_at is null and superseded_at is null
-            order by created_at desc, id desc
-	            limit ?
-	          )
-	      )
-	    `;
-		cteParams.push(kind, candidateLimit);
-		where = "where e.kind = ?";
-		params.push(kind);
 	} else {
 		if (hasLiteralAccountId) {
 			const edgeIndex = ftsSearch
@@ -894,18 +858,40 @@ export function buildTimelineItemsQuery(
         cross join tweets t on t.id = fts_matches.tweet_id
         cross join timeline_edges e on e.tweet_id = t.id`;
 
-	const boundedHydration =
-		Boolean(ftsSearch) || (!likedOnly && !bookmarkedOnly);
 	params.push(limit);
-	if (boundedHydration) params.push(limit);
+	params.push(limit);
 
 	// Select the page before loading embedded tweets and collection metadata.
 	const selectionName = ftsSearch ? "search_selection" : "timeline_selection";
-	const selectionFrom = ftsSearch
-		? searchDrivenFrom
-		: "timeline_edges e join tweets t on t.id = e.tweet_id";
-	const selectionCte = boundedHydration
-		? `, ${selectionName} as materialized (
+	const recentParams: Array<string | number> = [];
+	const recentWhere = ["deleted_at is null", "superseded_at is null"];
+	if (since?.trim()) {
+		recentWhere.push("created_at >= ?");
+		recentParams.push(since.trim());
+	}
+	if (until?.trim()) {
+		if (untilId?.trim()) {
+			recentWhere.push("(created_at < ? or (created_at = ? and id < ?))");
+			recentParams.push(until.trim(), until.trim(), untilId.trim());
+		} else {
+			recentWhere.push("created_at < ?");
+			recentParams.push(until.trim());
+		}
+	}
+	recentParams.push(Math.max(RECENT_TIMELINE_EDGE_CANDIDATES, limit * 2));
+	const recentCte = `, recent_tweets as materialized (
+  select id from tweets indexed by idx_tweets_created
+  where ${recentWhere.join(" and ")}
+  order by created_at desc, id desc
+  limit ?
+ )`;
+	const buildTimelineSelectSql = (windowed: boolean) => {
+		const selectionFrom = ftsSearch
+			? searchDrivenFrom
+			: windowed
+				? "recent_tweets cross join tweets t on t.id = recent_tweets.id cross join timeline_edges e on e.tweet_id = t.id"
+				: "timeline_edges e join tweets t on t.id = e.tweet_id";
+		const selectionCte = `, ${selectionName} as materialized (
         select t.id as tweet_id, e.account_id, e.kind, e.raw_json
         from ${selectionFrom}
         ${
@@ -917,12 +903,18 @@ export function buildTimelineItemsQuery(
         ${where}
         order by t.created_at desc, t.id desc
         limit ?
-      )`
-		: "";
+      )`;
 
-	const hydrationJoin = boundedHydration ? "cross join" : "join";
-	const buildTimelineSelectSql = (timelineEdgesSql: string) => `
-      ${timelineEdgesSql}${ftsMatchesCte}${selectionCte}
+		// Bounded candidates probe membership by tweet ID, avoiding per-candidate kind scans.
+		const timelineEdgesSql =
+			windowed && !likedOnly && !bookmarkedOnly
+				? timelineEdgesCte.replace(
+						"from tweet_account_edges",
+						"from tweet_account_edges indexed by idx_tweet_account_edges_kind_tweet",
+					)
+				: timelineEdgesCte;
+		return `
+      ${timelineEdgesSql}${ftsMatchesCte}${windowed ? recentCte : ""}${selectionCte}
       select
         t.id,
         e.account_id,
@@ -968,24 +960,28 @@ export function buildTimelineItemsQuery(
         qt.entities_json as quoted_entities_json,
         qt.media_json as quoted_media_json,
         ${profileSelect("qp", "quoted_author_", false)}
-      from ${boundedHydration ? selectionName : "timeline_edges"} e
-      ${hydrationJoin} tweets t on t.id = e.tweet_id
-      ${hydrationJoin} accounts a on a.id = e.account_id
-      ${hydrationJoin} profiles p on p.id = t.author_profile_id
+      from ${selectionName} e
+      cross join tweets t on t.id = e.tweet_id
+      cross join accounts a on a.id = e.account_id
+      cross join profiles p on p.id = t.author_profile_id
       left join tweets rt on rt.id = t.reply_to_id and rt.deleted_at is null and rt.superseded_at is null
       left join profiles rp on rp.id = rt.author_profile_id
       left join tweets qt on qt.id = t.quoted_tweet_id and qt.deleted_at is null and qt.superseded_at is null
       left join profiles qp on qp.id = qt.author_profile_id
-      ${boundedHydration ? "" : where}
       order by t.created_at desc, t.id desc
       limit ?
       `;
+	};
 
 	return {
-		sql: buildTimelineSelectSql(timelineEdgesCte),
-		params: [...cteParams, ...params],
-		fallbackSql: buildTimelineSelectSql(unwindowedTimelineEdgesCte),
-		fallbackParams: [kind, ...params],
+		sql: buildTimelineSelectSql(usedRecentEdgeWindow),
+		params: [
+			...cteParams,
+			...(usedRecentEdgeWindow ? recentParams : []),
+			...params,
+		],
+		fallbackSql: buildTimelineSelectSql(false),
+		fallbackParams: [...cteParams, ...params],
 		usedRecentEdgeWindow,
 		ftsSearch,
 	};

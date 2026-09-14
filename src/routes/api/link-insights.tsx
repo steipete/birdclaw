@@ -1,15 +1,15 @@
+import { cachedJsonResponse } from "#/lib/cached-json-response";
 import { createFileRoute } from "@tanstack/react-router";
 import { Effect } from "effect";
 import { linkInsightResponseSchema } from "#/lib/api-contracts";
 import { requestBackupAutoUpdate } from "#/lib/backup";
-import { getNativeDb } from "#/lib/db";
 import {
-	jsonResponse,
 	runRouteEffect,
 	sensitiveRequestErrorResponse,
 } from "#/lib/http-effect";
 import { getLinkInsights } from "#/lib/link-insights";
 import type {
+	LinkInsightQuery,
 	LinkInsightKind,
 	LinkInsightRange,
 	LinkInsightSort,
@@ -63,23 +63,21 @@ export const Route = createFileRoute("/api/link-insights")({
 						if (denied) return denied;
 
 						requestBackupAutoUpdate();
-						getNativeDb();
 						const url = new URL(request.url);
-						return jsonResponse(
-							linkInsightResponseSchema.parse(
-								getLinkInsights({
-									kind: parseKind(url.searchParams.get("kind")),
-									range: parseRange(url.searchParams.get("range")),
-									sort: parseSort(url.searchParams.get("sort")),
-									source: parseSource(url.searchParams.get("source")),
-									since: url.searchParams.get("since") ?? undefined,
-									until: url.searchParams.get("until") ?? undefined,
-									limit: parseNumber(url.searchParams.get("limit")),
-									commentsLimit: parseNumber(
-										url.searchParams.get("commentsLimit"),
-									),
-								}),
-							),
+						const query = {
+							kind: parseKind(url.searchParams.get("kind")),
+							range: parseRange(url.searchParams.get("range")),
+							sort: parseSort(url.searchParams.get("sort")),
+							source: parseSource(url.searchParams.get("source")),
+							since: url.searchParams.get("since") ?? undefined,
+							until: url.searchParams.get("until") ?? undefined,
+							limit: parseNumber(url.searchParams.get("limit")),
+							commentsLimit: parseNumber(url.searchParams.get("commentsLimit")),
+						} satisfies LinkInsightQuery;
+						return cachedJsonResponse(
+							["link-insights", query],
+							() => linkInsightResponseSchema.parse(getLinkInsights(query)),
+							query.range === "all" || Boolean(query.since || query.until),
 						);
 					}),
 				),

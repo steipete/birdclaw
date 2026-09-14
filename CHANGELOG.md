@@ -2,6 +2,8 @@
 
 ## 0.13.1 - Unreleased
 
+- Speed up account feeds, saved posts, Inbox, and archive navigation with bounded page selection and shared read-only response caches; preserve sparse matches and rolling date windows, and add a full-page performance audit.
+
 - Speed up map pagination, search, and panning by reusing bounded viewport and cluster-preview caches, normalizing search text once per profile, and avoiding repeated coordinate calculations; add a reproducible map CPU benchmark.
 
 - Load large follower maps through cached server-side clustering and paginated viewport reads, preserving full-network search and counts while avoiding full-profile downloads and geocoding delays during navigation.

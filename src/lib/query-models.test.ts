@@ -1794,7 +1794,7 @@ describe("query models", () => {
 		for (const account of [undefined, "acct_primary", "all"]) {
 			const query = { resource: "home" as const, account, limit: 2 };
 			const plan = buildTimelineItemsQuery(query);
-			expect(plan.usedRecentEdgeWindow).toBe(account === undefined);
+			expect(plan.usedRecentEdgeWindow).toBe(true);
 			const selected = listTimelineItems(query, db).map((item) => item.id);
 			const fallback = db
 				.prepare(plan.fallbackSql)
@@ -1814,6 +1814,53 @@ describe("query models", () => {
 		).toBe("window_tie_00000");
 	});
 
+	it("matches exhaustive selection for filtered saved pages and sparse old memberships", () => {
+		setupTempHome();
+		const db = getNativeDb();
+		db.transaction(() => {
+			for (let i = 0; i < 5100; i++) {
+				const id = `sparse_saved_${String(i).padStart(5, "0")}`;
+				insertTestTweet(db, {
+					id,
+					createdAt: "2035-01-01T00:00:00Z",
+					text: "Synthetic saved post",
+				});
+				insertTestEdge(db, id, "2035-01-01T00:00:00Z");
+			}
+			for (const id of [
+				"sparse_saved_00000",
+				"sparse_saved_00001",
+				"sparse_saved_05098",
+			]) {
+				for (const kind of ["likes", "bookmarks"])
+					db.prepare(
+						"insert into tweet_collections(account_id,tweet_id,kind,source,updated_at) values ('acct_primary',?,?, 'test','2035-01-01')",
+					).run(id, kind);
+			}
+		})();
+		for (const filters of [
+			{ likedOnly: true },
+			{ bookmarkedOnly: true },
+			{ likedOnly: true, bookmarkedOnly: true },
+			{ until: "2035-01-01T00:00:00Z", untilId: "sparse_saved_00100" },
+			{ since: "2035-01-01", replyFilter: "unreplied" as const },
+		]) {
+			const query = {
+				resource: "home" as const,
+				account: "acct_primary",
+				limit: 3,
+				...filters,
+			};
+			const plan = buildTimelineItemsQuery(query);
+			const expected = db
+				.prepare(plan.fallbackSql)
+				.all(...plan.fallbackParams) as Array<{ id: string }>;
+			expect(listTimelineItems(query, db).map((item) => item.id)).toEqual(
+				expected.map((item) => item.id),
+			);
+		}
+	});
+
 	it("uses chronological index order for the recent candidate window", () => {
 		setupTempHome();
 		const db = getNativeDb();
@@ -1827,7 +1874,7 @@ describe("query models", () => {
 		}>;
 		const lists = new Set(
 			plan
-				.filter((row) => row.detail.startsWith("LIST SUBQUERY"))
+				.filter((row) => row.detail === "MATERIALIZE recent_tweets")
 				.map((row) => row.id),
 		);
 		const candidates = plan.filter((row) => lists.has(row.parent));

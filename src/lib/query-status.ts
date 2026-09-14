@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { ReadOnlyQueryCache } from "./read-only-query-cache";
 import type { QueryEnvelope } from "./api-contracts";
 import type { Database } from "./sqlite";
 import { findArchivesCachedEffect } from "./archive-finder";
@@ -114,23 +115,15 @@ function readLocalQueryEnvelope(db: Database) {
 }
 
 type LocalEnvelope = ReturnType<typeof readLocalQueryEnvelope>;
-const readOnlyEnvelopes = new WeakMap<
-	Database,
-	{ version: number; value: LocalEnvelope }
->();
+const readOnlyEnvelopes = new ReadOnlyQueryCache();
 
 function readQueryEnvelope(db: Database, readOnly: boolean): LocalEnvelope {
 	if (!readOnly) return readLocalQueryEnvelope(db);
-	const version = Number(db.pragma("data_version", { simple: true }));
-	let cached = readOnlyEnvelopes.get(db);
-	if (!cached || cached.version !== version) {
-		cached = { version, value: readLocalQueryEnvelope(db) };
-		readOnlyEnvelopes.set(db, cached);
-	}
-	return {
-		stats: { ...cached.value.stats },
-		accounts: cached.value.accounts.map((account) => ({ ...account })),
-	};
+	return JSON.parse(
+		readOnlyEnvelopes.read(db, "status", () =>
+			JSON.stringify(readLocalQueryEnvelope(db)),
+		),
+	) as LocalEnvelope;
 }
 
 export function getQueryEnvelopeEffect({

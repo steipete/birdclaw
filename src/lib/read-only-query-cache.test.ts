@@ -104,4 +104,46 @@ describe("read-only query cache", () => {
 		).toThrow("invalid");
 		expect(cache.read(reader, "a", () => "valid")).toBe("valid");
 	});
+	it("shares snapshots across pooled readers and rebuilds after a closed owner", () => {
+		const second = new NativeSqliteDatabase(path.join(dir, "archive.sqlite"), {
+			readonly: true,
+		});
+		const cache = new ReadOnlyQueryCache();
+		const produce = vi.fn(() =>
+			JSON.stringify(second.prepare("select value from sample").get()),
+		);
+		try {
+			expect(cache.read(reader, "home:a", produce)).toContain("before");
+			expect(cache.read(second, "home:a", produce)).toContain("before");
+			expect(produce).toHaveBeenCalledTimes(1);
+			reader.close();
+			expect(cache.read(second, "home:a", produce)).toContain("before");
+			expect(produce).toHaveBeenCalledTimes(2);
+			writer.exec("update sample set value = 'after'");
+			expect(cache.read(second, "home:a", produce)).toContain("after");
+			expect(produce).toHaveBeenCalledTimes(3);
+		} finally {
+			second.close();
+		}
+	});
+	it("rejects a pooled-reader cache fill if a writer commits during production", () => {
+		const second = new NativeSqliteDatabase(path.join(dir, "archive.sqlite"), {
+			readonly: true,
+		});
+		const cache = new ReadOnlyQueryCache();
+		try {
+			cache.read(reader, "a", read);
+			expect(
+				cache.read(second, "b", () => {
+					const before = read();
+					writer.exec("update sample set value = 'after'");
+					return before;
+				}),
+			).toContain("before");
+			expect(cache.read(second, "b", read)).toContain("after");
+			expect(cache.read(reader, "a", read)).toContain("after");
+		} finally {
+			second.close();
+		}
+	});
 });

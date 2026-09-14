@@ -1,0 +1,377 @@
+{
+  "baselineCommit": "db5aa4f73966cc38f844a0000cd996bd7a545be8",
+  "runtime": "Bun 1.4.0-canary.1+f972c287f",
+  "fixture": {
+    "profiles": 100000,
+    "tweets": 250000,
+    "conversations": 40000,
+    "messages": 200000,
+    "linkOccurrences": 25000
+  },
+  "method": "Sequential production-server HTTP requests against one synthetic archive. All 15 HTML routes checked. First API request plus five warm requests per scenario. These are HTTP timings, not browser-paint timings; host and filesystem cache load affect first requests.",
+  "correctness": "All nine deterministic API-response digests match. Rolling Links timestamps change on every request by design and bypass caching.",
+  "before": [
+    {
+      "page": "/",
+      "htmlMs": 4.684125,
+      "bytes": 26034,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/mentions",
+      "htmlMs": 4.191792000000001,
+      "bytes": 26007,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/likes",
+      "htmlMs": 3.433540999999998,
+      "bytes": 24813,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/bookmarks",
+      "htmlMs": 3.3764579999999995,
+      "bytes": 24858,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/dms",
+      "htmlMs": 7.964541999999998,
+      "bytes": 20059,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/inbox",
+      "htmlMs": 5.550167000000002,
+      "bytes": 18410,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/blocks",
+      "htmlMs": 6.604166999999997,
+      "bytes": 16629,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/links",
+      "htmlMs": 6.370666,
+      "bytes": 24539,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/network-map",
+      "htmlMs": 9.168749999999996,
+      "bytes": 16918,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/today",
+      "htmlMs": 7.274415999999995,
+      "bytes": 14276,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/discuss",
+      "htmlMs": 6.781542000000002,
+      "bytes": 14376,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/profile-analyze",
+      "htmlMs": 4.200041999999996,
+      "bytes": 14322,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/profiles/synthetic",
+      "htmlMs": 5.208207999999999,
+      "bytes": 14239,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/data-sources",
+      "htmlMs": 4.532167000000001,
+      "bytes": 14323,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/rate-limits",
+      "htmlMs": 4.928333000000009,
+      "bytes": 14318,
+      "readOnlyGate": true
+    },
+    {
+      "page": "Home",
+      "api": "/api/query",
+      "firstMs": 415.619541,
+      "warmMedianMs": 1.0450000000000728,
+      "warmP95Ms": 181.89629100000002,
+      "bytes": 27802,
+      "digest": "cb57dbef34789bfe6ed8ffa69e187eabdfb5d7ade4ce1bf7f526f9c233ccdecf"
+    },
+    {
+      "page": "Mentions",
+      "api": "/api/query",
+      "firstMs": 53.48179200000004,
+      "warmMedianMs": 1.2337089999999762,
+      "warmP95Ms": 54.25420900000006,
+      "bytes": 28257,
+      "digest": "d09618b808197b96376a3c7abd2d05bd8b1cccc6c4cd207a7b20ebdaf410313a"
+    },
+    {
+      "page": "Likes",
+      "api": "/api/query",
+      "firstMs": 252.913,
+      "warmMedianMs": 1.11262499999998,
+      "warmP95Ms": 131.50424999999996,
+      "bytes": 28103,
+      "digest": "1f3b385d07d9e211f22294d2b15bd60009f6b1ea595f2919b2ee218710af52da"
+    },
+    {
+      "page": "Bookmarks",
+      "api": "/api/query",
+      "firstMs": 134.00475000000006,
+      "warmMedianMs": 0.8885840000000371,
+      "warmP95Ms": 133.44962499999997,
+      "bytes": 28041,
+      "digest": "5b5af49cadc19f1ec1a8d593acc8168497491987d71ea8ebc9cbef29b32450ae"
+    },
+    {
+      "page": "DMs",
+      "api": "/api/query",
+      "firstMs": 12.226083000000017,
+      "warmMedianMs": 0.9750839999999243,
+      "warmP95Ms": 1.9024999999999181,
+      "bytes": 13851,
+      "digest": "576d606d97f98411fa1931862a5716442a42cf6f5ecd4cace562551d4ffaa586"
+    },
+    {
+      "page": "Inbox",
+      "api": "/api/inbox",
+      "firstMs": 116.44162499999993,
+      "warmMedianMs": 70.98204199999986,
+      "warmP95Ms": 74.50020799999993,
+      "bytes": 12799,
+      "digest": "ed568556c836b682979dd5a7943ebdafbdab4ec92b27d01676310e485d5ef3c1"
+    },
+    {
+      "page": "Blocks",
+      "api": "/api/blocks",
+      "firstMs": 3.6624590000001263,
+      "warmMedianMs": 1.1263329999999314,
+      "warmP95Ms": 1.4742909999999938,
+      "bytes": 15881,
+      "digest": "2644432b13450ed4bf4d198ca8aba27c53292560a9fd30f998fb7c41c1c8bbf4"
+    },
+    {
+      "page": "Links, all time",
+      "api": "/api/link-insights",
+      "firstMs": 199.96566699999994,
+      "warmMedianMs": 93.48462500000005,
+      "warmP95Ms": 97.27708299999995,
+      "bytes": 357113,
+      "digest": "52005a2ce614038e48db9a2ecadac8689a9cc88b2a7f37e9de540ffaa58b7f6c"
+    },
+    {
+      "page": "Links, rolling week",
+      "api": "/api/link-insights",
+      "firstMs": 111.0112079999999,
+      "warmMedianMs": 95.60199999999986,
+      "warmP95Ms": 117.44516699999986,
+      "bytes": 357158,
+      "digest": "2fd4c33c19df6649bff603ee6ca715f564303d08e1af477f78d4ec6795eac467"
+    },
+    {
+      "page": "Map",
+      "api": "/api/network-map",
+      "firstMs": 357.0800839999997,
+      "warmMedianMs": 1.8986250000002656,
+      "warmP95Ms": 5.80133399999977,
+      "bytes": 156092,
+      "digest": "b112d3c1d4205095f302f1018d384c6b4ddf47389f889ef2f6eebd1791843688"
+    }
+  ],
+  "after": [
+    {
+      "page": "/",
+      "htmlMs": 345.518667,
+      "bytes": 26034,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/mentions",
+      "htmlMs": 9.76608299999998,
+      "bytes": 26007,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/likes",
+      "htmlMs": 6.037083999999993,
+      "bytes": 24813,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/bookmarks",
+      "htmlMs": 5.10245900000001,
+      "bytes": 24858,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/dms",
+      "htmlMs": 8.088874999999973,
+      "bytes": 20059,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/inbox",
+      "htmlMs": 6.177625000000035,
+      "bytes": 18410,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/blocks",
+      "htmlMs": 5.982250000000022,
+      "bytes": 16629,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/links",
+      "htmlMs": 7.575040999999999,
+      "bytes": 24539,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/network-map",
+      "htmlMs": 6.844041000000004,
+      "bytes": 16918,
+      "readOnlyGate": false
+    },
+    {
+      "page": "/today",
+      "htmlMs": 5.71591600000005,
+      "bytes": 14276,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/discuss",
+      "htmlMs": 5.372500000000002,
+      "bytes": 14376,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/profile-analyze",
+      "htmlMs": 4.817875000000015,
+      "bytes": 14322,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/profiles/synthetic",
+      "htmlMs": 4.171582999999998,
+      "bytes": 14239,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/data-sources",
+      "htmlMs": 3.751708000000008,
+      "bytes": 14323,
+      "readOnlyGate": true
+    },
+    {
+      "page": "/rate-limits",
+      "htmlMs": 3.31895899999995,
+      "bytes": 14318,
+      "readOnlyGate": true
+    },
+    {
+      "page": "Home",
+      "api": "/api/query",
+      "firstMs": 23.447000000000003,
+      "warmMedianMs": 0.8427090000000135,
+      "warmP95Ms": 2.029792000000043,
+      "bytes": 27802,
+      "digest": "cb57dbef34789bfe6ed8ffa69e187eabdfb5d7ade4ce1bf7f526f9c233ccdecf"
+    },
+    {
+      "page": "Mentions",
+      "api": "/api/query",
+      "firstMs": 14.704458999999986,
+      "warmMedianMs": 0.8177499999999895,
+      "warmP95Ms": 1.072416999999973,
+      "bytes": 28257,
+      "digest": "d09618b808197b96376a3c7abd2d05bd8b1cccc6c4cd207a7b20ebdaf410313a"
+    },
+    {
+      "page": "Likes",
+      "api": "/api/query",
+      "firstMs": 12.841833000000008,
+      "warmMedianMs": 0.5882080000000087,
+      "warmP95Ms": 0.9324589999999944,
+      "bytes": 28103,
+      "digest": "1f3b385d07d9e211f22294d2b15bd60009f6b1ea595f2919b2ee218710af52da"
+    },
+    {
+      "page": "Bookmarks",
+      "api": "/api/query",
+      "firstMs": 12.368207999999981,
+      "warmMedianMs": 0.8984169999999949,
+      "warmP95Ms": 7.674499999999966,
+      "bytes": 28041,
+      "digest": "5b5af49cadc19f1ec1a8d593acc8168497491987d71ea8ebc9cbef29b32450ae"
+    },
+    {
+      "page": "DMs",
+      "api": "/api/query",
+      "firstMs": 4.622041999999965,
+      "warmMedianMs": 0.5040000000000191,
+      "warmP95Ms": 1.1916250000000446,
+      "bytes": 13851,
+      "digest": "576d606d97f98411fa1931862a5716442a42cf6f5ecd4cace562551d4ffaa586"
+    },
+    {
+      "page": "Inbox",
+      "api": "/api/inbox",
+      "firstMs": 28.37987499999997,
+      "warmMedianMs": 0.962833000000046,
+      "warmP95Ms": 1.1717919999999822,
+      "bytes": 12799,
+      "digest": "ed568556c836b682979dd5a7943ebdafbdab4ec92b27d01676310e485d5ef3c1"
+    },
+    {
+      "page": "Blocks",
+      "api": "/api/blocks",
+      "firstMs": 2.2070830000000115,
+      "warmMedianMs": 0.86850000000004,
+      "warmP95Ms": 1.1992089999999962,
+      "bytes": 15881,
+      "digest": "2644432b13450ed4bf4d198ca8aba27c53292560a9fd30f998fb7c41c1c8bbf4"
+    },
+    {
+      "page": "Links, all time",
+      "api": "/api/link-insights",
+      "firstMs": 164.85245899999995,
+      "warmMedianMs": 1.0577500000000555,
+      "warmP95Ms": 1.874166999999943,
+      "bytes": 357113,
+      "digest": "52005a2ce614038e48db9a2ecadac8689a9cc88b2a7f37e9de540ffaa58b7f6c"
+    },
+    {
+      "page": "Links, rolling week",
+      "api": "/api/link-insights",
+      "firstMs": 97.0283750000001,
+      "warmMedianMs": 93.35333300000002,
+      "warmP95Ms": 95.97270800000001,
+      "bytes": 357158,
+      "digest": "6b75eeea692a296b5b11efa41b3c9b410e7828adb726fcd1c186f5a1a7c09e89"
+    },
+    {
+      "page": "Map",
+      "api": "/api/network-map",
+      "firstMs": 273.69845799999985,
+      "warmMedianMs": 2.350791999999956,
+      "warmP95Ms": 5.462790999999925,
+      "bytes": 156092,
+      "digest": "b112d3c1d4205095f302f1018d384c6b4ddf47389f889ef2f6eebd1791843688"
+    }
+  ]
+}
