@@ -208,7 +208,18 @@ function addVideoUrlPrefilter(conditions: string[]) {
 		predicates.push(`${SQL_URL_EXPRESSION} like 'http://${host}/%'`);
 		predicates.push(`${SQL_URL_EXPRESSION} like 'https://${host}/%'`);
 	}
-	conditions.push(`(${predicates.join(" or ")})`);
+	// Most URLs are not videos. Reject them before testing every scheme/subdomain form.
+	const hints = new Set(
+		[...VIDEO_HOST_SUFFIXES, ...VIDEO_EXACT_HOSTS].map((host) =>
+			host.split(".").slice(-2).join(".").slice(0, 4),
+		),
+	);
+	const quick = [...hints].map(
+		(hint) => `${SQL_URL_EXPRESSION} like '%${hint}%'`,
+	);
+	conditions.push(
+		`case when (${quick.join(" or ")}) then (${predicates.join(" or ")}) else 0 end`,
+	);
 }
 
 function normalizeUrl(rawUrl: string): NormalizedUrl | null {

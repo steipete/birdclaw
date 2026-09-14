@@ -5,6 +5,10 @@ description: "Map current followers/following by profile location."
 
 # Network Map
 
+Server-side construction groups normalized locations in one pass, retaining
+the first encountered spelling for geocoding and the existing point order.
+Missing, suppressed, and empty locations retain their separate counts.
+
 The web app has a **Map** view at `/network-map`. It reads current `follow_edges` plus hydrated `profiles.location`, normalizes free-form locations, geocodes them into the local SQLite cache, and plots followers, following, and mutuals.
 
 The map covers the full selected network. Clustering runs on the server, which

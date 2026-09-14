@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
-import { storeGeocode } from "./geocoding";
+import { storeGeocode, storeUnresolvedGeocode } from "./geocoding";
 import { getNetworkMap, getPublicMapboxToken } from "./network-map";
 
 const tempDirs: string[] = [];
@@ -32,6 +32,88 @@ function makeDb() {
 }
 
 describe("network map", () => {
+	it("preserves grouped point order and counts for aliases, missing, suppressed and empty locations", async () => {
+		const db = makeDb();
+		db.exec(
+			"insert into accounts(id,name,handle,transport,is_default,created_at) values('a','Synthetic','audit','archive',1,'2026-01-01')",
+		);
+		const locations = [
+			"San Francisco",
+			"Vienna",
+			" SAN FRANCISCO ",
+			"Berlin",
+			"Madrid",
+			"remote",
+			"",
+			null,
+		];
+		db.transaction(() => {
+			for (const [index, location] of locations.entries()) {
+				db.prepare(
+					"insert into profiles(id,handle,display_name,bio,followers_count,following_count,public_metrics_json,avatar_hue,location,created_at) values(?,?,?,'',?,0,'{}',0,?,'2026-01-01')",
+				).run(
+					`p${index}`,
+					`person${index}`,
+					`Person ${index}`,
+					100 - index,
+					location,
+				);
+				db.prepare(
+					"insert into follow_edges(account_id,direction,profile_id,external_user_id,source,current,first_seen_at,last_seen_at,updated_at) values('a','followers',?,?,'fixture',1,'','','')",
+				).run(`p${index}`, `${index}`);
+			}
+		})();
+		storeGeocode(
+			{
+				normalizedKey: "san francisco",
+				original: "San Francisco",
+				lat: 37.7749,
+				lng: -122.4194,
+				provider: "opencage",
+			},
+			db,
+		);
+		storeGeocode(
+			{
+				normalizedKey: "berlin",
+				original: "Berlin",
+				lat: 52.52,
+				lng: 13.405,
+				provider: "opencage",
+			},
+			db,
+		);
+		storeUnresolvedGeocode("madrid", "Madrid", "fixture", db);
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		try {
+			const result = await getNetworkMap(
+				{ account: "a", type: "followers", limit: null },
+				db,
+			);
+			expect(result.meta).toMatchObject({
+				totalProfiles: 8,
+				profilesWithLocation: 6,
+				meaningfulProfiles: 5,
+				locatedProfiles: 3,
+				missingGeocodes: 1,
+				suppressedGeocodes: 1,
+				geocodedThisRun: 0,
+			});
+			expect(
+				result.features.map((feature) => [
+					feature.properties.profileId,
+					feature.properties.location,
+				]),
+			).toEqual([
+				["p0", "San Francisco"],
+				["p2", " SAN FRANCISCO "],
+				["p3", "Berlin"],
+			]);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("returns current follower/following profile points from cached geocodes", async () => {
 		const db = makeDb();
 		db.exec(`

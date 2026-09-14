@@ -237,6 +237,65 @@ describe("link insights", () => {
 		rmSync(homeDir, { recursive: true, force: true });
 	});
 
+	it("keeps every video host form while rejecting URLs that only contain a host hint", () => {
+		const db = insertAccountFixture();
+		const suffixes = [
+			"youtube.com",
+			"youtube-nocookie.com",
+			"youtubeeducation.com",
+			"youtubekids.com",
+			"vimeo.com",
+			"twitch.tv",
+			"tiktok.com",
+			"loom.com",
+		];
+		const exact = ["youtu.be", "clips.twitch.tv", "vm.tiktok.com"];
+		const accepted = [
+			...suffixes,
+			...suffixes.map((host) => `player.${host}`),
+			...exact,
+		].flatMap((host) => [`http://${host}`, `HTTPS://${host.toUpperCase()}`]);
+		const rejected = [
+			"https://example.com/youtu",
+			"https://notyoutube.com",
+			"https://youtube.com.example.com",
+			"https://player.youtu.be",
+			"https://example.com/vime/twit/tikt/loom",
+		];
+		for (const [index, base] of [...accepted, ...rejected].entries()) {
+			const id = `host_${index}`;
+			const shortUrl = `https://t.co/host${index}`;
+			const createdAt = "2026-05-10T10:00:00.000Z";
+			insertTweet(db, {
+				id,
+				authorProfileId: "profile_a",
+				text: shortUrl,
+				createdAt,
+			});
+			insertExpansion(db, { shortUrl, finalUrl: `${base}/watch/${index}` });
+			insertOccurrence(db, {
+				sourceKind: "tweet",
+				sourceId: id,
+				shortUrl,
+				createdAt,
+			});
+		}
+		const result = getLinkInsights({
+			kind: "videos",
+			range: "all",
+			limit: 100,
+		});
+		expect(result.stats).toEqual({
+			occurrences: accepted.length,
+			groups: accepted.length,
+		});
+		expect(result.items.map((item) => item.url).sort()).toEqual(
+			accepted
+				.map((base, index) => `${base.toLowerCase()}/watch/${index}`)
+				.sort(),
+		);
+	});
+
 	it("keeps boundary probes and cached results on one snapshot across a concurrent commit", () => {
 		insertAccountFixture();
 		const writer = getNativeDb();

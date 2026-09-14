@@ -157,15 +157,17 @@ function fetchNetworkRows({
 	return rows;
 }
 
-function collectKeys(rows: ProfileLocationRow[]) {
+function collectLocations(rows: ProfileLocationRow[]) {
 	const originalByKey = new Map<string, string>();
-	const keyByProfile = new Map<string, string>();
-	const seen = new Set<string>();
+	const groups = new Map<string, ProfileLocationRow[]>();
 	const keys: string[] = [];
 	const normalizedLocations = new Map<string, string>();
+	let profilesWithLocation = 0;
+	let meaningfulProfiles = 0;
 	for (const row of rows) {
 		const location = row.location;
 		if (!location) continue;
+		profilesWithLocation++;
 		let key = normalizedLocations.get(location);
 		if (key === undefined) {
 			key = isMeaningfulLocation(location)
@@ -174,14 +176,22 @@ function collectKeys(rows: ProfileLocationRow[]) {
 			normalizedLocations.set(location, key);
 		}
 		if (!key) continue;
-		keyByProfile.set(row.id, key);
-		if (!originalByKey.has(key)) originalByKey.set(key, location);
-		if (!seen.has(key)) {
-			seen.add(key);
+		meaningfulProfiles++;
+		const group = groups.get(key);
+		if (group) group.push(row);
+		else {
+			groups.set(key, [row]);
+			originalByKey.set(key, location);
 			keys.push(key);
 		}
 	}
-	return { keys, keyByProfile, originalByKey };
+	return {
+		keys,
+		groups,
+		originalByKey,
+		profilesWithLocation,
+		meaningfulProfiles,
+	};
 }
 
 async function fillMissingGeocodes({
@@ -273,25 +283,14 @@ async function fillMissingGeocodes({
 }
 
 function buildFeatures({
-	rows,
-	keyByProfile,
+	groups,
 	cache,
 }: {
-	rows: ProfileLocationRow[];
-	keyByProfile: Map<string, string>;
+	groups: Map<string, ProfileLocationRow[]>;
 	cache: Map<string, GeocodeResult>;
 }) {
-	const byKey = new Map<string, ProfileLocationRow[]>();
-	for (const row of rows) {
-		const key = keyByProfile.get(row.id);
-		if (!key || !cache.has(key)) continue;
-		const group = byKey.get(key);
-		if (group) group.push(row);
-		else byKey.set(key, [row]);
-	}
-
 	const features: NetworkMapFeature[] = [];
-	for (const [key, members] of byKey) {
+	for (const [key, members] of groups) {
 		const geo = cache.get(key);
 		if (!geo) continue;
 		for (let index = 0; index < members.length; index += 1) {
@@ -338,22 +337,17 @@ export async function getNetworkMap(
 		0,
 	);
 	const rows = fetchNetworkRows({ db, accountId, type, limit });
-	const rowsWithLocation = rows.filter((row) => row.location);
-	const { keys, keyByProfile, originalByKey } = collectKeys(rowsWithLocation);
-	const meaningfulRows = rowsWithLocation.filter((row) =>
-		keyByProfile.has(row.id),
-	);
+	const locations = collectLocations(rows);
 	const geocodes = await fillMissingGeocodes({
 		db,
-		keys,
-		originalByKey,
+		keys: locations.keys,
+		originalByKey: locations.originalByKey,
 		refresh: options.refresh === true,
 		geocodeLimit,
 		signal: options.signal,
 	});
 	const features = buildFeatures({
-		rows: meaningfulRows,
-		keyByProfile,
+		groups: locations.groups,
 		cache: geocodes.cache,
 	});
 	const token = getPublicMapboxToken();
@@ -364,8 +358,8 @@ export async function getNetworkMap(
 			accountId,
 			type,
 			totalProfiles: rows.length,
-			profilesWithLocation: rowsWithLocation.length,
-			meaningfulProfiles: meaningfulRows.length,
+			profilesWithLocation: locations.profilesWithLocation,
+			meaningfulProfiles: locations.meaningfulProfiles,
 			locatedProfiles: features.length,
 			missingGeocodes: geocodes.missingCount,
 			geocodedThisRun: geocodes.geocoded,

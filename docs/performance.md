@@ -171,3 +171,42 @@ before serving it with this version in read-only mode. Portable backups retain
 their canonical format and rebuild the derived mapping when imported.
 Stop older writer processes before upgrading; all writers of the migrated
 database must use the indexed search writer in this version.
+
+## Uncached Videos and maps
+
+Videos queries reject URLs without any video-host fragment before evaluating
+the complete scheme/subdomain predicates. The fragments are derived from the
+supported host list and only provide a cheap rejection step; the existing exact
+checks still decide eligibility. SQLite's lazy `CASE` evaluation avoids running
+all host predicates for ordinary non-video URLs.
+
+Map construction now groups normalized locations while counting located and
+meaningful profiles. This removes the per-profile location-key map, two filtered
+arrays, and a later regrouping pass. Geocode selection, original location text,
+point ordering, relationship filters, and counts are unchanged.
+
+Run uncached model reads against the synthetic page archive:
+
+```bash
+./scripts/bun-canary.sh scripts/cold-read-perf.ts
+```
+
+To compare with a trusted baseline checkout using the same schema, pass its
+path as the optional argument. Both versions read the same generated archive;
+the harness alternates execution order, checks complete response hashes, and
+reports ten samples with the first two excluded from the median. SQLite and
+filesystem caches may be warm. Links response caching is bypassed, and maps are
+rebuilt with external geocoding disabled. `map-view` includes cluster creation.
+
+| Uncached model read | Before | After |
+| --- | ---: | ---: |
+| Links control, unchanged algorithm | 112.5 ms | 110.8 ms |
+| Videos | 173.4 ms | 97.8 ms |
+| Full map data, 100,000 profiles | 236.9 ms | 197.5 ms |
+| Map viewport including cluster construction | 273.4 ms | 234.3 ms |
+
+Every response hash matched. These local measurements exclude HTTP transfer and
+browser rendering, and absolute times depend on host load. The Videos gain
+depends on the archive's mix of video and non-video URLs. This change adds no
+database index, migration, or response cache. The [raw sample record](https://github.com/steipete/birdclaw/blob/main/docs/benchmarks/cold-read-performance.json)
+includes the initial request timings and all subsequent samples.
