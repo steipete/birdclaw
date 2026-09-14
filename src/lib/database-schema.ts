@@ -1167,4 +1167,16 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 			}
 		},
 	},
+	{
+		version: 12,
+		name: "cover chronological tweet selection and current graph membership",
+		up: (db) => {
+			db.exec(`
+				drop index idx_tweets_created;
+				create index idx_tweets_created on tweets(created_at desc, id desc);
+				create index if not exists idx_follow_edges_current_profile
+					on follow_edges(account_id, profile_id, direction) where current = 1;
+			`);
+		},
+	},
 ];
