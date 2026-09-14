@@ -210,3 +210,54 @@ browser rendering, and absolute times depend on host load. The Videos gain
 depends on the archive's mix of video and non-video URLs. This change adds no
 database index, migration, or response cache. The [raw sample record](https://github.com/steipete/birdclaw/blob/main/docs/benchmarks/cold-read-performance.json)
 includes the initial request timings and all subsequent samples.
+
+## Compact read-only maps
+
+Read-only map views now scan compact profile columns and sort only located
+groups, retaining the full GeoJSON point order. Display-only fields (avatar,
+following count, verification) are loaded for each response in one batch and
+retained in a 4,096-profile LRU. Cluster previews keep point indices, so they do
+not retain evicted profile metadata. The owning connection pins validation,
+index construction, and hydration to the same read transaction. An external
+commit invalidates the index on the next request, including metadata-only changes.
+
+Following and Mutual membership uses the existing direction index and indexed
+opposite-edge lookups. It no longer aggregates every follower before selecting
+the small Following network. Followers and All retain the covering membership
+aggregation, which performed better for those larger selections. No new index,
+migration, journaling, or synchronization change is required.
+
+Paired measurements against the preceding implementation, using the same
+runtime and alternating execution order, produced these generation medians:
+
+| Map workload | Before | After |
+| --- | ---: | ---: |
+| Rebuild Followers, 544,560 profiles / 224,706 located | 1,014.7 ms | 793.5 ms |
+| Rebuild Following, 5,445 profiles | 181.1 ms | 46.7 ms |
+| Rebuild Mutual, 5,445 profiles | 182.5 ms | 45.7 ms |
+| Rebuild Followers, 100,000 profiles all located | 217.3 ms | 164.2 ms |
+| Full GeoJSON control, 100,000 profiles | 183.6 ms | 187.5 ms |
+
+The large fixture's first map request took 1,031.4 → 733.9 ms. Rebuild results
+exclude the first two of ten samples; these are uncached model reads with
+potentially warm filesystem pages, not production HTTP or browser latency.
+Avatars were null in both fixtures, so the measurements do not assume long avatar
+URLs. Full GeoJSON work is effectively unchanged. All response digests matched.
+
+There is a small navigation tradeoff: median pagination including validation and
+serialization went from 0.99 to 1.52 ms as newly visible metadata was fetched.
+Changing searches measured 5.41 → 5.50 ms, typed searches 1.80 → 2.17 ms, and
+fresh pans 7.27 → 6.35 ms. These timings vary with host load; the gain is primarily
+initial construction and rebuilds after syncs, not faster cached pagination.
+
+Run `scripts/network-map-perf.ts` with a synthetic home and optional baseline
+checkout for the large paired audit. `scripts/cold-read-perf.ts` generates the
+100,000-profile fixture and checks full-map and unrelated query controls. Both
+compare schema-normalized map responses, ignoring JSON property insertion order.
+The [raw record](https://github.com/steipete/birdclaw/blob/main/docs/benchmarks/compact-map-performance.json)
+contains all rebuild samples and navigation summaries.
+
+A separate Bun CPU profile of the updated large-fixture harness still attributed
+67% of sampled self time to native SQLite `.all` calls. Location grouping was
+about 2% and native sorting about 1.5%. The profile supports reducing database
+work as the main target; profiled timings are excluded from the comparison table.

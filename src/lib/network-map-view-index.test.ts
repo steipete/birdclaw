@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as geometry from "./network-map-geometry";
 import { type MapFeature, WORLD_VIEWPORT } from "./network-map-geometry";
 import { NetworkMapViewIndex } from "./network-map-view-index";
+import type { MapIndexFeature } from "./network-map";
 
 function features(count = 400): MapFeature[] {
 	return Array.from({ length: count }, (_, i) => ({
@@ -25,6 +26,30 @@ function features(count = 400): MapFeature[] {
 afterEach(() => vi.restoreAllMocks());
 
 describe("indexed network map views", () => {
+	it("evicts old display metadata while retaining compact cluster previews", () => {
+		const source = features(5_500);
+		const byId = new Map(
+			source.map((feature) => [feature.properties.profileId, feature]),
+		);
+		const hydrate = vi.fn((points: MapIndexFeature[]) =>
+			points.map((point) => byId.get(point.properties.profileId)!),
+		);
+		const index = new NetworkMapViewIndex(source, hydrate);
+		const original = index.read(WORLD_VIEWPORT, "", 160);
+		for (let offset = 320; offset < 5_500; offset += 160)
+			index.read(WORLD_VIEWPORT, "", offset);
+		hydrate.mockClear();
+		expect(index.read(WORLD_VIEWPORT, "", 160)).toEqual(original);
+		expect(hydrate).toHaveBeenCalledTimes(1);
+		expect(
+			hydrate.mock.calls[0][0].map((point) => point.properties.profileId),
+		).toContain("p200");
+		expect(hydrate.mock.calls[0][0].length).toBeLessThanOrEqual(160);
+		hydrate.mockClear();
+		expect(index.read(WORLD_VIEWPORT, "", 160)).toEqual(original);
+		expect(hydrate).not.toHaveBeenCalled();
+	});
+
 	it("reuses viewport filtering and previews across pages, and previews across nearby pans", () => {
 		const bounds = vi.spyOn(geometry, "createBoundsFilter");
 		const anchor = vi.spyOn(geometry, "getClusterDisplayAnchor");

@@ -103,7 +103,7 @@ Note Tweets keep their complete text and matching entities in the existing schem
 
 Older writers omit that optional marker when re-exporting. They retain the full text and entities, but do not provide the new protection against preview-only live updates or the expandable Note Tweet presentation. Use current Birdclaw versions on machines that refresh Note Tweets.
 
-The local SQLite database migrates to version 11 on writable startup. Prepare read-only archive deployments with a writable initialization before serving the updated application; older read-only snapshots must first receive that migration.
+The local SQLite database migrates to version 13 on writable startup. Prepare read-only archive deployments with a writable initialization before serving the updated application. Stop older writer processes before upgrading; all writers must use the current incremental search-index implementation. The portable backup schema remains at 8.
 
 ## `backup import`
 

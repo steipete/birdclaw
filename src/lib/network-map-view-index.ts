@@ -1,4 +1,5 @@
 import type { NetworkMapViewResponse } from "./api-contracts";
+import type { MapIndexFeature } from "./network-map";
 import {
 	buildClusterIndex,
 	compareClusterFeatures,
@@ -17,10 +18,17 @@ const MAX_MARKERS = 200;
 const CLUSTER_PREVIEW_SIZE = 6;
 const MAX_CACHED_VIEWS = 4;
 const MAX_CACHED_CLUSTERS = 2_000;
+const MAX_CACHED_PROFILES = 4_096;
 type Marker = NetworkMapViewResponse["markers"][number];
+type IndexedMarker =
+	| { kind: "profile"; index: number }
+	| (Omit<Extract<Marker, { kind: "cluster" }>, "features"> & {
+			indices: number[];
+	  });
+type HydrateFeatures = (features: MapIndexFeature[]) => MapFeature[];
 
 type View = {
-	markers: NetworkMapViewResponse["markers"];
+	markers: IndexedMarker[];
 	indices: number[];
 	search: string;
 	matches: number[];
@@ -29,10 +37,20 @@ type View = {
 export class NetworkMapViewIndex {
 	private readonly index: ReturnType<typeof buildClusterIndex>;
 	private readonly views = new Map<string, View>();
-	private readonly markers = new Map<number, Marker>();
+	private readonly markers = new Map<number, IndexedMarker>();
 	private readonly searchTexts: Array<string | undefined> = [];
+	private readonly profiles = new Map<number, MapFeature>();
+	private readonly features: MapIndexFeature[];
+	private readonly hydrate?: HydrateFeatures;
 
-	constructor(private readonly features: MapFeature[]) {
+	constructor(features: MapFeature[]);
+	constructor(features: MapIndexFeature[], hydrate: HydrateFeatures);
+	constructor(
+		features: MapFeature[] | MapIndexFeature[],
+		hydrate?: HydrateFeatures,
+	) {
+		this.features = features;
+		this.hydrate = hydrate;
 		features.sort(compareClusterFeatures);
 		this.index = buildClusterIndex(features);
 	}
@@ -62,11 +80,11 @@ export class NetworkMapViewIndex {
 		return view;
 	}
 
-	private marker(item: ClusterResult): Marker {
+	private marker(item: ClusterResult): IndexedMarker {
 		if (!isCluster(item))
 			return {
 				kind: "profile",
-				feature: this.features[item.properties.featureIndex],
+				index: item.properties.featureIndex,
 			};
 		const id = item.properties.cluster_id;
 		const cached = this.markers.get(id);
@@ -77,13 +95,15 @@ export class NetworkMapViewIndex {
 		}
 		const leaves = this.index
 			.getLeaves(id, CLUSTER_LEAF_SAMPLE_SIZE)
-			.map((leaf) => this.features[leaf.properties.featureIndex])
-			.sort(compareClusterFeatures);
-		const marker: Marker = {
+			.map((leaf) => leaf.properties.featureIndex)
+			.sort((a, b) =>
+				compareClusterFeatures(this.features[a], this.features[b]),
+			);
+		const marker: IndexedMarker = {
 			kind: "cluster",
 			id,
 			coordinates: getClusterDisplayAnchor(
-				leaves,
+				leaves.map((i) => this.features[i]),
 				item.geometry.coordinates as [number, number],
 			),
 			count: item.properties.point_count,
@@ -93,12 +113,39 @@ export class NetworkMapViewIndex {
 				following: item.properties.following,
 				mutual: item.properties.mutual,
 			},
-			features: leaves.slice(0, CLUSTER_PREVIEW_SIZE),
+			indices: leaves.slice(0, CLUSTER_PREVIEW_SIZE),
 		};
 		this.markers.set(id, marker);
 		if (this.markers.size > MAX_CACHED_CLUSTERS)
 			this.markers.delete(this.markers.keys().next().value!);
 		return marker;
+	}
+
+	private readProfiles(indices: Set<number>) {
+		if (!this.hydrate)
+			return { get: (i: number) => this.features[i] as MapFeature };
+		const result = new Map<number, MapFeature>();
+		const missing: number[] = [];
+		for (const i of indices) {
+			const cached = this.profiles.get(i);
+			if (cached) {
+				this.profiles.delete(i);
+				this.profiles.set(i, cached);
+				result.set(i, cached);
+			} else missing.push(i);
+		}
+		const hydrated = missing.length
+			? this.hydrate(missing.map((i) => this.features[i]))
+			: [];
+		for (let j = 0; j < missing.length; j++) {
+			const i = missing[j];
+			const feature = hydrated[j];
+			result.set(i, feature);
+			this.profiles.set(i, feature);
+		}
+		while (this.profiles.size > MAX_CACHED_PROFILES)
+			this.profiles.delete(this.profiles.keys().next().value!);
+		return result;
 	}
 
 	read(viewport: MapViewport, search: string, requestedOffset: number) {
@@ -127,11 +174,21 @@ export class NetworkMapViewIndex {
 			Math.max(0, Math.floor(requestedOffset)),
 			lastPageOffset,
 		);
+		const page = view.matches.slice(offset, offset + PAGE_SIZE);
+		const needed = new Set(page);
+		for (const marker of view.markers) {
+			if (marker.kind === "profile") needed.add(marker.index);
+			else for (const i of marker.indices) needed.add(i);
+		}
+		const profiles = this.readProfiles(needed);
 		return {
-			markers: view.markers,
-			features: view.matches
-				.slice(offset, offset + PAGE_SIZE)
-				.map((i) => this.features[i]),
+			markers: view.markers.map((marker): Marker => {
+				if (marker.kind === "profile")
+					return { kind: "profile", feature: profiles.get(marker.index)! };
+				const { indices, ...cluster } = marker;
+				return { ...cluster, features: indices.map((i) => profiles.get(i)!) };
+			}),
+			features: page.map((i) => profiles.get(i)!),
 			visibleProfiles: view.indices.length,
 			matchingProfiles: view.matches.length,
 			offset,

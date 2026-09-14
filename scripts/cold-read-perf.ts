@@ -8,6 +8,10 @@ import { getNativeDb, resetDatabaseForTests } from "../src/lib/db";
 import { getLinkInsights } from "../src/lib/link-insights";
 import { getNetworkMap } from "../src/lib/network-map";
 import { getNetworkMapView } from "../src/lib/network-map-view";
+import {
+	networkMapResponseSchema,
+	networkMapViewResponseSchema,
+} from "../src/lib/api-contracts";
 
 const root = mkdtempSync(path.join(os.tmpdir(), "birdclaw-cold-perf-"));
 const home = path.join(root, "home");
@@ -88,7 +92,15 @@ try {
 				values.push(ms);
 				samples.set(name, values);
 				const digest = createHash("sha256")
-					.update(JSON.stringify(result))
+					.update(
+						JSON.stringify(
+							scenario === "map-data"
+								? networkMapResponseSchema.parse(result)
+								: scenario === "map-view"
+									? networkMapViewResponseSchema.parse(result)
+									: result,
+						),
+					)
 					.digest("hex");
 				if (digests.has(name) && digests.get(name) !== digest)
 					throw new Error(`${scenario}: ${name} changed between samples`);

@@ -34,6 +34,16 @@ matches. Replacing or shortening a search starts from everyone in view. These
 caches belong to the current database index and are discarded together when it
 is invalidated.
 
+Read-only deployments build the index from compact profile rows. Only located
+groups are sorted, preserving the full GeoJSON order without sorting the entire
+network in SQLite. Avatars, following counts, and verification details are loaded
+in one batch for each page and its marker previews, with up to 4,096 recently
+used profiles retained. Index validation and metadata reads use one transaction
+on the index's original connection, so concurrent syncs cannot mix snapshots.
+Following and Mutual views start from the indexed Following edges instead of
+aggregating the entire follower network. Full GeoJSON exports and writable
+geocoding retain their existing behavior.
+
 ## Profiling
 
 Run the reproducible synthetic benchmark with 544,560 profiles and 224,706
@@ -43,11 +53,25 @@ located people:
 ./scripts/bun-canary.sh scripts/network-map-perf.ts
 ```
 
-It reports cold-load database time, median/p95 request times for 30 different
+It reports initial-load database time, ten uncached rebuilds for Followers,
+Following, and Mutual, and median/p95 request times for 30 different
 pages, changing searches, typed searches, and fresh pans. Times include response
 validation and JSON serialization; response digests help compare correctness
 between implementations. Its temporary database is removed afterward. An
-optional existing Birdclaw home argument is opened read-only.
+optional existing Birdclaw home argument is opened read-only. The default fixture
+also follows every hundredth profile. Pass a trusted baseline checkout as a
+second argument to alternate before/after samples on the same archive and verify
+every response digest:
+
+```bash
+./scripts/bun-canary.sh scripts/network-map-perf.ts /path/to/synthetic-home /path/to/baseline-checkout
+```
+
+Use `-` in place of the home to generate and remove a fixture automatically.
+
+Rebuild medians exclude the first two samples. Request times include response
+validation and serialization, while generation and database times are also
+reported separately. See [Performance](performance.md) for measured tradeoffs.
 
 To capture CPU samples and a readable hot-function report:
 

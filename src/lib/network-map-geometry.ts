@@ -1,7 +1,7 @@
 import type * as GeoJSON from "geojson";
 import Supercluster from "supercluster";
 import type { NetworkMapResponse } from "./api-contracts";
-import type { NetworkMapKind } from "./network-map";
+import type { MapIndexFeature, NetworkMapKind } from "./network-map";
 
 export type MapFeature = NetworkMapResponse["features"][number];
 export type MapBounds = [number, number, number, number];
@@ -89,7 +89,7 @@ export function clusterGradient(stats: ClusterAggregateProperties) {
 	return `conic-gradient(#22c55e 0 ${mutual}%, #f59e0b ${mutual}% ${following}%, #1d9bf0 ${following}% 100%)`;
 }
 
-export function buildClusterIndex(features: MapFeature[]) {
+export function buildClusterIndex(features: MapIndexFeature[]) {
 	const points: ClusterPointFeature[] = features.map(
 		(feature, featureIndex) => ({
 			type: "Feature",
@@ -121,7 +121,7 @@ export function isCluster(item: ClusterResult): item is ClusterFeature {
 	return "cluster" in item.properties && item.properties.cluster === true;
 }
 
-export function compareClusterFeatures(a: MapFeature, b: MapFeature) {
+export function compareClusterFeatures(a: MapIndexFeature, b: MapIndexFeature) {
 	return (
 		b.properties.followersCount - a.properties.followersCount ||
 		a.properties.handle.localeCompare(b.properties.handle)
@@ -129,7 +129,7 @@ export function compareClusterFeatures(a: MapFeature, b: MapFeature) {
 }
 
 export function getClusterDisplayAnchor(
-	features: MapFeature[],
+	features: MapIndexFeature[],
 	fallback: [number, number],
 ): [number, number] {
 	const buckets = new Map<
@@ -186,7 +186,7 @@ export function createBoundsFilter(bounds: MapBounds) {
 	const maxLatitude = Math.min(85, north);
 	const allLongitudes = east - west >= 360;
 	const crossesAntimeridian = normalizedWest > normalizedEast;
-	return (feature: MapFeature) => {
+	return (feature: MapIndexFeature) => {
 		const [lng, lat] = feature.geometry.coordinates;
 		return (
 			lat >= minLatitude &&
@@ -199,7 +199,7 @@ export function createBoundsFilter(bounds: MapBounds) {
 	};
 }
 
-export function featureSearchText(feature: MapFeature) {
+export function featureSearchText(feature: MapIndexFeature) {
 	return [
 		feature.properties.name,
 		feature.properties.handle,

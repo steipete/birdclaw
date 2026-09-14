@@ -2,6 +2,8 @@
 
 ## 0.13.1 - Unreleased
 
+- Build read-only maps from compact rows, sort only located groups, and batch visible profile metadata within one SQLite snapshot; accelerate Following and Mutual maps with directional index lookups while preserving full-network search, counts, and GeoJSON output.
+
 - Speed up uncached Videos queries by rejecting unrelated URLs before exact host checks, and reduce map construction work by grouping locations in one pass while preserving point order and counts.
 
 - Make search updates incremental through indexed document lookups, skip unchanged text in small updates, and share final-content indexing across sync, replies, imports, and backup merges; reuse rolling Links results until a time boundary or database change alters their inputs.

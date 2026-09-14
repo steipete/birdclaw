@@ -5,10 +5,13 @@ import type {
 	NetworkMapViewResponse,
 } from "./api-contracts";
 import { getNativeDb } from "./db";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { isReadOnlyDeployment } from "./config";
+import { runEffectPromise, tryPromise, trySync } from "./effect-runtime";
 import {
 	getNetworkMap,
 	getPublicMapboxToken,
+	hydrateMapFeatures,
+	readMapIndexData,
 	type NetworkMapKind,
 } from "./network-map";
 import { WORLD_VIEWPORT, type MapViewport } from "./network-map-geometry";
@@ -27,6 +30,14 @@ type CachedMap = {
 };
 const maps = new Map<Database["writeIdentity"], CachedMap>();
 const MAX_CACHED_DATABASES = 2;
+type ReadOnlyMap = {
+	db: Database;
+	revision: string;
+	key: string;
+	meta: NetworkMapResponse["meta"];
+	index: NetworkMapViewIndex;
+};
+const readOnlyMaps = new Map<Database["writeIdentity"], ReadOnlyMap>();
 
 function revision(db: Database) {
 	return `${db.pragma("data_version", { simple: true })}:${(db.prepare("select total_changes() as n").get() as { n: number }).n}`;
@@ -41,6 +52,62 @@ export interface NetworkMapViewOptions {
 	refresh?: boolean;
 	geocodeLimit?: number;
 	signal?: AbortSignal;
+}
+
+function readOnlyView(
+	options: NetworkMapViewOptions,
+	db: Database,
+): NetworkMapViewResponse {
+	const identity = db.writeIdentity;
+	const cached = options.refresh ? undefined : readOnlyMaps.get(identity);
+	// Closed pool owners cannot validate or hydrate their index.
+	let owner = cached?.db ?? db;
+	try {
+		owner.pragma("data_version", { simple: true });
+	} catch {
+		readOnlyMaps.delete(identity);
+		owner = db;
+	}
+	return owner.readTransaction(() => {
+		// A real table read pins validation, index construction and hydration to one snapshot.
+		const account = resolveOperationAccount(options.account, owner);
+		const key = `${account.id}:${options.type ?? "all"}`;
+		const currentRevision = revision(owner);
+		let entry =
+			cached?.db === owner &&
+			cached.key === key &&
+			cached.revision === currentRevision
+				? cached
+				: undefined;
+		if (!entry) {
+			const data = readMapIndexData(account.id, options.type ?? "all", owner);
+			entry = {
+				db: owner,
+				key,
+				revision: currentRevision,
+				meta: data.meta,
+				index: new NetworkMapViewIndex(data.features, (features) =>
+					hydrateMapFeatures(features, owner),
+				),
+			};
+		}
+		const view = entry.index.read(
+			options.viewport ?? WORLD_VIEWPORT,
+			options.search ?? "",
+			options.offset ?? 0,
+		);
+		if (!options.refresh) {
+			readOnlyMaps.delete(identity);
+			readOnlyMaps.set(identity, entry);
+			while (readOnlyMaps.size > MAX_CACHED_DATABASES)
+				readOnlyMaps.delete(readOnlyMaps.keys().next().value!);
+		}
+		return {
+			meta: entry.meta,
+			config: { mapboxToken: getPublicMapboxToken() },
+			...view,
+		};
+	})();
 }
 
 function readIndexedMap(options: NetworkMapViewOptions, db: Database) {
@@ -95,6 +162,8 @@ export function getNetworkMapViewEffect(
 	db = getNativeDb(),
 ) {
 	return Effect.gen(function* () {
+		if (isReadOnlyDeployment())
+			return yield* trySync(() => readOnlyView(options, db));
 		const { data, index } = yield* tryPromise(() =>
 			readIndexedMap(options, db),
 		);

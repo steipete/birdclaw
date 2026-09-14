@@ -35,18 +35,28 @@ export interface NetworkMapFeature {
 	properties: NetworkMapProfileProperties;
 }
 
-interface ProfileLocationRow {
+interface MapProfileRow {
 	id: string;
 	handle: string;
 	display_name: string;
 	followers_count: number;
-	following_count: number;
-	avatar_url: string | null;
 	location: string | null;
-	verified_type: string | null;
 	in_followers: number;
 	in_following: number;
 }
+
+interface ProfileLocationRow extends MapProfileRow {
+	following_count: number;
+	avatar_url: string | null;
+	verified_type: string | null;
+}
+
+export type MapIndexFeature = Omit<NetworkMapFeature, "properties"> & {
+	properties: Omit<
+		NetworkMapProfileProperties,
+		"avatarUrl" | "followingCount" | "verified"
+	>;
+};
 
 interface NetworkMapOptions {
 	account?: string;
@@ -105,61 +115,48 @@ function relationshipForRow(
 	return "following";
 }
 
-function fetchNetworkRows({
-	db,
-	accountId,
-	type,
-	limit,
-}: {
-	db: Database;
-	accountId: string;
-	type: NetworkMapKind;
-	limit: number;
-}) {
-	const having =
-		type === "mutual"
-			? "having max(case when fe.direction = 'followers' then 1 else 0 end) = 1 and max(case when fe.direction = 'following' then 1 else 0 end) = 1"
-			: type === "followers"
-				? "having max(case when fe.direction = 'followers' then 1 else 0 end) = 1"
-				: type === "following"
-					? "having max(case when fe.direction = 'following' then 1 else 0 end) = 1"
-					: "";
-	const rows = db
-		.prepare(
-			`
-      with membership as (
+function networkRowsSql(type: NetworkMapKind, fullDetails: boolean) {
+	// Following is usually much smaller than Followers; start with that direction's index.
+	const membership =
+		type === "following" || type === "mutual"
+			? `
+        select fe.profile_id, (other.profile_id is not null) as in_followers, 1 as in_following
+        from follow_edges fe indexed by idx_follow_edges_current
+        ${type === "mutual" ? "join" : "left join"} follow_edges other
+          on other.account_id = fe.account_id and other.profile_id = fe.profile_id
+          and other.direction = 'followers' and other.current = 1
+        where fe.account_id = ? and fe.direction = 'following' and fe.current = 1
+      `
+			: `
         select profile_id,
           max(case when direction = 'followers' then 1 else 0 end) as in_followers,
           max(case when direction = 'following' then 1 else 0 end) as in_following
         from follow_edges fe
         where account_id = ? and current = 1
         group by profile_id
-        ${having}
-      )
+        ${type === "followers" ? "having max(case when fe.direction = 'followers' then 1 else 0 end) = 1" : ""}
+      `;
+	return `
+      with membership as (${membership})
       select
         p.id,
         p.handle,
         p.display_name,
         p.followers_count,
-        p.following_count,
-        p.avatar_url,
         p.location,
-        p.verified_type,
+        ${fullDetails ? "p.following_count, p.avatar_url, p.verified_type," : ""}
         fe.in_followers,
         fe.in_following
       from membership fe
       join profiles p on p.id = fe.profile_id
-      order by p.followers_count desc, p.handle asc
+      ${fullDetails ? "order by p.followers_count desc, p.handle asc" : ""}
       limit ?
-      `,
-		)
-		.all(accountId, limit) as ProfileLocationRow[];
-	return rows;
+      `;
 }
 
-function collectLocations(rows: ProfileLocationRow[]) {
+function collectLocations<Row extends MapProfileRow>(rows: Row[]) {
 	const originalByKey = new Map<string, string>();
-	const groups = new Map<string, ProfileLocationRow[]>();
+	const groups = new Map<string, Row[]>();
 	const keys: string[] = [];
 	const normalizedLocations = new Map<string, string>();
 	let profilesWithLocation = 0;
@@ -282,14 +279,16 @@ async function fillMissingGeocodes({
 	};
 }
 
-function buildFeatures({
+function buildFeatures<Row extends MapProfileRow, Extra extends object>({
 	groups,
 	cache,
+	details,
 }: {
-	groups: Map<string, ProfileLocationRow[]>;
+	groups: Map<string, Row[]>;
 	cache: Map<string, GeocodeResult>;
+	details: (row: Row) => Extra;
 }) {
-	const features: NetworkMapFeature[] = [];
+	const features: Array<MapIndexFeature & { properties: Extra }> = [];
 	for (const [key, members] of groups) {
 		const geo = cache.get(key);
 		if (!geo) continue;
@@ -303,15 +302,12 @@ function buildFeatures({
 					profileId: row.id,
 					handle: row.handle,
 					name: row.display_name,
-					avatarUrl: row.avatar_url,
 					location: row.location,
 					resolvedLocation: geo.formatted ?? null,
 					followersCount: Number(row.followers_count ?? 0),
-					followingCount: Number(row.following_count ?? 0),
-					verified:
-						row.verified_type && row.verified_type !== "none" ? true : null,
 					relationship: relationshipForRow(row),
 					approxRadiusM: geo.approxRadiusM ?? null,
+					...details(row),
 				},
 			});
 		}
@@ -336,7 +332,9 @@ export async function getNetworkMap(
 		MAX_GEOCODE_LIMIT,
 		0,
 	);
-	const rows = fetchNetworkRows({ db, accountId, type, limit });
+	const rows = db
+		.prepare(networkRowsSql(type, true))
+		.all(accountId, limit) as ProfileLocationRow[];
 	const locations = collectLocations(rows);
 	const geocodes = await fillMissingGeocodes({
 		db,
@@ -349,6 +347,7 @@ export async function getNetworkMap(
 	const features = buildFeatures({
 		groups: locations.groups,
 		cache: geocodes.cache,
+		details: profileDisplayProperties,
 	});
 	const token = getPublicMapboxToken();
 	return {
@@ -371,4 +370,100 @@ export async function getNetworkMap(
 			mapboxToken: token,
 		},
 	};
+}
+
+function profileDisplayProperties(
+	row: Pick<
+		ProfileLocationRow,
+		"avatar_url" | "following_count" | "verified_type"
+	>,
+) {
+	return {
+		avatarUrl: row.avatar_url,
+		followingCount: Number(row.following_count ?? 0),
+		verified: row.verified_type && row.verified_type !== "none" ? true : null,
+	};
+}
+
+// Called inside the read-only view's snapshot; geocoding remains on the full-map path.
+export function readMapIndexData(
+	accountId: string,
+	type: NetworkMapKind,
+	db: Database,
+) {
+	const rows = db
+		.prepare(networkRowsSql(type, false))
+		.all(accountId, -1) as MapProfileRow[];
+	const locations = collectLocations(rows);
+	const cache = readCachedGeocodes(locations.keys, db);
+	const suppressed = readSuppressedGeocodeKeys(locations.keys, db);
+	// Recover the full-map order using only located groups, avoiding a SQLite sort
+	// of every network member. BINARY text order also preserves Unicode/tied handles.
+	const compareRows = (a: MapProfileRow, b: MapProfileRow) =>
+		b.followers_count - a.followers_count ||
+		compareSqliteText(a.handle, b.handle);
+	const groups = [...locations.groups].filter(([key]) => cache.has(key));
+	for (const [, members] of groups) members.sort(compareRows);
+	groups.sort((a, b) => compareRows(a[1][0], b[1][0]));
+	const features = buildFeatures({
+		groups: new Map(groups),
+		cache,
+		details: () => ({}),
+	});
+	return {
+		features,
+		meta: {
+			accountId,
+			type,
+			totalProfiles: rows.length,
+			profilesWithLocation: locations.profilesWithLocation,
+			meaningfulProfiles: locations.meaningfulProfiles,
+			locatedProfiles: features.length,
+			missingGeocodes: locations.keys.filter(
+				(key) => !cache.has(key) && !suppressed.has(key),
+			).length,
+			geocodedThisRun: 0,
+			suppressedGeocodes: suppressed.size,
+			opencageConfigured: Boolean(getOpenCageApiKey()),
+			mapboxTokenConfigured: Boolean(getPublicMapboxToken()),
+		},
+	};
+}
+
+function compareSqliteText(a: string, b: string) {
+	// UTF-8 BINARY order follows code points, unlike JS's UTF-16 string comparison.
+	for (let i = 0; i < Math.min(a.length, b.length); i++) {
+		if (a.charCodeAt(i) !== b.charCodeAt(i))
+			return a.codePointAt(i)! - b.codePointAt(i)!;
+	}
+	return a.length - b.length;
+}
+
+export function hydrateMapFeatures(
+	features: MapIndexFeature[],
+	db: Database,
+): NetworkMapFeature[] {
+	if (!features.length) return [];
+	const rows = db
+		.prepare(`
+		select id, avatar_url, following_count, verified_type from profiles
+		where id in (select value from json_each(?))
+	`)
+		.all(
+			JSON.stringify(features.map((feature) => feature.properties.profileId)),
+		) as Array<
+		Pick<
+			ProfileLocationRow,
+			"id" | "avatar_url" | "following_count" | "verified_type"
+		>
+	>;
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	return features.map((feature) => {
+		const row = byId.get(feature.properties.profileId);
+		if (!row) throw new Error("Map profile missing from its database snapshot");
+		return {
+			...feature,
+			properties: { ...feature.properties, ...profileDisplayProperties(row) },
+		};
+	});
 }
