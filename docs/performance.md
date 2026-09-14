@@ -54,3 +54,63 @@ Report first API request time separately from warm median/p95, and compare
 response digests to guard correctness. HTML timings do not measure client paint;
 first-request results are sensitive to filesystem caches and host load. Run
 before/after benchmarks sequentially against the same archive and runtime.
+
+## SQLite audit
+
+Run the database workload directly, without HTTP response caching:
+
+```bash
+./scripts/bun-canary.sh scripts/sqlite-perf.ts > sqlite-performance.json
+```
+
+The harness creates and removes its own synthetic archive, runs six samples per
+workload, records the first sample separately, and reports the median of the five
+warm samples. It exercises real feed, search, DM, Links, map, and cached DM sync
+code, verifies stable result hashes, captures query plans, and measures index
+storage and bulk insert costs. Writes are rolled back between samples. It never
+accepts an existing archive path. DM input comes from a synthetic sync-cache entry.
+
+For CPU attribution, run separately with Bun's profiler:
+
+```bash
+./scripts/bun-canary.sh --cpu-prof --cpu-prof-md --cpu-prof-dir=/tmp scripts/sqlite-perf.ts
+```
+
+The September 2026 audit compared schema 11 and schema 12 on the page fixture
+above using the pinned Bun runtime. Unprofiled medians were:
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Home feed, 50 posts | 15.8 ms | 13.7 ms |
+| Uncached full map, 100,000 profiles | 201.8 ms | 191.6 ms |
+| Sync 10,000 DMs and read back the complete search index | 999.0 ms | 277.1 ms |
+| Select 5,000 tweet IDs from 250,000 identical timestamps | 42.6 ms | 0.46 ms |
+| Insert 10,000 current follow edges | 13.6 ms | 25.1 ms |
+| Insert 10,000 tweets | 17.8 ms | 18.0 ms |
+
+All result hashes matched. Tweet search, follower-sorted DMs, and rolling Links
+were effectively unchanged at about 2 ms, 18 ms, and 100 ms respectively. Full
+sample data and query plans are in [the benchmark record](https://github.com/steipete/birdclaw/blob/main/docs/benchmarks/sqlite-performance.json).
+
+The main write bottleneck was repeated scanning of unindexed FTS message IDs.
+Replacing 500-ID chunks with one JSON-bound batch reduced isolated deletion of
+10,000 IDs from about 798 ms to 74 ms on a 200,000-message index. Tweet/archive
+ingestion already batches equivalent search replacements. The CPU profile
+confirmed native SQLite calls dominated; generic row normalization and statement
+wrapping were small enough to leave unchanged.
+
+The tweet index now includes the ID tie breaker, eliminating a temporary sort
+and allowing ID-only selection from a covering index. Map membership uses a
+partial covering index to avoid sorting and loading full edge rows. These
+indexes cost about 2.1 MiB extra for 250,000 tweets and 3.3 MiB for 100,000 current
+edges. The extra graph index also increases bulk-insert work, as shown above.
+The migration runs once on writable startup; upgrade the database before serving
+it in read-only mode.
+
+Map timings include SQL, row decoding, location grouping, and feature creation.
+Profiler and garbage-collection overhead can obscure the smaller map gain; one
+profiled run was slower after the change, while the paired SQL experiment and
+unprofiled run improved. These measurements are local database timings, not
+hosted browser latency. Rolling Links still reads author influence across tied
+candidate groups and is the clearest remaining read bottleneck. The audit made
+no changes to journaling, synchronization, foreign keys, or reader ownership.

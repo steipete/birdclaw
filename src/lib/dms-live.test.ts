@@ -190,6 +190,104 @@ describe("cached live DMs", () => {
 		expect(listDirectMessagesViaBirdMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("replaces a large DM search batch once, removes previews and duplicates, and rolls back failures", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		const conversationId = "25401953-55";
+		const event = (id: string, text: string) => ({
+			id,
+			conversationId,
+			text,
+			createdAt: "2026-09-13T20:00:00.000Z",
+			senderId: "55",
+			recipientId: "25401953",
+		});
+		const events = Array.from({ length: 1200 }, (_, index) =>
+			event(`batch_dm_${index}`, `Batch search text ${index}`),
+		);
+		events.push(event("batch_dm_0", "Final duplicate text"));
+		listDirectMessagesViaBirdMock.mockResolvedValue({
+			success: true,
+			conversations: [
+				{
+					id: conversationId,
+					participants: [
+						{ id: "25401953", username: "steipete" },
+						{ id: "55", username: "syntheticpeer" },
+					],
+				},
+			],
+			events,
+		});
+		db.exec(`
+			insert into dm_fts(message_id,text) values
+				('batch_dm_0','obsolete'),('batch_dm_0','duplicate'),
+				('preview:25401953-55','old preview'),('unrelated_dm','keep sentinel');
+		`);
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+		const prepare = vi.spyOn(db, "prepare");
+		try {
+			await syncDirectMessagesViaCachedBird({ mode: "bird", refresh: true });
+			expect(
+				prepare.mock.calls.filter(([sql]) =>
+					/^\s*delete from dm_fts/i.test(sql),
+				),
+			).toHaveLength(1);
+		} finally {
+			prepare.mockRestore();
+		}
+		expect(
+			db.prepare("select text from dm_fts where message_id='batch_dm_0'").all(),
+		).toEqual([{ text: "Final duplicate text" }]);
+		expect(
+			db
+				.prepare("select text from dm_fts where message_id=?")
+				.all(`preview:${conversationId}`),
+		).toEqual([]);
+		expect(
+			db
+				.prepare(
+					"select count(*) n from dm_fts where message_id like 'batch_dm_%'",
+				)
+				.get(),
+		).toEqual({ n: 1200 });
+		expect(
+			db
+				.prepare("select text from dm_fts where message_id='unrelated_dm'")
+				.get(),
+		).toEqual({ text: "keep sentinel" });
+		expect(
+			db
+				.prepare("select message_id from dm_fts where dm_fts match 'Final'")
+				.all(),
+		).toEqual([{ message_id: "batch_dm_0" }]);
+
+		const originalPrepare = db.prepare.bind(db);
+		const failInsert = vi.spyOn(db, "prepare").mockImplementation((sql) => {
+			const statement = originalPrepare(sql);
+			if (sql.startsWith("insert into dm_fts")) {
+				statement.run = () => {
+					throw new Error("synthetic index failure");
+				};
+			}
+			return statement;
+		});
+		events.push(event("batch_dm_0", "Rolled back change"));
+		try {
+			await expect(
+				syncDirectMessagesViaCachedBird({ mode: "bird", refresh: true }),
+			).rejects.toThrow("synthetic index failure");
+		} finally {
+			failInsert.mockRestore();
+		}
+		expect(
+			db.prepare("select text from dm_messages where id='batch_dm_0'").get(),
+		).toEqual({ text: "Final duplicate text" });
+		expect(
+			db.prepare("select text from dm_fts where message_id='batch_dm_0'").all(),
+		).toEqual([{ text: "Final duplicate text" }]);
+	});
+
 	it("fetches bird DMs, caches them, and syncs them into the local store", async () => {
 		makeTempHome();
 		listDirectMessagesViaBirdMock.mockResolvedValueOnce({

@@ -4,6 +4,8 @@ Live tweet ingestion replaces the touched search-index rows in a batch within it
 
 Archive imports rebuild touched tweet and DM search entries after the selected slices merge, using the final stored text and deletion state. This avoids repeated full FTS scans and handles duplicate IDs across authored, liked, bookmarked, and DM records without duplicating index entries.
 
+Live DM sync also deletes touched search entries in one batch using `json_each`, including obsolete previews. Chunking ID parameters would scan the full FTS table once per chunk because `message_id` is unindexed. Deletion, canonical message writes, and deduplicated search insertion remain in the same transaction, so an indexing failure rolls back the message batch.
+
 ## Effect Runtime Boundary
 
 Birdclaw's core I/O code should be written as Effect programs. Use `Effect.gen` for multi-step workflows, typed failures for expected errors, and `Effect.forEach` / `Effect.sleep` for concurrency, retry, timeout, and pacing logic.
@@ -248,6 +250,8 @@ Day-1 search modes:
 No vector search required for MVP.
 
 ### Indexing
+
+Schema 12 extends the chronological tweet index to `(created_at desc, id desc)` so bounded candidate selection can read timestamp ties directly in page order. A partial covering index on `follow_edges(account_id, profile_id, direction) where current = 1` supplies map membership without a table lookup or grouping sort. The existing direction/last-seen index remains available for graph history queries. Writable startup applies the migration transactionally; read-only deployments require an upgraded snapshot. WAL, foreign-key enforcement, and durability settings are unchanged.
 
 Indexes from day 1:
 

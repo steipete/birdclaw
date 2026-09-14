@@ -73,14 +73,11 @@ function makePreviewMessageId(conversationId: string): string {
 }
 
 function deleteDmFtsRows(db: Database, messageIds: string[]) {
-	const chunkSize = 500;
-	for (let index = 0; index < messageIds.length; index += chunkSize) {
-		const chunk = messageIds.slice(index, index + chunkSize);
-		if (chunk.length === 0) continue;
-		db.prepare(
-			`delete from dm_fts where message_id in (${chunk.map(() => "?").join(",")})`,
-		).run(...chunk);
-	}
+	if (messageIds.length === 0) return;
+	// FTS5 does not index message_id; replace the batch with one archive scan.
+	db.prepare(
+		"delete from dm_fts where message_id in (select value from json_each(?))",
+	).run(JSON.stringify(messageIds));
 }
 
 function toIsoTimestamp(value?: string) {
