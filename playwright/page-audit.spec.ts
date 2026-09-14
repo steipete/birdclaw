@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { queryEnvelopeSchema } from "../src/lib/api-contracts";
 
 test("loads every archive page and gates every provider-only page", async ({
 	page,
@@ -9,13 +10,28 @@ test("loads every archive page and gates every provider-only page", async ({
 	await context.addCookies([
 		{ name: "birdclaw_token", value: "birdclaw-e2e-token", url: baseURL },
 	]);
-	await page.route("**/api/status", async (route) => {
-		const response = await route.fetch();
-		await route.fulfill({
-			response,
-			json: { ...(await response.json()), readOnly: true },
-		});
+	const status = queryEnvelopeSchema.parse({
+		readOnly: true,
+		accounts: [
+			{
+				id: "acct_primary",
+				name: "Synthetic archive",
+				handle: "@archive",
+				isDefault: 1,
+				transport: "local",
+				createdAt: "2026-01-01T00:00:00Z",
+			},
+		],
+		archives: [],
+		transport: {
+			installed: false,
+			availableTransport: "local",
+			statusText: "Read-only archive",
+		},
+		stats: { home: 1, mentions: 1, dms: 1, needsReply: 0, inbox: 1 },
 	});
+	await page.route("**/api/status", (route) => route.fulfill({ json: status }));
+
 	await page.route("**/api/data-sources", (route) =>
 		route.fulfill({
 			json: {
@@ -59,6 +75,9 @@ test("loads every archive page and gates every provider-only page", async ({
 				new URL(response.url()).pathname === endpoint && response.ok(),
 		);
 		await page.goto(path);
+		await expect(
+			page.getByText("Read-only archive", { exact: true }),
+		).toHaveCount(1);
 		await data;
 		await expect(
 			page.getByRole("heading", { name: heading, exact: true }),
@@ -73,6 +92,9 @@ test("loads every archive page and gates every provider-only page", async ({
 		"/rate-limits",
 	]) {
 		await page.goto(path);
+		await expect(
+			page.getByText("Read-only archive", { exact: true }),
+		).toHaveCount(1);
 		await expect(
 			page.getByText(
 				"This page is unavailable in a read-only archive deployment.",
