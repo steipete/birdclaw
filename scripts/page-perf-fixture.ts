@@ -21,7 +21,8 @@ if (
  insert into tweets(id,author_profile_id,text,created_at,is_replied,like_count)
  select 't'||n,'p'||(1+n%100000),
  'Synthetic archived post '||n||case when n%5000=0 or n%5000=7 then ' needle' else '' end,strftime('%Y-%m-%dT%H:%M:%fZ','2026-09-13T20:00:00Z','-'||n||' seconds'),n%2,n%500 from seq;
- insert into tweets_fts(tweet_id,text) select id,text from tweets;
+ insert into search_rows(kind,source_id) select 'tweet',id from tweets order by rowid;
+ insert into tweets_fts(rowid,tweet_id,text) select r.id,t.id,t.text from tweets t join search_rows r on r.kind='tweet' and r.source_id=t.id order by r.id;
  insert into tweet_account_edges(account_id,tweet_id,kind,first_seen_at,last_seen_at,source,updated_at)
  select 'audit',id,case when rowid%10=0 then 'mention' when rowid%20=1 then 'authored' else 'home' end,created_at,created_at,'fixture',created_at from tweets;
  insert into tweet_collections(account_id,tweet_id,kind,collected_at,source,updated_at)
@@ -32,7 +33,8 @@ if (
  with recursive seq(n) as (select 1 union all select n+1 from seq where n<200000)
  insert into dm_messages(id,conversation_id,sender_profile_id,text,created_at,direction)
  select 'm'||n,'c'||(1+n%40000),'p'||(1+n%40000),'Synthetic message '||n||case when n%5000=0 then ' needle' else '' end,strftime('%Y-%m-%dT%H:%M:%fZ','2026-09-13T20:00:00Z','-'||n||' seconds'),'inbound' from seq;
- insert into dm_fts(message_id,text) select id,text from dm_messages;
+ insert into search_rows(kind,source_id) select 'dm',id from dm_messages order by rowid;
+ insert into dm_fts(rowid,message_id,text) select r.id,m.id,m.text from dm_messages m join search_rows r on r.kind='dm' and r.source_id=m.id order by r.id;
  insert into blocks(account_id,profile_id,source,created_at) select 'audit',id,'fixture','2026-09-13' from profiles where rowid%10=0;
  insert into follow_edges(account_id,direction,profile_id,external_user_id,source,current,first_seen_at,last_seen_at,updated_at)
  select 'audit','followers',id,id,'fixture',1,'2026-09-13','2026-09-13','2026-09-13' from profiles;

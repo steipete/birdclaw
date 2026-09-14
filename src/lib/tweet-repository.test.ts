@@ -7,6 +7,7 @@ import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { NativeSqliteDatabase } from "./sqlite";
 import { ingestTweetPayload } from "./tweet-repository";
+import { refreshSearchRows } from "./search-index";
 import {
 	editHistoryIdsFromPayload,
 	mergeTweetRevisionChain,
@@ -799,9 +800,7 @@ it("scopes live tombstone reconciliation to the ingested edit chains", () => {
 	db.prepare(
 		"update tweets set superseded_at = null, superseded_by_id = null where id = 'unrelated-edit-1'",
 	).run();
-	db.prepare(
-		"insert into tweets_fts (tweet_id, text) values ('unrelated-edit-1', 'scope sentinel')",
-	).run();
+	refreshSearchRows(db, "tweet", ["unrelated-edit-1"]);
 
 	ingestTweetPayload(db, {
 		accountId: "acct_primary",
@@ -857,7 +856,7 @@ it("reads both X archive edit-info variants", () => {
 	).toEqual(["edit-1", "edit-2", "edit-3"]);
 });
 
-it("replaces a payload's FTS rows in one scan while preserving unrelated search entries", () => {
+it("refreshes a payload's FTS rows through indexed lookups while preserving unrelated search entries", () => {
 	tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-test-"));
 	process.env.BIRDCLAW_HOME = tempRoot;
 	resetBirdclawPathsForTests();
@@ -882,12 +881,10 @@ it("replaces a payload's FTS rows in one scan while preserving unrelated search 
 			source: "test",
 			edgeKind: "home",
 		});
-		db.prepare(
-			"insert into tweets_fts (tweet_id, text) values ('batch_index_0', 'obsolete duplicate')",
-		).run();
-		db.prepare(
-			"insert into tweets_fts (tweet_id, text) values ('unrelated_index_sentinel', 'untouched sentinel')",
-		).run();
+		db.exec(
+			"insert into tweets(id,author_profile_id,text,created_at) values ('unrelated_index_sentinel','profile_me','untouched sentinel','')",
+		);
+		refreshSearchRows(db, "tweet", ["unrelated_index_sentinel"]);
 		statements.length = 0;
 		ingestTweetPayload(db, {
 			accountId: "acct_primary",
@@ -911,7 +908,8 @@ it("replaces a payload's FTS rows in one scan while preserving unrelated search 
 		const deletions = statements.filter((sql) =>
 			/^\s*delete from tweets_fts/i.test(sql),
 		);
-		expect(deletions).toHaveLength(2); // One replacement scan and one retention cleanup.
+		expect(deletions).toHaveLength(2);
+		expect(deletions.every((sql) => sql.includes("where rowid in"))).toBe(true);
 		expect(
 			db
 				.prepare(

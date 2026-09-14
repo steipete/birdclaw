@@ -1,4 +1,5 @@
 import type { Database } from "./sqlite";
+import { refreshSearchRows } from "./search-index";
 
 const now = new Date("2026-03-08T12:00:00.000Z");
 
@@ -537,10 +538,10 @@ export function seedDemoData(db: Database): DemoSeedResult {
 				}) => row,
 			),
 		);
-		insertDemoRows(
+		refreshSearchRows(
 			db,
-			"tweets_fts",
-			tweets.map(({ id, text }) => ({ tweetId: id, text })),
+			"tweet",
+			tweets.map(({ id }) => id),
 		);
 		for (const tweet of tweets) {
 			insertTweetEdge.run(
@@ -574,10 +575,10 @@ export function seedDemoData(db: Database): DemoSeedResult {
 		insertDemoRows(db, "dm_conversations", conversations);
 
 		insertDemoRows(db, "dm_messages", messages);
-		insertDemoRows(
+		refreshSearchRows(
 			db,
-			"dm_fts",
-			messages.map(({ id, text }) => ({ messageId: id, text })),
+			"dm",
+			messages.map(({ id }) => id),
 		);
 
 		insertDemoRows(db, "url_expansions", urlExpansions);

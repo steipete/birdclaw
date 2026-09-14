@@ -3024,17 +3024,6 @@ function importBackupUnlockedEffect({
 			if (mode === "replace") {
 				repository.clearBackupImport();
 			}
-			const existingFtsIds = new Map<string, Set<string>>();
-			for (const codec of BACKUP_TABLE_CODECS) {
-				const fts = codec.merge.fts;
-				if (!fts) continue;
-				existingFtsIds.set(
-					codec.name,
-					mode === "replace"
-						? new Set<string>()
-						: repository.readFtsIds(fts.target),
-				);
-			}
 			const mergeCodecs = [...BACKUP_TABLE_CODECS].sort(
 				(left, right) => left.merge.order - right.merge.order,
 			);
@@ -3057,19 +3046,8 @@ function importBackupUnlockedEffect({
 					legacyProfileMergePlans = reconciled.legacyProfileMergePlans;
 				}
 				repository.insertRows(codec.merge.sql, rows, codec.merge.columns);
-				const fts = codec.merge.fts;
-				if (!fts) continue;
-				if (fts.target.table === "tweets_fts") {
-					repository.reindexTweets(rows, fts.idKey);
-					continue;
-				}
-				repository.insertFtsRows({
-					target: fts.target,
-					rows,
-					idKey: fts.idKey,
-					textKey: fts.textKey,
-					existingIds: existingFtsIds.get(codec.name),
-				});
+				if (codec.merge.searchKind)
+					repository.refreshSearchRows(codec.merge.searchKind, rows);
 			}
 			if (mode === "merge") {
 				finalizeBackupProfileRows({

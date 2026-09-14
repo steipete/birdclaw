@@ -1,4 +1,5 @@
 import type { Database } from "./sqlite";
+import { refreshSearchRows } from "./search-index";
 import { buildTweetMedia, indexMediaIncludes } from "./media-includes";
 import { tweetEntitiesFromXurl } from "./tweet-render";
 import type { XurlMentionData, XurlMentionsResponse } from "./types";
@@ -213,20 +214,8 @@ export function ingestTweetPayload(
 				tweetIds.push(tweet.id);
 			}
 		}
-		if (touchedTweetIds.length > 0) {
-			const ids = JSON.stringify(touchedTweetIds);
-			// tweet_id is unindexed in FTS5: scan once per payload, not once per tweet.
-			db.prepare(
-				"delete from tweets_fts where tweet_id in (select value from json_each(?))",
-			).run(ids);
-			db.prepare(`
-				insert into tweets_fts (tweet_id, text)
-				select id, text from tweets
-				where id in (select value from json_each(?))
-				  and deleted_at is null and superseded_at is null
-			`).run(ids);
-		}
 		reconcileTweetTombstones(db, touchedTweetIds);
+		refreshSearchRows(db, "tweet", touchedTweetIds);
 	})();
 
 	return tweetIds;

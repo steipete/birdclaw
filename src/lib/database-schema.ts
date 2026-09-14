@@ -1,5 +1,6 @@
 import type { Database } from "./sqlite";
 import type { DatabaseMigration } from "./database-migrations";
+import { installSearchRowIds } from "./search-index";
 
 const BASE_SCHEMA_SQL = `
   create table if not exists accounts (
@@ -1178,5 +1179,10 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
 					on follow_edges(account_id, profile_id, direction) where current = 1;
 			`);
 		},
+	},
+	{
+		version: 13,
+		name: "give search documents stable indexed row IDs",
+		up: installSearchRowIds,
 	},
 ];

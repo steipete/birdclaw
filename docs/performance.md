@@ -13,8 +13,9 @@ never omitted. Full-text search and literal-account security limits retain their
 specialized query paths.
 
 Read-only deployments reuse validated JSON for feeds, DMs, Inbox, Blocks, and
-Links with fixed date bounds or the All range. Rolling Links ranges recalculate
-on every request so their time windows remain accurate. Pooled readers share a
+Links with fixed date bounds or the All range. Rolling Links ranges probe indexed
+time boundaries and reuse a result only while the included occurrence set stays
+the same, updating the displayed bounds on every request. Pooled readers share a
 cache per database, validated through the original connection's data version;
 external commits and closed reader pools invalidate it. Account and filter keys
 remain separate, writable deployments bypass response caching, and authorization
@@ -111,6 +112,62 @@ Map timings include SQL, row decoding, location grouping, and feature creation.
 Profiler and garbage-collection overhead can obscure the smaller map gain; one
 profiled run was slower after the change, while the paired SQL experiment and
 unprofiled run improved. These measurements are local database timings, not
-hosted browser latency. Rolling Links still reads author influence across tied
-candidate groups and is the clearest remaining read bottleneck. The audit made
+hosted browser latency. Cold Links still reads author influence across tied
+candidate groups; the incremental follow-up below addresses repeated reads. The audit made
 no changes to journaling, synchronization, foreign keys, or reader ownership.
+
+## Incremental search and rolling Links
+
+Schema 13 adds an indexed mapping from canonical tweet/message IDs to FTS row
+IDs. Small updates compare only those documents and leave unchanged text alone.
+Large batches avoid probing every old FTS body and replace their selected rows
+in bounded groups. Canonical reads finish before search deletion/insertion;
+JSON-bound writes process ascending FTS row IDs. Live sync, replies, imports, and
+backup merges use the same final-content writer. Retention cleanup also uses
+the mapping, so a small sync no longer scans the whole archive twice.
+
+Rolling Links reads can reuse the same result while time advances between
+occurrences. Two indexed boundary probes identify the included timestamp range;
+the cache updates the response's displayed bounds on each call. Each read-only
+reader owns a cache capped at 100 entries / 4 MiB. A read transaction pins the
+probes and result to one SQLite snapshot. Crossing either boundary or observing
+an external commit recomputes the result. Writable reads bypass reuse.
+
+Reproduce this follow-up with an automatically created synthetic archive:
+
+```bash
+./scripts/bun-canary.sh scripts/sqlite-incremental-perf.ts
+```
+
+The harness runs actual cached DM sync, tweet ingestion, and rolling Links code.
+Search-index verification reads run **outside** the operation timing. Each write
+sample rolls back, excluding commit/fsync cost. Rolling timestamps advance on
+every sample and are checked separately from the content hash. Unlike the first
+audit's DM scenario, these sync timings do not include a complete FTS readback.
+
+A sequential comparison against schema 12 produced these warm medians:
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Sync one changed message | 33.3 ms | 4.2 ms |
+| Sync one unchanged message | 33.3 ms | 3.0 ms |
+| Sync 100 changed messages | 49.4 ms | 10.4 ms |
+| Sync 100 unchanged messages | 47.9 ms | 9.3 ms |
+| Sync 10,000 changed messages | 216.5 ms | 216.7 ms |
+| Sync 10,000 unchanged messages | 199.8 ms | 205.7 ms |
+| Ingest 100 changed tweets | 149.8 ms | 18.2 ms |
+| Repeated rolling Links read | 111.1 ms | 0.45 ms |
+
+All full search-index and Links content hashes matched. The large-batch results
+are effectively unchanged; the gains target frequent small syncs and repeated
+reads. Cold Links ranking still takes roughly 100 ms on this fixture. Absolute
+timings vary with host load. The [raw samples](https://github.com/steipete/birdclaw/blob/main/docs/benchmarks/sqlite-incremental-performance.json)
+include both initial requests and all five warm samples.
+
+The migration rebuilds the derived search indexes once from active canonical
+content, removing legacy duplicates and stale entries. Existing FTS query syntax
+and snippets remain compatible. Upgrade a database through writable startup
+before serving it with this version in read-only mode. Portable backups retain
+their canonical format and rebuild the derived mapping when imported.
+Stop older writer processes before upgrading; all writers of the migrated
+database must use the indexed search writer in this version.

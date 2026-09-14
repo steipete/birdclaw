@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getConversationThread, listDmConversations } from "./dm-read-model";
 import { getNativeDb, resetDatabaseForTests } from "./db";
+import { refreshSearchRows } from "./search-index";
 
 const listDirectMessagesViaBirdMock = vi.fn();
 const getAuthenticatedBirdAccountMock = vi.fn();
@@ -190,7 +191,7 @@ describe("cached live DMs", () => {
 		expect(listDirectMessagesViaBirdMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("replaces a large DM search batch once, removes previews and duplicates, and rolls back failures", async () => {
+	it("refreshes a large DM search batch, removes previews, deduplicates events, and rolls back failures", async () => {
 		makeTempHome();
 		const db = getNativeDb();
 		const conversationId = "25401953-55";
@@ -220,10 +221,16 @@ describe("cached live DMs", () => {
 			events,
 		});
 		db.exec(`
-			insert into dm_fts(message_id,text) values
-				('batch_dm_0','obsolete'),('batch_dm_0','duplicate'),
-				('preview:25401953-55','old preview'),('unrelated_dm','keep sentinel');
+			insert into dm_messages(id,conversation_id,sender_profile_id,text,created_at,direction) values
+				('batch_dm_0','25401953-55','profile_me','obsolete','','inbound'),
+				('preview:25401953-55','25401953-55','profile_me','old preview','','inbound'),
+				('unrelated_dm','dm_001','profile_me','keep sentinel','','inbound');
 		`);
+		refreshSearchRows(db, "dm", [
+			"batch_dm_0",
+			"preview:25401953-55",
+			"unrelated_dm",
+		]);
 		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
 		const prepare = vi.spyOn(db, "prepare");
 		try {
@@ -265,7 +272,7 @@ describe("cached live DMs", () => {
 		const originalPrepare = db.prepare.bind(db);
 		const failInsert = vi.spyOn(db, "prepare").mockImplementation((sql) => {
 			const statement = originalPrepare(sql);
-			if (sql.startsWith("insert into dm_fts")) {
+			if (sql.includes("insert into dm_fts")) {
 				statement.run = () => {
 					throw new Error("synthetic index failure");
 				};

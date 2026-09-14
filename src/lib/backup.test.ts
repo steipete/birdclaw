@@ -42,6 +42,7 @@ import {
 import { BACKUP_TABLE_CODECS } from "./backup-table-codecs";
 import { getBirdclawPaths, resetBirdclawPathsForTests } from "./config";
 import { getNativeDb } from "./db";
+import { refreshSearchRows } from "./search-index";
 import { syncIdentitySearchIndexForProfileIds } from "./identity-search-index";
 import NativeSqliteDatabase, { type Database } from "./sqlite";
 import { acquireScheduledJobLock } from "./scheduled-job";
@@ -199,11 +200,7 @@ function setNoteTweet(
 	db.prepare(
 		"update tweets set text = ?, entities_json = ?, note_tweet_json = ? where id = ?",
 	).run(text, entitiesJson, JSON.stringify({ text, entities }), id);
-	db.prepare("delete from tweets_fts where tweet_id = ?").run(id);
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		id,
-		text,
-	);
+	refreshSearchRows(db, "tweet", [id]);
 }
 
 function writeBackupConfig(
@@ -298,11 +295,6 @@ function seedBackupFixture() {
       ('acct_primary', 'tweet_2024', 'home', '2024-12-31T23:59:00.000Z', '2024-12-31T23:59:00.000Z', 1, 'archive', '{}', '2025-01-03T00:00:00.000Z'),
       ('acct_primary', 'tweet_2025', 'search', '2025-01-02T09:00:00.000Z', '2025-01-02T09:00:00.000Z', 1, 'bird', '{"query":"useful"}', '2025-01-03T00:00:00.000Z');
 
-    insert into tweets_fts (tweet_id, text) values
-      ('tweet_2024', 'Shipping text backups'),
-      ('tweet_2025', 'Saved useful thing'),
-      ('tweet_unknown_date', 'Unknown creation date like');
-
     insert into tweet_sources (tweet_id, source, source_url, observed_at)
     values (
       'tweet_2024', 'fxtwitter',
@@ -342,10 +334,6 @@ function seedBackupFixture() {
     ) values
       ('dm_1', 'dm:friend', 'profile_friend', 'Backup this please', '2025-01-05T09:00:00.000Z', 'inbound', 0, 0),
       ('dm_2', 'dm:friend', 'profile_me', 'On it', '2025-01-05T10:00:00.000Z', 'outbound', 1, 0);
-
-    insert into dm_fts (message_id, text) values
-      ('dm_1', 'Backup this please'),
-      ('dm_2', 'On it');
 
     insert into url_expansions (
       short_url, expanded_url, final_url, status, expanded_tweet_id,
@@ -420,6 +408,12 @@ function seedBackupFixture() {
       'follow_snapshot_1'
     );
   `);
+	refreshSearchRows(db, "tweet", [
+		"tweet_2024",
+		"tweet_2025",
+		"tweet_unknown_date",
+	]);
+	refreshSearchRows(db, "dm", ["dm_1", "dm_2"]);
 }
 
 function expectNoDemoSeedRows() {

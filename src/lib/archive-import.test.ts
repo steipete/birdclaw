@@ -20,6 +20,7 @@ import {
 } from "../test/test-home";
 import { __test__, importArchive, importArchiveEffect } from "./archive-import";
 import { getBirdclawPaths } from "./config";
+import { refreshSearchRows } from "./search-index";
 import { getNativeDb } from "./db";
 import { listFollowEvents, listUnfollowedSince } from "./follow-graph";
 import { getConversationThread, listDmConversations } from "./dm-read-model";
@@ -742,8 +743,8 @@ describe("archive import", () => {
 				'2025-06-03T19:30:20.000Z', 1, 'archive', '{}',
 				'2025-06-03T19:30:20.000Z'
 			);
-			insert into tweets_fts (tweet_id, text) values ('edit-1', 'original body');
 		`);
+		refreshSearchRows(db, "tweet", ["edit-1"]);
 		await importArchive(initialArchive);
 		expect(
 			db
@@ -1043,8 +1044,8 @@ describe("archive import", () => {
 			text: "keep other dm",
 			direction: "incoming",
 		});
+		refreshSearchRows(db, "dm", ["m-other"]);
 		db.exec(`
-			insert into dm_fts (message_id, text) values ('m-other', 'keep other dm');
 			insert into tweet_account_edges (
 				account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
 				source, raw_json, updated_at
@@ -1276,9 +1277,7 @@ describe("archive import", () => {
 		db.prepare("update tweets set note_tweet_json = ? where id = '100'").run(
 			JSON.stringify({ text: noteText, entities: noteEntities }),
 		);
-		db.prepare("insert into tweets_fts (tweet_id, text) values ('100', ?)").run(
-			noteText,
-		);
+		refreshSearchRows(db, "tweet", ["100"]);
 
 		await importArchive(archivePath, { select: ["tweets"] });
 
@@ -1877,13 +1876,13 @@ describe("archive import", () => {
 			text: "keep other dm",
 			direction: "incoming",
 		});
+		refreshSearchRows(db, "dm", ["m-other"]);
 		db.exec(`
 	      insert into link_occurrences (
 	        source_kind, source_id, source_position, short_url, account_id, conversation_id, created_at
 	      ) values (
 	        'dm', 'm-stale', 0, 'https://t.co/stale-dm', 'acct_primary', 'dm-stale', '2026-01-01T00:00:00.000Z'
 	      );
-	      insert into dm_fts (message_id, text) values ('m-other', 'keep other dm');
 	      insert into link_occurrences (
 	        source_kind, source_id, source_position, short_url, account_id, conversation_id, created_at
 	      ) values (
@@ -2041,8 +2040,8 @@ describe("archive import", () => {
         'acct_primary', '5', 'home', '2025-01-01T00:00:00.000Z',
         '2025-01-01T00:00:00.000Z', 1, 'xurl', '{}', '2025-01-01T00:00:00.000Z'
       );
-      insert into tweets_fts (tweet_id, text) values ('5', 'full live root text');
     `);
+		refreshSearchRows(db, "tweet", ["5"]);
 
 		await importArchive(archivePath, { select: ["likes"] });
 		const tweet = db

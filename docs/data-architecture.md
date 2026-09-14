@@ -1,10 +1,10 @@
 # Data And Architecture
 
-Live tweet ingestion replaces the touched search-index rows in a batch within its existing transaction. FTS5 does not index the stored tweet ID, so a per-tweet deletion repeatedly scans the archive. One batch deletion and insertion preserve primary-payload precedence, remove duplicate stale rows, and leave unrelated entries intact; retention reconciliation still removes deleted and superseded revisions.
+Search persistence lives in `search-index.ts`. The derived `search_rows` table maps each canonical tweet or DM ID to an indexed integer FTS row ID. Its `INTEGER PRIMARY KEY` survives `VACUUM` and changes to canonical tables' implicit rowids. Inserts, updates, retention cleanup, and preview removal use indexed lookups instead of scanning the archive for unindexed string IDs. Small updates skip unchanged text; batches of at least 4,096 IDs replace the selected documents without probing each old FTS body. Processing retains at most 4,096 document rows at a time and finishes their reads before deleting and inserting index entries. JSON-bound bulk insertion preserves ascending FTS row order.
 
-Archive imports rebuild touched tweet and DM search entries after the selected slices merge, using the final stored text and deletion state. This avoids repeated full FTS scans and handles duplicate IDs across authored, liked, bookmarked, and DM records without duplicating index entries.
+Live sync, replies, archive imports, and backup merges share this writer. Each caller finishes its canonical merge before refreshing the touched search entries within the same transaction. Primary tweet payloads, richer Note Tweet content, deletion state, and repeated DM IDs therefore determine the final indexed text. Failed indexing rolls back the canonical batch. Full backup replacement clears the derived mapping; portable backups continue to store canonical records only.
 
-Live DM sync also deletes touched search entries in one batch using `json_each`, including obsolete previews. Chunking ID parameters would scan the full FTS table once per chunk because `message_id` is unindexed. Deletion, canonical message writes, and deduplicated search insertion remain in the same transaction, so an indexing failure rolls back the message batch.
+Schema 13 rebuilds search rows once from active canonical content, repairing legacy duplicate, orphan, deleted, and superseded entries. The FTS column names, query syntax, and snippets remain unchanged. Stop older writers before writable startup applies the migration; all subsequent writers must maintain the derived mapping. Read-only deployments require an upgraded snapshot.
 
 ## Effect Runtime Boundary
 
@@ -591,7 +591,9 @@ Server query clients remain request-local and do not retain timed GC entries.
 
 After authorization and filter parsing, `/api/query` may reuse validated serialized JSON in read-only deployments. Entries are scoped to the reader connection and normalized resource/filter arguments, including account selection. Each lookup checks SQLite `data_version`; changed databases drop their prior entries. A second check avoids retaining a response across an external commit. The cache retains at most 100 entries and 4 MiB of encoded keys/values per reader, skips responses over 512 KiB and keys over 4 KiB, and evicts least-recently-used entries.
 
-Writable deployments bypass this cache. Exceptions are not retained, and response bodies remain independent. This is process-local reuse of deterministic reads, not an HTTP cache: authentication and HTTP cache policy remain unchanged, and time-dependent link insights are outside its scope.
+Writable deployments bypass this cache. Exceptions are not retained, and response bodies remain independent. This is process-local reuse of deterministic reads, not an HTTP cache: authentication and HTTP cache policy remain unchanged.
+
+Links also has a bounded cache per read-only reader. Indexed probes find the last occurrence before each time bound. Results may be reused while those positions and the database version remain unchanged, even as a rolling window's displayed timestamps advance. The probes and result run within one read transaction on the cache's owning connection. Boundary crossings, external commits, account/filter changes, and pool replacement cause recomputation; returned objects are independent. Each reader retains at most 100 entries / 4 MiB, with the existing 512 KiB entry limit.
 
 Ordinary timeline reads materialize their limited membership before hydrating reply/quote profiles and collection metadata. Ordinary timeline selection retains account/author joins before the limit so malformed orphan rows cannot shorten a page. Saved-post reads keep their collection query plan. Search retains its existing bounded selection and join order, and recent-window fallback, account preference, filters, and keyset ordering remain unchanged.
 

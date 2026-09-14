@@ -430,7 +430,7 @@ describe("database init", () => {
 			{ name: "fxtwitter_fetches" },
 			{ name: "fxtwitter_observations" },
 		]);
-		expect(db.pragma("user_version", { simple: true })).toBe(12);
+		expect(db.pragma("user_version", { simple: true })).toBe(13);
 	});
 
 	it("adds revision edges without rewriting v6 revision rows", () => {
@@ -453,7 +453,7 @@ describe("database init", () => {
 		resetDatabaseForTests();
 
 		const migrated = getNativeDb({ seedDemoData: false });
-		expect(migrated.pragma("user_version", { simple: true })).toBe(12);
+		expect(migrated.pragma("user_version", { simple: true })).toBe(13);
 		expect(
 			migrated
 				.prepare(
@@ -647,12 +647,12 @@ describe("database init", () => {
 		const filename = path.join(tempDir, "birdclaw.sqlite");
 		const before = readFileSync(filename);
 		expect(() => getStrictReadDb()).toThrow(
-			/schema 9 is not ready for version 12/,
+			/schema 9 is not ready for version 13/,
 		);
 		resetDatabaseForTests();
 		expect(readFileSync(filename)).toEqual(before);
 		const upgraded = getNativeDb({ seedDemoData: false });
-		expect(upgraded.pragma("user_version", { simple: true })).toBe(12);
+		expect(upgraded.pragma("user_version", { simple: true })).toBe(13);
 		for (const [table, column, index] of [
 			[
 				"follow_snapshot_members",
@@ -686,7 +686,7 @@ describe("database init", () => {
 
 	it.each([
 		{ kind: "stale", version: 4 },
-		{ kind: "future", version: 13 },
+		{ kind: "future", version: 14 },
 	])(
 		"rejects a $kind schema and closes its provisional reader",
 		({ version }) => {
@@ -721,10 +721,10 @@ describe("database init", () => {
 
 		const writer = getNativeDb({ seedDemoData: false });
 		getReadDb({ seedDemoData: false });
-		writer.pragma("user_version = 13");
+		writer.pragma("user_version = 14");
 
 		expect(() => getStrictReadDb()).toThrow(
-			/schema 13 is not ready for version 12/,
+			/schema 14 is not ready for version 13/,
 		);
 	});
 

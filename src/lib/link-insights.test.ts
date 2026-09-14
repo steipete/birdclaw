@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { getLinkInsights } from "./link-insights";
+import Database from "./sqlite";
 
 let homeDir = "";
 type TestDb = ReturnType<typeof getNativeDb>;
@@ -228,10 +229,133 @@ describe("link insights", () => {
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
 		rmSync(homeDir, { recursive: true, force: true });
+	});
+
+	it("keeps boundary probes and cached results on one snapshot across a concurrent commit", () => {
+		insertAccountFixture();
+		const writer = getNativeDb();
+		insertTweet(writer, {
+			id: "concurrent",
+			authorProfileId: "profile_a",
+			text: "fixture",
+			createdAt: "2026-05-10T12:00:00Z",
+		});
+		insertExpansion(writer, {
+			shortUrl: "https://t.co/concurrent",
+			finalUrl: "https://example.com/concurrent",
+			title: "before",
+		});
+		insertOccurrence(writer, {
+			sourceKind: "tweet",
+			sourceId: "concurrent",
+			shortUrl: "https://t.co/concurrent",
+			createdAt: "2026-05-10T12:00:00Z",
+		});
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const originalPrepare = Database.prototype.prepare;
+		let committed = false;
+		vi.spyOn(Database.prototype, "prepare").mockImplementation(
+			function (this: Database, sql) {
+				if (!committed && sql.includes("o.rowid as occurrence_rowid")) {
+					committed = true;
+					writer.exec(
+						"update url_expansions set title='after' where short_url='https://t.co/concurrent'",
+					);
+				}
+				return originalPrepare.call(this, sql);
+			},
+		);
+		const read = () =>
+			getLinkInsights({ range: "week", now: new Date("2026-05-11T12:00:00Z") });
+		expect(read().items[0]?.title).toBe("before");
+		expect(read().items[0]?.title).toBe("after");
+		expect(read().items[0]?.title).toBe("after");
+	});
+
+	it("reuses rolling reads only while the occurrence set is unchanged and observes external commits", () => {
+		insertAccountFixture();
+		const writer = getNativeDb();
+		for (const [id, createdAt] of [
+			["lower", "2026-05-04T12:00:10.000Z"],
+			["middle", "2026-05-10T12:00:00.000Z"],
+			["upper", "2026-05-11T12:00:10.000Z"],
+		]) {
+			insertTweet(writer, {
+				id,
+				authorProfileId: "profile_a",
+				text: id,
+				createdAt,
+			});
+			insertExpansion(writer, {
+				shortUrl: `https://t.co/${id}`,
+				finalUrl: `https://example.com/${id}`,
+				title: id,
+			});
+			insertOccurrence(writer, {
+				sourceKind: "tweet",
+				sourceId: id,
+				shortUrl: `https://t.co/${id}`,
+				createdAt,
+			});
+		}
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const prepare = vi.spyOn(Database.prototype, "prepare");
+		const now = Date.parse("2026-05-11T12:00:00.000Z");
+		const read = (offset: number) =>
+			getLinkInsights({
+				account: "acct_primary",
+				range: "week",
+				sort: "recent",
+				now: new Date(now + offset),
+			});
+		const first = read(0);
+		read(0); // Both pooled reader connections own their snapshots.
+		prepare.mockClear();
+		const warm = read(5000);
+		expect(warm.items).toEqual(first.items);
+		expect(warm.until).not.toBe(first.until);
+		expect(warm.since).not.toBe(first.since);
+		expect(
+			prepare.mock.calls.some(([sql]) =>
+				sql.includes("o.rowid as occurrence_rowid"),
+			),
+		).toBe(false);
+		warm.items[0]!.title = "caller mutation";
+		expect(read(5000).items[0]?.title).toBe("middle");
+		expect(read(10000).items.map((item) => item.title)).toEqual([
+			"middle",
+			"lower",
+		]);
+		expect(read(10001).items.map((item) => item.title)).toEqual([
+			"upper",
+			"middle",
+		]);
+		writer
+			.prepare("update url_expansions set title='updated' where short_url=?")
+			.run("https://t.co/upper");
+		expect(read(10002).items[0]?.title).toBe("updated");
+		writer
+			.prepare("delete from link_occurrences where source_id='upper'")
+			.run();
+		expect(read(10003).items.map((item) => item.title)).toEqual(["middle"]);
+		expect(
+			getLinkInsights({
+				account: "other",
+				range: "week",
+				now: new Date(now + 10003),
+			}).items,
+		).toEqual([]);
+		// Rewinding time must reintroduce the lower boundary, too.
+		expect(read(0).items.map((item) => item.title)).toEqual([
+			"middle",
+			"lower",
+		]);
 	});
 
 	it("normalizes repeated URLs once per read and observes later expansion changes", () => {

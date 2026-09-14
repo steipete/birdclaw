@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
+import { deleteSearchRows, refreshSearchRows } from "./search-index";
 import { getReadDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import { getConversationThread } from "./dm-read-model";
@@ -180,10 +181,7 @@ function writePostDraft(
 		seenAt: draft.createdAt,
 	});
 
-	db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-		draft.tweetId,
-		text,
-	);
+	refreshSearchRows(db, "tweet", [draft.tweetId]);
 	db.prepare(
 		"insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?)",
 	).run(
@@ -255,10 +253,7 @@ export function createTweetReplyEffect(
 			source: "local",
 			seenAt: draft.createdAt,
 		});
-		db.prepare("insert into tweets_fts (tweet_id, text) values (?, ?)").run(
-			draft.replyId,
-			text,
-		);
+		refreshSearchRows(db, "tweet", [draft.replyId]);
 
 		db.prepare(
 			"insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?)",
@@ -340,9 +335,7 @@ export function createDmReplyEffect(
 						text,
 						draft.createdAt,
 					);
-				writeDb
-					.prepare("insert into dm_fts (message_id, text) values (?, ?)")
-					.run(draft.outboundId, text);
+				refreshSearchRows(writeDb, "dm", [draft.outboundId]);
 
 				refreshDmConversationState(
 					writeDb,
@@ -372,10 +365,7 @@ export function createDmReplyEffect(
 				text,
 				draft.createdAt,
 			);
-			db.prepare("insert into dm_fts (message_id, text) values (?, ?)").run(
-				draft.outboundId,
-				text,
-			);
+			refreshSearchRows(db, "dm", [draft.outboundId]);
 
 			refreshDmConversationState(
 				db,
@@ -427,16 +417,15 @@ export async function applyDmRequestMutationToLocalStore(
       )
     `,
 			).run(conversationId);
-			db.prepare(
-				`
-    delete from dm_fts
-    where message_id in (
-      select id from dm_messages where conversation_id = ?
-    )
-    `,
-			).run(conversationId);
-			db.prepare("delete from dm_messages where conversation_id = ?").run(
-				conversationId,
+			const removed = db
+				.prepare(
+					"delete from dm_messages where conversation_id = ? returning id",
+				)
+				.all(conversationId) as { id: string }[];
+			deleteSearchRows(
+				db,
+				"dm",
+				removed.map((row) => row.id),
 			);
 			return db
 				.prepare("delete from dm_conversations where id = ?")

@@ -2,6 +2,8 @@
 
 ## 0.13.1 - Unreleased
 
+- Make search updates incremental through indexed document lookups, skip unchanged text in small updates, and share final-content indexing across sync, replies, imports, and backup merges; reuse rolling Links results until a time boundary or database change alters their inputs.
+
 - Add shareable `/tweets/<id>` permalinks that open saved conversations, highlight and focus the selected reply, and work in read-only archives with clear missing-post and limited-context states.
 
 - Speed up large DM syncs with one batched search-index deletion, avoid sorting timestamp ties during tweet selection, and cover current network-map membership with a partial SQLite index; add a reproducible SQLite read/write audit.

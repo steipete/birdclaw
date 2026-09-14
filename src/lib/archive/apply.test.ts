@@ -8,6 +8,7 @@ import {
 } from "../archive-import-plan";
 import { ImportRepository } from "../import-repository";
 import { NativeSqliteDatabase } from "../sqlite";
+import { refreshSearchRows } from "../search-index";
 import { applyArchiveImportPlanEffect } from "./apply";
 
 const testHome = useTestHome({ seedDemoData: true });
@@ -72,9 +73,14 @@ it("indexes merged canonical records once and keeps unrelated entries", async ()
 		text: "dmindex final merged body",
 	});
 	try {
-		db.exec(
-			"insert into tweets_fts(tweet_id,text) values ('archive_batch_0','obsolete duplicate'),('unrelated_sentinel','keep tweet'); insert into dm_fts(message_id,text) values ('archive_dm_0','obsolete duplicate'),('unrelated_dm_sentinel','keep DM')",
-		);
+		db.exec(`
+			insert into tweets(id,author_profile_id,text,created_at) values
+			('archive_batch_0','profile_me','obsolete',''),('unrelated_sentinel','profile_me','keep tweet','');
+			insert into dm_messages(id,conversation_id,sender_profile_id,text,created_at,direction) values
+			('archive_dm_0','dm_001','profile_me','obsolete','','inbound'),('unrelated_dm_sentinel','dm_001','profile_me','keep DM','','inbound');
+		`);
+		refreshSearchRows(db, "tweet", ["archive_batch_0", "unrelated_sentinel"]);
+		refreshSearchRows(db, "dm", ["archive_dm_0", "unrelated_dm_sentinel"]);
 		statements.length = 0;
 		await Effect.runPromise(
 			applyArchiveImportPlanEffect({

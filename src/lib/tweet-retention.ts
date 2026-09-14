@@ -632,10 +632,11 @@ export function reconcileTweetTombstones(
 	}
 	const cleanupFtsSql = `
 		delete from tweets_fts
-		where tweet_id in (
-			select id from tweets
+		where rowid in (
+			select r.id from search_rows r join tweets on tweets.id=r.source_id
 			where (deleted_at is not null or superseded_at is not null)
-			${scopedIds ? `and id in (${placeholders(scopedIds)})` : ""}
+			and r.kind='tweet'
+			${scopedIds ? `and r.source_id in (${placeholders(scopedIds)})` : ""}
 		);
 	`;
 	const cleanupLinksSql = `

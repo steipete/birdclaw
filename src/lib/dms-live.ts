@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
+import { refreshSearchRows } from "./search-index";
 import {
 	type BirdDmsResponse,
 	type BirdDmEvent,
@@ -70,14 +71,6 @@ export interface SyncDirectMessagesViaCachedBirdOptions {
 
 function makePreviewMessageId(conversationId: string): string {
 	return `${PREVIEW_MESSAGE_ID_PREFIX}${conversationId}`;
-}
-
-function deleteDmFtsRows(db: Database, messageIds: string[]) {
-	if (messageIds.length === 0) return;
-	// FTS5 does not index message_id; replace the batch with one archive scan.
-	db.prepare(
-		"delete from dm_fts where message_id in (select value from json_each(?))",
-	).run(JSON.stringify(messageIds));
 }
 
 function toIsoTimestamp(value?: string) {
@@ -365,9 +358,6 @@ function mergeDirectMessagesIntoLocalStore(
       direction = excluded.direction,
       media_count = excluded.media_count
   `);
-	const insertFts = db.prepare(
-		"insert into dm_fts (message_id, text) values (?, ?)",
-	);
 	const deleteMessage = db.prepare("delete from dm_messages where id = ?");
 	const ftsMessageIdsToReplace = new Set<string>();
 	for (const conversation of payload.conversations) {
@@ -398,9 +388,6 @@ function mergeDirectMessagesIntoLocalStore(
 	}
 
 	db.transaction(() => {
-		deleteDmFtsRows(db, [...ftsMessageIdsToReplace]);
-		const ftsTextByMessageId = new Map<string, string>();
-
 		for (const conversation of payload.conversations) {
 			const events = eventsByConversation.get(conversation.id) ?? [];
 			if (events.length === 0 && !conversation.lastMessagePreview) {
@@ -457,10 +444,6 @@ function mergeDirectMessagesIntoLocalStore(
 					lastMessageAt,
 					latestInbound ? "inbound" : "outbound",
 				);
-				ftsTextByMessageId.set(
-					previewMessageId,
-					conversation.lastMessagePreview,
-				);
 				continue;
 			}
 
@@ -489,13 +472,10 @@ function mergeDirectMessagesIntoLocalStore(
 					toIsoTimestamp(event.createdAt),
 					direction,
 				);
-				ftsTextByMessageId.set(event.id, event.text);
 			}
 		}
 
-		for (const [messageId, text] of ftsTextByMessageId) {
-			insertFts.run(messageId, text);
-		}
+		refreshSearchRows(db, "dm", [...ftsMessageIdsToReplace]);
 	})();
 }
 

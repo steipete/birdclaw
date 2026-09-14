@@ -1,6 +1,9 @@
 import { profileSelect, type ProfileSqlRow } from "./profile-row";
 import { parseJsonField } from "./json-codec";
 import { getNativeDb } from "./db";
+import { isReadOnlyDeployment } from "./config";
+import { ReadOnlyQueryCache } from "./read-only-query-cache";
+import type { Database } from "./sqlite";
 import type { LinkInsightResponse } from "./api-contracts";
 import {
 	normalizeProfileHandle,
@@ -604,8 +607,61 @@ function selectHydrationCandidates(
 	);
 }
 
+const readCaches = new WeakMap<Database, ReadOnlyQueryCache>();
+
 export function getLinkInsights(
 	query: LinkInsightQuery = {},
+): LinkInsightResponse {
+	const db = getNativeDb({ seedDemoData: false });
+	if (!isReadOnlyDeployment()) return buildLinkInsights(query, db);
+	let cache = readCaches.get(db);
+	if (!cache) {
+		cache = new ReadOnlyQueryCache();
+		readCaches.set(db, cache);
+	}
+	const bounds = resolveRange(
+		query.range ?? "week",
+		query.now ?? new Date(),
+		query.since,
+		query.until,
+	);
+	// Pin the boundary probes and result to one snapshot on this cache's owner.
+	return db.readTransaction(() => {
+		const boundary = (value: string | null) =>
+			value === null
+				? "unbounded"
+				: ((
+						db
+							.prepare(
+								"select created_at from link_occurrences where created_at < ? order by created_at desc limit 1",
+							)
+							.get(value) as { created_at: string } | undefined
+					)?.created_at ?? null);
+		const { now: _now, since: _since, until: _until, ...filters } = query;
+		const key = JSON.stringify([
+			filters,
+			boundary(bounds.since),
+			boundary(bounds.until),
+		]);
+		const body = cache.read(db, key, () =>
+			JSON.stringify(
+				buildLinkInsights(
+					{
+						...query,
+						since: bounds.since ?? undefined,
+						until: bounds.until ?? undefined,
+					},
+					db,
+				),
+			),
+		);
+		return { ...JSON.parse(body), ...bounds } as LinkInsightResponse;
+	})();
+}
+
+function buildLinkInsights(
+	query: LinkInsightQuery = {},
+	db: Database,
 ): LinkInsightResponse {
 	const normalizedUrls = new Map<string, NormalizedUrl | null>();
 	const normalize = (url: string) => {
@@ -677,7 +733,6 @@ export function getLinkInsights(
 		addVideoUrlPrefilter(conditions);
 	}
 
-	const db = getNativeDb({ seedDemoData: false });
 	const rankSourceText =
 		sort === "comments" ? "coalesce(dm.text, source_tweet.text, '')" : "''";
 	const rankSourceJoins =

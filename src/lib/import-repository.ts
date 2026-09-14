@@ -1,9 +1,7 @@
 import type { Database } from "./sqlite";
+import { refreshSearchRows } from "./search-index";
 
 export type ImportRow = Record<string, unknown>;
-export type ImportFtsTable =
-	| { table: "tweets_fts"; idColumn: "tweet_id" }
-	| { table: "dm_fts"; idColumn: "message_id" };
 
 export class ImportRepository {
 	constructor(readonly db: Database) {}
@@ -23,65 +21,14 @@ export class ImportRepository {
 		}
 	}
 
-	readFtsIds({ table, idColumn }: ImportFtsTable) {
-		const rows = this.db
-			.prepare(`select ${idColumn} as id from ${table}`)
-			.all() as { id: string }[];
-		return new Set(rows.map((row) => row.id));
-	}
-
-	insertFtsRows({
-		target,
-		rows,
-		idKey,
-		textKey,
-		existingIds = new Set<string>(),
-	}: {
-		target: ImportFtsTable;
-		rows: readonly ImportRow[];
-		idKey: string;
-		textKey: string;
-		existingIds?: Set<string>;
-	}) {
-		const statement = this.db.prepare(
-			`insert into ${target.table} (${target.idColumn}, text) values (?, ?)`,
+	refreshSearchRows(kind: "tweet" | "dm", rows: readonly ImportRow[]) {
+		refreshSearchRows(
+			this.db,
+			kind,
+			rows
+				.map((row) => row.id)
+				.filter((id): id is string => typeof id === "string"),
 		);
-		for (const row of rows) {
-			const id = row[idKey];
-			if (typeof id !== "string" || existingIds.has(id)) continue;
-			if (
-				(row.deleted_at !== undefined && row.deleted_at !== null) ||
-				(row.superseded_at !== undefined && row.superseded_at !== null)
-			) {
-				continue;
-			}
-			const text = row[textKey];
-			statement.run(id, typeof text === "string" ? text : "");
-			existingIds.add(id);
-		}
-	}
-
-	reindexTweets(rows: readonly ImportRow[], idKey: string) {
-		const ids = JSON.stringify([
-			...new Set(
-				rows
-					.map((row) => row[idKey])
-					.filter((id): id is string => typeof id === "string"),
-			),
-		]);
-		this.db
-			.prepare(
-				"delete from tweets_fts where tweet_id in (select value from json_each(?))",
-			)
-			.run(ids);
-		this.db
-			.prepare(`
-			insert into tweets_fts (tweet_id, text)
-			select id, text from tweets
-			where id in (select value from json_each(?))
-			  and deleted_at is null and superseded_at is null
-		`)
-			.run(ids);
 	}
 
 	clearAuthoredSyncCursors(accountId?: string) {
@@ -135,6 +82,7 @@ export class ImportRepository {
       delete from mutes;
       delete from dm_fts;
       delete from tweets_fts;
+	  delete from search_rows;
       delete from dm_messages;
       delete from dm_conversations;
 	  delete from tweet_subordinate_tombstones;

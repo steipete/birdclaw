@@ -1,4 +1,3 @@
-import type { ImportFtsTable } from "./import-repository";
 import { safeHttpUrl } from "./url-safety";
 
 export type BackupJsonValue =
@@ -11,18 +10,12 @@ export type BackupJsonValue =
 
 export type BackupJsonRecord = Record<string, BackupJsonValue>;
 
-export interface BackupFtsCodec {
-	target: ImportFtsTable;
-	idKey: string;
-	textKey: string;
-}
-
 export interface BackupMergeCodec {
 	order: number;
 	sql: string;
 	columns: readonly string[];
 	transform?: (rows: BackupJsonRecord[]) => BackupJsonRecord[];
-	fts?: BackupFtsCodec;
+	searchKind?: "tweet" | "dm";
 }
 
 export interface BackupTableCodecDefinition {
@@ -490,11 +483,7 @@ const definitions = {
 		merge: {
 			order: 11,
 			transform: sanitizeImportedTweets,
-			fts: {
-				target: { table: "tweets_fts", idColumn: "tweet_id" },
-				idKey: "id",
-				textKey: "text",
-			},
+			searchKind: "tweet",
 			conflictKey: "(id)",
 		},
 	}),
@@ -765,11 +754,7 @@ const definitions = {
 		countKey: () => "dm_messages",
 		merge: {
 			order: 19,
-			fts: {
-				target: { table: "dm_fts", idColumn: "message_id" },
-				idKey: "id",
-				textKey: "text",
-			},
+			searchKind: "dm",
 			conflictKey: "(id)",
 		},
 	}),

@@ -5,6 +5,7 @@ import {
 	resetImportRepositoriesForTests,
 } from "./import-repository";
 import { NativeSqliteDatabase } from "./sqlite";
+import { installSearchRowIds } from "./search-index";
 
 let db: NativeSqliteDatabase | undefined;
 
@@ -15,11 +16,10 @@ afterEach(() => {
 });
 
 describe("import repository", () => {
-	it("owns bulk row and FTS persistence", () => {
+	it("owns bulk row persistence", () => {
 		db = new NativeSqliteDatabase(":memory:");
 		db.exec(`
       create table items (id text primary key, value text);
-      create table tweets_fts (tweet_id text, text text);
     `);
 		const repository = getImportRepository(db);
 
@@ -28,21 +28,9 @@ describe("import repository", () => {
 			[{ id: "one", value: "first" }],
 			["id", "value"],
 		);
-		repository.insertFtsRows({
-			target: { table: "tweets_fts", idColumn: "tweet_id" },
-			rows: [
-				{ id: "one", text: "first" },
-				{ id: "one", text: "duplicate" },
-			],
-			idKey: "id",
-			textKey: "text",
-		});
 
 		expect(db.prepare("select * from items").all()).toEqual([
 			{ id: "one", value: "first" },
-		]);
-		expect(db.prepare("select * from tweets_fts").all()).toEqual([
-			{ tweet_id: "one", text: "first" },
 		]);
 	});
 
@@ -54,26 +42,28 @@ describe("import repository", () => {
 		db.exec(`
 			create table tweets (id text primary key, text text, deleted_at text, superseded_at text);
 			create virtual table tweets_fts using fts5(tweet_id unindexed, text);
+			create table dm_messages(id text, text text);
+			create virtual table dm_fts using fts5(message_id unindexed, text);
 			insert into tweets values ('one', 'complete Note Tweet', null, null),
 			  ('deleted', 'deleted body', '2026-01-01', null),
-			  ('superseded', 'old revision', null, '2026-01-01');
+			  ('superseded', 'old revision', null, '2026-01-01'), ('other', 'untouched', null, null);
 			insert into tweets_fts values ('one', 'preview'), ('one', 'duplicate'),
 			  ('deleted', 'deleted body'), ('superseded', 'old revision'), ('other', 'untouched');
 		`);
+		installSearchRowIds(db);
 		statements.length = 0;
-		getImportRepository(db).reindexTweets(
-			[
-				{ id: "one", text: "preview" },
-				{ id: "one" },
-				{ id: "deleted" },
-				{ id: "superseded" },
-				{ id: null },
-			],
-			"id",
-		);
+		getImportRepository(db).refreshSearchRows("tweet", [
+			{ id: "one", text: "preview" },
+			{ id: "one" },
+			{ id: "deleted" },
+			{ id: "superseded" },
+			{ id: null },
+		]);
 		expect(
-			statements.filter((sql) => sql.startsWith("delete from tweets_fts")),
-		).toHaveLength(1);
+			statements.filter((sql) =>
+				sql.trimStart().startsWith("delete from tweets_fts"),
+			),
+		).toHaveLength(0);
 		expect(
 			db.prepare("select * from tweets_fts order by tweet_id").all(),
 		).toEqual([

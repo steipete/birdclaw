@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
+import { refreshSearchRows } from "./search-index";
 import { NativeSqliteDatabase } from "./sqlite";
 import { listInboxItems } from "./inbox";
 import {
@@ -3209,10 +3210,7 @@ describe("query models", () => {
         ) values ('msg_newer_sync', 'dm_003', 'profile_amelia', 'newer inbound', ?, 'inbound', 0, 0)
         `,
 			).run(newerInboundAt);
-			db.prepare("insert into dm_fts (message_id, text) values (?, ?)").run(
-				"msg_newer_sync",
-				"newer inbound",
-			);
+			refreshSearchRows(db, "dm", ["msg_newer_sync"]);
 			db.prepare(
 				"update dm_conversations set last_message_at = ?, unread_count = 1, needs_reply = 1 where id = 'dm_003'",
 			).run(newerInboundAt);

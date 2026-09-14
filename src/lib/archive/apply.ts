@@ -7,6 +7,7 @@ import type {
 import { databaseWriteEffect } from "../database-writer";
 import type { ImportRepository } from "../import-repository";
 import type { Database } from "../sqlite";
+import { deleteSearchRows, refreshSearchRows } from "../search-index";
 import {
 	reconcileTweetTombstones,
 	recordTweetRevision,
@@ -368,11 +369,8 @@ export function applyArchiveImportPlanEffect({
 				          union all select tweet_id from tweet_actions
 				        ) preserved where preserved.tweet_id = tweets.id
 				      )
+				      returning id
 				  `);
-		const deleteOrphanTweetFts = db.prepare(`
-		    delete from tweets_fts
-		    where tweet_id not in (select id from tweets)
-		  `);
 		const deleteOrphanTweetSubordinateTombstones = db.prepare(`
 		    delete from tweet_subordinate_tombstones
 		    where tweet_id not in (select id from tweets)
@@ -396,15 +394,6 @@ export function applyArchiveImportPlanEffect({
 			where older_revision_id not in (select revision_id from tweet_revisions)
 			   or newer_revision_id not in (select revision_id from tweet_revisions)
 		`);
-		const clearDmFts = db.prepare(`
-		    delete from dm_fts
-		    where message_id in (
-		      select m.id
-		      from dm_messages m
-		      join dm_conversations c on c.id = m.conversation_id
-		      where c.account_id = ?
-		    )
-		  `);
 		const clearDmLinkOccurrences = db.prepare(`
 		    delete from link_occurrences
 		    where source_kind = 'dm'
@@ -420,6 +409,7 @@ export function applyArchiveImportPlanEffect({
 		    where conversation_id in (
 		      select id from dm_conversations where account_id = ?
 		    )
+		    returning id
 		  `);
 		const clearDmConversations = db.prepare(
 			"delete from dm_conversations where account_id = ?",
@@ -605,8 +595,12 @@ export function applyArchiveImportPlanEffect({
 					clearSelectedBookmarks.run("acct_primary");
 				}
 				if (includeTweets || includeLikes || includeBookmarks) {
-					deleteOrphanTweets.run();
-					deleteOrphanTweetFts.run();
+					const removed = deleteOrphanTweets.all() as { id: string }[];
+					deleteSearchRows(
+						db,
+						"tweet",
+						removed.map((row) => row.id),
+					);
 					deleteOrphanTweetLinkOccurrences.run();
 					deleteOrphanTweetSubordinateTombstones.run();
 					deleteOrphanTweetRevisionChains.run();
@@ -614,8 +608,14 @@ export function applyArchiveImportPlanEffect({
 				}
 				if (includeDirectMessages) {
 					clearDmLinkOccurrences.run("acct_primary");
-					clearDmFts.run("acct_primary");
-					clearDmMessages.run("acct_primary");
+					const removed = clearDmMessages.all("acct_primary") as {
+						id: string;
+					}[];
+					deleteSearchRows(
+						db,
+						"dm",
+						removed.map((row) => row.id),
+					);
 					clearDmConversations.run("acct_primary");
 				}
 			}
@@ -748,17 +748,11 @@ export function applyArchiveImportPlanEffect({
 				tickWrite("tweets", tweetWriteIndex, tweetRows.length);
 			}
 
-			if (tweetRows.length > 0) {
-				const ids = JSON.stringify(tweetRows.map((tweet) => tweet.id));
-				// Merge all slices first, then replace each stored tweet's index entry once.
-				db.prepare(
-					"delete from tweets_fts where tweet_id in (select value from json_each(?))",
-				).run(ids);
-				db.prepare(`insert into tweets_fts (tweet_id, text)
-					select id, text from tweets
-					where id in (select value from json_each(?))
-					  and deleted_at is null and superseded_at is null`).run(ids);
-			}
+			refreshSearchRows(
+				db,
+				"tweet",
+				tweetRows.map((tweet) => tweet.id),
+			);
 
 			if (collectionRows.length > 0) {
 				onProgress({
@@ -817,15 +811,11 @@ export function applyArchiveImportPlanEffect({
 				tickWrite("dmMessages", dmWriteIndex, dmMessages.length);
 			}
 
-			if (dmMessages.length > 0) {
-				const ids = JSON.stringify(dmMessages.map((message) => message.id));
-				db.prepare(
-					"delete from dm_fts where message_id in (select value from json_each(?))",
-				).run(ids);
-				db.prepare(`insert into dm_fts (message_id, text)
-					select id, text from dm_messages
-					where id in (select value from json_each(?))`).run(ids);
-			}
+			refreshSearchRows(
+				db,
+				"dm",
+				dmMessages.map((message) => message.id),
+			);
 
 			if (includeFollowers && followerEntryCount > 0) {
 				importFollowRows(

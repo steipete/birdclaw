@@ -28,8 +28,12 @@ describe("database migrations", () => {
 				where account_id=? and current=1 group by profile_id`;
 			const beforeTweets = db.prepare(tweets).all();
 			const beforeGraph = db.prepare(membership).all("a");
-			expect(runDatabaseMigrations(db, DATABASE_MIGRATIONS)).toBe(12);
-			expect(runDatabaseMigrations(db, DATABASE_MIGRATIONS)).toBe(12);
+			expect(runDatabaseMigrations(db, DATABASE_MIGRATIONS.slice(0, 12))).toBe(
+				12,
+			);
+			expect(runDatabaseMigrations(db, DATABASE_MIGRATIONS.slice(0, 12))).toBe(
+				12,
+			);
 			expect(db.prepare(tweets).all()).toEqual(beforeTweets);
 			expect(beforeTweets).toEqual([{ id: "z" }, { id: "b" }]);
 			expect(db.prepare(membership).all("a")).toEqual(beforeGraph);
