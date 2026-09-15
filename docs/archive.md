@@ -9,6 +9,8 @@ description: "Import a Twitter/X archive into local SQLite — autodiscovery, se
 
 It is **idempotent and merge-safe**. Re-running on the same archive does not produce duplicates, and importing a newer or incomplete archive preserves destination-only rows by default.
 
+Streaming imports preserve UTF-8 text across extraction chunks. A truncated data array fails the import before stored rows are changed, including with `--restore`; it is not treated as a complete replacement slice. If an earlier import corrupted non-ASCII text, re-import the affected slices from the original ZIP.
+
 By default, archive import merges all supported slices from the ZIP. Use `--select` to merge only one or two slices, or add `--restore` when you deliberately want the imported slices to replace local state exactly.
 
 ## Get an archive

@@ -2,6 +2,8 @@
 
 ## 0.14.1 - Unreleased
 
+- Preserve UTF-8 text across archive extraction chunks and reject truncated data arrays before merge or restore can change stored rows.
+
 ## 0.14.0 - 2026-09-14
 
 **Highlights:** Play videos and GIFs directly in the feed, explore faster follower maps, share archived conversations with permalinks, and run live workflows without Bird.

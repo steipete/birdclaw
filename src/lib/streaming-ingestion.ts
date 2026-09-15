@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 import { Effect } from "effect";
 
 export interface IngestionCheckpoint {
@@ -51,10 +52,21 @@ async function* splitPhysicalLines(
 	}
 }
 
+async function* decodeArchiveChunks(source: AsyncIterable<Buffer | string>) {
+	const decoder = new StringDecoder("utf8");
+	for await (const chunk of source) {
+		yield typeof chunk === "string"
+			? decoder.end() + chunk
+			: decoder.write(chunk);
+	}
+	yield decoder.end();
+}
+
 export async function* streamAssignedJsonArray(
 	source: AsyncIterable<Buffer | string>,
 ): AsyncGenerator<Record<string, unknown>> {
 	let started = false;
+	let finished = false;
 	let item = "";
 	let depth = 0;
 	let inString = false;
@@ -66,8 +78,10 @@ export async function* streamAssignedJsonArray(
 		return value ? (JSON.parse(value) as Record<string, unknown>) : undefined;
 	};
 
-	for await (const chunk of source) {
-		for (const character of String(chunk)) {
+	for await (const chunk of decodeArchiveChunks(source)) {
+		// Drain the source so extraction errors after the array are still observed.
+		if (finished) continue;
+		for (const character of chunk) {
 			if (!started) {
 				if (character === "[") started = true;
 				continue;
@@ -103,7 +117,8 @@ export async function* streamAssignedJsonArray(
 			if (character === "]" && depth === 0) {
 				const value = flush();
 				if (value) yield value;
-				return;
+				finished = true;
+				break;
 			}
 			if (character === "," && depth === 0) {
 				const value = flush();
@@ -116,9 +131,7 @@ export async function* streamAssignedJsonArray(
 		}
 	}
 
-	if (!started) return;
-	const value = flush();
-	if (value) yield value;
+	if (!finished) throw new SyntaxError("Unterminated archive JSON array");
 }
 
 export function ingestStreamInBatchesEffect<T>({

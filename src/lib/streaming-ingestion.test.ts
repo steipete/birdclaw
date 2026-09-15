@@ -54,6 +54,55 @@ describe("streaming ingestion", () => {
 		]);
 	});
 
+	it("preserves UTF-8 text at every byte boundary", async () => {
+		const records = [{ tweet: { text: "café 東京 🦞", id: "1" } }];
+		const bytes = Buffer.from(
+			`window.YTD.tweets.part0 = ${JSON.stringify(records)};`,
+		);
+		for (let split = 1; split < bytes.length; split += 1) {
+			await expect(
+				collect(
+					streamAssignedJsonArray(
+						Readable.from([bytes.subarray(0, split), bytes.subarray(split)]),
+					),
+				),
+			).resolves.toEqual(records);
+		}
+	});
+
+	it.each([
+		"window.YTD.tweets.part0 = ",
+		"window.YTD.tweets.part0 = [",
+		'window.YTD.tweets.part0 = [{"tweet":{"id":"1"}}',
+		'window.YTD.tweets.part0 = [{"tweet":{"id":"1"}},',
+		'window.YTD.tweets.part0 = [{"tweet":{"text":"unfinished',
+		'window.YTD.tweets.part0 = [{"tweet":{"nested":[]}',
+	])("rejects a truncated archive array: %s", async (content) => {
+		await expect(
+			collect(streamAssignedJsonArray(Readable.from([content]))),
+		).rejects.toThrow("Unterminated archive JSON array");
+	});
+
+	it("accepts a complete empty array", async () => {
+		await expect(
+			collect(
+				streamAssignedJsonArray(
+					Readable.from(["window.YTD.tweets.part0 = [", "];"]),
+				),
+			),
+		).resolves.toEqual([]);
+	});
+
+	it("observes source failures after the array closes", async () => {
+		async function* source() {
+			yield Buffer.from('window.YTD.tweets.part0 = [{"tweet":{"id":"1"}}]');
+			throw new Error("archive extraction failed");
+		}
+		await expect(collect(streamAssignedJsonArray(source()))).rejects.toThrow(
+			"archive extraction failed",
+		);
+	});
+
 	it("batches records and resumes after a checkpoint", async () => {
 		const processBatch = vi.fn();
 		const checkpoints: number[] = [];

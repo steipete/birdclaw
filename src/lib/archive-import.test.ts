@@ -723,6 +723,37 @@ function makeMediaVariantsArchive() {
 }
 
 describe("archive import", () => {
+	it.each([false, true])(
+		"preserves stored tweets when an archive array is truncated (restore=%s)",
+		async (restore) => {
+			await importArchive(makeArchive(), { select: ["tweets"] });
+			const db = getNativeDb({ seedDemoData: false });
+			const before = db.prepare("select * from tweets order by id").all();
+			const searchBefore = db
+				.prepare("select * from tweets_fts order by rowid")
+				.all();
+			const archivePath = makeArchive();
+			const root = path.dirname(archivePath);
+			writeFileSync(
+				path.join(root, "sample/data/tweets.js"),
+				'window.YTD.tweets.part0 = [{"tweet":{"id_str":"999","full_text":"incomplete replacement"}}',
+			);
+			execFileSync("zip", ["-q", archivePath, "sample/data/tweets.js"], {
+				cwd: root,
+			});
+
+			await expect(
+				importArchive(archivePath, { select: ["tweets"], restore }),
+			).rejects.toThrow("Unterminated archive JSON array");
+			expect(db.prepare("select * from tweets order by id").all()).toEqual(
+				before,
+			);
+			expect(
+				db.prepare("select * from tweets_fts order by rowid").all(),
+			).toEqual(searchBefore);
+		},
+	);
+
 	it("retains explicit tweet tombstones without inferring deletion from absence", async () => {
 		const initialArchive = makeTweetRetentionArchive();
 		await importArchive(initialArchive, { restore: true });
