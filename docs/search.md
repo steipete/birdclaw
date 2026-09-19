@@ -60,13 +60,14 @@ birdclaw search tweets "local-first" --list-id 1234567890 --json
 
 ```bash
 birdclaw search tweets "AI" --author @borderline_handle --limit 20 --json
+birdclaw search tweets "AI from:borderline_handle" --limit 20 --json
 ```
 
-`--author` accepts a handle, `@handle`, numeric Twitter user id, or local profile id.
+`from:<handle>` and `--author <handle>` match the author's handle case-insensitively. Any remaining terms search the tweet text. Both forms also accept an `@handle`.
 
 ### Full flag list
 
-- `--author <handle-or-id>`
+- `--author <handle>`
 - `--account <accountId>`
 - `--list <name>` / `--list-id <id>`
 - `--since <date>` / `--until <date>`

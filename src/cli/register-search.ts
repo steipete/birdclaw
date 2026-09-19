@@ -50,6 +50,7 @@ export function registerSearchCommands({
 			"home",
 		)
 		.option("--account <username>", "Account username or id")
+		.option("--author <handle>", "Only tweets from this author")
 		.option("--list <name>", "Only authors in a cached X List")
 		.option("--list-id <id>", "Only authors in a cached X List id")
 		.option("--replied", "Only replied items")
@@ -76,6 +77,7 @@ export function registerSearchCommands({
 			if (options.fxtwitter) {
 				const incompatible = [
 					[options.account, "--account"],
+					[options.author, "--author"],
 					[options.list, "--list"],
 					[options.listId, "--list-id"],
 					[options.replied, "--replied"],
@@ -177,6 +179,7 @@ export function registerSearchCommands({
 					account: options.account,
 					listAccountId: selectedList?.accountId,
 					listId: selectedList?.listId,
+					author: options.author,
 					search: query,
 					replyFilter,
 					since: options.since,

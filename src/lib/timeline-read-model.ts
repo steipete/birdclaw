@@ -648,6 +648,29 @@ export class TimelineCandidateLimitError extends Error {
 const FTS_DRIVE_FROM_MATCHES_MAX = 10_000;
 const FTS_MATCH_COUNT_LIMIT = FTS_DRIVE_FROM_MATCHES_MAX + 1;
 
+interface ParsedTimelineSearch {
+	ftsSearch: string;
+	authorHandle: string | undefined;
+}
+
+function parseTimelineSearch({
+	search,
+	author,
+}: Pick<TimelineQuery, "search" | "author">): ParsedTimelineSearch {
+	let queryAuthor: string | undefined;
+	const text = (search ?? "").replace(
+		/(?:^|\s)from:@?([A-Za-z0-9_]{1,15})\b/i,
+		(_match, handle: string) => {
+			queryAuthor = handle;
+			return " ";
+		},
+	);
+	return {
+		ftsSearch: toFtsSearchQuery(text),
+		authorHandle: author?.trim().replace(/^@/, "") || queryAuthor,
+	};
+}
+
 // Exported so tests can EXPLAIN the generated SQL with bound parameters and
 // guard the query plan (see the fts_matches comment below).
 export function buildTimelineItemsQuery(
@@ -656,6 +679,7 @@ export function buildTimelineItemsQuery(
 		account,
 		listAccountId,
 		listId,
+		author,
 		search,
 		replyFilter = "all",
 		since,
@@ -680,7 +704,7 @@ export function buildTimelineItemsQuery(
 	const effectiveAccountId = hasLiteralAccountId ? literalAccountId : account;
 	const shouldDedupeAcrossAccounts =
 		!hasLiteralAccountId && (!account || account === "all");
-	const ftsSearch = search?.trim() ? toFtsSearchQuery(search) : "";
+	const { ftsSearch, authorHandle } = parseTimelineSearch({ search, author });
 	const timelineEdgeIndexHint = ftsSearch
 		? " indexed by idx_tweet_account_edges_kind_tweet"
 		: "";
@@ -794,6 +818,17 @@ export function buildTimelineItemsQuery(
 
 	if (!includeReplies) {
 		where += " and t.text not like '@%'";
+	}
+
+	if (authorHandle) {
+		where += `
+      and t.author_profile_id = (
+        select id from profiles
+        where lower(handle) = lower(?)
+        limit 1
+      )
+    `;
+		params.push(authorHandle);
 	}
 
 	if (since?.trim()) {
@@ -1049,7 +1084,8 @@ function assertBoundedLiteralAccountQuery(
 	if (
 		options.literalAccountId === undefined ||
 		options.literalAccountCandidateLimit === undefined ||
-		query.search?.trim()
+		query.search?.trim() ||
+		query.author?.trim()
 	) {
 		return;
 	}
@@ -1078,7 +1114,7 @@ export function listTimelineItems(
 	} = query;
 	const normalizedLowQualityThreshold =
 		normalizeLowQualityThreshold(lowQualityThreshold);
-	const ftsSearch = query.search?.trim() ? toFtsSearchQuery(query.search) : "";
+	const { ftsSearch } = parseTimelineSearch(query);
 	const ftsMatchCount = ftsSearch
 		? (options.ftsMatchCountHint ??
 			Number(

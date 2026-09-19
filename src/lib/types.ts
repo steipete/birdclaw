@@ -143,6 +143,7 @@ export interface TimelineQuery {
 	account?: string;
 	listAccountId?: string;
 	listId?: string;
+	author?: string;
 	search?: string;
 	replyFilter?: ReplyFilter;
 	since?: string;

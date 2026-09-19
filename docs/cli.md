@@ -460,7 +460,7 @@ birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdc
 Flags:
 
 - `--resource home|mentions|authored|search` (default `home`; `search` reads retained live keyword matches)
-- `--author <handle-or-id>`
+- `--author <handle>`
 - `--account <accountId>`
 - `--list <name>`
 - `--list-id <id>`
@@ -475,11 +475,14 @@ Flags:
 - `--feed latest|top|media` (FxTwitter only)
 - `--limit <n>`
 
+The query accepts `from:<handle>` as an alias for `--author <handle>`.
+
 Examples:
 
 ```bash
 birdclaw search tweets --liked --limit 20 --json
 birdclaw search tweets --bookmarked --limit 20 --json
+birdclaw search tweets "local-first" --author sam --limit 20 --json
 birdclaw search tweets "sqlite" --list Builders --limit 50 --json
 birdclaw search tweets "local-first" --fxtwitter --limit 50 --max-pages 3 --json
 ```
