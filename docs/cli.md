@@ -460,6 +460,7 @@ birdclaw --json jobs install-bookmarks-launchd --program /opt/homebrew/bin/birdc
 Flags:
 
 - `--resource home|mentions|authored|search` (default `home`; `search` reads retained live keyword matches)
+- `--author <handle-or-id>`
 - `--account <accountId>`
 - `--list <name>`
 - `--list-id <id>`
