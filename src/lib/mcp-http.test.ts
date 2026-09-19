@@ -380,6 +380,8 @@ describe("Birdclaw MCP HTTP server", () => {
 
 	it("counts indexed terms and rejects non-tokenizing searches", async () => {
 		expect(toolTest.countQueryTerms("one-two,three_four")).toBe(3);
+		expect(toolTest.countQueryTerms("AI from:sam")).toBe(1);
+		expect(toolTest.countQueryTerms("from:sam")).toBe(0);
 		expect(toolTest.countQueryTerms("!!! 😀")).toBe(0);
 		expect(
 			toolTest.countQueryTerms(
@@ -912,126 +914,171 @@ describe("Birdclaw MCP HTTP server", () => {
 		expect(JSON.stringify(rejected.body)).toContain("more than 10000");
 	});
 
-	it("accepts exactly 1,000 scoped FTS matches and rejects 1,001", async () => {
-		const db = getNativeDb();
-		const author = db
-			.prepare("select author_profile_id from tweets where id = 'tweet_001'")
-			.get() as { author_profile_id: string };
-		const insertTweet = db.prepare(
-			`insert into tweets
+	it.each(["", " from:@SAM"])(
+		"enforces the scoped FTS cap with author filter '%s'",
+		async (authorFilter) => {
+			const db = getNativeDb();
+			const query = `scopedcapneedle${authorFilter}`;
+			const author = db
+				.prepare("select author_profile_id from tweets where id = 'tweet_001'")
+				.get() as { author_profile_id: string };
+			db.prepare("update profiles set handle = 'sam' where id = ?").run(
+				author.author_profile_id,
+			);
+			const insertTweet = db.prepare(
+				`insert into tweets
 			 (id, author_profile_id, text, created_at, entities_json, media_json)
 			 values (?, ?, 'scopedcapneedle', ?, '{}', '[]')`,
-		);
-		const insertFts = db.prepare(
-			"insert into tweets_fts (tweet_id, text) values (?, 'scopedcapneedle')",
-		);
-		const insertEdge = db.prepare(
-			`insert into tweet_account_edges
+			);
+			const insertFts = db.prepare(
+				"insert into tweets_fts (tweet_id, text) values (?, 'scopedcapneedle')",
+			);
+			const insertEdge = db.prepare(
+				`insert into tweet_account_edges
 			 (account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count,
 			  source, raw_json, updated_at)
 			 values ('acct_primary', ?, 'home', ?, ?, 1, 'test', '{}', ?)`,
-		);
-		const createdAt = "2026-06-01T00:00:00.000Z";
-		const insertRange = db.transaction((start: number, end: number) => {
-			for (let index = start; index < end; index += 1) {
-				const id = `scoped_cap_${String(index).padStart(4, "0")}`;
-				insertTweet.run(id, author.author_profile_id, createdAt);
-				insertFts.run(id);
-				insertEdge.run(id, createdAt, createdAt, createdAt);
-			}
-		});
-		insertRange(0, 1_000);
+			);
+			const createdAt = "2026-06-01T00:00:00.000Z";
+			const insertRange = db.transaction((start: number, end: number) => {
+				for (let index = start; index < end; index += 1) {
+					const id = `scoped_cap_${String(index).padStart(4, "0")}`;
+					insertTweet.run(id, author.author_profile_id, createdAt);
+					insertFts.run(id);
+					insertEdge.run(id, createdAt, createdAt, createdAt);
+				}
+			});
+			insertRange(0, 1_000);
 
-		const accepted = await rpc({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: {
-				name: "search_tweets",
-				arguments: { query: "scopedcapneedle", limit: 1 },
-			},
-		});
-		expect(accepted.body.result).not.toMatchObject({ isError: true });
+			const accepted = await rpc({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: {
+					name: "search_tweets",
+					arguments: { query, limit: 1 },
+				},
+			});
+			expect(accepted.body.result).not.toMatchObject({ isError: true });
 
-		insertRange(1_000, 1_001);
-		const rejected = await rpc({
-			jsonrpc: "2.0",
-			id: 2,
-			method: "tools/call",
-			params: {
-				name: "search_tweets",
-				arguments: { query: "scopedcapneedle", limit: 1 },
-			},
-		});
-		expect(rejected.body.result).toMatchObject({ isError: true });
-		expect(JSON.stringify(rejected.body)).toContain("more than 1000");
+			insertRange(1_000, 1_001);
+			const rejected = await rpc({
+				jsonrpc: "2.0",
+				id: 2,
+				method: "tools/call",
+				params: {
+					name: "search_tweets",
+					arguments: { query, limit: 1 },
+				},
+			});
+			expect(rejected.body.result).toMatchObject({ isError: true });
+			expect(JSON.stringify(rejected.body)).toContain("more than 1000");
 
-		expect(
-			toolTest.preflightFtsSearch(db, {
-				query: "scopedcapneedle",
-				accountId: "acct_primary",
-				resource: "home",
-				until: createdAt,
-				untilId: "scoped_cap_9999",
-				includeReplies: true,
-				likedOnly: false,
-				bookmarkedOnly: false,
-			}),
-		).toMatchObject({ scopedCount: 1_001 });
-		const cursorRejected = await rpc({
-			jsonrpc: "2.0",
-			id: 3,
-			method: "tools/call",
-			params: {
-				name: "search_tweets",
-				arguments: {
-					query: "scopedcapneedle",
+			expect(
+				toolTest.preflightFtsSearch(db, {
+					query,
+					accountId: "acct_primary",
+					resource: "home",
 					until: createdAt,
 					untilId: "scoped_cap_9999",
-					limit: 1,
+					includeReplies: true,
+					likedOnly: false,
+					bookmarkedOnly: false,
+				}),
+			).toMatchObject({
+				normalizedQuery: '"scopedcapneedle"',
+				candidateCount: 1_001,
+				scopedCount: 1_001,
+			});
+			expect(
+				toolTest.preflightFtsSearch(db, {
+					query: "scopedcapneedle from:absent",
+					accountId: "acct_primary",
+					resource: "home",
+					includeReplies: true,
+					likedOnly: false,
+					bookmarkedOnly: false,
+				}),
+			).toMatchObject({ candidateCount: 1_001, scopedCount: 0 });
+			const cursorRejected = await rpc({
+				jsonrpc: "2.0",
+				id: 3,
+				method: "tools/call",
+				params: {
+					name: "search_tweets",
+					arguments: {
+						query,
+						until: createdAt,
+						untilId: "scoped_cap_9999",
+						limit: 1,
+					},
 				},
-			},
-		});
-		expect(cursorRejected.body.result).toMatchObject({ isError: true });
-		expect(JSON.stringify(cursorRejected.body)).toContain("more than 1000");
-	});
+			});
+			expect(cursorRejected.body.result).toMatchObject({ isError: true });
+			expect(JSON.stringify(cursorRejected.body)).toContain("more than 1000");
 
-	it("accepts exactly 10,000 global FTS candidates and rejects 10,001", async () => {
-		const db = getNativeDb();
-		const insertFts = db.prepare(
-			"insert into tweets_fts (tweet_id, text) values (?, 'globalcapneedle')",
-		);
-		const insertRange = db.transaction((start: number, end: number) => {
-			for (let index = start; index < end; index += 1) {
-				insertFts.run(`global_cap_${String(index).padStart(5, "0")}`);
-			}
-		});
-		insertRange(0, 10_000);
+			const authorOnlyRequest = {
+				jsonrpc: "2.0",
+				id: 4,
+				method: "tools/call",
+				params: {
+					name: "search_tweets",
+					arguments: { query: "from:@SAM", limit: 1 },
+				},
+			};
+			const authorOnlyAccepted = await rpc(authorOnlyRequest);
+			expect(authorOnlyAccepted.body.result).toMatchObject({
+				structuredContent: { count: 1 },
+			});
+			insertRange(1_001, 10_001);
+			const authorOnlyRejected = await rpc(authorOnlyRequest);
+			expect(authorOnlyRejected.body.result).toMatchObject({ isError: true });
+			expect(JSON.stringify(authorOnlyRejected.body)).toContain(
+				"more than 10000 cached candidates",
+			);
+		},
+	);
 
-		const accepted = await rpc({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: {
-				name: "search_tweets",
-				arguments: { query: "globalcapneedle", limit: 1 },
-			},
-		});
-		expect(accepted.body.result).not.toMatchObject({ isError: true });
+	it.each(["", " from:sam"])(
+		"enforces the global FTS cap with author filter '%s'",
+		async (authorFilter) => {
+			const db = getNativeDb();
+			const query = `globalcapneedle${authorFilter}`;
+			const insertFts = db.prepare(
+				"insert into tweets_fts (tweet_id, text) values (?, 'globalcapneedle')",
+			);
+			const insertRange = db.transaction((start: number, end: number) => {
+				for (let index = start; index < end; index += 1) {
+					insertFts.run(`global_cap_${String(index).padStart(5, "0")}`);
+				}
+			});
+			insertRange(0, 10_000);
 
-		insertRange(10_000, 10_001);
-		const rejected = await rpc({
-			jsonrpc: "2.0",
-			id: 2,
-			method: "tools/call",
-			params: {
-				name: "search_tweets",
-				arguments: { query: "globalcapneedle", limit: 1 },
-			},
-		});
-		expect(rejected.body.result).toMatchObject({ isError: true });
-		expect(JSON.stringify(rejected.body)).toContain("more than 10000");
-	});
+			const accepted = await rpc({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: {
+					name: "search_tweets",
+					arguments: { query, limit: 1 },
+				},
+			});
+			expect(accepted.body.result).not.toMatchObject({ isError: true });
+
+			insertRange(10_000, 10_001);
+			const rejected = await rpc({
+				jsonrpc: "2.0",
+				id: 2,
+				method: "tools/call",
+				params: {
+					name: "search_tweets",
+					arguments: { query, limit: 1 },
+				},
+			});
+			expect(rejected.body.result).toMatchObject({ isError: true });
+			expect(JSON.stringify(rejected.body)).toContain("more than 10000");
+		},
+	);
 
 	it("enforces the serialized 2 MiB tool-result boundary", () => {
 		const expectedResultLimit = 2 * 1024 * 1024;

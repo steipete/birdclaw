@@ -1,11 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getStrictReadDb } from "./db";
-import { toFtsSearchQuery } from "./query-read-model-shared";
 import type { Database } from "./sqlite";
 import {
 	getTweetConversation,
 	listTimelineItems,
+	parseTimelineSearch,
 	TimelineCandidateLimitError,
 } from "./timeline-read-model";
 import type { EmbeddedTweet, TimelineItem } from "./types";
@@ -142,7 +142,7 @@ function projectTweet(
 }
 
 function countQueryTerms(query: string) {
-	const normalized = toFtsSearchQuery(query);
+	const { ftsSearch: normalized } = parseTimelineSearch({ search: query });
 	return normalized ? normalized.split(" ").length : 0;
 }
 
@@ -182,7 +182,9 @@ function preflightFtsSearch(
 		likedOnly,
 		bookmarkedOnly,
 	} = scope;
-	const normalizedQuery = toFtsSearchQuery(query);
+	const { ftsSearch: normalizedQuery, authorHandle } = parseTimelineSearch({
+		search: query,
+	});
 	const filters: string[] = [];
 	const params: Array<string | number> = [
 		normalizedQuery,
@@ -218,6 +220,12 @@ function preflightFtsSearch(
 		    and edge.kind = ?
 		)`);
 		params.push(accountId, resource === "mentions" ? "mention" : resource);
+	}
+	if (authorHandle) {
+		filters.push(`t.author_profile_id = (
+		  select id from profiles where lower(handle) = lower(?) limit 1
+		)`);
+		params.push(authorHandle);
 	}
 	if (!includeReplies) filters.push("t.text not like '@%'");
 	if (since?.trim()) {
@@ -361,7 +369,10 @@ export function createBirdclawMcpServer({
 			if (untilId && !until) {
 				return toolError("untilId requires the matching until timestamp.");
 			}
-			if (query && countQueryTerms(query) === 0) {
+			const { ftsSearch, authorHandle } = parseTimelineSearch({
+				search: query,
+			});
+			if (query && !ftsSearch && !authorHandle) {
 				return toolError(
 					"Search query must contain at least one indexed letter or number.",
 				);
@@ -375,7 +386,7 @@ export function createBirdclawMcpServer({
 				const db = getStrictReadDb();
 				const outcome: SearchOutcome = db.readTransaction((): SearchOutcome => {
 					let ftsMatchCountHint: number | undefined;
-					if (query) {
+					if (query && ftsSearch) {
 						const preflight = preflightFtsSearch(db, {
 							query,
 							accountId: account.id,

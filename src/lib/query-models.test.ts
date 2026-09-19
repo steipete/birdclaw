@@ -1334,6 +1334,8 @@ describe("query models", () => {
 		};
 		for (const query of [
 			{ resource: "home" as const, limit: 1 },
+			{ resource: "home" as const, search: "from:sam", limit: 1 },
+			{ resource: "home" as const, author: "sam", limit: 1 },
 			{
 				resource: "home" as const,
 				until: "2027-01-01T00:00:00.000Z",

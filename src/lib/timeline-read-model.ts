@@ -653,7 +653,7 @@ interface ParsedTimelineSearch {
 	authorHandle: string | undefined;
 }
 
-function parseTimelineSearch({
+export function parseTimelineSearch({
 	search,
 	author,
 }: Pick<TimelineQuery, "search" | "author">): ParsedTimelineSearch {
@@ -1084,8 +1084,7 @@ function assertBoundedLiteralAccountQuery(
 	if (
 		options.literalAccountId === undefined ||
 		options.literalAccountCandidateLimit === undefined ||
-		query.search?.trim() ||
-		query.author?.trim()
+		parseTimelineSearch(query).ftsSearch
 	) {
 		return;
 	}
