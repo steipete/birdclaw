@@ -2217,6 +2217,8 @@ describe("cli", () => {
 			"search",
 			"tweets",
 			"local",
+			"--author",
+			"@sam",
 			"--resource",
 			"mentions",
 			"--unreplied",
@@ -2355,6 +2357,7 @@ describe("cli", () => {
 
 		expect(listTimelineItemsMock).toHaveBeenCalledWith({
 			resource: "mentions",
+			author: "@sam",
 			search: "local",
 			replyFilter: "unreplied",
 			since: "2020-01-01",
