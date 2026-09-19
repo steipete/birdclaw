@@ -56,17 +56,8 @@ birdclaw search tweets "local-first" --list-id 1234567890 --json
 
 `--list` matches a cached List name case-insensitively; ambiguous names fail and print the candidate ids. `--list-id` is exact. Both filters are offline: run `birdclaw sync lists` explicitly to refresh membership. `partial` or `inferred` membership remains searchable, but it may omit accounts not reached by the bounded sync.
 
-### Author filter
-
-```bash
-birdclaw search tweets "AI" --author @borderline_handle --limit 20 --json
-```
-
-`--author` accepts a handle, `@handle`, numeric Twitter user id, or local profile id.
-
 ### Full flag list
 
-- `--author <handle-or-id>`
 - `--account <accountId>`
 - `--list <name>` / `--list-id <id>`
 - `--since <date>` / `--until <date>`
