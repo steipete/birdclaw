@@ -319,17 +319,18 @@ describe("link insights", () => {
 		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
 		const originalPrepare = Database.prototype.prepare;
 		let committed = false;
-		vi.spyOn(Database.prototype, "prepare").mockImplementation(
-			function (this: Database, sql) {
-				if (!committed && sql.includes("o.rowid as occurrence_rowid")) {
-					committed = true;
-					writer.exec(
-						"update url_expansions set title='after' where short_url='https://t.co/concurrent'",
-					);
-				}
-				return originalPrepare.call(this, sql);
-			},
-		);
+		vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
+			this: Database,
+			sql,
+		) {
+			if (!committed && sql.includes("o.rowid as occurrence_rowid")) {
+				committed = true;
+				writer.exec(
+					"update url_expansions set title='after' where short_url='https://t.co/concurrent'",
+				);
+			}
+			return originalPrepare.call(this, sql);
+		});
 		const read = () =>
 			getLinkInsights({ range: "week", now: new Date("2026-05-11T12:00:00Z") });
 		expect(read().items[0]?.title).toBe("before");
