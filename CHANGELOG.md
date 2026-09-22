@@ -2,6 +2,7 @@
 
 ## 0.14.1 - Unreleased
 
+- Filter local tweets by author with `--author` or `from:handle`, including saved posts and bounded MCP searches. (#226 — thanks @eferm)
 - Dismiss open conversations when tapping plain feed text on touchscreens; preserve desktop click-to-open, explicit Thread controls, links, and text selection. (#225 — thanks @sahil7886)
 - Preserve UTF-8 text across archive extraction chunks and reject truncated data arrays before merge or restore can change stored rows.
 

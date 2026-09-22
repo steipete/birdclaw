@@ -645,6 +645,18 @@ describe("query models", () => {
 		expect(items.map((item) => item.id)).toEqual(["tweet_001"]);
 	});
 
+	it.each([
+		{ search: "from:@SAM" },
+		{ author: "@SAM" },
+		{ search: "from:des", author: "@SAM" },
+		{ search: "from:@SAM", likedOnly: true },
+		{ author: "@SAM", bookmarkedOnly: true },
+	])("matches author handles across local searches: %j", (filters) => {
+		setupTempHome();
+		const items = listTimelineItems({ resource: "home", ...filters });
+		expect(items.map((item) => item.id)).toEqual(["tweet_001", "tweet_006"]);
+	});
+
 	// Perf regression guard: with bound parameters SQLite used to pick a plan
 	// that re-ran the whole tweets_fts MATCH scan for every timeline edge row,
 	// turning limited searches into minutes on large archives. Every tweets_fts

@@ -65,6 +65,8 @@ birdclaw search tweets "AI from:sam" --limit 20 --json
 
 `from:<handle>` and `--author <handle>` match the author's handle case-insensitively. Any remaining terms search the tweet text. Both forms also accept an `@handle`.
 
+Each query supports one author. An explicit `--author` takes precedence over `from:` in the query. The author filter also works with `--liked` and `--bookmarked`.
+
 ### Full flag list
 
 - `--author <handle>`
