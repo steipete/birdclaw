@@ -110,7 +110,7 @@ describe("streaming ingestion", () => {
 						Readable.from([content.slice(0, split), content.slice(split)]),
 					),
 				),
-			).rejects.toThrow();
+			).rejects.toThrow(/archive array/i);
 		}
 	});
 

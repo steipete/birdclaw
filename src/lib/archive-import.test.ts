@@ -752,7 +752,7 @@ describe("archive import", () => {
 
 			await expect(
 				importArchive(archivePath, { select: ["tweets"], restore }),
-			).rejects.toThrow();
+			).rejects.toThrow(/archive (?:JSON )?array/i);
 			expect(db.prepare("select * from tweets order by id").all()).toEqual(
 				before,
 			);

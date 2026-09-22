@@ -74,6 +74,7 @@ export async function* streamAssignedJsonArray(
 	let escaped = false;
 
 	const flush = () => {
+		if (!item.trim()) throw new SyntaxError("Missing archive array entry");
 		const value: unknown = JSON.parse(item);
 		item = "";
 		if (!value || typeof value !== "object" || Array.isArray(value)) {
