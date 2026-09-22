@@ -93,6 +93,27 @@ describe("streaming ingestion", () => {
 		).resolves.toEqual([]);
 	});
 
+	it.each([
+		"[,]",
+		"[{},,{}]",
+		"[{},]",
+		"[null]",
+		"[false]",
+		"[0]",
+		'["tweet"]',
+		"[[]]",
+	])("rejects malformed archive records: %s", async (content) => {
+		for (let split = 1; split < content.length; split += 1) {
+			await expect(
+				collect(
+					streamAssignedJsonArray(
+						Readable.from([content.slice(0, split), content.slice(split)]),
+					),
+				),
+			).rejects.toThrow();
+		}
+	});
+
 	it("observes source failures after the array closes", async () => {
 		async function* source() {
 			yield Buffer.from('window.YTD.tweets.part0 = [{"tweet":{"id":"1"}}]');

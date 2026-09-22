@@ -67,15 +67,19 @@ export async function* streamAssignedJsonArray(
 ): AsyncGenerator<Record<string, unknown>> {
 	let started = false;
 	let finished = false;
+	let afterComma = false;
 	let item = "";
 	let depth = 0;
 	let inString = false;
 	let escaped = false;
 
 	const flush = () => {
-		const value = item.trim();
+		const value: unknown = JSON.parse(item);
 		item = "";
-		return value ? (JSON.parse(value) as Record<string, unknown>) : undefined;
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			throw new SyntaxError("Archive array entries must be objects");
+		}
+		return value as Record<string, unknown>;
 	};
 
 	for await (const chunk of decodeArchiveChunks(source)) {
@@ -115,14 +119,13 @@ export async function* streamAssignedJsonArray(
 				continue;
 			}
 			if (character === "]" && depth === 0) {
-				const value = flush();
-				if (value) yield value;
+				if (item.trim() || afterComma) yield flush();
 				finished = true;
 				break;
 			}
 			if (character === "," && depth === 0) {
-				const value = flush();
-				if (value) yield value;
+				yield flush();
+				afterComma = true;
 				continue;
 			}
 			if (item.length > 0 || !/\s/.test(character)) {

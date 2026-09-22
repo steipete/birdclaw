@@ -723,9 +723,17 @@ function makeMediaVariantsArchive() {
 }
 
 describe("archive import", () => {
-	it.each([false, true])(
-		"preserves stored tweets when an archive array is truncated (restore=%s)",
-		async (restore) => {
+	it.each(
+		[false, true].flatMap((restore) =>
+			[
+				'[{"tweet":{"id_str":"999","full_text":"incomplete replacement"}}',
+				"[,]",
+				"[null]",
+			].map((payload) => ({ restore, payload })),
+		),
+	)(
+		"preserves stored tweets when archive data is invalid: %j",
+		async ({ restore, payload }) => {
 			await importArchive(makeArchive(), { select: ["tweets"] });
 			const db = getNativeDb({ seedDemoData: false });
 			const before = db.prepare("select * from tweets order by id").all();
@@ -736,7 +744,7 @@ describe("archive import", () => {
 			const root = path.dirname(archivePath);
 			writeFileSync(
 				path.join(root, "sample/data/tweets.js"),
-				'window.YTD.tweets.part0 = [{"tweet":{"id_str":"999","full_text":"incomplete replacement"}}',
+				`window.YTD.tweets.part0 = ${payload}`,
 			);
 			execFileSync("zip", ["-q", archivePath, "sample/data/tweets.js"], {
 				cwd: root,
@@ -744,7 +752,7 @@ describe("archive import", () => {
 
 			await expect(
 				importArchive(archivePath, { select: ["tweets"], restore }),
-			).rejects.toThrow("Unterminated archive JSON array");
+			).rejects.toThrow();
 			expect(db.prepare("select * from tweets order by id").all()).toEqual(
 				before,
 			);
