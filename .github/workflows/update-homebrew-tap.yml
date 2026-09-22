@@ -37,6 +37,20 @@ jobs:
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
           printf 'request_id=%s\n' "$request_id" >> "$GITHUB_OUTPUT"
 
+      - name: Wait for npm tarball
+        timeout-minutes: 12
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          curl --fail --silent --show-error --location \
+            --connect-timeout 10 --max-time 30 \
+            --retry 30 --retry-delay 10 --retry-max-time 600 --retry-all-errors \
+            --output /dev/null \
+            "https://registry.npmjs.org/birdclaw/-/birdclaw-${version}.tgz"
+
       - name: Dispatch tap update
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
