@@ -1,6 +1,8 @@
 # CHANGELOG
 
-## 0.14.1 - Unreleased
+## 0.15.0 - 2026-09-22
+
+**Highlights:** Search local tweets by author and keep archive imports safe from malformed data and split UTF-8 text.
 
 - Filter local tweets by author with `--author` or `from:handle`, including saved posts and bounded MCP searches. (#226 — thanks @eferm)
 - Reject malformed archive arrays and non-object records before merge or restore can change stored tweets or search rows.
