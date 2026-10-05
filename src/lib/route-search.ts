@@ -82,7 +82,10 @@ export function validateDiscussSearch(search: Record<string, unknown>) {
 			["search", "all", "home", "mentions", "authored", "likes", "bookmarks"],
 			"search",
 		),
-		mode: enumValue(search.mode, ["auto", "bird", "xurl", "local"], "auto"),
+		// Preserve omission so the server can apply the saved preference/default.
+		mode:
+			enumValue(search.mode, ["auto", "bird", "xurl", "local", ""], "") ||
+			undefined,
 		includeDms: booleanValue(search.includeDms),
 	};
 }

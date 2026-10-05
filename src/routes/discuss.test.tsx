@@ -114,7 +114,7 @@ describe("discuss route", () => {
 			screen.getByRole("heading", { name: "Discuss", level: 1 }),
 		).toBeInTheDocument();
 		expect(screen.getByText("Search to begin.")).toBeInTheDocument();
-		expect(screen.getByLabelText("Mode")).toHaveValue("auto");
+		expect(screen.getByLabelText("Mode")).toHaveValue("");
 
 		fireEvent.change(screen.getByPlaceholderText("Keywords"), {
 			target: { value: "ChatGPT" },

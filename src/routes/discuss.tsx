@@ -66,7 +66,8 @@ const sources: Array<{ value: SearchDiscussionSource; label: string }> = [
 	{ value: "bookmarks", label: "Bookmarks" },
 ];
 
-const modes: Array<{ value: TweetSearchMode; label: string }> = [
+const modes: Array<{ value: TweetSearchMode | ""; label: string }> = [
+	{ value: "", label: "Default" },
 	{ value: "auto", label: "Auto" },
 	{ value: "bird", label: "Bird" },
 	{ value: "xurl", label: "xurl" },
@@ -89,7 +90,7 @@ function discussionUrl(
 	query: string,
 	options: {
 		source: SearchDiscussionSource;
-		mode: TweetSearchMode;
+		mode: TweetSearchMode | undefined;
 		includeDms: boolean;
 		question: string;
 		refresh: boolean;
@@ -98,7 +99,7 @@ function discussionUrl(
 	const url = new URL("/api/search-discussion", window.location.origin);
 	url.searchParams.set("query", query);
 	url.searchParams.set("source", options.source);
-	url.searchParams.set("mode", options.mode);
+	if (options.mode) url.searchParams.set("mode", options.mode);
 	url.searchParams.set("includeDms", String(options.includeDms));
 	url.searchParams.set("limit", String(DISCUSS_SEARCH_LIMIT));
 	url.searchParams.set("maxPages", String(DISCUSS_MAX_PAGES));
@@ -173,7 +174,7 @@ function formatCounts(context: SearchDiscussionContext | null) {
 function useDiscussionStream(
 	query: string,
 	source: SearchDiscussionSource,
-	mode: TweetSearchMode,
+	mode: TweetSearchMode | undefined,
 	includeDms: boolean,
 	question: string,
 ) {
@@ -352,9 +353,9 @@ export function DiscussRouteView({
 						<DropdownField
 							label="Mode"
 							options={modes}
-							value={mode}
+							value={mode ?? ""}
 							onChange={(value) =>
-								updateSearch({ ...searchState, mode: value })
+								updateSearch({ ...searchState, mode: value || undefined })
 							}
 						/>
 						<label className="inline-flex h-[54px] items-center gap-2 rounded-2xl border border-[var(--line)] bg-[var(--bg)] px-3 text-[13px] font-medium text-[var(--ink-soft)]">

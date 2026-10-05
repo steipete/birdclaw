@@ -24,9 +24,16 @@ describe("route search schemas", () => {
 			kind: "videos",
 			range: "week",
 		});
-		expect(validateDiscussSearch({ mode: "bad" }).mode).toBe("auto");
+		expect(validateDiscussSearch({ mode: "bad" }).mode).toBeUndefined();
 		expect(validateTodaySearch({ period: "bad" }).period).toBe("today");
 		expect(validateNetworkMapSearch({ type: "bad" }).type).toBe("all");
+	});
+
+	it("preserves omitted Discuss modes and explicit transport selections", () => {
+		expect(validateDiscussSearch({}).mode).toBeUndefined();
+		for (const mode of ["auto", "bird", "xurl", "local"] as const) {
+			expect(validateDiscussSearch({ mode }).mode).toBe(mode);
+		}
 	});
 
 	it("normalizes booleans and string filters", () => {
