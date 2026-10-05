@@ -31,10 +31,25 @@ vi.mock("./xurl", async () => {
 
 describe("shared tweet lookup", () => {
 	afterEach(() => {
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		vi.resetModules();
 		for (const mock of Object.values(mocks)) {
 			mock.mockReset();
 		}
+	});
+
+	it("prefers Bird in auto mode, falls back, and honors an explicit override", async () => {
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		mocks.lookupTweetsByIdsViaBird.mockResolvedValue({ data: [] });
+		mocks.lookupTweetsByIdsViaXurl.mockResolvedValue({ data: [] });
+		const { lookupTweetsByIds } = await import("./tweet-lookup");
+		await lookupTweetsByIds(["one"]);
+		expect(mocks.lookupTweetsByIdsViaXurl).not.toHaveBeenCalled();
+		mocks.lookupTweetsByIdsViaBird.mockRejectedValueOnce(new Error("offline"));
+		await lookupTweetsByIds(["two"]);
+		expect(mocks.lookupTweetsByIdsViaXurl).toHaveBeenCalledWith(["two"]);
+		await lookupTweetsByIds(["three"], "xurl");
+		expect(mocks.lookupTweetsByIdsViaBird).toHaveBeenCalledTimes(2);
 	});
 
 	it("uses xurl first in auto mode", async () => {

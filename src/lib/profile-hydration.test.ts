@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	lookupAuthenticatedUser: vi.fn(),
 	lookupUsersByIds: vi.fn(),
 	getAuthenticatedBirdAccount: vi.fn(),
+	lookupProfileViaBird: vi.fn(),
 }));
 
 vi.mock("./xurl", async () => {
@@ -38,6 +39,7 @@ vi.mock("./xurl", async () => {
 vi.mock("./bird", async () => {
 	const { effectFromMock: fromMock } = await import("../test/effect-mocks");
 	return {
+		lookupProfileViaBirdEffect: fromMock(mocks.lookupProfileViaBird),
 		getAuthenticatedBirdAccountEffect: fromMock(
 			mocks.getAuthenticatedBirdAccount,
 		),
@@ -53,6 +55,7 @@ describe("profile hydration", () => {
 		resetBirdclawPathsForTests();
 		resetDatabaseForTests();
 		mocks.getTransportStatus.mockReset();
+		mocks.lookupProfileViaBird.mockReset();
 		mocks.lookupAuthenticatedUser.mockReset();
 		mocks.lookupUsersByIds.mockReset();
 		mocks.getAuthenticatedBirdAccount.mockReset();
@@ -62,10 +65,35 @@ describe("profile hydration", () => {
 	});
 
 	afterEach(() => {
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
 		rmSync(homeDir, { recursive: true, force: true });
+	});
+
+	it("hydrates placeholders through Bird when globally preferred", async () => {
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		const db = getNativeDb();
+		db.prepare(
+			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_user_4567', 'id4567', 'id4567', 'Imported from archive user 4567', 0, 210, '2020-01-01T00:00:00.000Z')",
+		).run();
+		mocks.lookupProfileViaBird.mockResolvedValue({
+			id: "4567",
+			username: "bird_profile",
+			name: "Bird Profile",
+		});
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(hydrateProfilesFromX()).resolves.toMatchObject({
+			hydratedProfiles: 1,
+		});
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.lookupUsersByIds).not.toHaveBeenCalled();
+		expect(
+			db
+				.prepare("select handle from profiles where id = 'profile_user_4567'")
+				.get(),
+		).toEqual({ handle: "bird_profile" });
 	});
 
 	it("builds profile hydration effects lazily", async () => {

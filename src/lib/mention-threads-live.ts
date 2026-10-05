@@ -1,11 +1,14 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
 import { listThreadViaBirdEffect } from "./bird";
+import { defaultLiveSyncMode } from "./config";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
 import {
 	parseLiveSyncMode,
+	createLiveTransportAdapter,
+	fetchWithTransportFallbackEffect,
 	parseOptionalMaxPages,
 	resolveLiveSyncAccount,
 } from "./live-sync-engine";
@@ -80,10 +83,8 @@ function nonNegativeInteger(value: number, name: string) {
 	return value;
 }
 
-function parseMode(value: string | undefined): MentionThreadsMode {
-	return parseLiveSyncMode(value, DEFAULT_MODE, {
-		allowAuto: false,
-	});
+function parseMode(value: string | undefined) {
+	return parseLiveSyncMode(value, defaultLiveSyncMode(DEFAULT_MODE));
 }
 
 function getRemainingThreadTimeoutMs(
@@ -558,7 +559,7 @@ function fetchThreadContextViaXurlEffect({
 
 export function syncMentionThreadsEffect({
 	account,
-	mode = DEFAULT_MODE,
+	mode,
 	limit = DEFAULT_LIMIT,
 	tweetIds,
 	delayMs = DEFAULT_DELAY_MS,
@@ -611,36 +612,45 @@ export function syncMentionThreadsEffect({
 		let generalReadTweets = 0;
 		const uniqueTweetIds = new Set<string>();
 		const warnings: string[] = [];
+		const sources = new Set<MentionThreadsMode>();
 
 		for (const [index, mention] of mentions.entries()) {
 			if (index > 0 && parsedDelayMs > 0) {
 				yield* Effect.sleep(parsedDelayMs);
 			}
-			const fetchEffect: Effect.Effect<ThreadFetchResult, unknown, never> =
+			const birdFetch = listThreadViaBirdEffect({
+				tweetId: mention.id,
+				all,
+				maxPages: parsedMaxPages,
+				timeoutMs: parsedTimeoutMs,
+			}).pipe(
+				Effect.map((payload): ThreadFetchResult => ({
+					strategy: "bird",
+					payload,
+					generalReadTweets: 0,
+					truncated: Boolean(payload.meta?.next_token),
+					warnings: [],
+				})),
+			);
+			const xurlFetch = fetchThreadContextViaXurlEffect({
+				mention,
+				all,
+				maxPages: parsedMaxPages,
+				maxFallbackDepth: DEFAULT_FALLBACK_DEPTH,
+				timeoutMs: parsedTimeoutMs,
+			});
+			const adapters =
 				parsedMode === "bird"
-					? listThreadViaBirdEffect({
-							tweetId: mention.id,
-							all,
-							maxPages: parsedMaxPages,
-							timeoutMs: parsedTimeoutMs,
-						}).pipe(
-							Effect.map((payload) => ({
-								strategy: "bird" as const,
-								payload,
-								pages: undefined,
-								fallbackDepth: undefined,
-								generalReadTweets: 0,
-								truncated: undefined,
-								warnings: [] as string[],
-							})),
-						)
-					: fetchThreadContextViaXurlEffect({
-							mention,
-							all,
-							maxPages: parsedMaxPages,
-							maxFallbackDepth: DEFAULT_FALLBACK_DEPTH,
-							timeoutMs: parsedTimeoutMs,
-						});
+					? [createLiveTransportAdapter("bird", birdFetch)]
+					: parsedMode === "xurl"
+						? [createLiveTransportAdapter("xurl", xurlFetch)]
+						: [
+								createLiveTransportAdapter("xurl", xurlFetch),
+								createLiveTransportAdapter("bird", birdFetch),
+							];
+			const fetchEffect = fetchWithTransportFallbackEffect(adapters).pipe(
+				Effect.map(({ source, payload }) => ({ ...payload, source })),
+			);
 			const fetched = yield* fetchEffect.pipe(
 				Effect.flatMap((fetchResult) =>
 					databaseWriteEffect((writeDb) =>
@@ -650,8 +660,8 @@ export function syncMentionThreadsEffect({
 							accountHandle: resolvedAccount.username.toLowerCase(),
 							mentionIds: mentionIdSet,
 							payload: fetchResult.payload,
-							source: parsedMode,
-							writeThreadContextEdges: parsedMode === "xurl",
+							source: fetchResult.source,
+							writeThreadContextEdges: fetchResult.source === "xurl",
 						}),
 					).pipe(Effect.as(fetchResult)),
 				),
@@ -675,7 +685,7 @@ export function syncMentionThreadsEffect({
 				});
 				yield* Effect.sync(() =>
 					onProgress?.({
-						source: parsedMode,
+						source: parsedMode === "bird" ? "bird" : "xurl",
 						processed: index + 1,
 						total: mentions.length,
 						fetched: uniqueTweetIds.size,
@@ -686,6 +696,7 @@ export function syncMentionThreadsEffect({
 			}
 
 			const { fetchResult } = fetched;
+			sources.add(fetchResult.source);
 			const { payload } = fetchResult;
 			for (const tweet of payload.data) {
 				uniqueTweetIds.add(tweet.id);
@@ -707,7 +718,7 @@ export function syncMentionThreadsEffect({
 			});
 			yield* Effect.sync(() =>
 				onProgress?.({
-					source: parsedMode,
+					source: fetchResult.source,
 					processed: index + 1,
 					total: mentions.length,
 					fetched: uniqueTweetIds.size,
@@ -723,7 +734,11 @@ export function syncMentionThreadsEffect({
 		const partial = results.some((item) => item.truncated === true);
 		return {
 			ok: true,
-			source: parsedMode,
+			source:
+				sources.size > 1
+					? "bird+xurl"
+					: (sources.values().next().value ??
+						(parsedMode === "bird" ? "bird" : "xurl")),
 			accountId: resolvedAccount.accountId,
 			mentions: mentionIds.length,
 			threads: results.length,
@@ -732,7 +747,7 @@ export function syncMentionThreadsEffect({
 			failed: failures.length,
 			mergedTweets,
 			uniqueTweets: uniqueTweetIds.size,
-			generalReadTweets: parsedMode === "xurl" ? generalReadTweets : 0,
+			generalReadTweets,
 			partial,
 			options: {
 				mode: parsedMode,

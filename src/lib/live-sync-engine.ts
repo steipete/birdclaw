@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { getPreferredTransport } from "./config";
 import { findOperationAccount } from "./account-selection";
 import { databaseWriteEffect } from "./database-writer";
 import { toError } from "./effect-runtime";
@@ -198,18 +199,28 @@ export function fetchWithTransportFallbackEffect<
 >(
 	transports: readonly LiveTransportAdapter<Source, Payload>[],
 ): Effect.Effect<{ source: Source; payload: Payload }, Error> {
-	const [first, ...rest] = transports;
-	if (!first) {
-		return Effect.fail(new Error("No live transport adapters configured"));
-	}
-	return first.fetch.pipe(
-		Effect.map((payload) => ({ source: first.source, payload })),
-		Effect.catchAll((error) =>
-			rest.length > 0
-				? fetchWithTransportFallbackEffect(rest)
-				: Effect.fail(toError(error)),
-		),
-	);
+	return Effect.suspend(() => {
+		const preferred =
+			transports.length > 1 ? getPreferredTransport() : undefined;
+		const ordered = preferred
+			? [...transports].sort(
+					(left, right) =>
+						Number(right.source === preferred) -
+						Number(left.source === preferred),
+				)
+			: transports;
+		const [first, ...rest] = ordered;
+		if (!first)
+			return Effect.fail(new Error("No live transport adapters configured"));
+		return first.fetch.pipe(
+			Effect.map((payload) => ({ source: first.source, payload })),
+			Effect.catchAll((error) =>
+				rest.length > 0
+					? fetchWithTransportFallbackEffect(rest)
+					: Effect.fail(toError(error)),
+			),
+		);
+	});
 }
 
 export function runCachedLiveSyncEffect<
@@ -230,10 +241,15 @@ export function runCachedLiveSyncEffect<
 	Error
 > {
 	return Effect.gen(function* () {
+		const preferred =
+			transports.length > 1 ? getPreferredTransport() : undefined;
+		const resolvedCacheKey = preferred
+			? `${cacheKey}:preferred:${preferred}`
+			: cacheKey;
 		const cache = yield* Effect.try({
 			try: () =>
 				inspectSyncCache<Payload>(
-					cacheKey,
+					resolvedCacheKey,
 					{ ttlMs: cacheTtlMs, defaultTtlMs: defaultCacheTtlMs },
 					db,
 				),
@@ -256,7 +272,7 @@ export function runCachedLiveSyncEffect<
 		const fetched = yield* fetchWithTransportFallbackEffect(transports);
 		const persisted = yield* databaseWriteEffect((writeDb) => {
 			const value = persistLive(writeDb, fetched.payload, fetched.source);
-			writeSyncCache(cacheKey, fetched.payload, writeDb);
+			writeSyncCache(resolvedCacheKey, fetched.payload, writeDb);
 			return value;
 		});
 		return {

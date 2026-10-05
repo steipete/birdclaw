@@ -55,6 +55,7 @@ User config:
 birdclaw init [--demo]
 birdclaw auth status
 birdclaw auth use <transport>
+birdclaw auth prefer <bird|xurl|auto>
 birdclaw import archive [path]
 birdclaw import tweet <tweet-id-or-url...> --fxtwitter
 birdclaw sync authored
@@ -124,7 +125,7 @@ birdclaw jobs install-bookmarks-launchd
 - excludes DMs unless `--include-dms` is passed
 - supports `--refresh`, `--model`, `--language <locale-id>`, `--max-tweets`, and `--max-links`
 - reads the default report language from `BIRDCLAW_DIGEST_LANGUAGE`
-- reads the home-timeline transport default from `BIRDCLAW_DIGEST_LIVE_MODE` (`auto`, `bird`, or `xurl`); unset or invalid values keep `xurl`, and `--live-mode` overrides the environment
+- reads the home-timeline transport default from `BIRDCLAW_DIGEST_LIVE_MODE` (`auto`, `bird`, or `xurl`); unset or invalid values use auto with a configured transport preference, otherwise `xurl`, and `--live-mode` overrides the environment
 
 ### `digest [period]`
 
@@ -196,6 +197,12 @@ See [Public tweet import](public-tweets.md) for the full privacy and capability 
 
 - set preferred moderation action transport
 - allowed: `auto`, `xurl`, `bird`
+
+### `auth prefer <bird|xurl|auto>`
+
+- persist `transport.preferred` for auto selection across live operations
+- `bird` or `xurl` tries that transport first; `auto` removes the preference
+- explicit command/feature modes and capability/account restrictions still win
 
 ### `backup export`
 
@@ -334,12 +341,12 @@ birdclaw import archive ~/Downloads/twitter-archive.zip --select followers,follo
 - update canonical tables
 - refresh cursors
 - refresh FTS incrementally
-- `sync likes` and `sync bookmarks` use cached live transport; `auto` tries `xurl`, then `bird`; `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
+- `sync likes` and `sync bookmarks` use cached live transport; `auto` honors `transport.preferred` (xurl first when unset); `--early-stop` caps at 10 pages unless paired with `--all` or `--max-pages`
 - `sync authored` supports `auto`, `bird`, and `xurl`, includes retweets, and resumes from a stored `since_id`
-- `sync timeline` stores the live home timeline through `auto` (xurl first, optional Bird fallback); it defaults to the chronological Following feed
-- `sync mentions` ingests recent mentions through `xurl` (default) or `bird` and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
-- `sync mention-threads` fetches conversation context for recent mentions through xurl by default; explicit `--mode bird` remains available, and `--delay-ms`/`--timeout-ms` bound live work
-- `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` prefers `bird`, then falls back to `xurl`
+- `sync timeline` stores the live home timeline through `auto` (configured preference first, xurl first when unset); it defaults to the chronological Following feed
+- `sync mentions` ingests recent mentions through `auto`, `xurl`, or `bird` and writes `kind='mention'` rows into the canonical store; this is the cron-friendly ingest path that replaces relying on `mentions export --refresh`
+- `sync mention-threads` fetches conversation context through auto (configured preference first, xurl first when unset); explicit modes remain available, and `--delay-ms`/`--timeout-ms` bound live work
+- `sync followers` and `sync following` default to dry-run and require `--yes` for live sync or fresh-cache merge; `auto` honors `transport.preferred` (Bird first when unset), with fallback
 - `sync lists` is an explicit read-only walk; it defaults to 20 members, one page, and 1,000 ms pacing per List, and stores `complete|inferred|partial|error` membership state
 
 Common flags:

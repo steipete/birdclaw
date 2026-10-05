@@ -58,6 +58,7 @@ function user(
 }
 
 afterEach(() => {
+	delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
@@ -69,6 +70,17 @@ afterEach(() => {
 });
 
 describe("follow graph sync and cache-only queries", () => {
+	it("uses the global xurl preference before the usual Bird graph transport", async () => {
+		setupTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "xurl";
+		mocks.listFollowUsersViaXurl.mockResolvedValue({ data: [], meta: {} });
+		const { syncFollowGraph } = await import("./follow-graph");
+		await expect(
+			syncFollowGraph({ direction: "followers", mode: "auto", yes: true }),
+		).resolves.toMatchObject({ source: "xurl" });
+		expect(mocks.listFollowUsersViaBird).not.toHaveBeenCalled();
+	});
+
 	it("defaults to dry-run and does not call xurl", async () => {
 		setupTempHome();
 		const { syncFollowGraph } = await import("./follow-graph");

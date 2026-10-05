@@ -1,3 +1,4 @@
+import { getAutoTransportOrder } from "./config";
 import { Effect } from "effect";
 import {
 	listOwnedXListsViaBirdEffect,
@@ -437,7 +438,7 @@ export function syncXListsEffect(options: SyncXListsOptions = {}) {
 		const account = resolveLiveSyncAccount(db, options.account);
 		const sources =
 			mode === "auto"
-				? (["bird", "xurl"] as const)
+				? getAutoTransportOrder("bird")
 				: ([mode] as readonly Exclude<LiveSyncMode, "auto">[]);
 		const transports: Array<LiveTransportAdapter<"bird" | "xurl", XListPage>> =
 			sources.map((source) =>

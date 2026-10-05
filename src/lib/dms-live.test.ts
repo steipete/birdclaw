@@ -85,6 +85,7 @@ describe("cached live DMs", () => {
 	});
 
 	afterEach(() => {
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		vi.unstubAllEnvs();
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
@@ -93,6 +94,29 @@ describe("cached live DMs", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("prefers Bird for auto DMs and falls back to xurl after a Bird failure", async () => {
+		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		listDirectMessagesViaBirdMock.mockResolvedValue({
+			success: true,
+			conversations: [],
+			events: [],
+		});
+		listDirectMessageEventsViaXurlMock.mockResolvedValue({
+			data: [],
+			meta: {},
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+		await expect(
+			syncDirectMessagesViaCachedBird({ mode: "auto", refresh: true }),
+		).resolves.toMatchObject({ source: "bird" });
+		expect(listDirectMessageEventsViaXurlMock).not.toHaveBeenCalled();
+		listDirectMessagesViaBirdMock.mockRejectedValueOnce(new Error("offline"));
+		await expect(
+			syncDirectMessagesViaCachedBird({ mode: "auto", refresh: true }),
+		).resolves.toMatchObject({ source: "xurl" });
 	});
 
 	it("falls back from failed native requests to independently verified Bird in auto mode", async () => {

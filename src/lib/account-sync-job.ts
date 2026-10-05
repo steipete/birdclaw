@@ -245,7 +245,7 @@ async function runStep({
 			}
 			const result = await syncMentionThreads({
 				account,
-				mode: mode === "bird" ? "bird" : "xurl",
+				mode: allowBirdAccount ? mode : "xurl",
 				limit: Math.min(30, limit),
 				delayMs: 1500,
 				timeoutMs: 15000,

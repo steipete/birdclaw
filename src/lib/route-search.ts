@@ -82,7 +82,7 @@ export function validateDiscussSearch(search: Record<string, unknown>) {
 			["search", "all", "home", "mentions", "authored", "likes", "bookmarks"],
 			"search",
 		),
-		mode: enumValue(search.mode, ["auto", "bird", "xurl", "local"], "xurl"),
+		mode: enumValue(search.mode, ["auto", "bird", "xurl", "local"], "auto"),
 		includeDms: booleanValue(search.includeDms),
 	};
 }

@@ -1,3 +1,5 @@
+import { getPreferredTransport } from "./config";
+import { resolvePlaceholderProfilesEffect } from "./profile-resolver";
 import { Effect } from "effect";
 
 import { normalizeAvatarUrl } from "./avatar-cache";
@@ -219,6 +221,19 @@ export function hydrateProfilesFromXEffect({
 	account,
 }: { account?: string } = {}): Effect.Effect<HydrateProfilesResult, unknown> {
 	return Effect.gen(function* () {
+		if (getPreferredTransport() === "bird") {
+			const hydratedAccount = yield* hydrateAccountFromBirdEffect(account);
+			const profiles = yield* resolvePlaceholderProfilesEffect({
+				limit: -1,
+				refresh: true,
+			});
+			return {
+				ok: true,
+				hydratedProfiles: profiles.hydratedProfiles,
+				hydratedAccount,
+			};
+		}
+
 		const transport = yield* getTransportStatusEffect();
 		if (transport.availableTransport !== "xurl") {
 			// xurl is unavailable, so the live profile backfill can't run. When the

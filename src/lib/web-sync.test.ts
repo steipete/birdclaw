@@ -218,7 +218,7 @@ describe("web sync dispatcher", () => {
 		});
 		expect(syncMentionThreadsMock).toHaveBeenCalledWith({
 			account: undefined,
-			mode: "xurl",
+			mode: "auto",
 			limit: 30,
 			delayMs: 1500,
 			timeoutMs: 15000,

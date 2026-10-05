@@ -5,7 +5,11 @@ import {
 	unmuteUserViaBirdEffect,
 } from "./bird-actions";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
-import { type ActionsTransport, resolveActionsTransport } from "./config";
+import {
+	type ActionsTransport,
+	resolveActionsTransport,
+	getAutoTransportOrder,
+} from "./config";
 import { Effect } from "effect";
 import { runEffectPromise, trySync } from "./effect-runtime";
 import { profileHandleKey } from "./profile-row";
@@ -193,54 +197,42 @@ export function runModerationActionEffect({
 			);
 		}
 
-		const birdResult = yield* runBirdActionEffect(
-			action,
-			query,
-			expectedAccount,
-		).pipe(
-			Effect.catchAll((error) =>
-				Effect.succeed({
-					ok: false as const,
-					output: error instanceof Error ? error.message : String(error),
-					transport: "bird" as const,
-				}),
-			),
-		);
-		if (birdResult.ok) {
-			return birdResult;
+		const failures: string[] = [];
+		let lastTransport: ModerationTransportKind = "xurl";
+		for (const source of getAutoTransportOrder("bird")) {
+			lastTransport = source;
+			const attempt =
+				source === "bird"
+					? runBirdActionEffect(action, query, expectedAccount)
+					: Effect.gen(function* () {
+							const accountCheck = yield* verifyXurlAccount();
+							if (accountCheck && typeof accountCheck === "object")
+								return accountCheck;
+							return yield* runXurlActionEffect(
+								action,
+								targetUserId,
+								typeof accountCheck === "string" ? accountCheck : null,
+							);
+						});
+			const result = yield* attempt.pipe(
+				Effect.catchAll((error) =>
+					Effect.succeed({
+						ok: false,
+						output: error instanceof Error ? error.message : String(error),
+						transport: source,
+					}),
+				),
+			);
+			if (result.ok)
+				return {
+					...result,
+					output: failures.length
+						? `${result.output}\nfalling back after ${failures.join("; ")}`
+						: result.output,
+				};
+			failures.push(normalizeFailure(source, result.output));
 		}
-
-		const accountCheck = yield* verifyXurlAccount();
-		if (accountCheck && typeof accountCheck === "object") {
-			return {
-				ok: false,
-				output: [
-					normalizeFailure("bird", birdResult.output),
-					normalizeFailure("xurl", accountCheck.output),
-				].join("\n"),
-				transport: "xurl",
-			};
-		}
-		const xurlResult = yield* runXurlActionEffect(
-			action,
-			targetUserId,
-			typeof accountCheck === "string" ? accountCheck : null,
-		);
-		if (xurlResult.ok) {
-			return {
-				...xurlResult,
-				output: `${xurlResult.output}\nfalling back after ${normalizeFailure("bird", birdResult.output)}`,
-			};
-		}
-
-		return {
-			ok: false,
-			output: [
-				normalizeFailure("bird", birdResult.output),
-				normalizeFailure("xurl", xurlResult.output),
-			].join("\n"),
-			transport: xurlResult.transport,
-		};
+		return { ok: false, output: failures.join("\n"), transport: lastTransport };
 	});
 }
 

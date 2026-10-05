@@ -53,6 +53,9 @@ The Playwright test home is `.playwright-home` in the repo, which is why CI neve
 	"accounts": {
 		"default": "steipete"
 	},
+	"transport": {
+		"preferred": "bird"
+	},
 	"actions": {
 		"transport": "auto"
 	},
@@ -75,9 +78,38 @@ Set a Birdclaw account username (with or without `@`) or stored account ID. Comm
 
 Selection is per operation. Birdclaw resolves the existing account row, routes xurl through that username for the command, then restores the process environment. It never creates an account, changes the database default, or binds a live credential to stored data.
 
+### `transport.preferred`
+
+Set `bird` or `xurl` to choose which eligible live transport auto mode tries first.
+Explicit `--mode`/`--transport` flags and feature-specific forced modes still win.
+Omit the preference to retain each operation's normal transport order.
+
+```bash
+birdclaw auth prefer bird
+birdclaw auth prefer xurl
+birdclaw auth prefer auto # remove the saved preference
+```
+
+The preference applies to live sync, web/account/bookmark refreshes, moderation,
+tweet and profile lookups, and unbounded live search. With a preference, auto
+search uses fallback instead of querying both transports. Digest refresh defaults
+to auto when a preference is configured; `BIRDCLAW_DIGEST_LIVE_MODE` and
+`--live-mode` remain explicit overrides. Local/cache-only reads stay local.
+
+Selection considers capability: mention `--resume`, `--since-id`, and
+`--start-time`, dated search, and xurl collection pagination tokens require xurl.
+Native `web` DM access remains available for requests. Non-default scheduled
+account jobs still require `--allow-bird-account` to permit Bird; live Bird
+collections verify the selected account against its cookie identity.
+
+Use `BIRDCLAW_PREFERRED_TRANSPORT=bird` or `xurl` for a process override. Invalid
+values fall back to the saved preference. Changing the preference selects a
+separate auto response cache; account and transport continuation cursors remain
+intact.
+
 ### `actions.transport`
 
-- `auto` — try `bird` first for block/unblock/mute, then fall back to verified `xurl`
+- `auto` — try `transport.preferred` first (Bird when unset), then fall back to the other verified transport
 - `bird` — force `bird`
 - `xurl` — force `xurl`; verifies X's mutation-response boolean before mutating SQLite, without requiring bird
 
@@ -86,6 +118,7 @@ Twitter still rejects pure OAuth2 block writes for many accounts, so `auto` is t
 ### `mentions.dataSource`
 
 - `birdclaw` — local cache only
+- `auto` — refresh through the preferred live transport, with fallback
 - `bird` — refresh through `bird mentions --json`, normalize, cache in SQLite
 - `xurl` — refresh through `xurl mentions`, cache the response shape
 
@@ -102,9 +135,10 @@ See [Backup](backup.md). When `autoSync` is enabled, read commands pull + merge 
 | `BIRDCLAW_HOME`                | Override the storage root (`~/.birdclaw` by default)                                                                                                 |
 | `AUTH_TOKEN`, `CT0`            | Optional X session cookies for native DM request access (`--mode web`); store them in a protected environment, never command arguments               |
 | `BIRDCLAW_CONFIG`              | Read and write config at a non-default path                                                                                                          |
+| `BIRDCLAW_PREFERRED_TRANSPORT` | Override the global auto transport preference with `bird` or `xurl` |
 | `BIRDCLAW_ACTIONS_TRANSPORT`   | Override moderation action transport with `auto`, `xurl`, or `bird` for one process                                                                  |
 | `BIRDCLAW_BIRD_COMMAND`        | Override the `bird` executable used by live Bird transports                                                                                          |
-| `BIRDCLAW_DIGEST_LIVE_MODE`    | Default `today`/`digest` home-timeline transport (`auto`, `bird`, or `xurl`); `xurl` when unset or invalid. CLI `--live-mode` and API `liveSyncMode` override it |
+| `BIRDCLAW_DIGEST_LIVE_MODE`    | Default `today`/`digest` home-timeline transport (`auto`, `bird`, or `xurl`); `auto` with a transport preference, otherwise `xurl`, when unset or invalid. CLI `--live-mode` and API `liveSyncMode` override it |
 | `BIRDCLAW_BASH_COMMAND`        | Override the Git Bash executable used for Bird subprocess redirection on Windows                                                                     |
 | `BIRDCLAW_HOST`                | Host interface for the production `birdclaw serve` listener; defaults to `127.0.0.1`                                                                 |
 | `BIRDCLAW_PORT`                | Port for the production `birdclaw serve` listener; defaults to `3000`                                                                                |
@@ -141,14 +175,13 @@ Per-account state — cursors, transport preferences, last-sync watermarks, Open
 
 ## Transport selection
 
-There is no single global transport order:
-
-- Archive imports and local reads need no live transport.
-- Sync commands select their source with `--mode`; supported modes and defaults vary by command.
-- Mentions export resolves its data source separately.
-- Moderation writes use command `--transport`, then `BIRDCLAW_ACTIONS_TRANSPORT`, then `actions.transport`, then `auto`.
-
-For moderation, `auto` tries bird first and falls back to xurl. Persist that choice with `birdclaw auth use <auto|bird|xurl>`.
+`transport.preferred` supplies the global auto order; commands retain their
+surface-specific defaults when it is absent. Explicit flags and feature-specific
+forced settings take precedence. Capability and account restrictions still apply.
+Moderation resolves `--transport`, then `BIRDCLAW_ACTIONS_TRANSPORT`, then
+`actions.transport`, then `auto`. `birdclaw auth use <auto|bird|xurl>` changes only
+that moderation setting; `birdclaw auth prefer <bird|xurl|auto>` changes the global
+preference.
 
 ## Disabling live writes
 

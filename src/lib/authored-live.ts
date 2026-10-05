@@ -2,6 +2,7 @@ import type { Database } from "./sqlite";
 import { Effect } from "effect";
 import { listAuthoredTweetsViaBirdEffect } from "./bird";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
+import { getAutoTransportOrder } from "./config";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
@@ -757,17 +758,20 @@ export function syncAuthoredTweetsEffect(options: SyncAuthoredTweetsOptions) {
 		yield* trySync(() => parseOptionalMaxPages(options.maxPages));
 		if (mode !== "auto")
 			return yield* syncAuthoredTweetsViaSourceEffect({ ...options, mode });
+		const [first, second] = getAutoTransportOrder();
 		return yield* syncAuthoredTweetsViaSourceEffect({
 			...options,
-			mode: "xurl",
+			mode: first,
 		}).pipe(
-			Effect.catchAll((xurlError) =>
-				syncAuthoredTweetsViaSourceEffect({ ...options, mode: "bird" }).pipe(
+			Effect.catchAll((firstError) =>
+				syncAuthoredTweetsViaSourceEffect({ ...options, mode: second }).pipe(
 					Effect.mapError(
-						(birdError) =>
+						(secondError) =>
 							new AuthoredSyncError(
-								`xurl: ${formatError(xurlError)}; bird: ${formatError(birdError)}`,
-								xurlError instanceof AuthoredSyncError ? xurlError.exitCode : 1,
+								`${first}: ${formatError(firstError)}; ${second}: ${formatError(secondError)}`,
+								firstError instanceof AuthoredSyncError
+									? firstError.exitCode
+									: 1,
 							),
 					),
 				),

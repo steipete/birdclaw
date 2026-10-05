@@ -184,7 +184,7 @@ export function registerSyncCommands({
 			"Fetch tweet conversation context for recent mentions through bird or xurl",
 		)
 		.option("--account <username>", "Account username or id")
-		.option("--mode <mode>", "bird or xurl", "xurl")
+		.option("--mode <mode>", "auto, bird, or xurl", "auto")
 		.option("--limit <n>", "Recent mentions to inspect", "30")
 		.option("--delay-ms <n>", "Delay between thread fetches", "1500")
 		.option("--timeout-ms <n>", "Per-thread timeout", "15000")

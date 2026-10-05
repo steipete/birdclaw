@@ -325,7 +325,7 @@ export function registerAnalysisCommands({
 			"all, search, home, mentions, authored, likes, or bookmarks",
 			"search",
 		)
-		.option("--mode <mode>", "auto, bird, xurl, or local", "xurl")
+		.option("--mode <mode>", "auto, bird, xurl, or local", "auto")
 		.option("--include-dms", "Include private DM search matches")
 		.option(
 			"--since <isoDate>",

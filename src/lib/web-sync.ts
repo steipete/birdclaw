@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type * as contracts from "./api-contracts";
 import { existsSync } from "node:fs";
+import { getPreferredTransport } from "./config";
 import { Effect } from "effect";
 import { maybeAutoSyncBackupEffect } from "./backup";
 import { syncDirectMessagesViaCachedBirdEffect } from "./dms-live";
@@ -112,7 +113,9 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 				const result = yield* syncHomeTimelineEffect({
 					account,
 					mode:
-						!account || account === resolveDefaultSyncAccountId(runtime)
+						getPreferredTransport() ||
+						!account ||
+						account === resolveDefaultSyncAccountId(runtime)
 							? "auto"
 							: "xurl",
 					limit: 100,
@@ -154,7 +157,7 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 
 				const threads = yield* syncMentionThreadsEffect({
 					account,
-					mode: "xurl",
+					mode: "auto",
 					limit: 30,
 					delayMs: 1500,
 					timeoutMs: 15000,
@@ -224,7 +227,7 @@ function syncSavedCollection(
 		const result = yield* syncTimelineCollectionEffect({
 			kind,
 			account,
-			mode: isNonDefaultAccount ? "xurl" : "auto",
+			mode: isNonDefaultAccount && !getPreferredTransport() ? "xurl" : "auto",
 			limit: 100,
 			maxPages: 5,
 			refresh: true,

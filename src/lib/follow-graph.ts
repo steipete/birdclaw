@@ -1,5 +1,6 @@
 import { parseJsonField } from "./json-codec";
 import { randomUUID } from "node:crypto";
+import { getAutoTransportOrder, autoTransportCacheSuffix } from "./config";
 import { Effect } from "effect";
 import { resolveOperationAccount } from "./account-selection";
 import { listFollowUsersViaBirdEffect } from "./bird";
@@ -300,13 +301,22 @@ function fetchFollowGraphEffect(
 	);
 	if (options.mode === "bird") return bird;
 	if (options.mode === "xurl") return xurl;
-	return bird.pipe(
-		Effect.catchAll((birdError) =>
-			xurl.pipe(
+	const [primary] = getAutoTransportOrder("bird");
+	const first: Effect.Effect<
+		{ source: FollowGraphLiveSource; payload: MergedFollowPayload },
+		unknown
+	> = primary === "bird" ? bird : xurl;
+	const second: Effect.Effect<
+		{ source: FollowGraphLiveSource; payload: MergedFollowPayload },
+		unknown
+	> = primary === "bird" ? xurl : bird;
+	return first.pipe(
+		Effect.catchAll((firstError) =>
+			second.pipe(
 				Effect.mapError(
-					(xurlError) =>
+					(secondError) =>
 						new Error(
-							`follow graph sync failed via bird and xurl: bird: ${errorMessage(birdError)}; xurl: ${errorMessage(xurlError)}`,
+							`follow graph sync failed via bird and xurl: ${primary}: ${errorMessage(firstError)}; ${primary === "bird" ? "xurl" : "bird"}: ${errorMessage(secondError)}`,
 						),
 				),
 			),
@@ -549,14 +559,15 @@ export function syncFollowGraphEffect(options: SyncFollowGraphOptions) {
 		const account = yield* trySync(() =>
 			resolveLiveSyncAccount(db, options.account),
 		);
-		const cacheKey = buildCacheKey({
-			direction: options.direction,
-			accountId: account.accountId,
-			mode,
-			limit,
-			maxPages,
-			maxResources,
-		});
+		const cacheKey =
+			buildCacheKey({
+				direction: options.direction,
+				accountId: account.accountId,
+				mode,
+				limit,
+				maxPages,
+				maxResources,
+			}) + autoTransportCacheSuffix(mode);
 
 		if (!options.yes) {
 			return yield* trySync(() =>

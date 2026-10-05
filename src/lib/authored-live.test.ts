@@ -186,6 +186,7 @@ describe("live authored tweet sync", () => {
 	});
 
 	afterEach(() => {
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
@@ -195,6 +196,22 @@ describe("live authored tweet sync", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("uses the configured Bird preference before trying xurl", async () => {
+		makeTempHome();
+		const { setPreferredTransport } = await import("./config");
+		setPreferredTransport("bird");
+		mocks.listAuthoredTweetsViaBird.mockResolvedValue({
+			data: [authoredTweet("902")],
+			meta: { next_token: null },
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+		await expect(syncAuthoredTweets({})).resolves.toMatchObject({
+			source: "bird",
+			count: 1,
+		});
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
 	});
 
 	it("builds authored sync effects lazily", async () => {

@@ -106,6 +106,7 @@ describe("cached live mentions", () => {
 	});
 
 	afterEach(() => {
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
@@ -113,6 +114,28 @@ describe("cached live mentions", () => {
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("prefers Bird but uses xurl for resume and explicit time boundaries", async () => {
+		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		listMentionsViaBirdMock.mockResolvedValue({ data: [], meta: {} });
+		listMentionsViaXurlMock.mockResolvedValue({ data: [], meta: {} });
+		const { syncMentions } = await import("./mentions-live");
+		await expect(
+			syncMentions({ mode: "auto", intent: "latest", limit: 5 }),
+		).resolves.toMatchObject({ source: "bird" });
+		expect(listMentionsViaXurlMock).not.toHaveBeenCalled();
+		await expect(
+			syncMentions({ mode: "auto", intent: "resume", limit: 5 }),
+		).resolves.toMatchObject({ source: "xurl" });
+		await expect(
+			syncMentions({ mode: "auto", sinceId: "100", limit: 5 }),
+		).resolves.toMatchObject({ source: "xurl" });
+		listMentionsViaBirdMock.mockRejectedValueOnce(new Error("offline"));
+		await expect(
+			syncMentions({ mode: "auto", intent: "latest", limit: 5 }),
+		).resolves.toMatchObject({ source: "xurl" });
 	});
 
 	it("fetches new heads while preserving and draining every saved continuation", async () => {

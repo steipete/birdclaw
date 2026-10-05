@@ -5,6 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	ensureBirdclawDirs,
+	getPreferredTransport,
+	getAutoTransportOrder,
+	setPreferredTransport,
+	defaultLiveSyncMode,
 	getBirdCommand,
 	getBirdclawConfig,
 	getBirdclawPaths,
@@ -21,6 +25,7 @@ const originalPath = process.env.PATH;
 afterEach(() => {
 	resetBirdclawPathsForTests();
 	process.env.PATH = originalPath;
+	delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 	delete process.env.BIRDCLAW_HOME;
 	delete process.env.BIRDCLAW_CONFIG;
 	delete process.env.BIRDCLAW_ACTIONS_TRANSPORT;
@@ -33,6 +38,34 @@ afterEach(() => {
 });
 
 describe("config", () => {
+	it("persists the global preference, keeps other settings, and lets env override it", () => {
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-config-"));
+		tempRoots.push(tempRoot);
+		process.env.BIRDCLAW_HOME = tempRoot;
+		writeFileSync(
+			path.join(tempRoot, "config.json"),
+			JSON.stringify({
+				actions: { transport: "xurl" },
+				accounts: { default: "steipete" },
+			}),
+		);
+		expect(getAutoTransportOrder("bird")).toEqual(["bird", "xurl"]);
+		setPreferredTransport("bird");
+		expect(getPreferredTransport()).toBe("bird");
+		expect(getAutoTransportOrder()).toEqual(["bird", "xurl"]);
+		expect(defaultLiveSyncMode("xurl")).toBe("auto");
+		expect(resolveActionsTransport()).toBe("xurl");
+		expect(getDefaultAccountSelector()).toBe("steipete");
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = " XURL ";
+		expect(getAutoTransportOrder("bird")).toEqual(["xurl", "bird"]);
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "invalid";
+		expect(getPreferredTransport()).toBe("bird");
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
+		setPreferredTransport("auto");
+		expect(getPreferredTransport()).toBeUndefined();
+		expect(defaultLiveSyncMode("xurl")).toBe("xurl");
+	});
+
 	it("uses BIRDCLAW_HOME when set", () => {
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "birdclaw-config-"));
 		tempRoots.push(tempRoot);

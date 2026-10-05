@@ -1,3 +1,4 @@
+import { getPreferredTransport } from "./config";
 import { Effect } from "effect";
 import { getAuthenticatedBirdAccountEffect } from "./bird";
 import { getNativeDb } from "./db";
@@ -209,7 +210,22 @@ export function getLiveDataSourcesEffect(): Effect.Effect<
 		return {
 			generatedAt: new Date().toISOString(),
 			sources,
-			capabilities,
+			capabilities: capabilities.map((capability) => {
+				const preferred = getPreferredTransport();
+				if (
+					!preferred ||
+					(capability.primary !== preferred &&
+						!capability.fallbacks.includes(preferred))
+				)
+					return capability;
+				return {
+					...capability,
+					primary: preferred,
+					fallbacks: [capability.primary, ...capability.fallbacks].filter(
+						(source) => source !== preferred,
+					),
+				};
+			}),
 		};
 	});
 }

@@ -19,6 +19,7 @@ export interface BirdclawPaths {
 
 export type MentionsDataSource = "birdclaw" | "auto" | "xurl" | "bird";
 export type ActionsTransport = "auto" | "bird" | "xurl";
+export type LiveTransport = "bird" | "xurl";
 
 export function isReadOnlyDeployment() {
 	return process.env.BIRDCLAW_DEPLOYMENT_READ_ONLY === "1";
@@ -31,6 +32,9 @@ export function assertWritableDeployment() {
 }
 
 export interface BirdclawConfig {
+	transport?: {
+		preferred?: LiveTransport;
+	};
 	accounts?: {
 		default?: string;
 	};
@@ -47,6 +51,42 @@ export interface BirdclawConfig {
 		autoSync?: boolean;
 		staleAfterSeconds?: number;
 	};
+}
+
+export function getPreferredTransport(): LiveTransport | undefined {
+	const envPreferred =
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT?.trim().toLowerCase();
+	if (envPreferred === "bird" || envPreferred === "xurl") return envPreferred;
+	const preferred = getBirdclawConfig().transport?.preferred;
+	if (preferred === "bird" || preferred === "xurl") return preferred;
+	return undefined;
+}
+
+export function getAutoTransportOrder(
+	defaultPrimary: LiveTransport = "xurl",
+): readonly [LiveTransport, LiveTransport] {
+	const primary = getPreferredTransport() ?? defaultPrimary;
+	return [primary, primary === "bird" ? "xurl" : "bird"];
+}
+
+export function defaultLiveSyncMode(
+	defaultMode: ActionsTransport,
+): ActionsTransport {
+	return getPreferredTransport() ? "auto" : defaultMode;
+}
+
+export function autoTransportCacheSuffix(mode: string) {
+	const preferred = mode === "auto" ? getPreferredTransport() : undefined;
+	return preferred ? `:preferred:${preferred}` : "";
+}
+
+export function setPreferredTransport(preferred: LiveTransport | "auto") {
+	const config = getBirdclawConfig();
+	const transport = { ...config.transport };
+	if (preferred === "auto") delete transport.preferred;
+	else transport.preferred = preferred;
+	const configPath = writeBirdclawConfig({ ...config, transport });
+	return { configPath, preferred: transport.preferred ?? null };
 }
 
 export function getDefaultAccountSelector() {

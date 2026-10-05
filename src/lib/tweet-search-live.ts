@@ -1,3 +1,4 @@
+import { getAutoTransportOrder, getPreferredTransport } from "./config";
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import { searchTweetsViaBirdEffect } from "./bird";
@@ -394,6 +395,22 @@ export function syncTweetSearchEffect({
 
 		if (normalizedSince || normalizedUntil) {
 			return yield* runModeEffect("xurl", runOptions).pipe(
+				Effect.catchAll((error) =>
+					Effect.succeed({
+						ok: false,
+						source: "auto",
+						accountId,
+						query: normalizedQuery,
+						error: error.message,
+					} as const),
+				),
+			);
+		}
+
+		if (getPreferredTransport()) {
+			const [first, second] = getAutoTransportOrder("bird");
+			return yield* runModeEffect(first, runOptions).pipe(
+				Effect.catchAll(() => runModeEffect(second, runOptions)),
 				Effect.catchAll((error) =>
 					Effect.succeed({
 						ok: false,

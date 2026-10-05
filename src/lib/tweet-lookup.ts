@@ -1,3 +1,4 @@
+import { getAutoTransportOrder } from "./config";
 import { Effect } from "effect";
 import { lookupTweetsByIdsViaBirdEffect } from "./bird";
 import { runEffectPromise } from "./effect-runtime";
@@ -21,21 +22,25 @@ export function lookupTweetsByIdsEffect(
 		return lookupTweetsByIdsViaXurlEffect(ids);
 	}
 
-	return lookupTweetsByIdsViaXurlEffect(ids).pipe(
-		Effect.catchAll((xurlError) =>
-			lookupTweetsByIdsViaBirdEffect(ids).pipe(
-				Effect.catchAll((birdError) =>
-					Effect.fail(
-						new Error(
-							`Tweet lookup failed via xurl and bird: xurl: ${errorMessage(
-								xurlError,
-							)}; bird: ${errorMessage(birdError)}`,
-						),
+	return Effect.suspend(() => {
+		const [first, second] = getAutoTransportOrder();
+		const fetch = (source: string) =>
+			source === "bird"
+				? lookupTweetsByIdsViaBirdEffect(ids)
+				: lookupTweetsByIdsViaXurlEffect(ids);
+		return fetch(first).pipe(
+			Effect.catchAll((firstError) =>
+				fetch(second).pipe(
+					Effect.mapError(
+						(secondError) =>
+							new Error(
+								`Tweet lookup failed via xurl and bird: ${first}: ${errorMessage(firstError)}; ${second}: ${errorMessage(secondError)}`,
+							),
 					),
 				),
 			),
-		),
-	);
+		);
+	});
 }
 
 export function lookupTweetsByIds(

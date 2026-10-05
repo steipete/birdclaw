@@ -13,11 +13,21 @@ describe("digest live mode", () => {
 	});
 
 	afterEach(() => {
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		if (previous === undefined) {
 			delete process.env.BIRDCLAW_DIGEST_LIVE_MODE;
 		} else {
 			process.env.BIRDCLAW_DIGEST_LIVE_MODE = previous;
 		}
+	});
+
+	it("uses global preference through auto while keeping explicit digest overrides", () => {
+		delete process.env.BIRDCLAW_DIGEST_LIVE_MODE;
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		expect(defaultDigestLiveSyncMode()).toBe("auto");
+		process.env.BIRDCLAW_DIGEST_LIVE_MODE = "xurl";
+		expect(defaultDigestLiveSyncMode()).toBe("xurl");
+		expect(parseDigestLiveSyncMode("bird")).toBe("bird");
 	});
 
 	it("defaults to xurl when the env var is unset", () => {

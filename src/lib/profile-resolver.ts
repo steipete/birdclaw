@@ -1,3 +1,4 @@
+import { getPreferredTransport } from "./config";
 import { Effect } from "effect";
 
 import { getNativeDb } from "./db";
@@ -122,6 +123,14 @@ function fetchProfileUserEffect(
 	xurlFallback: boolean,
 ): Effect.Effect<CachedProfileLookup, never> {
 	return Effect.gen(function* () {
+		if (xurlFallback && getPreferredTransport() === "xurl") {
+			const user = yield* lookupViaXurlEffect(externalUserId).pipe(
+				Effect.catchAll(() => Effect.succeed(null)),
+			);
+			if (user) return { status: "hit", source: "xurl", user };
+			return yield* fetchProfileUserEffect(externalUserId, false);
+		}
+
 		const birdResult = yield* lookupProfileViaBirdEffect(externalUserId).pipe(
 			Effect.map((user) => ({ ok: true as const, user })),
 			Effect.catchAll((error) => Effect.succeed({ ok: false as const, error })),
@@ -170,11 +179,25 @@ function fetchProfileUserEffect(
 function fetchProfileUsersEffect(
 	externalUserIds: string[],
 	xurlFallback: boolean,
-) {
+): Effect.Effect<Map<string, CachedProfileLookup>, never> {
 	return Effect.gen(function* () {
 		const uniqueIds = Array.from(new Set(externalUserIds));
 		const results = new Map<string, CachedProfileLookup>();
 		let unresolved = uniqueIds;
+
+		if (xurlFallback && getPreferredTransport() === "xurl") {
+			const users = yield* lookupUsersByIdsEffect(uniqueIds).pipe(
+				Effect.catchAll(() => Effect.succeed([])),
+			);
+			for (const user of users)
+				results.set(user.id, { status: "hit", source: "xurl", user });
+			const missing = uniqueIds.filter((id) => !results.has(id));
+			if (missing.length) {
+				const fallback = yield* fetchProfileUsersEffect(missing, false);
+				for (const [id, result] of fallback) results.set(id, result);
+			}
+			return results;
+		}
 
 		const birdResult = yield* lookupProfilesViaBirdEffect(uniqueIds).pipe(
 			Effect.map((items) => ({ ok: true as const, items })),
@@ -428,6 +451,34 @@ export function resolveProfilesForHandlesEffect(
 
 		const results = new Map<string, HandleProfileResolveResult>();
 		let unresolved = targets;
+
+		if (xurlFallback && getPreferredTransport() === "xurl") {
+			const users = yield* lookupUsersByHandlesEffect(targets).pipe(
+				Effect.catchAll(() => Effect.succeed([])),
+			);
+			for (const user of users) {
+				const handle = profileHandleKey(user.username);
+				const resolved = yield* trySync(() => {
+					const resolved = upsertProfileFromXUser(db, user);
+					updateConversationTitles(resolved.profile, db);
+					return resolved;
+				});
+				results.set(handle, {
+					handle,
+					status: "hit",
+					source: "xurl",
+					profile: resolved.profile,
+				});
+			}
+			const missing = targets.filter((handle) => !results.has(handle));
+			if (missing.length) {
+				const fallback = yield* resolveProfilesForHandlesEffect(missing, {
+					xurlFallback: false,
+				});
+				for (const result of fallback) results.set(result.handle, result);
+			}
+			return targets.map((handle) => results.get(handle)!);
+		}
 
 		const birdResult = yield* lookupProfilesViaBirdEffect(targets).pipe(
 			Effect.map((items) => ({ ok: true as const, items })),

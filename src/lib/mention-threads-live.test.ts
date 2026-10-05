@@ -94,6 +94,7 @@ function upsertMentionEdge(
 }
 
 afterEach(() => {
+	delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
@@ -106,6 +107,22 @@ afterEach(() => {
 });
 
 describe("mention thread sync", () => {
+	it("uses Bird first for auto threads and falls back to xurl", async () => {
+		setupTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		mocks.listThreadViaBird.mockResolvedValue({ data: [], meta: {} });
+		const { syncMentionThreads } = await import("./mention-threads-live");
+		await expect(
+			syncMentionThreads({ mode: "auto", limit: 1, delayMs: 0 }),
+		).resolves.toMatchObject({ source: "bird", failed: 0 });
+		expect(mocks.getTweetById).not.toHaveBeenCalled();
+		mocks.listThreadViaBird.mockRejectedValueOnce(new Error("offline"));
+		mocks.getTweetById.mockResolvedValue({ data: [] });
+		await expect(
+			syncMentionThreads({ mode: "auto", limit: 1, delayMs: 0 }),
+		).resolves.toMatchObject({ source: "xurl", failed: 0 });
+	});
+
 	it("builds mention thread sync effects lazily", async () => {
 		setupTempHome();
 		const { syncMentionThreadsEffect } = await import("./mention-threads-live");
@@ -1621,8 +1638,8 @@ describe("mention thread sync", () => {
 		await expect(syncMentionThreads({ maxPages: -1 })).rejects.toThrow(
 			"--max-pages must be at least 0",
 		);
-		await expect(syncMentionThreads({ mode: "auto" })).rejects.toThrow(
-			"--mode must be bird or xurl",
+		await expect(syncMentionThreads({ mode: "invalid" })).rejects.toThrow(
+			"--mode must be auto, bird, or xurl",
 		);
 		await expect(syncMentionThreads({ account: "missing" })).rejects.toThrow(
 			"Unknown account: missing",

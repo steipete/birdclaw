@@ -7,7 +7,11 @@ import {
 	type ImportWritePhase,
 	importArchive,
 } from "#/lib/archive-import";
-import { ensureBirdclawDirs, setActionsTransport } from "#/lib/config";
+import {
+	ensureBirdclawDirs,
+	setActionsTransport,
+	setPreferredTransport,
+} from "#/lib/config";
 import { getNativeDb } from "#/lib/db";
 import {
 	FxTwitterError,
@@ -223,6 +227,16 @@ export function registerCoreCommands({
 		.action((transport: string) => {
 			const parsed = parseActionsTransport(transport);
 			if (parsed) print(setActionsTransport(parsed), asJson());
+		});
+
+	authCommand
+		.command("prefer <transport>")
+		.description(
+			"Set the global auto transport preference (bird, xurl, or auto to reset)",
+		)
+		.action((transport: string) => {
+			const parsed = parseActionsTransport(transport);
+			if (parsed) print(setPreferredTransport(parsed), asJson());
 		});
 
 	const archiveCommand = program

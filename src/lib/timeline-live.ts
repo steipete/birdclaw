@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import { listHomeTimelineViaBirdEffect } from "./bird";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
+import { getPreferredTransport } from "./config";
 import { getNativeDb } from "./db";
 import { runEffectPromise } from "./effect-runtime";
 import {
@@ -125,6 +126,7 @@ export function syncHomeTimelineEffect({
 		const accountId = resolvedAccount.accountId;
 		const effectiveMode =
 			parsedMode === "auto" &&
+			!getPreferredTransport() &&
 			account !== undefined &&
 			!resolvedAccount.isDefault
 				? "xurl"

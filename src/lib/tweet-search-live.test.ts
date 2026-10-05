@@ -80,6 +80,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
@@ -90,6 +91,22 @@ afterEach(() => {
 });
 
 describe("live tweet search sync", () => {
+	it("uses the preferred auto source without reading both transports, and falls back", async () => {
+		setupTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		mocks.searchTweetsViaBird.mockResolvedValue(payload(["bird_preferred"]));
+		mocks.searchRecentTweets.mockResolvedValue(payload(["xurl_fallback"]));
+		const { syncTweetSearch } = await import("./tweet-search-live");
+		await expect(
+			syncTweetSearch({ query: "preferred", mode: "auto", refresh: true }),
+		).resolves.toMatchObject({ source: "bird" });
+		expect(mocks.searchRecentTweets).not.toHaveBeenCalled();
+		mocks.searchTweetsViaBird.mockRejectedValueOnce(new Error("offline"));
+		await expect(
+			syncTweetSearch({ query: "preferred", mode: "auto", refresh: true }),
+		).resolves.toMatchObject({ source: "xurl" });
+	});
+
 	it("stores bird search results as search edges and FTS rows", async () => {
 		mocks.searchTweetsViaBird.mockResolvedValue(payload(["tweet_live_1"]));
 		const { syncTweetSearch } = await import("./tweet-search-live");

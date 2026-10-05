@@ -11,7 +11,7 @@ still update profile identity, metadata, and history normally.
 
 `birdclaw sync` mirrors the live Twitter surfaces you actually use into the local SQLite store. Every sync command:
 
-- pulls from the best live transport for the surface; authored sync supports `xurl` and `bird`, follow graph sync prefers `bird`, and likes/bookmarks still try `xurl` before `bird`
+- supports `bird` and `xurl` on each live sync surface, with `transport.preferred` controlling eligible auto choices
 - writes into the same canonical tables that archive import uses
 - refreshes the FTS5 index incrementally
 - saves cursors so the next run resumes where the last one stopped
@@ -29,7 +29,7 @@ Web auto-sync runs only while the page is mounted. For durable unattended refres
 
 Most `sync *` commands accept:
 
-- `--mode auto|xurl|bird` — transport selection; `auto` chooses the preferred transport for that command and falls back when possible
+- `--mode auto|xurl|bird` — transport selection; `auto` uses `transport.preferred` from config, or the command's usual order, and falls back when possible
 - `--limit <n>` — page size in `xurl` mode, total in single-page modes
 - `--all` — keep paginating until the retrievable window is exhausted
 - `--max-pages <n>` — cap a paged scan; implies `--all`
@@ -46,7 +46,7 @@ Most `sync *` commands accept:
 
 ## sync authored
 
-Mirror the authenticated user's authored posts through `xurl` or Bird search (`from:<handle> include:nativeretweets`, including replies). Auto mode tries xurl first and falls back to Bird. Retweets are included and stored with their X `referenced_tweets` marker intact. The command resumes from a stored `since_id`; it does not audit old rows or detect deletes.
+Mirror the authenticated user's authored posts through `xurl` or Bird search (`from:<handle> include:nativeretweets`, including replies). Auto mode tries the configured preferred transport first, defaulting to xurl, and falls back when the first read fails. Retweets are included and stored with their X `referenced_tweets` marker intact. The command resumes from a stored `since_id`; it does not audit old rows or detect deletes.
 
 On a first run with no authored cursor, Birdclaw seeds `since_id` from the newest local archive-backed tweet authored by that account when one exists. Fresh installs with no local baseline full-scan from X and print a stderr cost hint. Pass `--since-id <id>` to override the archive seed deliberately.
 
@@ -101,7 +101,7 @@ Bookmarks are queried via `birdclaw search tweets --bookmarked` and drive the [r
 
 ## sync timeline
 
-Pull the chronological Following timeline through `auto` (xurl first, with optional Bird fallback), or select `--mode xurl` explicitly:
+Pull the chronological Following timeline through `auto` (configured preference first, xurl first when unset), or select `--mode xurl` explicitly:
 
 ```bash
 birdclaw sync timeline --limit 100 --refresh --json
@@ -111,7 +111,7 @@ birdclaw sync timeline --limit 100 --refresh --json
 
 ## sync lists
 
-Read owned X Lists and bounded membership pages through `bird` first, with `xurl` fallback in `auto` mode:
+Read owned X Lists and bounded membership pages through the configured preferred transport (Bird first when unset), with fallback in `auto` mode:
 
 ```bash
 birdclaw sync lists --mode auto --json
@@ -162,7 +162,7 @@ refreshes use the newest-page intent.
 Flags:
 
 - `--account <accountId>` — pick the account when multiple are configured
-- `--mode bird|xurl` — transport; defaults to `xurl`
+- `--mode auto|bird|xurl` — transport; defaults to `auto`
 - `--limit <n>` — page size
 - `--max-pages <n>` — cap a paged scan; partial truncation exits with code `5`
 - `--since-id <id>` — explicitly fetch mentions newer than a known tweet ID
@@ -185,7 +185,7 @@ birdclaw sync mention-threads --mode xurl --limit 30 --json
 
 Flags:
 
-- `--mode bird|xurl` — transport; defaults to `xurl`
+- `--mode auto|bird|xurl` — transport; defaults to `auto`
 - `--delay-ms <ms>` — delay between thread fetches; raise this when X starts rate-limiting (bird mode)
 - `--timeout-ms <ms>` — per-thread network timeout
 - `--all`, `--max-pages <n>` — paged thread retrieval
@@ -207,7 +207,7 @@ birdclaw sync followers --yes --json
 birdclaw sync following --yes --json
 ```
 
-The first two commands are dry runs. Live fetches require `--yes`; pass `--refresh` only when you intentionally want to bypass the 24-hour follow-graph cache. `auto` prefers `bird` for followers/following because the browser-cookie GraphQL path works when OAuth2 follow reads are unavailable.
+The first two commands are dry runs. Live fetches require `--yes`; pass `--refresh` only when you intentionally want to bypass the 24-hour follow-graph cache. `auto` uses the configured preference, defaulting to `bird` for followers/following because the browser-cookie GraphQL path works when OAuth2 follow reads are unavailable.
 
 After the first run, `birdclaw graph events` shows the diff log and `birdclaw graph mutuals` lists current mutuals.
 
@@ -222,7 +222,7 @@ birdclaw sync all --transport auto
 
 ## DMs sync
 
-DMs sit on a separate command. The default `auto` mode supports account-scoped xurl reads and native cookie-backed `web` access. Native web access preserves message-request state without bird; xurl can import recent OAuth2 DM events for accepted conversations:
+DMs sit on a separate command. The default `auto` mode honors `transport.preferred` and supports account-scoped xurl reads and native cookie-backed `web` access. Native web access preserves message-request state without bird; xurl can import recent OAuth2 DM events for accepted conversations:
 
 ```bash
 birdclaw dms sync --limit 50 --refresh --json

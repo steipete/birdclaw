@@ -46,6 +46,7 @@ function makeTempHome() {
 }
 
 afterEach(() => {
+	delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
 	delete process.env.BIRDCLAW_HOME;
@@ -59,6 +60,23 @@ afterEach(() => {
 });
 
 describe("live home timeline sync", () => {
+	it("honors config preference and does not reuse another auto preference's cache", async () => {
+		makeTempHome();
+		const { setPreferredTransport } = await import("./config");
+		setPreferredTransport("bird");
+		listHomeTimelineViaBirdMock.mockResolvedValue({ data: [], meta: {} });
+		listHomeTimelineViaXurlMock.mockResolvedValue({ data: [], meta: {} });
+		const { syncHomeTimeline } = await import("./timeline-live");
+		await expect(syncHomeTimeline({})).resolves.toMatchObject({
+			source: "bird",
+		});
+		expect(listHomeTimelineViaXurlMock).not.toHaveBeenCalled();
+		setPreferredTransport("xurl");
+		await expect(syncHomeTimeline({})).resolves.toMatchObject({
+			source: "xurl",
+		});
+	});
+
 	it("rejects a mismatched Bird account before timeline persistence", async () => {
 		makeTempHome();
 		getAuthenticatedBirdAccountMock.mockResolvedValue({

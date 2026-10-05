@@ -14,6 +14,7 @@ import {
 	type MentionScanShape,
 	type MentionSyncIntent,
 } from "./mentions-cursor";
+import { getAutoTransportOrder, autoTransportCacheSuffix } from "./config";
 import { Effect } from "effect";
 import { listMentionsViaBirdEffect } from "./bird";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
@@ -258,11 +259,29 @@ export function syncMentionsEffect({
 	sinceId,
 	startTime,
 	onProgress,
-}: SyncMentionsOptions) {
+}: SyncMentionsOptions): Effect.Effect<
+	{
+		ok: true;
+		source: "bird" | "xurl" | "cache";
+		kind: "mentions";
+		accountId: string;
+		count: number;
+		partial: boolean;
+		intent: MentionSyncIntent;
+		position: "head" | "continuation";
+		checkedAt: string;
+		payload: XurlMentionsResponse;
+	},
+	unknown
+> {
 	return Effect.gen(function* () {
 		const parsedMode = yield* trySync(() => parseSyncMode(mode));
 		const primaryMode: MentionLiveSource =
-			parsedMode === "auto" ? "xurl" : parsedMode;
+			parsedMode === "auto"
+				? intent === "resume" || sinceId?.trim() || startTime?.trim()
+					? "xurl"
+					: getAutoTransportOrder()[0]
+				: parsedMode;
 		const explicitSinceId = sinceId?.trim() || undefined;
 		const explicitStartTime = startTime?.trim() || undefined;
 		if (!["auto", "latest", "resume"].includes(intent))
@@ -282,6 +301,23 @@ export function syncMentionsEffect({
 				new Error("bird mode does not support --since-id or --start-time"),
 			);
 		}
+		if (parsedMode === "auto" && primaryMode === "bird") {
+			const options = {
+				intent,
+				account,
+				limit,
+				maxPages,
+				refresh,
+				cacheTtlMs,
+				sinceId,
+				startTime,
+				onProgress,
+			};
+			return yield* syncMentionsEffect({ ...options, mode: "bird" }).pipe(
+				Effect.catchAll(() => syncMentionsEffect({ ...options, mode: "xurl" })),
+			);
+		}
+
 		if (primaryMode === "xurl") {
 			yield* trySync(() => assertXurlLimit(limit));
 		} else {
@@ -569,7 +605,8 @@ function exportMentionsViaCachedLiveSourceEffect({
 	cacheTtlMs,
 }: ExportMentionsViaCachedLiveSourceOptions) {
 	return Effect.gen(function* () {
-		const primaryMode: MentionLiveSource = mode === "auto" ? "xurl" : mode;
+		const primaryMode: MentionLiveSource =
+			mode === "auto" ? getAutoTransportOrder()[0] : mode;
 		if (primaryMode === "xurl") {
 			yield* trySync(() => assertXurlLimit(limit));
 		} else {
@@ -583,13 +620,14 @@ function exportMentionsViaCachedLiveSourceEffect({
 		const resolvedAccount = yield* trySync(() =>
 			resolveLiveSyncAccount(db, account),
 		);
-		const cacheKey = getMentionsExportCacheKey({
-			mode,
-			accountId: resolvedAccount.accountId,
-			pageSize: limit,
-			all: fetchAll,
-			maxPages: parsedMaxPages,
-		});
+		const cacheKey =
+			getMentionsExportCacheKey({
+				mode,
+				accountId: resolvedAccount.accountId,
+				pageSize: limit,
+				all: fetchAll,
+				maxPages: parsedMaxPages,
+			}) + autoTransportCacheSuffix(mode);
 		const cache = yield* trySync(() =>
 			inspectSyncCache<XurlMentionsResponse>(
 				cacheKey,
@@ -638,11 +676,18 @@ function exportMentionsViaCachedLiveSourceEffect({
 		).pipe(
 			Effect.catchAll((error) => {
 				if (mode !== "auto" || fetchAll) return Effect.fail(error);
-				source = "bird";
-				return fetchMentionsViaBirdEffect({
-					account: resolvedAccount,
-					limit,
-				}).pipe(Effect.map((payload) => ({ payload })));
+				source = primaryMode === "bird" ? "xurl" : "bird";
+				return source === "bird"
+					? fetchMentionsViaBirdEffect({
+							account: resolvedAccount,
+							limit,
+						}).pipe(Effect.map((payload) => ({ payload })))
+					: fetchMentionsViaXurlEffect({
+							resolvedAccount,
+							limit,
+							all: false,
+							parsedMaxPages,
+						});
 			}),
 			Effect.flatMap(({ payload }) =>
 				databaseWriteEffect((writeDb) => {

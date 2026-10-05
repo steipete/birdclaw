@@ -1,3 +1,4 @@
+import { getPreferredTransport, autoTransportCacheSuffix } from "./config";
 import { Effect } from "effect";
 import type { Database } from "./sqlite";
 import { refreshSearchRows } from "./search-index";
@@ -710,7 +711,7 @@ export function syncDirectMessagesViaCachedBirdEffect({
 		const pageKey = allPages
 			? "all-pages"
 			: `max-pages:${String(maxPages ?? 0)}`;
-		const cacheKey = `dms:${parsedMode}:${resolvedAccount.accountId}:${String(limit)}:${inbox}:${pageKey}`;
+		const cacheKey = `dms:${parsedMode}:${resolvedAccount.accountId}:${String(limit)}:${inbox}:${pageKey}${autoTransportCacheSuffix(parsedMode)}`;
 		const cache = inspectSyncCache<DirectMessagesPayload>(
 			cacheKey,
 			{ ttlMs: cacheTtlMs, defaultTtlMs: DEFAULT_DMS_CACHE_TTL_MS },
@@ -727,6 +728,46 @@ export function syncDirectMessagesViaCachedBirdEffect({
 		} else {
 			const failures: string[] = [];
 			let nativeAttempted = false;
+			let birdAttempted = false;
+			const preferred =
+				parsedMode === "auto" ? getPreferredTransport() : undefined;
+			const birdRead = Effect.gen(function* () {
+				birdAttempted = true;
+				const authenticated = yield* verifyBirdAccountMatchesEffect({
+					...resolvedAccount,
+					externalUserId: accountExternalUserId,
+				});
+				accountExternalUserId ??= authenticated.id;
+				if (!resolvedAccount.externalUserId && accountExternalUserId) {
+					persistAccountExternalUserId(
+						db,
+						resolvedAccount.accountId,
+						accountExternalUserId,
+					);
+				}
+				payload = yield* listDirectMessagesViaBirdEffect({
+					maxResults: limit,
+					...(inbox !== "all" ? { inbox } : {}),
+					...(parsedMaxPages !== undefined ? { maxPages: parsedMaxPages } : {}),
+					...(allPages ? { allPages } : {}),
+					...(parsedPageDelayMs !== undefined
+						? { pageDelayMs: parsedPageDelayMs }
+						: {}),
+				});
+				source = "bird";
+			}).pipe(
+				Effect.mapError((error) =>
+					parsedMode === "bird"
+						? error
+						: new Error(
+								[
+									...failures,
+									`bird: ${error instanceof Error ? error.message : String(error)}`,
+								].join("\n"),
+							),
+				),
+			);
+
 			const nativeRead = Effect.gen(function* () {
 				nativeAttempted = true;
 				const native = yield* tryPromise(() =>
@@ -760,9 +801,21 @@ export function syncDirectMessagesViaCachedBirdEffect({
 					return Effect.void;
 				}),
 			);
+			if (preferred === "bird")
+				yield* birdRead.pipe(
+					Effect.catchAll((error) => {
+						failures.push(
+							error instanceof Error ? error.message : String(error),
+						);
+						return Effect.void;
+					}),
+				);
+
 			if (
 				parsedMode === "web" ||
 				(parsedMode === "auto" &&
+					!payload &&
+					(preferred === undefined || inbox === "requests") &&
 					hasXWebCredentials() &&
 					(inbox === "requests" ||
 						(inbox === "all" &&
@@ -848,45 +901,9 @@ export function syncDirectMessagesViaCachedBirdEffect({
 				hasXWebCredentials()
 			)
 				yield* nativeRead;
-			if (!payload) {
-				yield* Effect.gen(function* () {
-					const authenticated = yield* verifyBirdAccountMatchesEffect({
-						...resolvedAccount,
-						externalUserId: accountExternalUserId,
-					});
-					accountExternalUserId ??= authenticated.id;
-					if (!resolvedAccount.externalUserId && accountExternalUserId) {
-						persistAccountExternalUserId(
-							db,
-							resolvedAccount.accountId,
-							accountExternalUserId,
-						);
-					}
-					payload = yield* listDirectMessagesViaBirdEffect({
-						maxResults: limit,
-						...(inbox !== "all" ? { inbox } : {}),
-						...(parsedMaxPages !== undefined
-							? { maxPages: parsedMaxPages }
-							: {}),
-						...(allPages ? { allPages } : {}),
-						...(parsedPageDelayMs !== undefined
-							? { pageDelayMs: parsedPageDelayMs }
-							: {}),
-					});
-					source = "bird";
-				}).pipe(
-					Effect.mapError((error) =>
-						parsedMode === "bird"
-							? error
-							: new Error(
-									[
-										...failures,
-										`bird: ${error instanceof Error ? error.message : String(error)}`,
-									].join("\n"),
-								),
-					),
-				);
-			}
+			if (!payload && !birdAttempted) yield* birdRead;
+			if (!payload)
+				throw new Error(failures.join("\n") || "DM sync produced no payload");
 		}
 		if (!payload) {
 			throw new Error("DM sync produced no payload");

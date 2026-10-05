@@ -118,6 +118,7 @@ describe("actions transport", () => {
 	});
 
 	afterEach(() => {
+		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		delete process.env.BIRDCLAW_ACTIONS_TRANSPORT;
 		delete process.env.BIRDCLAW_CONFIG;
 		delete process.env.BIRDCLAW_HOME;
@@ -126,6 +127,33 @@ describe("actions transport", () => {
 			rmSync(birdclawHome, { force: true, recursive: true });
 			birdclawHome = undefined;
 		}
+	});
+
+	it("tries xurl before Bird when the global preference requests it", async () => {
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "xurl";
+		mocks.blockUserViaXurl.mockResolvedValue({
+			ok: true,
+			output: "xurl block ok",
+		});
+		const { runModerationAction } = await import("./actions-transport");
+		await expect(
+			runModerationAction({
+				action: "block",
+				query: "sam",
+				targetUserId: "42",
+				transport: "auto",
+			}),
+		).resolves.toMatchObject({ transport: "xurl", ok: true });
+		expect(mocks.blockUserViaBird).not.toHaveBeenCalled();
+		mocks.blockUserViaXurl.mockRejectedValueOnce(new Error("offline"));
+		await expect(
+			runModerationAction({
+				action: "block",
+				query: "sam",
+				targetUserId: "42",
+				transport: "auto",
+			}),
+		).resolves.toMatchObject({ transport: "bird", ok: true });
 	});
 
 	it("builds moderation action effects lazily", async () => {
