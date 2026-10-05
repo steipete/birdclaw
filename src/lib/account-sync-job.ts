@@ -240,9 +240,12 @@ async function runStep({
 			};
 		}
 		if (kind === "mention-threads") {
+			if (mode === "bird" && !allowBirdAccount) {
+				return { kind, ok: false, count: 0, error: birdAccountError(kind) };
+			}
 			const result = await syncMentionThreads({
 				account,
-				mode: "xurl",
+				mode: mode === "bird" ? "bird" : "xurl",
 				limit: Math.min(30, limit),
 				delayMs: 1500,
 				timeoutMs: 15000,

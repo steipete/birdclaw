@@ -1,10 +1,14 @@
 import type { Database } from "./sqlite";
 import { Effect } from "effect";
+import { listAuthoredTweetsViaBirdEffect } from "./bird";
+import { verifyBirdAccountMatchesEffect } from "./bird-account";
 import { databaseWriteEffect } from "./database-writer";
 import { getNativeDb } from "./db";
 import { runEffectPromise, trySync } from "./effect-runtime";
 import {
 	parseOptionalMaxPages,
+	parseLiveSyncMode,
+	type LiveSyncMode,
 	parseLivePageSize,
 	resolveLiveSyncAccount,
 } from "./live-sync-engine";
@@ -23,7 +27,8 @@ import {
 	lookupAuthenticatedUserEffect,
 } from "./xurl";
 
-export type AuthoredSyncMode = "xurl";
+export type AuthoredSyncMode = LiveSyncMode;
+type AuthoredSource = "bird" | "xurl";
 
 export interface SyncAuthoredTweetsOptions {
 	account?: string;
@@ -79,7 +84,6 @@ interface AuthoredPayload {
 const MIN_XURL_LIMIT = 5;
 const MAX_XURL_LIMIT = 100;
 const DEFAULT_LIMIT = 100;
-const AUTHORED_CURSOR_PREFIX = "authored:xurl";
 const AUTHORED_TWEET_FIELDS = [
 	"author_id",
 	"created_at",
@@ -107,8 +111,8 @@ const AUTHORED_USER_FIELDS = [
 	"verified",
 	"verified_type",
 ];
-function cursorKey(accountId: string) {
-	return `${AUTHORED_CURSOR_PREFIX}:${accountId}:cursor`;
+function cursorKey(accountId: string, source: AuthoredSource) {
+	return `authored:${source}:${accountId}:cursor`;
 }
 
 function normalizeCursor(value: unknown): AuthoredCursorState {
@@ -150,24 +154,32 @@ function normalizeCursor(value: unknown): AuthoredCursorState {
 	return { state: "committed", sinceId };
 }
 
-function readAuthoredCursor(db: Database, accountId: string) {
-	return normalizeCursor(readSyncCache(cursorKey(accountId), db)?.value);
+function readAuthoredCursor(
+	db: Database,
+	accountId: string,
+	source: AuthoredSource,
+) {
+	return normalizeCursor(
+		readSyncCache(cursorKey(accountId, source), db)?.value,
+	);
 }
 
 function writeAuthoredCursor(
 	db: Database,
 	accountId: string,
 	state: AuthoredCursorState,
+	source: AuthoredSource,
 ) {
-	writeSyncCache(cursorKey(accountId), state, db);
+	writeSyncCache(cursorKey(accountId, source), state, db);
 }
 
 function writeCommittedCursor(
 	db: Database,
 	accountId: string,
 	sinceId: string | null,
+	source: AuthoredSource,
 ) {
-	writeAuthoredCursor(db, accountId, { state: "committed", sinceId });
+	writeAuthoredCursor(db, accountId, { state: "committed", sinceId }, source);
 }
 
 function writePendingForwardCursor(
@@ -182,13 +194,19 @@ function writePendingForwardCursor(
 		token: string;
 		pendingNewestId: string | null;
 	},
+	source: AuthoredSource,
 ) {
-	writeAuthoredCursor(db, accountId, {
-		state: "pending-forward",
-		sinceId,
-		token,
-		pendingNewestId,
-	});
+	writeAuthoredCursor(
+		db,
+		accountId,
+		{
+			state: "pending-forward",
+			sinceId,
+			token,
+			pendingNewestId,
+		},
+		source,
+	);
 }
 
 function writePendingUntilCursor(
@@ -205,14 +223,20 @@ function writePendingUntilCursor(
 		untilId: string;
 		requestedSinceId: string | null;
 	},
+	source: AuthoredSource,
 ) {
-	writeAuthoredCursor(db, accountId, {
-		state: "pending-until",
-		sinceId,
-		token,
-		untilId,
-		requestedSinceId,
-	});
+	writeAuthoredCursor(
+		db,
+		accountId,
+		{
+			state: "pending-until",
+			sinceId,
+			token,
+			untilId,
+			requestedSinceId,
+		},
+		source,
+	);
 }
 
 // Archive seeds stay archive-only because backups can contain live edges without sync_cache.
@@ -427,6 +451,7 @@ function formatError(error: unknown) {
 }
 
 function buildResult({
+	source,
 	accountId,
 	userId,
 	effectiveSinceId,
@@ -437,6 +462,7 @@ function buildResult({
 	partial,
 	error,
 }: {
+	source: AuthoredSource;
 	accountId: string;
 	userId: string;
 	effectiveSinceId: string | null;
@@ -450,7 +476,7 @@ function buildResult({
 	return {
 		ok: !partial,
 		kind: "authored" as const,
-		source: "xurl" as const,
+		source,
 		accountId,
 		userId,
 		count: payload.data.length,
@@ -469,21 +495,15 @@ function buildResult({
 	};
 }
 
-export function syncAuthoredTweetsEffect({
+function syncAuthoredTweetsViaSourceEffect({
 	account,
-	mode = "xurl",
+	mode,
 	limit = DEFAULT_LIMIT,
 	maxPages,
 	sinceId,
 	untilId,
-}: SyncAuthoredTweetsOptions) {
+}: SyncAuthoredTweetsOptions & { mode: AuthoredSource }) {
 	return Effect.gen(function* () {
-		if (mode !== "xurl") {
-			return yield* Effect.fail(
-				new Error("authored sync only supports --mode xurl"),
-			);
-		}
-
 		const pageLimit = yield* trySync(() =>
 			parseLivePageSize(limit, { min: MIN_XURL_LIMIT, max: MAX_XURL_LIMIT }),
 		);
@@ -491,9 +511,30 @@ export function syncAuthoredTweetsEffect({
 			parseOptionalMaxPages(maxPages),
 		);
 		const db = yield* trySync(() => getNativeDb());
-		const identity = yield* resolveAuthoredIdentityEffect({ account, db });
+		const identity =
+			mode === "xurl"
+				? yield* resolveAuthoredIdentityEffect({ account, db })
+				: yield* Effect.gen(function* () {
+						const selected = resolveLiveSyncAccount(db, account);
+						const authenticated =
+							yield* verifyBirdAccountMatchesEffect(selected);
+						const userId = selected.externalUserId ?? authenticated.id;
+						if (!userId)
+							return yield* Effect.fail(
+								new AuthoredSyncError(
+									"Bird authenticated user id unavailable",
+									4,
+								),
+							);
+						persistAccountExternalUserId(db, selected.accountId, userId);
+						return {
+							accountId: selected.accountId,
+							username: selected.username,
+							userId,
+						};
+					});
 		const cursor = yield* trySync(() =>
-			readAuthoredCursor(db, identity.accountId),
+			readAuthoredCursor(db, identity.accountId, mode),
 		);
 		const usePersistedForward =
 			sinceId === undefined && !untilId && cursor.state === "pending-forward";
@@ -539,31 +580,52 @@ export function syncAuthoredTweetsEffect({
 			allowPartialFailure: true,
 			initialCursor: initialToken,
 			maxPages: parsedMaxPages ?? undefined,
-			fetchPage: ({ cursor: paginationToken }) =>
-				listUserTweetsEffect(identity.userId, {
-					maxResults: pageLimit,
-					paginationToken,
-					excludeRetweets: false,
-					sinceId: effectiveSinceId ?? undefined,
-					untilId,
-					tweetFields: AUTHORED_TWEET_FIELDS,
-					expansions: AUTHORED_EXPANSIONS,
-					userFields: AUTHORED_USER_FIELDS,
-					auth: "oauth2",
-					username: identity.username,
-				}).pipe(
-					Effect.map((page) => ({
-						payload: adaptUserTimelinePage(page, identity.userId),
-						nextToken: page.nextToken,
-					})),
-				),
+			fetchPage: ({
+				cursor: paginationToken,
+			}): Effect.Effect<
+				{ payload: TweetPage; nextToken: string | null | undefined },
+				unknown
+			> =>
+				mode === "bird"
+					? listAuthoredTweetsViaBirdEffect({
+							username: identity.username,
+							maxResults: pageLimit,
+							paginationToken,
+							sinceId: effectiveSinceId ?? undefined,
+							untilId,
+						}).pipe(
+							Effect.map((payload) => ({
+								payload,
+								nextToken:
+									typeof payload.meta?.next_token === "string"
+										? payload.meta.next_token
+										: undefined,
+							})),
+						)
+					: listUserTweetsEffect(identity.userId, {
+							maxResults: pageLimit,
+							paginationToken,
+							excludeRetweets: false,
+							sinceId: effectiveSinceId ?? undefined,
+							untilId,
+							tweetFields: AUTHORED_TWEET_FIELDS,
+							expansions: AUTHORED_EXPANSIONS,
+							userFields: AUTHORED_USER_FIELDS,
+							auth: "oauth2",
+							username: identity.username,
+						}).pipe(
+							Effect.map((page) => ({
+								payload: adaptUserTimelinePage(page, identity.userId),
+								nextToken: page.nextToken,
+							})),
+						),
 			getNextCursor: (page) => page.nextToken,
 			persistPage: ({ page }) => {
 				return databaseWriteEffect((writeDb) =>
 					ingestTweetPayload(writeDb, {
 						accountId: identity.accountId,
 						payload: page.payload,
-						source: "xurl",
+						source: mode,
 						edgeKind: "authored",
 						markRepliesAsReplied: true,
 					}),
@@ -595,51 +657,72 @@ export function syncAuthoredTweetsEffect({
 		if (planResult.stopReason === "error") {
 			if (nextToken && untilId) {
 				yield* trySync(() =>
-					writePendingUntilCursor(db, identity.accountId, {
-						sinceId: cursor.sinceId,
-						token: nextToken,
-						untilId,
-						requestedSinceId: effectiveSinceId,
-					}),
+					writePendingUntilCursor(
+						db,
+						identity.accountId,
+						{
+							sinceId: cursor.sinceId,
+							token: nextToken,
+							untilId,
+							requestedSinceId: effectiveSinceId,
+						},
+						mode,
+					),
 				);
 			} else if (nextToken) {
 				yield* trySync(() =>
-					writePendingForwardCursor(db, identity.accountId, {
-						sinceId: effectiveSinceId,
-						token: nextToken,
-						pendingNewestId: newestSeenId,
-					}),
+					writePendingForwardCursor(
+						db,
+						identity.accountId,
+						{
+							sinceId: effectiveSinceId,
+							token: nextToken,
+							pendingNewestId: newestSeenId,
+						},
+						mode,
+					),
 				);
 			}
 		} else if (untilId && nextToken) {
 			yield* trySync(() =>
-				writePendingUntilCursor(db, identity.accountId, {
-					sinceId: cursor.sinceId,
-					token: nextToken,
-					untilId,
-					requestedSinceId: effectiveSinceId,
-				}),
+				writePendingUntilCursor(
+					db,
+					identity.accountId,
+					{
+						sinceId: cursor.sinceId,
+						token: nextToken,
+						untilId,
+						requestedSinceId: effectiveSinceId,
+					},
+					mode,
+				),
 			);
 		} else if (untilId) {
 			yield* trySync(() =>
-				writeCommittedCursor(db, identity.accountId, cursor.sinceId),
+				writeCommittedCursor(db, identity.accountId, cursor.sinceId, mode),
 			);
 		} else if (nextToken) {
 			yield* trySync(() =>
-				writePendingForwardCursor(db, identity.accountId, {
-					sinceId: nextSinceId,
-					token: nextToken,
-					pendingNewestId: newestSeenId,
-				}),
+				writePendingForwardCursor(
+					db,
+					identity.accountId,
+					{
+						sinceId: nextSinceId,
+						token: nextToken,
+						pendingNewestId: newestSeenId,
+					},
+					mode,
+				),
 			);
 		} else {
 			yield* trySync(() =>
-				writeCommittedCursor(db, identity.accountId, nextSinceId),
+				writeCommittedCursor(db, identity.accountId, nextSinceId, mode),
 			);
 		}
 
 		const payload = mergePages(pages);
 		return buildResult({
+			source: mode,
 			accountId: identity.accountId,
 			userId: identity.userId,
 			effectiveSinceId,
@@ -659,6 +742,37 @@ export function syncAuthoredTweetsEffect({
 						}
 					: {}),
 		});
+	});
+}
+
+export function syncAuthoredTweetsEffect(options: SyncAuthoredTweetsOptions) {
+	return Effect.gen(function* () {
+		const mode = yield* trySync(() => parseLiveSyncMode(options.mode, "auto"));
+		yield* trySync(() =>
+			parseLivePageSize(options.limit ?? DEFAULT_LIMIT, {
+				min: MIN_XURL_LIMIT,
+				max: MAX_XURL_LIMIT,
+			}),
+		);
+		yield* trySync(() => parseOptionalMaxPages(options.maxPages));
+		if (mode !== "auto")
+			return yield* syncAuthoredTweetsViaSourceEffect({ ...options, mode });
+		return yield* syncAuthoredTweetsViaSourceEffect({
+			...options,
+			mode: "xurl",
+		}).pipe(
+			Effect.catchAll((xurlError) =>
+				syncAuthoredTweetsViaSourceEffect({ ...options, mode: "bird" }).pipe(
+					Effect.mapError(
+						(birdError) =>
+							new AuthoredSyncError(
+								`xurl: ${formatError(xurlError)}; bird: ${formatError(birdError)}`,
+								xurlError instanceof AuthoredSyncError ? xurlError.exitCode : 1,
+							),
+					),
+				),
+			),
+		);
 	});
 }
 

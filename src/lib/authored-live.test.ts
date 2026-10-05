@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 	getTransportStatus: vi.fn(),
 	listUserTweets: vi.fn(),
 	lookupAuthenticatedUser: vi.fn(),
+	listAuthoredTweetsViaBird: vi.fn(),
+	getAuthenticatedBirdAccount: vi.fn(),
 }));
 
 vi.mock("./xurl", async () => {
@@ -21,6 +23,18 @@ vi.mock("./xurl", async () => {
 		getTransportStatusEffect: fromMock(mocks.getTransportStatus),
 		listUserTweetsEffect: fromMock(mocks.listUserTweets),
 		lookupAuthenticatedUserEffect: fromMock(mocks.lookupAuthenticatedUser),
+	};
+});
+
+vi.mock("./bird", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		listAuthoredTweetsViaBirdEffect: effectFromMock(
+			mocks.listAuthoredTweetsViaBird,
+		),
+		getAuthenticatedBirdAccountEffect: effectFromMock(
+			mocks.getAuthenticatedBirdAccount,
+		),
 	};
 });
 
@@ -155,6 +169,10 @@ function insertAuthoredEdge(
 
 describe("live authored tweet sync", () => {
 	beforeEach(() => {
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
 		mocks.getTransportStatus.mockResolvedValue({
 			installed: true,
 			availableTransport: "xurl",
@@ -212,8 +230,79 @@ describe("live authored tweet sync", () => {
 		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
 		expect(mocks.listUserTweets).not.toHaveBeenCalled();
 		await expect(
-			Effect.runPromise(syncAuthoredTweetsEffect({ mode: "auto" as never })),
-		).rejects.toThrow("only supports --mode xurl");
+			Effect.runPromise(syncAuthoredTweetsEffect({ mode: "invalid" as never })),
+		).rejects.toThrow("--mode must be auto, bird, or xurl");
+	});
+
+	it("resumes Bird search pages without advancing the watermark until complete", async () => {
+		makeTempHome();
+		mocks.listAuthoredTweetsViaBird
+			.mockResolvedValueOnce({
+				data: [authoredTweet("900")],
+				meta: { next_token: "bird-next" },
+			})
+			.mockResolvedValueOnce({
+				data: [authoredTweet("800")],
+				meta: { next_token: null },
+			});
+		const { syncAuthoredTweets } = await import("./authored-live");
+		const { readSyncCache, writeSyncCache } = await import("./sync-cache");
+		writeSyncCache("authored:xurl:acct_primary:cursor", {
+			state: "committed",
+			sinceId: "700",
+		});
+		writeSyncCache("authored:bird:acct_primary:cursor", {
+			state: "committed",
+			sinceId: "600",
+		});
+		const first = await syncAuthoredTweets({ mode: "bird", maxPages: 1 });
+		expect(first).toMatchObject({
+			source: "bird",
+			partial: true,
+			sinceId: "600",
+			nextSinceId: "600",
+			nextToken: "bird-next",
+		});
+		const second = await syncAuthoredTweets({ mode: "bird", maxPages: 1 });
+		expect(second).toMatchObject({
+			source: "bird",
+			partial: false,
+			nextSinceId: "900",
+		});
+		expect(mocks.listAuthoredTweetsViaBird).toHaveBeenLastCalledWith(
+			expect.objectContaining({ paginationToken: "bird-next", sinceId: "600" }),
+		);
+		expect(readSyncCache("authored:xurl:acct_primary:cursor")?.value).toEqual({
+			state: "committed",
+			sinceId: "700",
+		});
+		expect(authoredEdgeCount()).toEqual({ count: 2 });
+		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+	});
+
+	it("falls back to Bird in auto mode and rejects mismatched Bird identities", async () => {
+		makeTempHome();
+		mocks.getTransportStatus.mockResolvedValue({
+			availableTransport: null,
+			statusText: "xurl unavailable",
+		});
+		mocks.listAuthoredTweetsViaBird.mockResolvedValue({
+			data: [authoredTweet("901")],
+			meta: { next_token: null },
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+		await expect(syncAuthoredTweets({ mode: "auto" })).resolves.toMatchObject({
+			source: "bird",
+			count: 1,
+		});
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "other",
+			username: "other",
+		});
+		await expect(syncAuthoredTweets({ mode: "bird" })).rejects.toThrow(
+			"refusing to sync",
+		);
+		expect(mocks.listAuthoredTweetsViaBird).toHaveBeenCalledTimes(1);
 	});
 
 	it("handles an empty authored response without moving the cursor", async () => {
@@ -692,7 +781,9 @@ describe("live authored tweet sync", () => {
 		mocks.listUserTweets.mockRejectedValueOnce(new Error("offline"));
 		const { syncAuthoredTweets } = await import("./authored-live");
 
-		await expect(syncAuthoredTweets({ limit: 5 })).rejects.toThrow("offline");
+		await expect(
+			syncAuthoredTweets({ mode: "xurl", limit: 5 }),
+		).rejects.toThrow("offline");
 		expect(authoredCursor()).toEqual(savedCursor);
 	});
 

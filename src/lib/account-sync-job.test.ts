@@ -149,6 +149,9 @@ describe("account sync job", () => {
 			launchAgentsDir: tempDir,
 			load: false,
 			program: "/opt/homebrew/bin/birdclaw",
+			logPath: path.join(tempDir, "audit.jsonl"),
+			stdoutPath: path.join(tempDir, "stdout.log"),
+			stderrPath: path.join(tempDir, "stderr.log"),
 		});
 
 		expect(result.loaded).toBe(false);
@@ -497,6 +500,28 @@ describe("account sync job", () => {
 				{ kind: "dms", ok: true, count: 2, source: "bird" },
 			],
 		});
+	});
+
+	it("honors Bird mode for scheduled mention threads", async () => {
+		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+		syncMentionThreadsMock.mockResolvedValue({
+			source: "bird",
+			mergedTweets: 2,
+		});
+		const result = await runAccountSyncJob({
+			account: "acct_primary",
+			mode: "bird",
+			steps: ["mention-threads"],
+			logPath: path.join(tempDir, "audit.jsonl"),
+			lockPath: path.join(tempDir, "sync.lock"),
+			db: { prepare: () => ({ get: () => ({ id: "acct_primary" }) }) } as never,
+		});
+		expect(syncMentionThreadsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "bird" }),
+		);
+		expect(result.steps).toEqual([
+			{ kind: "mention-threads", ok: true, count: 2, source: "bird" },
+		]);
 	});
 
 	it.each([

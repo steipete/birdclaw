@@ -653,9 +653,25 @@ function parseBirdJsonEffect(stdout: string) {
 	});
 }
 
-function normalizeBirdTweetsPayloadEffect(payload: unknown, command: string) {
+function normalizeBirdTweetsPayloadEffect(
+	payload: unknown,
+	command: string,
+): Effect.Effect<XurlMentionsResponse, unknown> {
 	return Effect.try({
-		try: () => normalizeBirdTweets(getBirdTweetItems(payload, command)),
+		try: () => {
+			const normalized = normalizeBirdTweets(
+				getBirdTweetItems(payload, command),
+			);
+			const nextCursor = getRecord(payload)?.nextCursor;
+			return {
+				...normalized,
+				meta: {
+					...normalized.meta,
+					next_token:
+						typeof nextCursor === "string" && nextCursor ? nextCursor : null,
+				},
+			};
+		},
 		catch: (error) => error,
 	});
 }
@@ -745,6 +761,51 @@ export const searchTweetsViaBirdEffect = Effect.fn("bird.searchTweets")(
 		return yield* normalizeBirdTweetsPayloadEffect(payload, "search");
 	},
 );
+
+// Search includes replies as well as profile posts; user-tweets omits replies.
+export const listAuthoredTweetsViaBirdEffect = Effect.fn(
+	"bird.listAuthoredTweets",
+)(function* ({
+	username,
+	maxResults,
+	paginationToken,
+	sinceId,
+	untilId,
+}: {
+	username: string;
+	maxResults: number;
+	paginationToken?: string;
+	sinceId?: string;
+	untilId?: string;
+}) {
+	if (!/^[a-zA-Z0-9_]+$/.test(username))
+		throw new Error("Invalid authored username");
+	for (const id of [sinceId, untilId]) {
+		if (id !== undefined && !/^[0-9]+$/.test(id))
+			throw new Error("Bird authored bounds must be numeric tweet IDs");
+	}
+	const query = [
+		`from:${username}`,
+		"include:nativeretweets",
+		...(sinceId ? [`since_id:${sinceId}`] : []),
+		...(untilId ? [`max_id:${String(BigInt(untilId) - 1n)}`] : []),
+	].join(" ");
+	const args = [
+		"search",
+		query,
+		"-n",
+		String(maxResults),
+		"--all",
+		"--max-pages",
+		"1",
+	];
+	if (paginationToken) args.push("--cursor", paginationToken);
+	const stdout = yield* runBirdTweetJsonCommandEffect(args);
+	return yield* normalizeBirdTweetsPayloadEffect(
+		yield* parseBirdJsonEffect(stdout),
+		"search",
+	);
+});
 
 export const lookupTweetsByIdsViaBirdEffect = Effect.fn(
 	"bird.lookupTweetsByIds",

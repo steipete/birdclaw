@@ -11,7 +11,7 @@ still update profile identity, metadata, and history normally.
 
 `birdclaw sync` mirrors the live Twitter surfaces you actually use into the local SQLite store. Every sync command:
 
-- pulls from the best live transport for the surface; authored sync uses `xurl`, follow graph sync prefers `bird`, and likes/bookmarks still try `xurl` before `bird`
+- pulls from the best live transport for the surface; authored sync supports `xurl` and `bird`, follow graph sync prefers `bird`, and likes/bookmarks still try `xurl` before `bird`
 - writes into the same canonical tables that archive import uses
 - refreshes the FTS5 index incrementally
 - saves cursors so the next run resumes where the last one stopped
@@ -42,11 +42,11 @@ Most `sync *` commands accept:
 - `--dry-run` — read but do not write
 - `--json` — stable machine-readable output
 
-`sync authored` is intentionally narrower: `--mode xurl`, `--limit`, `--max-pages`, `--since-id`, `--until-id`, `--account`, and `--json`.
+`sync authored` is intentionally narrower: `--mode auto|bird|xurl`, `--limit`, `--max-pages`, `--since-id`, `--until-id`, `--account`, and `--json`.
 
 ## sync authored
 
-Mirror the authenticated user's authored timeline through `xurl`. Retweets are included and stored with their X `referenced_tweets` marker intact. The command resumes from a stored `since_id`; it does not audit old rows or detect deletes.
+Mirror the authenticated user's authored posts through `xurl` or Bird search (`from:<handle> include:nativeretweets`, including replies). Auto mode tries xurl first and falls back to Bird. Retweets are included and stored with their X `referenced_tweets` marker intact. The command resumes from a stored `since_id`; it does not audit old rows or detect deletes.
 
 On a first run with no authored cursor, Birdclaw seeds `since_id` from the newest local archive-backed tweet authored by that account when one exists. Fresh installs with no local baseline full-scan from X and print a stderr cost hint. Pass `--since-id <id>` to override the archive seed deliberately.
 
@@ -54,6 +54,16 @@ On a first run with no authored cursor, Birdclaw seeds `since_id` from the newes
 birdclaw sync authored --mode xurl --limit 100 --json
 birdclaw sync authored --account acct_primary --mode xurl --limit 100 --json
 ```
+
+```bash
+birdclaw sync authored --mode bird --max-pages 5 --json
+```
+
+Bird uses X's retrievable search window, which can be less complete than the API
+user timeline. Each Bird invocation fetches one search page (Bird controls its page
+size); `--max-pages` bounds the number of invocations. Both transports keep separate,
+account-scoped continuation cursors and only advance `since_id` after the scan
+completes. `--until-id` backfills leave the forward watermark unchanged.
 
 Authored tweets land in the canonical `tweets` table and get an `authored` account edge, so shared tweets can also remain home, mention, liked, or bookmarked rows for the same or another account.
 

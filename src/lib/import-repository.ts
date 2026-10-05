@@ -36,11 +36,14 @@ export class ImportRepository {
 			this.db
 				.prepare("delete from sync_cache where cache_key = ?")
 				.run(`authored:xurl:${accountId}:cursor`);
+			this.db
+				.prepare("delete from sync_cache where cache_key = ?")
+				.run(`authored:bird:${accountId}:cursor`);
 			return;
 		}
 		this.db
 			.prepare(
-				"delete from sync_cache where cache_key like 'authored:xurl:%:cursor'",
+				"delete from sync_cache where (cache_key like 'authored:xurl:%:cursor' or cache_key like 'authored:bird:%:cursor')",
 			)
 			.run();
 	}

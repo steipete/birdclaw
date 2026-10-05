@@ -80,6 +80,33 @@ describe("bird transport", () => {
 		rmSync(tempDir, { recursive: true, force: true });
 	});
 
+	it("passes authored search bounds and preserves the Bird continuation cursor", async () => {
+		process.env.BIRDCLAW_BIRD_COMMAND = "/tmp/bird";
+		mockBirdStdoutOnce(JSON.stringify({ tweets: [], nextCursor: "bird-next" }));
+		const result = await runBirdEffect((bird) =>
+			bird.listAuthoredTweetsViaBirdEffect({
+				username: "steipete",
+				maxResults: 100,
+				sinceId: "123",
+				untilId: "456",
+				paginationToken: "bird-prev",
+			}),
+		);
+		expect(result.meta?.next_token).toBe("bird-next");
+		expectBirdCommandCall(1, [
+			"search",
+			"from:steipete include:nativeretweets since_id:123 max_id:455",
+			"-n",
+			"100",
+			"--all",
+			"--max-pages",
+			"1",
+			"--cursor",
+			"bird-prev",
+			"--json-full",
+		]);
+	});
+
 	it("uses /bin/bash for the bird stdout redirect wrapper on POSIX systems", async () => {
 		const { __test__ } = await import("./bird");
 
