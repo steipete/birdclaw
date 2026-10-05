@@ -278,7 +278,10 @@ export function syncMentionsEffect({
 		const parsedMode = yield* trySync(() => parseSyncMode(mode));
 		const primaryMode: MentionLiveSource =
 			parsedMode === "auto"
-				? intent === "resume" || sinceId?.trim() || startTime?.trim()
+				? intent === "resume" ||
+					maxPages !== undefined ||
+					sinceId?.trim() ||
+					startTime?.trim()
 					? "xurl"
 					: getAutoTransportOrder()[0]
 				: parsedMode;
@@ -605,15 +608,19 @@ function exportMentionsViaCachedLiveSourceEffect({
 	cacheTtlMs,
 }: ExportMentionsViaCachedLiveSourceOptions) {
 	return Effect.gen(function* () {
+		const parsedMaxPages =
+			(yield* trySync(() => parseOptionalMaxPages(maxPages))) ?? null;
 		const primaryMode: MentionLiveSource =
-			mode === "auto" ? getAutoTransportOrder()[0] : mode;
+			mode === "auto"
+				? all || parsedMaxPages !== null
+					? "xurl"
+					: getAutoTransportOrder()[0]
+				: mode;
 		if (primaryMode === "xurl") {
 			yield* trySync(() => assertXurlLimit(limit));
 		} else {
 			yield* trySync(() => assertBirdLimit(limit));
 		}
-		const parsedMaxPages =
-			(yield* trySync(() => parseOptionalMaxPages(maxPages))) ?? null;
 		const fetchAll = primaryMode === "xurl" && (all || parsedMaxPages !== null);
 
 		const db = yield* trySync(() => getNativeDb());

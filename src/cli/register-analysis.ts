@@ -1,5 +1,6 @@
 import { CliInputError } from "./numeric-options";
 import type { CliCommandContext } from "./command-context";
+import { defaultLiveSyncMode } from "#/lib/config";
 import { defaultDigestLiveSyncMode } from "#/lib/digest-live-mode";
 import {
 	normalizeDigestLanguage,
@@ -147,7 +148,9 @@ export function registerAnalysisCommands({
 	}
 
 	function parseTweetSearchMode(value: string | undefined) {
-		const normalized = (value ?? "auto").trim().toLowerCase();
+		const normalized = (value ?? defaultLiveSyncMode("xurl"))
+			.trim()
+			.toLowerCase();
 		if (
 			normalized === "auto" ||
 			normalized === "bird" ||
@@ -325,7 +328,7 @@ export function registerAnalysisCommands({
 			"all, search, home, mentions, authored, likes, or bookmarks",
 			"search",
 		)
-		.option("--mode <mode>", "auto, bird, xurl, or local", "auto")
+		.option("--mode <mode>", "auto, bird, xurl, or local")
 		.option("--include-dms", "Include private DM search matches")
 		.option(
 			"--since <isoDate>",

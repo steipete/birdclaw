@@ -18,6 +18,7 @@ import {
 	trySync,
 } from "./effect-runtime";
 import { getNativeDb } from "./db";
+import { defaultLiveSyncMode } from "./config";
 import { listDmConversations } from "./dm-read-model";
 import { parseJsonField } from "./query-read-model-shared";
 import { listTimelineItems } from "./timeline-read-model";
@@ -560,7 +561,7 @@ export function streamSearchDiscussionEffect(
 	handlers: SearchDiscussionStreamHandlers = {},
 ): Effect.Effect<SearchDiscussionRunResult, Error> {
 	return Effect.gen(function* () {
-		const mode = options.mode ?? "auto";
+		const mode = options.mode ?? defaultLiveSyncMode("xurl");
 		const liveSearch =
 			mode === "local"
 				? undefined

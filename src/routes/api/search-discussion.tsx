@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Effect } from "effect";
+import { defaultLiveSyncMode } from "#/lib/config";
 import { searchDiscussionStreamEventSchema } from "#/lib/client-stream-contracts";
 import { requestBackupAutoUpdate } from "#/lib/backup";
 import {
@@ -47,7 +48,7 @@ function parseMode(value: string | null): TweetSearchMode {
 	) {
 		return value;
 	}
-	return "auto";
+	return defaultLiveSyncMode("xurl");
 }
 
 function parseOptions(url: URL): SearchDiscussionOptions {

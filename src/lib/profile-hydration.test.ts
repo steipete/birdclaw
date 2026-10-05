@@ -74,6 +74,10 @@ describe("profile hydration", () => {
 
 	it("hydrates placeholders through Bird when globally preferred", async () => {
 		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+		});
 		const db = getNativeDb();
 		db.prepare(
 			"insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at) values ('profile_user_4567', 'id4567', 'id4567', 'Imported from archive user 4567', 0, 210, '2020-01-01T00:00:00.000Z')",
@@ -94,6 +98,61 @@ describe("profile hydration", () => {
 				.prepare("select handle from profiles where id = 'profile_user_4567'")
 				.get(),
 		).toEqual({ handle: "bird_profile" });
+	});
+
+	it("falls back to xurl account hydration when preferred Bird is unavailable", async () => {
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		const db = getNativeDb();
+		mocks.getTransportStatus.mockResolvedValue({
+			installed: true,
+			availableTransport: "xurl",
+			statusText: "xurl available",
+		});
+		mocks.lookupUsersByIds.mockResolvedValue([]);
+		mocks.lookupAuthenticatedUser.mockResolvedValue({
+			id: "25401953",
+			username: "steipete",
+			name: "Hydrated via xurl",
+		});
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({ account: "acct_primary" }),
+		).resolves.toMatchObject({
+			hydratedAccount: true,
+		});
+		expect(mocks.getAuthenticatedBirdAccount).toHaveBeenCalledTimes(1);
+		expect(mocks.lookupAuthenticatedUser).toHaveBeenCalled();
+		expect(
+			db
+				.prepare(
+					"select name, transport from accounts where id = 'acct_primary'",
+				)
+				.get(),
+		).toEqual({
+			name: "Hydrated via xurl",
+			transport: "xurl",
+		});
+	});
+
+	it("rejects a preferred Bird identity mismatch before attempting xurl hydration", async () => {
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		const db = getNativeDb();
+		const before = db
+			.prepare("select * from accounts where id = 'acct_primary'")
+			.get();
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "999",
+			username: "other_account",
+		});
+		const { hydrateProfilesFromX } = await import("./profile-hydration");
+		await expect(
+			hydrateProfilesFromX({ account: "acct_primary" }),
+		).rejects.toThrow("refusing to sync");
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.lookupAuthenticatedUser).not.toHaveBeenCalled();
+		expect(
+			db.prepare("select * from accounts where id = 'acct_primary'").get(),
+		).toEqual(before);
 	});
 
 	it("builds profile hydration effects lazily", async () => {

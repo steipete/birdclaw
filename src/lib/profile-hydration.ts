@@ -223,15 +223,17 @@ export function hydrateProfilesFromXEffect({
 	return Effect.gen(function* () {
 		if (getPreferredTransport() === "bird") {
 			const hydratedAccount = yield* hydrateAccountFromBirdEffect(account);
-			const profiles = yield* resolvePlaceholderProfilesEffect({
-				limit: -1,
-				refresh: true,
-			});
-			return {
-				ok: true,
-				hydratedProfiles: profiles.hydratedProfiles,
-				hydratedAccount,
-			};
+			if (hydratedAccount) {
+				const profiles = yield* resolvePlaceholderProfilesEffect({
+					limit: -1,
+					refresh: true,
+				});
+				return {
+					ok: true,
+					hydratedProfiles: profiles.hydratedProfiles,
+					hydratedAccount,
+				};
+			}
 		}
 
 		const transport = yield* getTransportStatusEffect();

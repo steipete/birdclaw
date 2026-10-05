@@ -138,6 +138,54 @@ describe("cached live mentions", () => {
 		).resolves.toMatchObject({ source: "xurl" });
 	});
 
+	it.each([{ all: true }, { maxPages: 2 }])(
+		"keeps auto mention export pagination on xurl despite Bird preference: %j",
+		async (pagination) => {
+			makeTempHome();
+			process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+			const page = (id: string, next?: string) => ({
+				data: [
+					{
+						id,
+						author_id: "42",
+						text: id,
+						created_at: "2026-10-01T00:00:00.000Z",
+					},
+				],
+				meta: next ? { next_token: next } : {},
+			});
+			listMentionsViaXurlMock
+				.mockResolvedValueOnce(page("700", "page-2"))
+				.mockResolvedValueOnce(page("699"));
+			const { exportMentionsViaCachedAuto } = await import("./mentions-live");
+			const result = await exportMentionsViaCachedAuto({
+				...pagination,
+				limit: 5,
+				refresh: true,
+			});
+			expect(result.data.map((tweet) => tweet.id)).toEqual(["700", "699"]);
+			expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(2);
+			expect(listMentionsViaXurlMock).toHaveBeenLastCalledWith(
+				expect.objectContaining({ paginationToken: "page-2" }),
+			);
+			expect(listMentionsViaBirdMock).not.toHaveBeenCalled();
+		},
+	);
+
+	it("uses paged xurl mention sync when Bird is preferred and maxPages is supplied", async () => {
+		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce({ data: [], meta: { next_token: "page-2" } })
+			.mockResolvedValueOnce({ data: [], meta: {} });
+		const { syncMentions } = await import("./mentions-live");
+		await expect(
+			syncMentions({ mode: "auto", limit: 5, maxPages: 2, refresh: true }),
+		).resolves.toMatchObject({ source: "xurl", partial: false });
+		expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(2);
+		expect(listMentionsViaBirdMock).not.toHaveBeenCalled();
+	});
+
 	it("fetches new heads while preserving and draining every saved continuation", async () => {
 		makeTempHome();
 		insertLocalMentionBaseline();
@@ -461,6 +509,7 @@ describe("cached live mentions", () => {
 
 	it("does not use one-page bird fallback for paged auto mention exports", async () => {
 		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
 		listMentionsViaXurlMock.mockRejectedValueOnce(new Error("xurl down"));
 		const { exportMentionsViaCachedAuto } = await import("./mentions-live");
 

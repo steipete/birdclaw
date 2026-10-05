@@ -28,10 +28,19 @@ export async function smokeWithoutBird({ directory, runCli }) {
 	};
 	let commands = 0;
 	const run = async (args) => {
-		const { stdout } = await runCli(["--json", ...args], env);
+		let stdout;
+		try {
+			({ stdout } = await runCli(["--json", ...args], env));
+		} catch (error) {
+			if (error.code !== 5 || !JSON.parse(error.stdout).partial) throw error;
+			stdout = error.stdout;
+		}
 		commands++;
 		const result = JSON.parse(stdout);
-		assert.notEqual(result?.ok, false, `${args.join(" ")}: ${stdout}`);
+		assert.ok(
+			result?.ok !== false || result?.partial === true,
+			`${args.join(" ")}: ${stdout}`,
+		);
 		return result;
 	};
 	await run(["init", "--demo"]);
@@ -109,6 +118,75 @@ export async function smokeWithoutBird({ directory, runCli }) {
 		["compose", "dm", "dm_001", "synthetic DM"],
 	])
 		await run(args);
+	env.BIRDLESS_PAGINATE_AUTHORED = "1";
+	const pendingAuthored = await run([
+		"sync",
+		"authored",
+		"--mode",
+		"xurl",
+		"--limit",
+		"5",
+		"--max-pages",
+		"1",
+	]);
+	assert.equal(pendingAuthored.partial, true);
+	const configPath = path.join(home, "config.json");
+	const existingConfig = JSON.parse(await readFile(configPath, "utf8"));
+	for (const preferred of ["bird", "xurl", "auto", "bird"]) {
+		await run(["auth", "prefer", preferred]);
+		const config = JSON.parse(await readFile(configPath, "utf8"));
+		assert.equal(
+			config.transport?.preferred,
+			preferred === "auto" ? undefined : preferred,
+		);
+		assert.deepEqual(config.actions, existingConfig.actions);
+	}
+	const resumedAuthored = await run([
+		"sync",
+		"authored",
+		"--mode",
+		"auto",
+		"--limit",
+		"5",
+		"--max-pages",
+		"1",
+	]);
+	assert.equal(resumedAuthored.source, "xurl");
+	assert.equal(resumedAuthored.partial, false);
+	delete env.BIRDLESS_PAGINATE_AUTHORED;
+	const fallback = await run([
+		"sync",
+		"timeline",
+		"--mode",
+		"auto",
+		"--limit",
+		"1",
+		"--refresh",
+	]);
+	assert.equal(fallback.source, "xurl");
+	const hydration = await run([
+		"import",
+		"hydrate-profiles",
+		"--account",
+		"acct_primary",
+	]);
+	assert.equal(hydration.hydratedAccount, true);
+	env.BIRDLESS_PAGINATE_MENTIONS = "1";
+	for (const pagination of [["--all"], ["--max-pages", "2"]]) {
+		const exported = await run([
+			"mentions",
+			"export",
+			"--mode",
+			"auto",
+			"--limit",
+			"5",
+			"--refresh",
+			...pagination,
+		]);
+		assert.equal(exported.data.length, 2);
+		assert.equal(exported.meta.page_count, 2);
+	}
+	delete env.BIRDLESS_PAGINATE_MENTIONS;
 	await run(["auth", "use", "auto"]);
 	for (const action of ["ban", "unban", "mute", "unmute"]) {
 		const result = await run([action, "@birdlessfixture"]);
@@ -118,12 +196,26 @@ export async function smokeWithoutBird({ directory, runCli }) {
 		.trim()
 		.split("\n")
 		.map(JSON.parse);
+	assert.ok(
+		requests.some((args) =>
+			args.some((arg) => arg.includes("pagination_token=authored-page-2")),
+		),
+	);
 	assert.equal(
 		requests.filter((args) => args.includes("POST") || args.includes("DELETE"))
 			.length,
 		4,
 	);
-	return { commands, xurlInvocations: requests.length, birdInstalled: false };
+	return {
+		commands,
+		xurlInvocations: requests.length,
+		birdInstalled: false,
+		preferredBirdFallback: fallback.source,
+		preferredBirdAccountHydrated: hydration.hydratedAccount,
+		preferredBirdPagedMentionExport: { all: 2, maxPages: 2 },
+		preferenceRoundTripPreservesActions: true,
+		xurlAuthoredContinuationSurvivesPreferenceChanges: true,
+	};
 }
 
 const fixture = String.raw`
@@ -156,6 +248,14 @@ if(url.pathname==="/2/dm_events"){
  out({data:[{id:user.id==="888"?"2000000000000000101":"2000000000000000100",event_type:"MessageCreate",dm_conversation_id:user.id+"-777",sender_id:"777",participant_ids:[user.id,"777"],text:"birdless fixture message",created_at:new Date().toISOString()}],includes:{users:[user,other]},meta:{result_count:1}});process.exit(0);
 }
 const tweet={id:"2000000000000000001",author_id:"777",text:"birdless fixture tweet",created_at:new Date().toISOString(),conversation_id:"2000000000000000001",entities:{}};
+if(/^\/2\/users\/\d+\/tweets$/.test(url.pathname)&&process.env.BIRDLESS_PAGINATE_AUTHORED==="1"){
+ const second=url.searchParams.get("pagination_token")==="authored-page-2";
+ out({data:[{...tweet,id:second?"2000000000000000002":tweet.id}],includes:{users:[other]},meta:{result_count:1,...(second?{}:{next_token:"authored-page-2"})}});process.exit(0);
+}
+if(url.pathname.endsWith("/mentions")&&process.env.BIRDLESS_PAGINATE_MENTIONS==="1"){
+ const second=url.searchParams.get("pagination_token")==="mention-page-2";
+ out({data:[{...tweet,id:second?"2000000000000000002":tweet.id}],includes:{users:[other]},meta:{result_count:1,...(second?{}:{next_token:"mention-page-2"})}});process.exit(0);
+}
 if(url.pathname.includes("/tweets")||url.pathname.endsWith("/mentions")||url.pathname.endsWith("/liked_tweets")||url.pathname.endsWith("/bookmarks")||url.pathname.endsWith("/reverse_chronological")){
  const single=/^\/2\/tweets\/\d+$/.test(url.pathname);
  out({data:single?tweet:[tweet],includes:{users:[other]},meta:{result_count:1,newest_id:tweet.id}});process.exit(0);
