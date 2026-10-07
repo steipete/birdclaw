@@ -2,6 +2,8 @@
 
 ## 0.15.1 - Unreleased
 
+- Add resumable Bird authored sync and a saved automatic transport preference while preserving explicit modes, account checks, and transport-specific cursors. (#231 — thanks @transitive-bullshit)
+
 ## 0.15.0 - 2026-09-22
 
 **Highlights:** Search local tweets by author and keep archive imports safe from malformed data and split UTF-8 text.
