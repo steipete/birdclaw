@@ -3,6 +3,7 @@
 ## 0.15.1 - Unreleased
 
 - Add resumable Bird authored sync and a saved automatic transport preference while preserving explicit modes, account checks, and transport-specific cursors. (#231 — thanks @transitive-bullshit)
+- Update compatible runtime, build, and test dependencies while retaining the pinned Bun toolchain, Node runtime floor, and jsdom compatibility pin.
 
 ## 0.15.0 - 2026-09-22
 
