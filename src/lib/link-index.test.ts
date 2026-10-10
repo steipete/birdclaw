@@ -353,6 +353,62 @@ describe("link index", () => {
 		expect(fetchImpl).toHaveBeenCalledTimes(1);
 	});
 
+	it("repairs unresolved hits in both persistence layers during normal backfill", async () => {
+		const db = insertAccountFixture();
+		insertDmConversation(db);
+		insertDmMessage(db, { id: "bad_hit", text: "https://t.co/old-hit" });
+		const { writeSyncCache } = await import("./sync-cache");
+		const { __test__ } = await import("./url-expansion");
+		const { normalizeUrlExpansionForIndex, upsertUrlExpansion } =
+			await import("./url-expansion-store");
+		const value = {
+			expandedUrl: "https://t.co/old-hit",
+			finalUrl: "https://t.co/old-hit",
+			status: "hit" as const,
+		};
+		const updatedAt = writeSyncCache(
+			__test__.cacheKeyForUrl("https://t.co/old-hit"),
+			value,
+		);
+		upsertUrlExpansion(
+			db,
+			normalizeUrlExpansionForIndex({
+				url: "https://t.co/old-hit",
+				...value,
+				source: "network",
+				updatedAt,
+			}),
+		);
+		const fetchImpl = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			url: "https://x.com/example/status/123456",
+		} as Response);
+		const { backfillLinkIndex } = await import("./link-index");
+		await expect(
+			backfillLinkIndex({ fetchImpl, source: "dm" }),
+		).resolves.toMatchObject({
+			networkExpansions: 1,
+			cacheExpansions: 0,
+			remainingUnexpanded: 0,
+		});
+		expect(
+			db
+				.prepare(
+					"select status, final_url, expanded_tweet_id from url_expansions where short_url = ?",
+				)
+				.get("https://t.co/old-hit"),
+		).toEqual({
+			status: "hit",
+			final_url: "https://x.com/example/status/123456",
+			expanded_tweet_id: "123456",
+		});
+		await expect(
+			backfillLinkIndex({ fetchImpl, source: "dm" }),
+		).resolves.toMatchObject({ networkExpansions: 0 });
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+	});
+
 	it("retries failed expansion rows on normal backfills", async () => {
 		const db = insertAccountFixture();
 		insertDmConversation(db);

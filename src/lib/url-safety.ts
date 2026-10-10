@@ -1,3 +1,12 @@
+export function isTcoUrl(url: string) {
+	try {
+		const host = new URL(url).hostname.toLowerCase();
+		return host === "t.co" || host.endsWith(".t.co");
+	} catch {
+		return false;
+	}
+}
+
 const PRIVATE_IPV4_RANGES = [
 	["0.0.0.0", 8],
 	["10.0.0.0", 8],

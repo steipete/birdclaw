@@ -2,6 +2,7 @@
 
 ## 0.15.1 - Unreleased
 
+- Resolve `t.co` HTTP redirects, retry old false expansion hits during normal link backfill, and trim parenthesized text after short links. (#233 — thanks @mihailmariusiondev)
 - Add resumable Bird authored sync and a saved automatic transport preference while preserving explicit modes, account checks, and transport-specific cursors. (#231 — thanks @transitive-bullshit)
 - Update compatible runtime, build, and test dependencies while retaining the pinned Bun toolchain, Node runtime floor, and jsdom compatibility pin.
 

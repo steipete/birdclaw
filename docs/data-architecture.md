@@ -1,5 +1,13 @@
 # Data And Architecture
 
+## Short-link expansion
+
+`birdclaw links backfill` indexes shared URLs and resolves missing or failed destinations. It requests HTTP redirects from `t.co` while preserving public-address validation at every hop. A destination still on `t.co` is unresolved even when the response is HTTP 200.
+
+Run ordinary `birdclaw links backfill` to repair older unresolved `t.co` rows incorrectly marked as hits; it also bypasses their stale success-cache entries. Valid entity-provided and resolved destinations stay cached. Use `--refresh-url-cache` only when intentionally refreshing all selected links.
+
+## Search storage
+
 Search persistence lives in `search-index.ts`. The derived `search_rows` table maps each canonical tweet or DM ID to an indexed integer FTS row ID. Its `INTEGER PRIMARY KEY` survives `VACUUM` and changes to canonical tables' implicit rowids. Inserts, updates, retention cleanup, and preview removal use indexed lookups instead of scanning the archive for unindexed string IDs. Small updates skip unchanged text; batches of at least 4,096 IDs replace the selected documents without probing each old FTS body. Processing retains at most 4,096 document rows at a time and finishes their reads before deleting and inserting index entries. JSON-bound bulk insertion preserves ascending FTS row order.
 
 Live sync, replies, archive imports, and backup merges share this writer. Each caller finishes its canonical merge before refreshing the touched search entries within the same transaction. Primary tweet payloads, richer Note Tweet content, deletion state, and repeated DM IDs therefore determine the final indexed text. Failed indexing rolls back the canonical batch. Full backup replacement clears the derived mapping; portable backups continue to store canonical records only.

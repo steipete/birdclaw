@@ -5,6 +5,7 @@ import { getNativeDb } from "./db";
 import { runEffectPromise, tryPromise } from "./effect-runtime";
 import { nullableProfileFromDbRow } from "./profile-row";
 import type { Database } from "./sqlite";
+import { isTcoUrl } from "./url-safety";
 import {
 	normalizeUrlExpansionForIndex,
 	upsertUrlExpansion,
@@ -24,6 +25,13 @@ import type {
 } from "./types";
 
 const DEFAULT_EXPAND_CONCURRENCY = 12;
+
+// Extract the authority before matching so destination paths containing t.co stay resolved.
+const FINAL_URL_REMAINDER_SQL =
+	"substr(e.final_url, instr(e.final_url, '://') + 3)";
+const FINAL_URL_AUTHORITY_SQL = `lower(substr(${FINAL_URL_REMAINDER_SQL}, 1, instr(${FINAL_URL_REMAINDER_SQL} || '/', '/') - 1))`;
+const FINAL_URL_HOST_SQL = `substr(${FINAL_URL_AUTHORITY_SQL}, 1, instr(${FINAL_URL_AUTHORITY_SQL} || ':', ':') - 1)`;
+const NEEDS_EXPANSION_SQL = `(e.short_url is null or e.status in ('error', 'miss') or ${FINAL_URL_HOST_SQL} = 't.co' or ${FINAL_URL_HOST_SQL} glob '*.t.co')`;
 
 interface TweetUrlEntityLike {
 	url?: unknown;
@@ -83,12 +91,7 @@ function isIndexedUrl(url: string, includeAllUrls: boolean) {
 		return true;
 	}
 
-	try {
-		const host = new URL(url).hostname.toLowerCase();
-		return host === "t.co" || host.endsWith(".t.co");
-	} catch {
-		return false;
-	}
+	return isTcoUrl(url);
 }
 
 function toTweetEntityUrls(entitiesJson: string): SourceUrl[] {
@@ -318,7 +321,7 @@ export function backfillLinkIndexEffect(
 				: undefined;
 		const needsExpansionClause = options.refresh
 			? "1 = 1"
-			: "(e.short_url is null or e.status in ('error', 'miss'))";
+			: NEEDS_EXPANSION_SQL;
 
 		const urlsToExpand = db
 			.prepare(`
@@ -355,7 +358,7 @@ export function backfillLinkIndexEffect(
     select count(distinct o.short_url) as count
     from link_occurrences o
     left join url_expansions e on e.short_url = o.short_url
-    where (e.short_url is null or e.status in ('error', 'miss'))
+    where ${NEEDS_EXPANSION_SQL}
       ${options.source ? "and o.source_kind = ?" : ""}
   `)
 			.get(...(options.source ? [options.source] : [])) as { count: number };

@@ -36,6 +36,9 @@ describe("URL expansion cache", () => {
 		expect(
 			extractUrls("See https://t.co/uEKD3k4vep, and https://example.com/x."),
 		).toEqual(["https://t.co/uEKD3k4vep", "https://example.com/x"]);
+		expect(extractUrls("https://t.co/Drt7bgAjGC(GLM5.1")).toEqual([
+			"https://t.co/Drt7bgAjGC",
+		]);
 
 		await expect(
 			expandUrlsFromTexts(["See https://t.co/uEKD3k4vep"], {
@@ -72,6 +75,26 @@ describe("URL expansion cache", () => {
 			final_url: "https://docs.blacksmith.sh/blacksmith-testbox/overview",
 		});
 	});
+
+	it.each([false, true])(
+		"does not treat unresolved t.co HTTP 200 responses as hits (resolved DNS: %s)",
+		async (resolvedDns) => {
+			const fetchImpl = vi
+				.fn()
+				.mockImplementation((url: string) =>
+					Promise.resolve({ ok: true, status: 200, url } as Response),
+				);
+			const { expandUrls } = await import("./url-expansion");
+			const result = await expandUrls(["https://t.co/unresolved"], {
+				fetchImpl,
+				...(resolvedDns ? { resolveHost: async () => ["93.184.216.34"] } : {}),
+			});
+			expect(result[0]).toMatchObject({
+				status: "miss",
+				finalUrl: "https://t.co/unresolved",
+			});
+		},
+	);
 
 	it("falls back from HEAD to GET and caches misses", async () => {
 		const fetchImpl = vi
@@ -372,5 +395,11 @@ describe("URL expansion cache", () => {
 			"HEAD",
 			"HEAD",
 		]);
+		expect(
+			new Headers(fetchImpl.mock.calls[0]?.[1]?.headers).get("user-agent"),
+		).toBe("birdclaw/0.3 url-expander");
+		expect(
+			new Headers(fetchImpl.mock.calls[1]?.[1]?.headers).get("user-agent"),
+		).toContain("Mozilla/5.0");
 	});
 });

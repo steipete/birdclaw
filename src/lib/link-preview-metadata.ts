@@ -14,6 +14,7 @@ import {
 	__test__ as urlSafetyTest,
 	assertSafePreviewUrl,
 	isBlockedAddress,
+	isTcoUrl,
 } from "./url-safety";
 import {
 	normalizeUrlExpansionForIndex,
@@ -422,11 +423,15 @@ export const safePreviewFetchEffect = Effect.fn("linkPreview.safePreviewFetch")(
 				return yield* Effect.fail(new Error("Link preview request timed out"));
 			}
 
+			// t.co serves HTML redirects to browsers; request its HTTP redirect instead.
+			const requestHeaders = isTcoUrl(currentUrl)
+				? { ...headers, "user-agent": "birdclaw/0.3 url-expander" }
+				: headers;
 			const response = options.fetchImpl
 				? yield* tryPromise(
 						() =>
 							options.fetchImpl?.(parsed.toString(), {
-								headers,
+								headers: requestHeaders,
 								method,
 								redirect: "manual",
 								signal: AbortSignal.timeout(remainingTimeoutMs()),
@@ -445,7 +450,7 @@ export const safePreviewFetchEffect = Effect.fn("linkPreview.safePreviewFetch")(
 							tryPromise(() =>
 								nodeSafeFetch(parsed, {
 									addresses,
-									headers,
+									headers: requestHeaders,
 									method,
 									timeoutMs: remainingTimeoutMs(),
 								}),
