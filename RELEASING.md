@@ -19,3 +19,5 @@ SHA-1/SHA-256 sidecars and SHA256SUMS. The explicit Homebrew handoff runs only
 after npm and GitHub publication, using `HOMEBREW_TAP_TOKEN`.
 
 The release uses the repository-pinned Bun canary and verifies the installed package under both Bun and Node before packing the final artifact.
+
+Live publication requires branch protection on main. Rehearsals may run from the current main commit while protection is being configured; they still require exact-commit push CI and cannot publish.
