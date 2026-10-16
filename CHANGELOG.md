@@ -2,6 +2,8 @@
 
 ## 0.16.1 - Unreleased
 
+- Update TanStack Router/Start and Lucide while retaining the pinned Bun toolchain, Node runtime floor, and jsdom compatibility pin.
+
 ## 0.16.0 - 2026-10-16
 
 **Highlights:** Resume authored sync with Bird, save your automatic transport preference, and recover more shortened links.
