@@ -1,11 +1,15 @@
 # CHANGELOG
 
-## 0.15.1 - Unreleased
+## 0.16.1 - Unreleased
 
+## 0.16.0 - 2026-10-16
+
+**Highlights:** Resume authored sync with Bird, save your automatic transport preference, and recover more shortened links.
+
+- Add resumable Bird authored sync and a saved automatic transport preference while preserving explicit modes, account checks, and transport-specific cursors. (#231 — thanks @transitive-bullshit)
+- Resolve `t.co` HTTP redirects, retry old false expansion hits during normal link backfill, and trim parenthesized text after short links. (#233 — thanks @mihailmariusiondev)
 - Refresh React, TanStack, Mapbox, Zod, and test/lint dependencies while preserving the pinned Bun toolchain, Node runtime floor, and jsdom compatibility pin.
 - Refresh TanStack Router/Start, Lucide, Playwright, Vite, and Node types; retain the tested Bun toolchain and jsdom compatibility pin.
-- Resolve `t.co` HTTP redirects, retry old false expansion hits during normal link backfill, and trim parenthesized text after short links. (#233 — thanks @mihailmariusiondev)
-- Add resumable Bird authored sync and a saved automatic transport preference while preserving explicit modes, account checks, and transport-specific cursors. (#231 — thanks @transitive-bullshit)
 - Update compatible runtime, build, and test dependencies while retaining the pinned Bun toolchain, Node runtime floor, and jsdom compatibility pin.
 
 ## 0.15.0 - 2026-09-22
