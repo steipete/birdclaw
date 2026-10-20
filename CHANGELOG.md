@@ -1,6 +1,10 @@
 # CHANGELOG
 
-## 0.16.1 - Unreleased
+## 0.16.2 - Unreleased
+
+## 0.16.1 - 2026-10-20
+
+**Highlights:** Refresh icons and runtime dependencies while preserving the tested Bun, Node, and jsdom compatibility boundaries.
 
 - Update Lucide icons to 1.60.0 while retaining the existing runtime and test-environment compatibility pins.
 - Refresh React Query, Effect 3, Lucide, and formatting/lint tooling while retaining the pinned Bun toolchain and Node runtime floor.
