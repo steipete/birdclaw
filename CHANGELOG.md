@@ -2,6 +2,7 @@
 
 ## 0.16.1 - Unreleased
 
+- Update Lucide icons to 1.60.0 while retaining the existing runtime and test-environment compatibility pins.
 - Refresh React Query, Effect 3, Lucide, and formatting/lint tooling while retaining the pinned Bun toolchain and Node runtime floor.
 - Update TanStack Router/Start and Lucide while retaining the pinned Bun toolchain, Node runtime floor, and jsdom compatibility pin.
 
