@@ -2,6 +2,8 @@
 
 ## 0.16.2 - Unreleased
 
+- Refresh TanStack Router/Start, Effect 3, Lucide, and Vite while preserving the pinned Bun toolchain, Node runtime floor, and jsdom compatibility pin.
+
 ## 0.16.1 - 2026-10-20
 
 **Highlights:** Refresh icons and runtime dependencies while preserving the tested Bun, Node, and jsdom compatibility boundaries.
