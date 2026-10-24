@@ -97,6 +97,8 @@ Git operations are rooted at the configured `repoPath`. If that directory sits i
 
 This is what makes birdclaw safe across multiple machines: each machine can sync independently, and the merge step preserves rows that only one side has.
 
+Validation ignores regular files named exactly `.DS_Store` anywhere under `data/`, and Git staging excludes them from backup commits. Other unexpected files, directories, and symlinks (including symlinks named `.DS_Store`) still fail validation.
+
 ### Note Tweet compatibility
 
 Note Tweets keep their complete text and matching entities in the existing schema-8 tweet fields. New exports add an optional `note_tweet_json` field so current readers can preserve the full body when a later live payload contains only a preview. The backup schema stays at 8: existing readers can still validate and import these backups.
@@ -112,6 +114,8 @@ birdclaw backup import ~/Projects/birdclaw-store --json
 ```
 
 Validates the backup first (unless `--no-validate`), then merge-imports rows into local SQLite. Local-only rows are preserved by default.
+
+Merge-import folds legacy profile rows with proven numeric X identities into their canonical profiles after importing all references. Current canonical handles and mutable state are preserved unless matching imported profile snapshots establish a newer state; unproven legacy rows remain separate and receive reserved handles when necessary to avoid collisions.
 
 `--restore` restores exactly from backup and **deletes local portable rows first**. Use it when you want a known-clean state from the backup, e.g. on a new machine. The older `--replace` spelling remains as a deprecated alias.
 

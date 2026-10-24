@@ -2,6 +2,9 @@
 
 ## 0.16.3 - Unreleased
 
+- Fix backup sync failing on legacy profile rows whose handles moved to canonical profiles; fold proven identities and their references into the canonical rows during merge-import.
+- Ignore regular macOS `.DS_Store` metadata in backup data validation and exclude it from backup commits while retaining strict checks for other unexpected content and symlinks.
+
 ## 0.16.2 - 2026-10-23
 
 **Highlights:** Refresh runtime dependencies while retaining the tested Bun, Node, and jsdom compatibility boundaries.

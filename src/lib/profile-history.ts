@@ -62,6 +62,7 @@ export function recordProfileSnapshot(
 	db: Database,
 	profileId: string,
 	source = "x_profile",
+	observedAt = new Date().toISOString(),
 ) {
 	const profile = db
 		.prepare(
@@ -97,7 +98,6 @@ export function recordProfileSnapshot(
 		})),
 	};
 	const hash = profileSnapshotHash(snapshot);
-	const now = new Date().toISOString();
 
 	db.prepare(
 		`
@@ -107,15 +107,16 @@ export function recordProfileSnapshot(
       following_count, affiliations_json, raw_json
     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     on conflict(profile_id, snapshot_hash) do update set
-      last_seen_at = excluded.last_seen_at,
-      source = excluded.source,
-      raw_json = excluded.raw_json
+      observed_at = min(profile_snapshots.observed_at, excluded.observed_at),
+      last_seen_at = max(profile_snapshots.last_seen_at, excluded.last_seen_at),
+      source = case when excluded.last_seen_at >= profile_snapshots.last_seen_at then excluded.source else profile_snapshots.source end,
+      raw_json = case when excluded.last_seen_at >= profile_snapshots.last_seen_at then excluded.raw_json else profile_snapshots.raw_json end
     `,
 	).run(
 		profileId,
 		hash,
-		now,
-		now,
+		observedAt,
+		observedAt,
 		source,
 		snapshot.handle,
 		snapshot.displayName,

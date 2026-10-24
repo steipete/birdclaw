@@ -46,6 +46,7 @@ interface SelectedAccountIdentity {
 
 export interface BackupLegacyProfileMergePlan {
 	profileId: string;
+	incomingProfileRow: PortableProfileRow;
 	incomingHandle: string;
 	incomingRawJson: string;
 	existingRawJson?: string;
@@ -185,6 +186,20 @@ export function getProvenSelectedAccountLegacyProfileIds(
 	return proven;
 }
 
+function rawJsonWithIdentityConflicts(
+	rawJson: string,
+	externalUserIds: Iterable<string>,
+) {
+	const raw = parseJsonObject(rawJson) ?? {};
+	const conflicts = new Set([
+		...identityConflictIds(rawJson),
+		...externalUserIds,
+	]);
+	if (conflicts.size === 0) return rawJson;
+	raw.birdclaw_identity_conflicts = [...conflicts].sort();
+	return JSON.stringify(raw);
+}
+
 export function markProfileIdentityConflict(
 	db: Database,
 	profileId: string,
@@ -194,12 +209,8 @@ export function markProfileIdentityConflict(
 		.prepare("select raw_json from profiles where id = ?")
 		.get(profileId) as { raw_json: string } | undefined;
 	if (!row) return false;
-	const raw = parseJsonObject(row.raw_json) ?? {};
-	const conflicts = new Set(identityConflictIds(row.raw_json));
-	conflicts.add(externalUserId);
-	raw.birdclaw_identity_conflicts = [...conflicts].sort();
 	db.prepare("update profiles set raw_json = ? where id = ?").run(
-		JSON.stringify(raw),
+		rawJsonWithIdentityConflicts(row.raw_json, [externalUserId]),
 		profileId,
 	);
 	return true;
@@ -319,6 +330,20 @@ function currentProfileRow(db: Database, profileId: string) {
 		| undefined;
 }
 
+function canReassignBackupProfileHandle(
+	db: Database,
+	incomingLastSeenAt: string | null | undefined,
+	collision: ProfileIdentityCollision,
+) {
+	const current = currentProfileRow(db, collision.id);
+	const lastSeenAt = current
+		? liveProfileStateLastSeenAt(db, collision.id, current)
+		: null;
+	return Boolean(
+		incomingLastSeenAt && (!lastSeenAt || incomingLastSeenAt > lastSeenAt),
+	);
+}
+
 function preserveCurrentProfileState(
 	incoming: PortableProfileRow,
 	current: ProfileRow,
@@ -343,27 +368,59 @@ export function reconcileBackupProfileRows({
 }) {
 	const importedSnapshotRecency =
 		indexImportedProfileSnapshotRecency(profileSnapshotRows);
-	const unavailableHandleKeys = new Set(
-		profileRows
-			.filter((row) => row.id !== "profile_me")
-			.map((row) =>
-				typeof row.handle === "string" ? profileHandleKey(row.handle) : "",
-			)
-			.filter(Boolean),
-	);
+	const incomingHandleOwners = new Map<string, Set<string>>();
+	for (const row of profileRows) {
+		if (typeof row.handle !== "string" || typeof row.id !== "string") continue;
+		const key = profileHandleKey(row.handle);
+		const owners = incomingHandleOwners.get(key) ?? new Set<string>();
+		owners.add(row.id);
+		incomingHandleOwners.set(key, owners);
+	}
+	const unavailableHandleKeys = new Set(incomingHandleOwners.keys());
 	const legacyProfileMergePlans: BackupLegacyProfileMergePlan[] = [];
 	const rows = profileRows.map((input) => {
 		const incoming = { ...input };
 		const profileId = typeof incoming.id === "string" ? incoming.id : "";
 		const incomingHandle =
 			typeof incoming.handle === "string" ? incoming.handle : "";
-		if (profileId === "profile_me" && incomingHandle) {
+		const canonicalUserId = canonicalExternalUserId(profileId);
+		if (!canonicalUserId && incomingHandle) {
 			const existingLegacyProfile = currentProfileRow(db, profileId);
-			const externalUserId = selectedAccount?.externalUserId;
+			const incomingRawJson =
+				typeof incoming.raw_json === "string" ? incoming.raw_json : "{}";
+			const externalUserId =
+				profileId === "profile_me"
+					? selectedAccount?.externalUserId
+					: provenExternalUserId(incomingRawJson);
+			if (existingLegacyProfile) {
+				// Unproven imports must not erase prior identity evidence or vetoes.
+				const rawJson =
+					getProfileRawIdentityEvidence(incomingRawJson).kind === "none" &&
+					getProfileRawIdentityEvidence(existingLegacyProfile.raw_json).kind !==
+						"none"
+						? existingLegacyProfile.raw_json
+						: incomingRawJson;
+				const conflicts = new Set(
+					identityConflictIds(existingLegacyProfile.raw_json),
+				);
+				if (
+					externalUserId &&
+					profileRawIdentityVetoesExternalUserId(
+						existingLegacyProfile.raw_json,
+						externalUserId,
+					)
+				)
+					conflicts.add(externalUserId);
+				incoming["raw_json"] = rawJsonWithIdentityConflicts(rawJson, [
+					...identityConflictIds(incomingRawJson),
+					...conflicts,
+				]);
+			}
 			const canonicalProfileId = externalUserId
 				? `profile_user_${externalUserId}`
 				: undefined;
 			const canonicalProfileExists = Boolean(
+				profileId === "profile_me" &&
 				canonicalProfileId &&
 				(profileRows.some((row) => row.id === canonicalProfileId) ||
 					db
@@ -371,6 +428,7 @@ export function reconcileBackupProfileRows({
 						.get(canonicalProfileId)),
 			);
 			const canProveSelectedAccount = Boolean(
+				profileId === "profile_me" &&
 				selectedAccount?.isDefault &&
 				externalUserId &&
 				/^[0-9]+$/u.test(externalUserId) &&
@@ -380,9 +438,15 @@ export function reconcileBackupProfileRows({
 			);
 			legacyProfileMergePlans.push({
 				profileId,
+				incomingProfileRow: {
+					...incoming,
+					following_count: incoming.following_count ?? 0,
+					public_metrics_json: incoming.public_metrics_json ?? "{}",
+					entities_json: incoming.entities_json ?? "{}",
+					raw_json: incoming.raw_json ?? "{}",
+				},
 				incomingHandle,
-				incomingRawJson:
-					typeof incoming.raw_json === "string" ? incoming.raw_json : "{}",
+				incomingRawJson,
 				...(existingLegacyProfile
 					? { existingRawJson: existingLegacyProfile.raw_json }
 					: {}),
@@ -390,20 +454,22 @@ export function reconcileBackupProfileRows({
 					importedSnapshotRecency.get(
 						`${profileId}\0${profileSnapshotStateKey(incoming)}`,
 					) ?? null,
-				...(canProveSelectedAccount &&
-				selectedAccount &&
+				...((canProveSelectedAccount || profileId !== "profile_me") &&
 				externalUserId &&
 				canonicalProfileId
 					? {
-							selectedAccount,
+							...(canProveSelectedAccount ? { selectedAccount } : {}),
 							externalUserId,
 							canonicalProfileId,
 						}
 					: {}),
 			});
 
+			const incomingOwners = incomingHandleOwners.get(
+				profileHandleKey(incomingHandle),
+			);
 			const handleCollision = Boolean(
-				unavailableHandleKeys.has(profileHandleKey(incomingHandle)) ||
+				(incomingOwners && incomingOwners.size > 1) ||
 				db
 					.prepare(
 						"select 1 from profiles where lower(handle) = lower(?) and id <> ?",
@@ -422,7 +488,7 @@ export function reconcileBackupProfileRows({
 			return incoming;
 		}
 
-		const externalUserId = canonicalExternalUserId(profileId);
+		const externalUserId = canonicalUserId;
 		if (!externalUserId || !incomingHandle) return incoming;
 
 		const current = currentProfileRow(db, profileId);
@@ -432,8 +498,11 @@ export function reconcileBackupProfileRows({
 		const currentLastSeenAt = current
 			? liveProfileStateLastSeenAt(db, profileId, current)
 			: null;
+		// A reserved handle can still carry a dated, authoritative profile state.
 		const currentIsPlaceholder = Boolean(
-			current && isReservedBackupMergeHandle(current.handle, externalUserId),
+			current &&
+			!currentLastSeenAt &&
+			isReservedBackupMergeHandle(current.handle, externalUserId),
 		);
 		const incomingIsNewer = Boolean(
 			!current ||
@@ -450,16 +519,8 @@ export function reconcileBackupProfileRows({
 			externalUserId,
 			canonicalProfileId: profileId,
 			incomingHandle,
-			canReassignHandleCollision: (collision) => {
-				const collisionRow = currentProfileRow(db, collision.id);
-				const collisionLastSeenAt = collisionRow
-					? liveProfileStateLastSeenAt(db, collision.id, collisionRow)
-					: null;
-				return Boolean(
-					incomingLastSeenAt &&
-					(!collisionLastSeenAt || incomingLastSeenAt > collisionLastSeenAt),
-				);
-			},
+			canReassignHandleCollision: (collision) =>
+				canReassignBackupProfileHandle(db, incomingLastSeenAt, collision),
 		});
 		const handle =
 			reconciliation.blockedHandleProfileIds.length === 0
@@ -487,7 +548,6 @@ export function finalizeBackupProfileRows({
 		const { selectedAccount, externalUserId, canonicalProfileId, profileId } =
 			plan;
 		const proven = Boolean(
-			selectedAccount &&
 			externalUserId &&
 			canonicalProfileId &&
 			!profileRawIdentityVetoesExternalUserId(
@@ -499,13 +559,16 @@ export function finalizeBackupProfileRows({
 					plan.existingRawJson,
 					externalUserId,
 				)) &&
-			getProvenSelectedAccountLegacyProfileIds(
-				db,
-				selectedAccount,
-				externalUserId,
-			).has(profileId),
+			(selectedAccount
+				? getProvenSelectedAccountLegacyProfileIds(
+						db,
+						selectedAccount,
+						externalUserId,
+					).has(profileId)
+				: profileId !== "profile_me" &&
+					provenExternalUserId(plan.incomingRawJson) === externalUserId),
 		);
-		if (!proven || !selectedAccount || !externalUserId || !canonicalProfileId) {
+		if (!proven || !externalUserId || !canonicalProfileId) {
 			if (db.prepare("select 1 from profiles where id = ?").get(profileId)) {
 				syncIdentitySearchIndexForProfileIds(db, [profileId]);
 			}
@@ -518,16 +581,25 @@ export function finalizeBackupProfileRows({
 			: null;
 		const preserveCanonicalMutableState = Boolean(
 			current &&
-			!isReservedBackupMergeHandle(current.handle, externalUserId) &&
-			plan.incomingLastSeenAt &&
-			currentLastSeenAt &&
-			plan.incomingLastSeenAt <= currentLastSeenAt,
+			(!isReservedBackupMergeHandle(current.handle, externalUserId) ||
+				currentLastSeenAt) &&
+			(!plan.incomingLastSeenAt ||
+				(currentLastSeenAt && plan.incomingLastSeenAt <= currentLastSeenAt)),
 		);
-		reconcileCanonicalXProfileIdentity({
+		const incomingHandle =
+			preserveCanonicalMutableState && current
+				? current.handle
+				: (selectedAccount?.username ?? plan.incomingHandle);
+		// Each imported alias needs its own recency and identity-veto decision.
+		const reconciliation = reconcileCanonicalXProfileIdentity({
 			db,
 			externalUserId,
 			canonicalProfileId,
-			incomingHandle: selectedAccount.username,
+			discoverLegacyProfiles: false,
+			skipCanonicalSnapshot: true,
+			canReassignHandleCollision: (collision) =>
+				canReassignBackupProfileHandle(db, plan.incomingLastSeenAt, collision),
+			incomingHandle,
 			provenLegacyProfileIds: new Set([profileId]),
 			preserveCanonicalMutableStateForLegacyProfileIds:
 				preserveCanonicalMutableState ? new Set([profileId]) : undefined,
@@ -535,6 +607,44 @@ export function finalizeBackupProfileRows({
 				? new Set([profileId])
 				: undefined,
 		});
+		const canonical = currentProfileRow(db, canonicalProfileId);
+		const newerIncomingState =
+			plan.incomingLastSeenAt && !preserveCanonicalMutableState
+				? plan.incomingProfileRow
+				: undefined;
+		if (
+			canonical &&
+			(newerIncomingState ||
+				(reconciliation.blockedHandleProfileIds.length === 0 &&
+					canonical.handle !== incomingHandle))
+		) {
+			const handle =
+				reconciliation.blockedHandleProfileIds.length === 0
+					? incomingHandle
+					: canonical.handle;
+			const state = { ...canonical, ...newerIncomingState, handle };
+			state.raw_json = repairRawIdentity(
+				state.raw_json,
+				externalUserId,
+				handle,
+			);
+			db.prepare(
+				`update profiles set ${PROFILE_MUTABLE_COLUMNS.map((column) => `${column} = ?`).join(", ")} where id = ?`,
+			).run(
+				...PROFILE_MUTABLE_COLUMNS.map((column) => state[column]),
+				canonicalProfileId,
+			);
+			syncProfileBioEntitiesForProfileId(db, canonicalProfileId);
+			if (newerIncomingState && plan.incomingLastSeenAt) {
+				recordProfileSnapshot(
+					db,
+					canonicalProfileId,
+					"backup_identity_merge",
+					plan.incomingLastSeenAt,
+				);
+			}
+			syncIdentitySearchIndexForProfileIds(db, [canonicalProfileId]);
+		}
 	}
 }
 
@@ -621,6 +731,7 @@ function mergeCurrentProfile(
 	incomingHandle: string,
 	preserveTargetMutableState: boolean,
 	skipSourceSnapshot: boolean,
+	skipCanonicalSnapshot: boolean,
 ) {
 	const source = db
 		.prepare("select * from profiles where id = ?")
@@ -630,10 +741,17 @@ function mergeCurrentProfile(
 		.get(newProfileId) as ProfileRow | undefined;
 	if (!source) return;
 	if (!target) {
-		recordProfileSnapshot(db, oldProfileId, "identity_merge");
+		if (!skipSourceSnapshot) {
+			recordProfileSnapshot(db, oldProfileId, "identity_merge");
+		}
 		const sourceHandle = source.handle;
 		db.prepare("update profiles set handle = ? where id = ?").run(
-			allocateReservedProfileHandle(db, oldProfileId, "stale"),
+			allocateReservedProfileHandle(
+				db,
+				oldProfileId,
+				"stale",
+				new Set([profileHandleKey(sourceHandle)]),
+			),
 			oldProfileId,
 		);
 		db.prepare(
@@ -666,7 +784,9 @@ function mergeCurrentProfile(
 		return;
 	}
 
-	recordProfileSnapshot(db, newProfileId, "pre_identity_merge");
+	if (!skipCanonicalSnapshot) {
+		recordProfileSnapshot(db, newProfileId, "pre_identity_merge");
+	}
 	if (!skipSourceSnapshot) {
 		recordProfileSnapshot(db, oldProfileId, "identity_merge");
 	}
@@ -949,6 +1069,7 @@ function mergeOrRekeyProfile(
 	incomingHandle: string,
 	preserveTargetMutableState = false,
 	skipSourceSnapshot = false,
+	skipCanonicalSnapshot = false,
 ) {
 	if (oldProfileId === newProfileId) return new Set([newProfileId]);
 	mergeCurrentProfile(
@@ -959,6 +1080,7 @@ function mergeOrRekeyProfile(
 		incomingHandle,
 		preserveTargetMutableState,
 		skipSourceSnapshot,
+		skipCanonicalSnapshot,
 	);
 	const affectedSubjects = mergeProfileReferences(
 		db,
@@ -989,6 +1111,8 @@ export function reconcileCanonicalXProfileIdentity({
 	canonicalProfileId,
 	incomingHandle,
 	provenLegacyProfileIds = new Set<string>(),
+	discoverLegacyProfiles = true,
+	skipCanonicalSnapshot = false,
 	preserveCanonicalMutableStateForLegacyProfileIds = new Set<string>(),
 	skipIdentityMergeSnapshotForLegacyProfileIds = new Set<string>(),
 	canReassignHandleCollision,
@@ -998,6 +1122,8 @@ export function reconcileCanonicalXProfileIdentity({
 	canonicalProfileId: string;
 	incomingHandle: string;
 	provenLegacyProfileIds?: ReadonlySet<string>;
+	discoverLegacyProfiles?: boolean;
+	skipCanonicalSnapshot?: boolean;
 	preserveCanonicalMutableStateForLegacyProfileIds?: ReadonlySet<string>;
 	skipIdentityMergeSnapshotForLegacyProfileIds?: ReadonlySet<string>;
 	canReassignHandleCollision?: (collision: ProfileIdentityCollision) => boolean;
@@ -1043,7 +1169,8 @@ export function reconcileCanonicalXProfileIdentity({
 				return false;
 			}
 			return (
-				provenExternalUserId(profile.raw_json) === externalUserId ||
+				(discoverLegacyProfiles &&
+					provenExternalUserId(profile.raw_json) === externalUserId) ||
 				provenLegacyProfileIds.has(profile.id)
 			);
 		})
@@ -1058,6 +1185,7 @@ export function reconcileCanonicalXProfileIdentity({
 			incomingHandle,
 			preserveCanonicalMutableStateForLegacyProfileIds.has(profileId),
 			skipIdentityMergeSnapshotForLegacyProfileIds.has(profileId),
+			skipCanonicalSnapshot,
 		)) {
 			affectedSubjects.add(subjectId);
 		}

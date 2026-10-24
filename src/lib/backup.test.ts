@@ -544,7 +544,13 @@ describe("text backup", () => {
 		);
 	});
 
-	it.each(["non-Git file", "dangling symlink", "Git-ignored file"] as const)(
+	it.each([
+		"non-Git file",
+		"dangling symlink",
+		"Git-ignored file",
+		".DS_Store symlink",
+		".DS_Store directory",
+	] as const)(
 		"rejects a %s data extra before publication",
 		async (extra) => {
 			seedMinimalBackupFixture();
@@ -565,14 +571,18 @@ describe("text backup", () => {
 				]);
 			}
 			const before = snapshotTree(repoPath);
-			const dangling = extra === "dangling symlink";
-			const extraPath = path.join(
-				repoPath,
-				"data",
-				dangling ? "dangling.jsonl" : "private.json",
-			);
+			const dangling =
+				extra === "dangling symlink" || extra === ".DS_Store symlink";
+			const directory = extra === ".DS_Store directory";
+			const extraName = extra.startsWith(".DS_Store")
+				? ".DS_Store"
+				: dangling
+					? "dangling.jsonl"
+					: "private.json";
+			const extraPath = path.join(repoPath, "data", extraName);
 			const targetPath = path.join(repoPath, "missing-target");
 			if (dangling) symlinkSync(targetPath, extraPath);
+			else if (directory) mkdirSync(extraPath);
 			else writeFileSync(extraPath, "private\n");
 			if (ignored) {
 				execFileSync("git", [
@@ -584,8 +594,10 @@ describe("text backup", () => {
 				]);
 			}
 			const error = dangling
-				? "Unexpected symlink in backup data: data/dangling.jsonl"
-				: "Unexpected backup data file: data/private.json";
+				? `Unexpected symlink in backup data: data/${extraName}`
+				: directory
+					? "Unexpected backup data directory: data/.DS_Store"
+					: "Unexpected backup data file: data/private.json";
 			await expect(validateBackup(repoPath)).resolves.toMatchObject({
 				ok: false,
 				errors: expect.arrayContaining([error]),
@@ -596,13 +608,94 @@ describe("text backup", () => {
 					content,
 				);
 			}
-			const preservedExtra = dangling
-				? readlinkSync(extraPath)
-				: readFileSync(extraPath, "utf8");
-			expect(preservedExtra).toBe(dangling ? targetPath : "private\n");
+			const preservedExtra = directory
+				? readdirSync(extraPath)
+				: dangling
+					? readlinkSync(extraPath)
+					: readFileSync(extraPath, "utf8");
+			expect(preservedExtra).toEqual(
+				directory ? [] : dangling ? targetPath : "private\n",
+			);
 		},
 		20000,
 	);
+
+	it("ignores regular .DS_Store files at every data depth during validation and sync without committing them", async () => {
+		seedMinimalBackupFixture();
+		const repoPath = makeTempDir("birdclaw-finder-metadata-repo-");
+		const remotePath = path.join(
+			makeTempDir("birdclaw-finder-metadata-remote-"),
+			"remote.git",
+		);
+		execFileSync("git", ["init", "--bare", remotePath]);
+		await exportBackup({ repoPath });
+		const metadataPaths = ["data/.DS_Store", "data/tweets/.DS_Store"];
+		const writeMetadata = (root: string) => {
+			for (const relativePath of metadataPaths)
+				writeFileSync(path.join(root, relativePath), "Finder metadata\n");
+		};
+		writeMetadata(repoPath);
+		expect(await validateBackup(repoPath)).toMatchObject({ ok: true });
+		// Finder can also create metadata between export and publication.
+		__test__.setBeforeStagedValidation(writeMetadata);
+		await syncBackup({ repoPath, remote: remotePath });
+		execFileSync("git", [
+			"-C",
+			repoPath,
+			"config",
+			"core.excludesFile",
+			"/dev/null",
+		]);
+		writeMetadata(repoPath);
+		await syncBackup({ repoPath, remote: remotePath });
+		expect(await validateBackup(repoPath)).toMatchObject({ ok: true });
+		for (const relativePath of metadataPaths)
+			expect(existsSync(path.join(repoPath, relativePath))).toBe(true);
+		const trackedPaths = execFileSync(
+			"git",
+			["-C", repoPath, "ls-tree", "-r", "--name-only", "HEAD"],
+			{ encoding: "utf8" },
+		);
+		expect(trackedPaths).not.toContain(".DS_Store");
+		expect(
+			execFileSync(
+				"git",
+				["--git-dir", remotePath, "ls-tree", "-r", "--name-only", "main"],
+				{ encoding: "utf8" },
+			),
+		).not.toContain(".DS_Store");
+	}, 30000);
+
+	it("removes previously tracked .DS_Store metadata from the next backup commit", async () => {
+		seedMinimalBackupFixture();
+		const repoPath = makeTempDir("birdclaw-tracked-metadata-repo-");
+		await exportBackup({ repoPath, commit: true });
+		writeFileSync(
+			path.join(repoPath, "data", ".DS_Store"),
+			"old Finder metadata\n",
+		);
+		execFileSync("git", ["-C", repoPath, "add", "-f", "--", "data/.DS_Store"]);
+		execFileSync("git", [
+			"-C",
+			repoPath,
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"-m",
+			"test: previously tracked metadata",
+		]);
+		expect(await exportBackup({ repoPath, commit: true })).toMatchObject({
+			git: { committed: true },
+			validation: { ok: true },
+		});
+		expect(
+			execFileSync(
+				"git",
+				["-C", repoPath, "ls-tree", "-r", "--name-only", "HEAD"],
+				{ encoding: "utf8" },
+			),
+		).not.toContain(".DS_Store");
+	});
 
 	it("builds backup import effects lazily", async () => {
 		switchHome("birdclaw-backup-import-src-");
@@ -1171,6 +1264,470 @@ describe("text backup", () => {
 				.get() as { "count(*)": number },
 		).toEqual({ "count(*)": 1 });
 	}, 20000);
+
+	it.each([
+		"older snapshot",
+		"no snapshot",
+		"two legacy aliases",
+		"newer snapshot",
+	])(
+		"folds a raw-proven legacy friend after importing all references with %s",
+		async (snapshot) => {
+			const sourceDb = getNativeDb({ seedDemoData: false });
+			insertTestAccount(sourceDb, {
+				id: "acct_primary",
+				handle: "@owner",
+				externalUserId: "9000",
+			});
+			insertTestProfile(sourceDb, {
+				id: "profile_friend",
+				handle: "friend",
+				displayName: "Old Friend",
+				bio: "Old bio",
+				followersCount: 500,
+				rawJson: '{"id":"4242","username":"friend","name":"Old Friend"}',
+			});
+			if (snapshot === "two legacy aliases")
+				insertTestProfile(sourceDb, {
+					id: "profile_other_friend",
+					handle: "other_friend",
+					followersCount: 700,
+					rawJson: '{"id":"4242","username":"other_friend"}',
+				});
+			insertTestTweet(sourceDb, {
+				id: "legacy_tweet",
+				authorProfileId: "profile_friend",
+				text: "Legacy tweet",
+			});
+			sourceDb.exec(`
+				insert into dm_conversations (id, account_id, participant_profile_id, title, inbox_kind, last_message_at, unread_count, needs_reply)
+				values ('legacy_dm', 'acct_primary', 'profile_friend', 'Friend', 'primary', '2025-01-01T00:00:00.000Z', 0, 0);
+				insert into dm_messages (id, conversation_id, sender_profile_id, text, created_at, direction, is_replied, media_count)
+				values ('legacy_message', 'legacy_dm', 'profile_friend', 'Hello', '2025-01-01T00:00:00.000Z', 'inbound', 0, 0);
+				insert into follow_snapshots (id, account_id, direction, source, status, page_count, result_count, started_at, completed_at, raw_meta_json)
+				values ('legacy_snapshot', 'acct_primary', 'following', 'test', 'complete', 1, 1, '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z', '{}');
+				insert into follow_snapshot_members (snapshot_id, profile_id, external_user_id, position)
+				values ('legacy_snapshot', 'profile_friend', '4242', 0);
+				insert into follow_edges (account_id, direction, profile_id, external_user_id, source, current, first_seen_at, last_seen_at, updated_at)
+				values ('acct_primary', 'following', 'profile_friend', '4242', 'test', 1, '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z');
+				insert into follow_events (id, account_id, direction, profile_id, external_user_id, kind, event_at, snapshot_id)
+				values ('legacy_event', 'acct_primary', 'following', 'profile_friend', '4242', 'started', '2025-01-01T00:00:00.000Z', 'legacy_snapshot');
+				insert into blocks (account_id, profile_id, source, created_at)
+				values ('acct_primary', 'profile_friend', 'test', '2025-01-01T00:00:00.000Z');
+				insert into mutes (account_id, profile_id, source, created_at)
+				values ('acct_primary', 'profile_friend', 'test', '2025-01-01T00:00:00.000Z');
+				insert into profile_bio_entities (profile_id, kind, value, source, is_active, first_seen_at, last_seen_at, raw_json)
+				values ('profile_friend', 'company_phrase', 'Synthetic Company', 'test', 1, '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z', '{}');
+				insert into profile_affiliations (subject_profile_id, organization_profile_id, organization_name, organization_handle, source, is_active, first_seen_at, last_seen_at, raw_json, updated_at)
+				values ('profile_friend', 'profile_friend', 'Synthetic Company', 'friend', 'test', 1, '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z', '{}', '2025-01-01T00:00:00.000Z');
+			`);
+			const hasSnapshot =
+				snapshot === "older snapshot" || snapshot === "newer snapshot";
+			if (hasSnapshot) {
+				const timestamp =
+					snapshot === "newer snapshot"
+						? "2027-01-01T00:00:00.000Z"
+						: "2025-01-01T00:00:00.000Z";
+				sourceDb
+					.prepare(`
+					insert into profile_snapshots (profile_id, snapshot_hash, observed_at, last_seen_at, source, handle, display_name, bio, followers_count, following_count, affiliations_json, raw_json)
+					select id, 'imported_friend', ?, ?, 'test', handle, display_name, bio, followers_count, following_count, '[]', raw_json from profiles where id = 'profile_friend';
+				`)
+					.run(timestamp, timestamp);
+			}
+			const repoPath = makeTempDir("birdclaw-legacy-friend-store-");
+			await exportBackup({ repoPath, db: sourceDb });
+
+			switchHome("birdclaw-legacy-friend-destination-");
+			const db = getNativeDb({ seedDemoData: false });
+			insertTestAccount(db, {
+				id: "acct_primary",
+				handle: "@owner",
+				externalUserId: "9000",
+			});
+			insertTestProfile(db, {
+				id: "profile_user_4242",
+				handle: "friend",
+				displayName: "Current Friend",
+				bio: "Current bio",
+				followersCount: snapshot === "newer snapshot" ? 1000 : 10,
+				rawJson: '{"id":"4242","username":"friend"}',
+			});
+			insertTestTweet(db, {
+				id: "local_tweet",
+				authorProfileId: "profile_user_4242",
+				text: "Local tweet",
+			});
+			db.exec(`
+				insert into profile_snapshots (profile_id, snapshot_hash, observed_at, last_seen_at, source, handle, display_name, bio, followers_count, following_count, affiliations_json, raw_json)
+				select id, 'current_friend', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'test', handle, display_name, bio, followers_count, following_count, '[]', raw_json from profiles where id = 'profile_user_4242';
+			`);
+
+			expect(await importBackup({ repoPath, db })).toMatchObject({
+				ok: true,
+				mode: "merge",
+			});
+			expect(
+				db
+					.prepare(
+						"select id, handle, display_name, bio, followers_count from profiles order by id",
+					)
+					.all(),
+			).toEqual([
+				{
+					id: "profile_user_4242",
+					handle: "friend",
+					display_name:
+						snapshot === "newer snapshot" ? "Old Friend" : "Current Friend",
+					bio: snapshot === "newer snapshot" ? "Old bio" : "Current bio",
+					followers_count: snapshot === "newer snapshot" ? 500 : 10,
+				},
+			]);
+			for (const [table, column, count] of [
+				["tweets", "author_profile_id", 2],
+				["dm_conversations", "participant_profile_id", 1],
+				["dm_messages", "sender_profile_id", 1],
+				["follow_snapshot_members", "profile_id", 1],
+				["follow_edges", "profile_id", 1],
+				["follow_events", "profile_id", 1],
+				["blocks", "profile_id", 1],
+				["mutes", "profile_id", 1],
+				["profile_affiliations", "subject_profile_id", 1],
+				["profile_affiliations", "organization_profile_id", 1],
+			] as const) {
+				expect(
+					db
+						.prepare(
+							`select count(*) as count from ${table} where ${column} = 'profile_friend'`,
+						)
+						.get(),
+				).toEqual({ count: 0 });
+				expect(
+					db
+						.prepare(
+							`select count(*) as count from ${table} where ${column} = 'profile_user_4242'`,
+						)
+						.get(),
+				).toEqual({ count });
+			}
+			for (const table of [
+				"profile_snapshots",
+				"profile_bio_entities",
+				"identity_search_index",
+			]) {
+				expect(
+					db
+						.prepare(
+							`select count(*) as count from ${table} where profile_id = 'profile_friend'`,
+						)
+						.get(),
+				).toEqual({ count: 0 });
+				expect(
+					db
+						.prepare(
+							`select 1 from ${table} where profile_id = 'profile_user_4242' limit 1`,
+						)
+						.get(),
+				).toBeDefined();
+			}
+			expect(
+				db
+					.prepare(
+						"select count(*) as count from profile_snapshots where handle like 'birdclaw_stale_%'",
+					)
+					.get(),
+			).toEqual({ count: hasSnapshot ? 0 : 1 });
+			expect((await exportBackup({ repoPath, db })).validation.ok).toBe(true);
+			expect(await validateBackup(repoPath)).toMatchObject({ ok: true });
+		},
+		20000,
+	);
+
+	it.each([
+		{ name: "missing identity", rawJson: "{}" },
+		{ name: "contradictory identity", rawJson: '{"id":"4242","rest_id":"77"}' },
+		{
+			name: "imported conflict marker",
+			rawJson: '{"id":"4242","birdclaw_identity_conflicts":["4242"]}',
+		},
+		{
+			name: "existing contradictory identity",
+			rawJson: '{"id":"4242"}',
+			existingRawJson: '{"id":"77"}',
+		},
+		{
+			name: "existing conflict marker",
+			rawJson: '{"id":"4242"}',
+			existingRawJson: '{"birdclaw_identity_conflicts":["4242"]}',
+		},
+	])(
+		"keeps an unproven legacy friend separate for $name",
+		async ({ rawJson, existingRawJson }) => {
+			const sourceDb = getNativeDb({ seedDemoData: false });
+			insertTestProfile(sourceDb, {
+				id: "profile_friend",
+				handle: "FRIEND",
+				rawJson,
+			});
+			const repoPath = makeTempDir("birdclaw-unproven-friend-store-");
+			await exportBackup({ repoPath, db: sourceDb });
+			switchHome("birdclaw-unproven-friend-destination-");
+			const db = getNativeDb({ seedDemoData: false });
+			insertTestProfile(db, {
+				id: "profile_user_4242",
+				handle: "friend",
+				rawJson: '{"id":"4242"}',
+			});
+			if (existingRawJson)
+				insertTestProfile(db, {
+					id: "profile_friend",
+					handle: "legacy_friend",
+					rawJson: existingRawJson,
+				});
+			expect(await importBackup({ repoPath, db })).toMatchObject({ ok: true });
+			expect(await importBackup({ repoPath, db })).toMatchObject({ ok: true });
+			expect(
+				db.prepare("select id, handle from profiles order by id").all(),
+			).toEqual([
+				{
+					id: "profile_friend",
+					handle: expect.stringMatching(/^birdclaw_stale_/u),
+				},
+				{ id: "profile_user_4242", handle: "friend" },
+			]);
+		},
+	);
+
+	it.each([
+		'{"birdclaw_identity_conflicts":["4242"]}',
+		'{"id":"77"}',
+		'{"id":"77","rest_id":"88"}',
+	])(
+		"preserves legacy identity vetoes through an unproven import for %s",
+		async (existingRawJson) => {
+			const sourceDb = getNativeDb({ seedDemoData: false });
+			insertTestProfile(sourceDb, {
+				id: "profile_friend",
+				handle: "friend",
+				rawJson: '{"username":"friend"}',
+			});
+			const unprovenRepo = makeTempDir("birdclaw-unproven-identity-store-");
+			await exportBackup({ repoPath: unprovenRepo, db: sourceDb });
+			sourceDb
+				.prepare("update profiles set raw_json = ? where id = 'profile_friend'")
+				.run('{"id":"4242","username":"friend"}');
+			const provenRepo = makeTempDir("birdclaw-proven-identity-store-");
+			await exportBackup({ repoPath: provenRepo, db: sourceDb });
+			switchHome("birdclaw-preserved-veto-destination-");
+			const db = getNativeDb({ seedDemoData: false });
+			insertTestProfile(db, {
+				id: "profile_friend",
+				handle: "legacy_friend",
+				rawJson: existingRawJson,
+			});
+			insertTestProfile(db, {
+				id: "profile_user_4242",
+				handle: "friend",
+				rawJson: '{"id":"4242"}',
+			});
+			await importBackup({ repoPath: unprovenRepo, db });
+			await importBackup({ repoPath: provenRepo, db });
+			expect(db.prepare("select id from profiles order by id").all()).toEqual([
+				{ id: "profile_friend" },
+				{ id: "profile_user_4242" },
+			]);
+		},
+	);
+
+	it.each(["no snapshot", "older snapshot", "newer snapshot"])(
+		"respects canonical handle-owner recency when importing a legacy alias with %s",
+		async (snapshot) => {
+			const sourceDb = getNativeDb({ seedDemoData: false });
+			insertTestProfile(sourceDb, {
+				id: "profile_friend",
+				handle: "friend",
+				rawJson: '{"id":"4242","username":"friend"}',
+			});
+			if (snapshot !== "no snapshot") {
+				const timestamp =
+					snapshot === "older snapshot"
+						? "2025-01-01T00:00:00.000Z"
+						: "2027-01-01T00:00:00.000Z";
+				sourceDb
+					.prepare(`
+				insert into profile_snapshots (profile_id, snapshot_hash, observed_at, last_seen_at, source, handle, display_name, bio, followers_count, following_count, affiliations_json, raw_json)
+				select id, 'imported_friend', ?, ?, 'test', handle, display_name, bio, followers_count, following_count, '[]', raw_json from profiles where id = 'profile_friend';
+			`)
+					.run(timestamp, timestamp);
+			}
+			const repoPath = makeTempDir("birdclaw-legacy-reused-handle-store-");
+			await exportBackup({ repoPath, db: sourceDb });
+			switchHome("birdclaw-legacy-reused-handle-destination-");
+			const db = getNativeDb({ seedDemoData: false });
+			upsertProfileFromXUser(db, {
+				id: "77",
+				username: "friend",
+				name: "Current Friend",
+			});
+			db.exec(
+				"update profile_snapshots set observed_at = '2026-01-01T00:00:00.000Z', last_seen_at = '2026-01-01T00:00:00.000Z'",
+			);
+			await importBackup({ repoPath, db });
+			const staleHandle = expect.stringMatching(/^birdclaw_stale_/u);
+			expect(
+				db.prepare("select id, handle from profiles order by id").all(),
+			).toEqual([
+				{
+					id: "profile_user_4242",
+					handle: snapshot === "newer snapshot" ? "friend" : staleHandle,
+				},
+				{
+					id: "profile_user_77",
+					handle: snapshot === "newer snapshot" ? staleHandle : "friend",
+				},
+			]);
+		},
+	);
+
+	it.each(["existing canonical profile", "new canonical profile"])(
+		"preserves accepted recency across older imports with a blocked handle for %s",
+		async (destination) => {
+			const sourceDb = getNativeDb({ seedDemoData: false });
+			insertTestProfile(sourceDb, {
+				id: "profile_friend",
+				handle: "friend",
+				displayName: "New Friend",
+				bio: "New bio",
+				followersCount: 500,
+				rawJson: '{"id":"4242","username":"friend"}',
+			});
+			const snapshotProfile = sourceDb.prepare(`
+			insert into profile_snapshots (profile_id, snapshot_hash, observed_at, last_seen_at, source, handle, display_name, bio, followers_count, following_count, affiliations_json, raw_json)
+			select id, ?, ?, ?, 'test', handle, display_name, bio, followers_count, following_count, '[]', raw_json from profiles where id = 'profile_friend'
+		`);
+			snapshotProfile.run(
+				"new_friend",
+				"2027-01-01T00:00:00.000Z",
+				"2027-01-01T00:00:00.000Z",
+			);
+			const newerRepo = makeTempDir("birdclaw-newer-blocked-handle-store-");
+			await exportBackup({ repoPath: newerRepo, db: sourceDb });
+			sourceDb.exec(
+				"update profiles set display_name = 'Old Friend', bio = 'Old bio', followers_count = 100 where id = 'profile_friend'",
+			);
+			snapshotProfile.run(
+				"old_friend",
+				"2025-01-01T00:00:00.000Z",
+				"2025-01-01T00:00:00.000Z",
+			);
+			const olderRepo = makeTempDir("birdclaw-older-blocked-handle-store-");
+			await exportBackup({ repoPath: olderRepo, db: sourceDb });
+			switchHome("birdclaw-blocked-handle-recency-destination-");
+			const db = getNativeDb({ seedDemoData: false });
+			if (destination === "existing canonical profile")
+				upsertProfileFromXUser(db, {
+					id: "4242",
+					username: "current_friend",
+					name: "Initial Friend",
+					description: "Initial bio",
+					public_metrics: { followers_count: 1000 },
+				});
+			upsertProfileFromXUser(db, {
+				id: "77",
+				username: "friend",
+				name: "Handle Owner",
+			});
+			db.exec(`
+			update profile_snapshots set observed_at = '2026-01-01T00:00:00.000Z', last_seen_at = '2026-01-01T00:00:00.000Z' where profile_id = 'profile_user_4242';
+			update profile_snapshots set observed_at = '2028-01-01T00:00:00.000Z', last_seen_at = '2028-01-01T00:00:00.000Z' where profile_id = 'profile_user_77';
+		`);
+			await importBackup({ repoPath: newerRepo, db });
+			await importBackup({ repoPath: olderRepo, db });
+			const staleHandle = expect.stringMatching(/^birdclaw_stale_/u);
+			expect(
+				db
+					.prepare(
+						"select handle, display_name, bio, followers_count from profiles where id = 'profile_user_4242'",
+					)
+					.get(),
+			).toEqual({
+				handle:
+					destination === "existing canonical profile"
+						? "current_friend"
+						: staleHandle,
+				display_name: "New Friend",
+				bio: "New bio",
+				followers_count: 500,
+			});
+			expect(
+				db
+					.prepare("select handle from profiles where id = 'profile_user_77'")
+					.get(),
+			).toEqual({ handle: "friend" });
+			expect(
+				(await exportBackup({ repoPath: newerRepo, db })).validation.ok,
+			).toBe(true);
+		},
+	);
+
+	it("uses historical snapshot recency when a legacy import creates its canonical profile", async () => {
+		const sourceDb = getNativeDb({ seedDemoData: false });
+		insertTestProfile(sourceDb, {
+			id: "profile_friend",
+			handle: "friend",
+			bio: "Old bio",
+			followersCount: 500,
+			rawJson: '{"id":"4242","username":"friend"}',
+			createdAt: "2020-01-01T00:00:00.000Z",
+		});
+		const snapshotProfile = sourceDb.prepare(`
+			insert into profile_snapshots (profile_id, snapshot_hash, observed_at, last_seen_at, source, handle, display_name, bio, followers_count, following_count, affiliations_json, raw_json)
+			select id, ?, ?, ?, 'test', handle, display_name, bio, followers_count, following_count, '[]', raw_json from profiles where id = 'profile_friend'
+		`);
+		snapshotProfile.run(
+			"old_friend",
+			"2024-01-01T00:00:00.000Z",
+			"2024-01-01T00:00:00.000Z",
+		);
+		const olderRepo = makeTempDir("birdclaw-historical-older-store-");
+		await exportBackup({ repoPath: olderRepo, db: sourceDb });
+		sourceDb.exec(
+			"update profiles set bio = 'New bio', followers_count = 100 where id = 'profile_friend'",
+		);
+		snapshotProfile.run(
+			"new_friend",
+			"2025-01-01T00:00:00.000Z",
+			"2025-01-01T00:00:00.000Z",
+		);
+		const newerRepo = makeTempDir("birdclaw-historical-newer-store-");
+		await exportBackup({ repoPath: newerRepo, db: sourceDb });
+		sourceDb.exec(
+			"update profiles set bio = 'Newest bio', followers_count = 50 where id = 'profile_friend'",
+		);
+		snapshotProfile.run(
+			"newest_friend",
+			"2025-06-01T00:00:00.000Z",
+			"2025-06-01T00:00:00.000Z",
+		);
+		const newestRepo = makeTempDir("birdclaw-historical-newest-store-");
+		await exportBackup({ repoPath: newestRepo, db: sourceDb });
+		switchHome("birdclaw-historical-recency-destination-");
+		const db = getNativeDb({ seedDemoData: false });
+		await importBackup({ repoPath: olderRepo, db });
+		await importBackup({ repoPath: newerRepo, db });
+		await importBackup({ repoPath: olderRepo, db });
+		await importBackup({ repoPath: newestRepo, db });
+		expect(
+			db.prepare("select id, handle, bio, followers_count from profiles").all(),
+		).toEqual([
+			{
+				id: "profile_user_4242",
+				handle: "friend",
+				bio: "Newest bio",
+				followers_count: 50,
+			},
+		]);
+	});
 
 	it("adopts a proven legacy selected-account backup after importing all references", async () => {
 		switchHome("birdclaw-backup-legacy-account-source-");

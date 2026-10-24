@@ -174,49 +174,81 @@ describe("x profile sync helpers", () => {
 		);
 	});
 
-	it("preserves a non-placeholder current profile without matching imported snapshot evidence", () => {
+	it("reserves colliding legacy handles across incoming rows without guessing identities", () => {
 		const db = makeTempHome();
-		upsertProfileFromXUser(db, {
-			id: "4242",
-			username: "current_handle",
-			name: "Current Name",
-			description: "Current bio",
-			public_metrics: { followers_count: 42, following_count: 7 },
-		});
-
-		const [prepared] = reconcileBackupProfileRows({
+		const { rows, legacyProfileMergePlans } = reconcileBackupProfileRows({
 			db,
 			profileRows: [
-				{
-					id: "profile_user_4242",
-					handle: "stale_handle",
-					display_name: "Stale Name",
-					bio: "Stale bio",
-					followers_count: 10,
-					following_count: 2,
-					public_metrics_json: "{}",
-					avatar_hue: 1,
-					avatar_url: null,
-					location: null,
-					url: null,
-					verified_type: null,
-					entities_json: "{}",
-					raw_json: '{"id":"4242","username":"stale_handle"}',
-					created_at: "2025-01-01T00:00:00.000Z",
-				},
+				{ id: "profile_friend", handle: "friend", raw_json: "{}" },
+				{ id: "profile_other_friend", handle: "FRIEND", raw_json: "{}" },
+				{ id: "profile_unique", handle: "unique_friend", raw_json: "{}" },
 			],
 			profileSnapshotRows: [],
-		}).rows;
-
-		expect(prepared).toMatchObject({
-			id: "profile_user_4242",
-			handle: "current_handle",
-			display_name: "Current Name",
-			bio: "Current bio",
-			followers_count: 42,
-			following_count: 7,
 		});
+		expect(rows).toEqual([
+			{
+				id: "profile_friend",
+				handle: expect.stringMatching(/^birdclaw_stale_/u),
+				raw_json: "{}",
+			},
+			{
+				id: "profile_other_friend",
+				handle: expect.stringMatching(/^birdclaw_stale_/u),
+				raw_json: "{}",
+			},
+			{ id: "profile_unique", handle: "unique_friend", raw_json: "{}" },
+		]);
+		expect(new Set(rows.map((row) => row.handle)).size).toBe(3);
+		for (const plan of legacyProfileMergePlans)
+			expect(plan.externalUserId).toBeUndefined();
 	});
+
+	it.each(["current_handle", "birdclaw_stale_recorded"])(
+		"preserves a dated current profile at %s without matching imported snapshot evidence",
+		(currentHandle) => {
+			const db = makeTempHome();
+			upsertProfileFromXUser(db, {
+				id: "4242",
+				username: currentHandle,
+				name: "Current Name",
+				description: "Current bio",
+				public_metrics: { followers_count: 42, following_count: 7 },
+			});
+
+			const [prepared] = reconcileBackupProfileRows({
+				db,
+				profileRows: [
+					{
+						id: "profile_user_4242",
+						handle: "stale_handle",
+						display_name: "Stale Name",
+						bio: "Stale bio",
+						followers_count: 10,
+						following_count: 2,
+						public_metrics_json: "{}",
+						avatar_hue: 1,
+						avatar_url: null,
+						location: null,
+						url: null,
+						verified_type: null,
+						entities_json: "{}",
+						raw_json: '{"id":"4242","username":"stale_handle"}',
+						created_at: "2025-01-01T00:00:00.000Z",
+					},
+				],
+				profileSnapshotRows: [],
+			}).rows;
+
+			expect(prepared).toMatchObject({
+				id: "profile_user_4242",
+				handle: currentHandle,
+				display_name: "Current Name",
+				bio: "Current bio",
+				followers_count: 42,
+				following_count: 7,
+			});
+		},
+	);
 
 	it("preserves an existing avatar when a later payload omits one", () => {
 		const db = makeTempHome();

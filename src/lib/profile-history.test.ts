@@ -91,6 +91,43 @@ describe("profile history", () => {
 		);
 	});
 
+	it("keeps observation bounds and newer evidence when recording a dated backup state", () => {
+		const db = getNativeDb();
+		db.exec(`
+			insert into profiles (id, handle, display_name, bio, followers_count, following_count, avatar_hue, raw_json, created_at)
+			values ('profile_user_4242', 'snapshot_friend', 'Friend', 'Bio', 10, 5, 0, '{"id":"4242","version":"new"}', '2025-01-01T00:00:00.000Z');
+		`);
+		recordProfileSnapshot(
+			db,
+			"profile_user_4242",
+			"newer",
+			"2027-01-01T00:00:00.000Z",
+		);
+		db.prepare(
+			"update profiles set raw_json = ? where id = 'profile_user_4242'",
+		).run('{"id":"4242","version":"old"}');
+		recordProfileSnapshot(
+			db,
+			"profile_user_4242",
+			"older",
+			"2025-01-01T00:00:00.000Z",
+		);
+		expect(
+			db
+				.prepare(
+					"select observed_at, last_seen_at, source, raw_json from profile_snapshots where profile_id = 'profile_user_4242'",
+				)
+				.all(),
+		).toEqual([
+			{
+				observed_at: "2025-01-01T00:00:00.000Z",
+				last_seen_at: "2027-01-01T00:00:00.000Z",
+				source: "newer",
+				raw_json: '{"id":"4242","version":"new"}',
+			},
+		]);
+	});
+
 	it("handles missing profiles, empty fetches, bad affiliation json, and limits", () => {
 		const db = getNativeDb();
 		expect(recordProfileSnapshot(db, "missing")).toBeNull();

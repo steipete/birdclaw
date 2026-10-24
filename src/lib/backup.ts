@@ -730,11 +730,22 @@ function maybeCommitEffect({
 		yield* gitEffect([
 			"-C",
 			repoPath,
+			"rm",
+			"--cached",
+			"--ignore-unmatch",
+			"--",
+			":(glob)data/**/.DS_Store",
+		]);
+		yield* gitEffect([
+			"-C",
+			repoPath,
 			"add",
+			"--",
 			GITATTRIBUTES_PATH,
 			"README.md",
 			MANIFEST_PATH,
 			DATA_DIR,
+			":(exclude,glob)data/**/.DS_Store",
 		]);
 
 		yield* gitEffect(["-C", repoPath, "config", "user.email"]).pipe(
@@ -842,8 +853,26 @@ function assertBackupCheckoutCleanEffect(repoPath: string) {
 			"status",
 			"--porcelain=v1",
 			"--untracked-files=all",
+			"-z",
 		]);
-		if (stdout.trim().length > 0) {
+		const entries = stdout.split("\0").filter(Boolean);
+		const dirtyEntries = yield* Effect.filter(entries, (entry) =>
+			Effect.gen(function* () {
+				const relativePath = entry.slice(3);
+				if (
+					entry.startsWith("?? ") &&
+					relativePath.startsWith(`${DATA_DIR}/`) &&
+					path.posix.basename(relativePath) === ".DS_Store"
+				) {
+					const stat = yield* tryPromise(() =>
+						fs.lstat(path.join(repoPath, relativePath)),
+					);
+					if (stat.isFile()) return false;
+				}
+				return true;
+			}),
+		);
+		if (dirtyEntries.length > 0) {
 			return yield* Effect.fail(
 				new Error("Backup checkout is dirty; refusing to import or publish"),
 			);
@@ -927,6 +956,7 @@ function assertManagedDataInventoryEffect(repoPath: string) {
 						yield* visit(relativePath);
 						continue;
 					}
+					if (stat.isFile() && entry.name === ".DS_Store") continue;
 					if (!stat.isFile() || !expectedFiles.has(relativePath)) {
 						return yield* Effect.fail(
 							new Error(`Unexpected backup data file: ${relativePath}`),
