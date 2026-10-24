@@ -18,7 +18,7 @@ function profileContext() {
 			id: "profile_steipete",
 			handle: "steipete",
 			displayName: "Peter Steinberger",
-			bio: "Futurist 🦄\nChief Architect @openclaw 🦞\nWriter @forbes Tech Council\nAdjunct @MIT\nEx @Microsoft @Qantas\nContact hello@openai.com\nGithub: https://t.co/LZwHTUFwPq\nHuggingFace: https://t.co/sN2FFU8PVE",
+			bio: "Futurist 🦄\nChief Architect @openclaw 🦞\nWriter @forbes Tech Council\nAdjunct @MIT\nEx @Microsoft @Qantas\nContact hello@openai.com\nGithub: https://t.co/Gh0Example\nHuggingFace: https://t.co/Hf0Example",
 			followersCount: 123456,
 			followingCount: 987,
 			avatarHue: 18,
@@ -29,16 +29,16 @@ function profileContext() {
 						{
 							start: 137,
 							end: 160,
-							url: "https://t.co/LZwHTUFwPq",
-							expanded_url: "https://github.com/nousresearch/hermes-agent",
-							display_url: "github.com/nousresearch/hermes-agent",
+							url: "https://t.co/Gh0Example",
+							expanded_url: "https://github.com/example-org/agent-kit",
+							display_url: "github.com/example-org/agent-kit",
 						},
 						{
 							start: 174,
 							end: 197,
-							url: "https://t.co/sN2FFU8PVE",
-							expanded_url: "https://huggingface.co/NousResearch",
-							display_url: "huggingface.co/NousResearch",
+							url: "https://t.co/Hf0Example",
+							expanded_url: "https://huggingface.co/ExampleOrg",
+							display_url: "huggingface.co/ExampleOrg",
 						},
 					],
 				},
@@ -160,18 +160,18 @@ describe("profile route", () => {
 		expect(screen.getByText(/Futurist/)).toBeInTheDocument();
 		expect(screen.getByText(/Contact hello@openai\.com/)).toBeInTheDocument();
 		expect(screen.queryByRole("link", { name: "@openai" })).toBeNull();
-		expect(screen.queryByText(/t\.co\/LZwHTUFwPq/)).toBeNull();
-		expect(screen.queryByText(/t\.co\/sN2FFU8PVE/)).toBeNull();
+		expect(screen.queryByText(/t\.co\/Gh0Example/)).toBeNull();
+		expect(screen.queryByText(/t\.co\/Hf0Example/)).toBeNull();
 		expect(
 			screen.getByRole("link", {
-				name: "https://github.com/nousresearch/hermes-agent",
+				name: "https://github.com/example-org/agent-kit",
 			}),
-		).toHaveAttribute("href", "https://github.com/nousresearch/hermes-agent");
+		).toHaveAttribute("href", "https://github.com/example-org/agent-kit");
 		expect(
 			screen.getByRole("link", {
-				name: "https://huggingface.co/NousResearch",
+				name: "https://huggingface.co/ExampleOrg",
 			}),
-		).toHaveAttribute("href", "https://huggingface.co/NousResearch");
+		).toHaveAttribute("href", "https://huggingface.co/ExampleOrg");
 		expect(screen.getByRole("link", { name: "@openclaw" })).toHaveAttribute(
 			"href",
 			"/profiles/openclaw",

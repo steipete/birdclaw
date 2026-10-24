@@ -81,8 +81,8 @@ describe("tweet render helpers", () => {
 				urls: [
 					{
 						url: "https://t.co/bio",
-						expanded_url: "https://github.com/nousresearch/hermes-agent",
-						display_url: "github.com/nousresearch/hermes-agent",
+						expanded_url: "https://github.com/example-org/agent-kit",
+						display_url: "github.com/example-org/agent-kit",
 						start: 8,
 						end: 24,
 					},
@@ -91,7 +91,7 @@ describe("tweet render helpers", () => {
 		});
 
 		expect(renderTweetPlainText("Github: https://t.co/bio", entities)).toBe(
-			"Github: https://github.com/nousresearch/hermes-agent",
+			"Github: https://github.com/example-org/agent-kit",
 		);
 	});
 
