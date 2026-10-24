@@ -1,6 +1,10 @@
 # CHANGELOG
 
-## 0.16.3 - Unreleased
+## 0.16.4 - Unreleased
+
+## 0.16.3 - 2026-10-24
+
+**Highlights:** Keep Git backups flowing after locally merged legacy profiles or stray Finder metadata, with strict identity proof and backup validation intact.
 
 - Fix backup sync failing on legacy profile rows whose handles moved to canonical profiles; fold proven identities and their references into the canonical rows during merge-import.
 - Ignore regular macOS `.DS_Store` metadata in backup data validation and exclude it from backup commits while retaining strict checks for other unexpected content and symlinks.
