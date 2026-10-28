@@ -82,6 +82,10 @@ afterEach(() => {
 	window.localStorage.clear();
 });
 
+// The 500-card case takes ~4.5s alone and can exceed the default 10s under
+// full-suite worker contention; match the coverage-run ceiling instead.
+const LARGE_TIMELINE_TIMEOUT_MS = 30_000;
+
 describe("timeline rendering", () => {
 	it.each([50, 500])(
 		"keeps %i unchanged cards out of search, status, and append renders",
@@ -121,5 +125,6 @@ describe("timeline rendering", () => {
 			expect(TweetRichText).toHaveBeenCalledTimes(1);
 			queryClient.clear();
 		},
+		LARGE_TIMELINE_TIMEOUT_MS,
 	);
 });
