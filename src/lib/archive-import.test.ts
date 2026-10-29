@@ -232,6 +232,35 @@ function makeRootDataArchive() {
 	return archivePath;
 }
 
+// X's exporter writes Unix permission bits with no file-type bits, so
+// `unzip -Z -l` lists every entry as `?rw-------` instead of `-rw-------`.
+// Walks the central directory from the end-of-central-directory record, so
+// it only touches real entry headers; fine for small non-ZIP64 fixtures.
+function clearZipEntryFileTypeBits(archivePath: string) {
+	const zip = readFileSync(archivePath);
+	const endOfCentralDirectory = zip.lastIndexOf(
+		Buffer.from([0x50, 0x4b, 0x05, 0x06]),
+	);
+	if (endOfCentralDirectory < 0) throw new Error("missing EOCD record");
+	const entryCount = zip.readUInt16LE(endOfCentralDirectory + 10);
+	const fileTypeMask = 0o170000 << 16;
+	let offset = zip.readUInt32LE(endOfCentralDirectory + 16);
+	for (let entry = 0; entry < entryCount; entry += 1) {
+		if (zip.readUInt32LE(offset) !== 0x02014b50) {
+			throw new Error(`bad central directory record at ${offset}`);
+		}
+		const externalAttributes = zip.readUInt32LE(offset + 38);
+		zip.writeUInt32LE((externalAttributes & ~fileTypeMask) >>> 0, offset + 38);
+		offset +=
+			46 +
+			zip.readUInt16LE(offset + 28) +
+			zip.readUInt16LE(offset + 30) +
+			zip.readUInt16LE(offset + 32);
+	}
+	writeFileSync(archivePath, zip);
+	return entryCount;
+}
+
 function makeTweetRetentionArchive({
 	includeEditable = true,
 	includeVanishing = true,
@@ -3649,6 +3678,35 @@ describe("archive import", () => {
 		await expect(importArchive(archivePath)).rejects.toThrow(
 			"Archive missing data/account.js",
 		);
+	});
+
+	it("extracts media from archives whose entries lack file-type bits", async () => {
+		const archivePath = makeRootDataArchive();
+		const entryCount = clearZipEntryFileTypeBits(archivePath);
+		const listing = execFileSync("unzip", ["-Z", "-l", archivePath], {
+			encoding: "utf8",
+		});
+		expect(listing.match(/^\?[-rwx]{9} /gm)).toHaveLength(entryCount);
+		expect(listing).toMatch(
+			/^\?rw.* data\/tweets_media\/rootmedia-archive\.jpg$/m,
+		);
+
+		const result = await importArchive(archivePath);
+
+		expect(result.counts.tweets).toBe(1);
+		expect(result.counts.mediaFiles.tweets).toBe(1);
+		expect(
+			readFileSync(
+				path.join(
+					getBirdclawPaths().mediaOriginalsDir,
+					"archive",
+					"tweets",
+					"rootmedia",
+					"rootmedia-archive.jpg",
+				),
+				"utf8",
+			),
+		).toBe("root-media");
 	});
 
 	it("imports archives whose data directory is at zip root", async () => {

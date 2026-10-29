@@ -2,6 +2,8 @@
 
 ## 0.16.4 - Unreleased
 
+- Fix archive import extracting no media from real X archives, whose zip entries carry no Unix file-type bits and list as `?rw-------`; tweet, DM, and profile media now land in `media/originals/archive`. (#254 — thanks @rymalia)
+
 ## 0.16.3 - 2026-10-24
 
 **Highlights:** Keep Git backups flowing after locally merged legacy profiles or stray Finder metadata, with strict identity proof and backup validation intact.

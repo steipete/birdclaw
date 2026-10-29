@@ -56,10 +56,12 @@ export function listArchiveEntryDetailsEffect(
 			["-Z", "-l", archivePath],
 			1024 * 1024 * 64,
 		);
+		// zipinfo prints `?` as the file-type char when an entry has no Unix
+		// file-type bits, which is how X's archive exporter writes every entry.
 		return stdout
 			.split("\n")
 			.map((line) => line.trim().split(/\s+/))
-			.filter((parts) => parts.length >= 10 && /^[-d]/.test(parts[0] ?? ""))
+			.filter((parts) => parts.length >= 10 && /^[-d?]/.test(parts[0] ?? ""))
 			.map((parts) => ({
 				path: parts.slice(9).join(" "),
 				size: Number(parts[3] ?? 0),
