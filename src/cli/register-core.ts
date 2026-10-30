@@ -21,6 +21,7 @@ import {
 	importTweetsViaFxTwitter,
 } from "#/lib/fxtwitter";
 import { hydrateProfilesFromX } from "#/lib/profile-hydration";
+import { importXJsonFromPath } from "#/lib/x-json-import";
 import { getQueryEnvelope } from "#/lib/query-status";
 import { seedDemoData } from "#/lib/seed";
 import { printError, type CliCommandContext } from "./command-context";
@@ -361,5 +362,19 @@ export function registerCoreCommands({
 			const result = await hydrateProfilesFromX({ account: options.account });
 			await autoSyncAfterWrite();
 			print(result, asJson());
+		});
+	importCommand
+		.command("x-json [file]")
+		.description(
+			"Import offline X API v2 tweet JSON or JSONL from a file or stdin",
+		)
+		.action(async (file = "-") => {
+			const db = getNativeDb({ seedDemoData: false });
+			const result = await importXJsonFromPath(db, file);
+			await autoSyncAfterWrite();
+			print(result, asJson());
+			if (result.errors.length > 0) {
+				process.exitCode = 1;
+			}
 		});
 }
