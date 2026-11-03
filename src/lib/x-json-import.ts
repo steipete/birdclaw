@@ -198,7 +198,7 @@ function normalizeTweetData(
 		};
 	}
 	const referenced = normalizeReferencedTweets(rest, line);
-	if ("error" in referenced) return referenced;
+	if (!Array.isArray(referenced)) return referenced;
 	const text = readStringField(rest, "text", line, "tweet.text");
 	if (typeof text !== "string") return text;
 	const createdAt = readStringField(
@@ -227,14 +227,14 @@ function normalizeTweetData(
 		line,
 		"tweet.in_reply_to_user_id",
 	);
-	if (inReplyToUserId && "error" in inReplyToUserId) return inReplyToUserId;
+	if (typeof inReplyToUserId === "object") return inReplyToUserId;
 	const conversationId = optionalNumericUserId(
 		rest,
 		"conversation_id",
 		line,
 		"tweet.conversation_id",
 	);
-	if (conversationId && "error" in conversationId) return conversationId;
+	if (typeof conversationId === "object") return conversationId;
 	const tweet: XurlTweetData = {
 		id,
 		author_id: authorId,
