@@ -5,6 +5,7 @@ import type {
 	XurlMedia,
 	XurlMentionUser,
 	XurlNoteTweet,
+	XurlPublicMetrics,
 	XurlReferencedTweet,
 	XurlTweetAttachments,
 	XurlTweetData,
@@ -130,6 +131,118 @@ function normalizeAttachments(
 	return attachments;
 }
 
+const PUBLIC_METRIC_FIELDS = [
+	"retweet_count",
+	"reply_count",
+	"like_count",
+	"quote_count",
+	"bookmark_count",
+	"impression_count",
+	"followers_count",
+	"following_count",
+	"tweet_count",
+	"listed_count",
+] as const satisfies ReadonlyArray<keyof XurlPublicMetrics>;
+
+type ImportFieldError = { error: string };
+
+function isImportFieldError(value: unknown): value is ImportFieldError {
+	return isRecord(value) && typeof value.error === "string";
+}
+
+function normalizeEntityArray(
+	value: unknown,
+	line: number,
+	label: string,
+): Record<string, unknown>[] | undefined | { error: string } {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) {
+		return { error: `Line ${String(line)}: ${label} must be an array` };
+	}
+	for (const entry of value) {
+		if (!isRecord(entry)) {
+			return {
+				error: `Line ${String(line)}: ${label} entries must be objects`,
+			};
+		}
+	}
+	return value;
+}
+
+function normalizeEntities(
+	value: unknown,
+	line: number,
+): Record<string, unknown> | undefined | { error: string } {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) {
+		return { error: `Line ${String(line)}: tweet.entities must be an object` };
+	}
+	const urls = normalizeEntityArray(value.urls, line, "tweet.entities.urls");
+	if (urls && "error" in urls) return urls;
+	const mentions = normalizeEntityArray(
+		value.mentions,
+		line,
+		"tweet.entities.mentions",
+	);
+	if (mentions && "error" in mentions) return mentions;
+	const hashtags = normalizeEntityArray(
+		value.hashtags,
+		line,
+		"tweet.entities.hashtags",
+	);
+	if (hashtags && "error" in hashtags) return hashtags;
+	if (value.article !== undefined && !isRecord(value.article)) {
+		return {
+			error: `Line ${String(line)}: tweet.entities.article must be an object`,
+		};
+	}
+	const entities: Record<string, unknown> = { ...value };
+	if (urls) entities.urls = urls;
+	if (mentions) entities.mentions = mentions;
+	if (hashtags) entities.hashtags = hashtags;
+	return entities;
+}
+
+function readMetricCount(
+	record: JsonRecord,
+	field: (typeof PUBLIC_METRIC_FIELDS)[number],
+	line: number,
+): number | undefined | { error: string } {
+	const value = record[field];
+	if (value === undefined) return undefined;
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+	if (typeof value === "string" && value.trim().length > 0) {
+		const parsed = Number(value);
+		if (Number.isFinite(parsed)) return parsed;
+	}
+	return {
+		error: `Line ${String(line)}: tweet.public_metrics.${field} must be a number`,
+	};
+}
+
+function normalizePublicMetrics(
+	value: unknown,
+	line: number,
+): XurlPublicMetrics | undefined | { error: string } {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) {
+		return {
+			error: `Line ${String(line)}: tweet.public_metrics must be an object`,
+		};
+	}
+	const metrics: XurlPublicMetrics = {};
+	for (const field of PUBLIC_METRIC_FIELDS) {
+		const parsed = readMetricCount(value, field, line);
+		if (parsed !== undefined && typeof parsed === "object") return parsed;
+		if (typeof parsed === "number") {
+			metrics[field] = parsed;
+		}
+	}
+	return metrics;
+}
+
 function normalizeReferencedTweets(
 	record: JsonRecord,
 	line: number,
@@ -235,6 +348,14 @@ function normalizeTweetData(
 		"tweet.conversation_id",
 	);
 	if (typeof conversationId === "object") return conversationId;
+	const entitiesResult = normalizeEntities(rest.entities, line);
+	if (isImportFieldError(entitiesResult)) {
+		return entitiesResult;
+	}
+	const publicMetricsResult = normalizePublicMetrics(rest.public_metrics, line);
+	if (isImportFieldError(publicMetricsResult)) {
+		return publicMetricsResult;
+	}
 	const tweet: XurlTweetData = {
 		id,
 		author_id: authorId,
@@ -249,9 +370,9 @@ function normalizeTweetData(
 			: {}),
 		...(inReplyToUserId ? { in_reply_to_user_id: inReplyToUserId } : {}),
 		...(conversationId ? { conversation_id: conversationId } : {}),
-		...(isRecord(rest.entities) ? { entities: rest.entities } : {}),
-		...(isRecord(rest.public_metrics)
-			? { public_metrics: rest.public_metrics }
+		...(entitiesResult !== undefined ? { entities: entitiesResult } : {}),
+		...(publicMetricsResult !== undefined
+			? { public_metrics: publicMetricsResult }
 			: {}),
 		...(Array.isArray(rest.edit_history_tweet_ids)
 			? {
@@ -522,19 +643,26 @@ export function importXJsonText(
 		];
 		const existingCount = primaryIds.filter((id) => tweetExists(db, id)).length;
 		const newCount = primaryIds.length - existingCount;
-		result.skipped += existingCount;
-		result.imported += newCount;
-
-		db.transaction(() => {
-			ingestTweetPayload(db, {
-				accountId: PUBLIC_ACCOUNT_ID,
-				payload: normalized.payload,
-				source: X_JSON_IMPORT_SOURCE,
-				provenance: normalized.sourceUrlByTweetId.size
-					? { sourceUrlByTweetId: normalized.sourceUrlByTweetId }
-					: undefined,
+		try {
+			db.transaction(() => {
+				ingestTweetPayload(db, {
+					accountId: PUBLIC_ACCOUNT_ID,
+					payload: normalized.payload,
+					source: X_JSON_IMPORT_SOURCE,
+					provenance: normalized.sourceUrlByTweetId.size
+						? { sourceUrlByTweetId: normalized.sourceUrlByTweetId }
+						: undefined,
+				});
+			})();
+			result.skipped += existingCount;
+			result.imported += newCount;
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			result.errors.push({
+				line: document.line,
+				message: `Line ${String(document.line)}: ${detail}`,
 			});
-		})();
+		}
 	}
 
 	return result;

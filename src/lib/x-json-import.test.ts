@@ -270,6 +270,54 @@ describe("importXJsonText", () => {
 		]);
 	});
 
+	it("rejects malformed entities without aborting later valid lines", () => {
+		const home = testHome();
+		const db = home.db;
+		const bad = JSON.stringify({
+			data: {
+				id: "880116",
+				author_id: SYNTH_AUTHOR.id,
+				text: "bad entities",
+				created_at: "2026-03-01T12:00:00.000Z",
+				entities: { urls: { not: "an array" } },
+			},
+		});
+		const good = JSON.stringify(singleTweetResponse({ id: "880117" }));
+		const result = importXJsonText(db, `${bad}\n${good}`);
+		expect(result).toMatchObject({ imported: 1, skipped: 0 });
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]?.message).toContain(
+			"entities.urls must be an array",
+		);
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880117"),
+		).toEqual({ id: "880117" });
+	});
+
+	it("rejects malformed public_metrics without aborting later valid lines", () => {
+		const home = testHome();
+		const db = home.db;
+		const bad = JSON.stringify({
+			data: {
+				id: "880118",
+				author_id: SYNTH_AUTHOR.id,
+				text: "bad metrics",
+				created_at: "2026-03-01T12:00:00.000Z",
+				public_metrics: { like_count: "many" },
+			},
+		});
+		const good = JSON.stringify(singleTweetResponse({ id: "880119" }));
+		const result = importXJsonText(db, `${bad}\n${good}`);
+		expect(result).toMatchObject({ imported: 1, skipped: 0 });
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]?.message).toContain(
+			"public_metrics.like_count must be a number",
+		);
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880119"),
+		).toEqual({ id: "880119" });
+	});
+
 	it("rejects malformed nested media without aborting later valid lines", () => {
 		const home = testHome();
 		const db = home.db;
