@@ -4,6 +4,9 @@ import { ingestTweetPayload } from "./tweet-repository";
 import type {
 	XurlMedia,
 	XurlMentionUser,
+	XurlNoteTweet,
+	XurlReferencedTweet,
+	XurlTweetAttachments,
 	XurlTweetData,
 	XurlTweetsResponse,
 } from "./types";
@@ -44,6 +47,119 @@ function readStringField(
 		};
 	}
 	return value.trim();
+}
+
+function optionalNumericUserId(
+	record: JsonRecord,
+	field: string,
+	line: number,
+	label: string,
+): string | undefined | { error: string } {
+	const raw = record[field];
+	if (raw === undefined) return undefined;
+	if (typeof raw !== "string" || raw.trim().length === 0) {
+		return {
+			error: `Line ${String(line)}: ${label} must be a non-empty string`,
+		};
+	}
+	const trimmed = raw.trim();
+	if (!X_USER_ID_PATTERN.test(trimmed)) {
+		return {
+			error: `Line ${String(line)}: ${label} must be a numeric string`,
+		};
+	}
+	return trimmed;
+}
+
+function normalizeNoteTweet(
+	value: unknown,
+	line: number,
+): XurlNoteTweet | undefined | { error: string } {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) {
+		return { error: `Line ${String(line)}: tweet.note_tweet must be an object` };
+	}
+	const text = readStringField(value, "text", line, "tweet.note_tweet.text");
+	if (typeof text !== "string") return text;
+	return {
+		text,
+		...(isRecord(value.entities) ? { entities: value.entities } : {}),
+	};
+}
+
+function normalizeAttachments(
+	value: unknown,
+	line: number,
+): XurlTweetAttachments | undefined | { error: string } {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) {
+		return { error: `Line ${String(line)}: tweet.attachments must be an object` };
+	}
+	const attachments: XurlTweetAttachments = {};
+	if (value.media_keys !== undefined) {
+		if (!Array.isArray(value.media_keys)) {
+			return {
+				error: `Line ${String(line)}: tweet.attachments.media_keys must be an array`,
+			};
+		}
+		const mediaKeys: string[] = [];
+		for (const key of value.media_keys) {
+			if (typeof key !== "string" || key.trim().length === 0) {
+				return {
+					error: `Line ${String(line)}: tweet.attachments.media_keys entries must be non-empty strings`,
+				};
+			}
+			mediaKeys.push(key.trim());
+		}
+		attachments.media_keys = mediaKeys;
+	}
+	if (value.poll_ids !== undefined) {
+		if (!Array.isArray(value.poll_ids)) {
+			return {
+				error: `Line ${String(line)}: tweet.attachments.poll_ids must be an array`,
+			};
+		}
+		attachments.poll_ids = value.poll_ids.filter(
+			(id): id is string => typeof id === "string" && id.trim().length > 0,
+		);
+	}
+	return attachments;
+}
+
+function normalizeReferencedTweets(
+	record: JsonRecord,
+	line: number,
+): XurlReferencedTweet[] | { error: string } {
+	const value = record.referenced_tweets;
+	if (value === undefined) return [];
+	if (!Array.isArray(value)) {
+		return {
+			error: `Line ${String(line)}: tweet.referenced_tweets must be an array`,
+		};
+	}
+	const referenced: XurlReferencedTweet[] = [];
+	for (const entry of value) {
+		if (!isRecord(entry)) {
+			return {
+				error: `Line ${String(line)}: tweet.referenced_tweets entries must be objects`,
+			};
+		}
+		const type = entry.type;
+		if (typeof type !== "string" || !REFERENCED_TWEET_TYPES.has(type)) {
+			return {
+				error: `Line ${String(line)}: tweet.referenced_tweets.type must be quoted, replied_to, or retweeted`,
+			};
+		}
+		const refId = readStringField(entry, "id", line, "tweet.referenced_tweets.id");
+		if (typeof refId !== "string") return refId;
+		if (!TWEET_ID_PATTERN.test(refId)) {
+			return {
+				error: `Line ${String(line)}: tweet.referenced_tweets.id must be a numeric string (1-20 digits)`,
+			};
+		}
+		referenced.push({ type, id: refId });
+	}
+	return referenced;
 }
 
 function normalizeTweetData(
@@ -88,43 +204,59 @@ function normalizeTweetData(
 			error: `Line ${String(line)}: tweet.created_at must be a valid timestamp`,
 		};
 	}
+	const noteTweetResult = normalizeNoteTweet(rest.note_tweet, line);
+	if (noteTweetResult !== undefined && "error" in noteTweetResult) {
+		return noteTweetResult;
+	}
+	const attachmentsResult = normalizeAttachments(rest.attachments, line);
+	if (attachmentsResult !== undefined && "error" in attachmentsResult) {
+		return attachmentsResult;
+	}
+	const inReplyToUserId = optionalNumericUserId(
+		rest,
+		"in_reply_to_user_id",
+		line,
+		"tweet.in_reply_to_user_id",
+	);
+	if (inReplyToUserId && "error" in inReplyToUserId) return inReplyToUserId;
+	const conversationId = optionalNumericUserId(
+		rest,
+		"conversation_id",
+		line,
+		"tweet.conversation_id",
+	);
+	if (conversationId && "error" in conversationId) return conversationId;
+	const tweet: XurlTweetData = {
+		id,
+		author_id: authorId,
+		text,
+		created_at: createdAt,
+		...(noteTweetResult !== undefined && !("error" in noteTweetResult)
+			? { note_tweet: noteTweetResult }
+			: {}),
+		...(referenced.length > 0 ? { referenced_tweets: referenced } : {}),
+		...(attachmentsResult !== undefined && !("error" in attachmentsResult)
+			? { attachments: attachmentsResult }
+			: {}),
+		...(inReplyToUserId ? { in_reply_to_user_id: inReplyToUserId } : {}),
+		...(conversationId ? { conversation_id: conversationId } : {}),
+		...(isRecord(rest.entities) ? { entities: rest.entities } : {}),
+		...(isRecord(rest.public_metrics)
+			? { public_metrics: rest.public_metrics }
+			: {}),
+		...(Array.isArray(rest.edit_history_tweet_ids)
+			? {
+					edit_history_tweet_ids: rest.edit_history_tweet_ids.filter(
+						(entry): entry is string =>
+							typeof entry === "string" && TWEET_ID_PATTERN.test(entry.trim()),
+					),
+				}
+			: {}),
+	};
 	return {
-		tweet: rest as unknown as XurlTweetData,
+		tweet,
 		sourceUrl,
 	};
-}
-
-function normalizeReferencedTweets(
-	record: JsonRecord,
-	line: number,
-): { ok: true } | { error: string } {
-	const value = record.referenced_tweets;
-	if (value === undefined) return { ok: true };
-	if (!Array.isArray(value)) {
-		return {
-			error: `Line ${String(line)}: tweet.referenced_tweets must be an array`,
-		};
-	}
-	for (const entry of value) {
-		if (!isRecord(entry)) {
-			return {
-				error: `Line ${String(line)}: tweet.referenced_tweets entries must be objects`,
-			};
-		}
-		const type = entry.type;
-		if (typeof type !== "string" || !REFERENCED_TWEET_TYPES.has(type)) {
-			return {
-				error: `Line ${String(line)}: tweet.referenced_tweets.type must be quoted, replied_to, or retweeted`,
-			};
-		}
-		const refId = entry.id;
-		if (typeof refId !== "string" || !TWEET_ID_PATTERN.test(refId.trim())) {
-			return {
-				error: `Line ${String(line)}: tweet.referenced_tweets.id must be a numeric string (1-20 digits)`,
-			};
-		}
-	}
-	return { ok: true };
 }
 
 function normalizeUser(
@@ -147,7 +279,63 @@ function normalizeUser(
 	if (typeof username !== "string") return username;
 	const name = readStringField(value, "name", line, "user.name");
 	if (typeof name !== "string") return name;
-	return value as unknown as XurlMentionUser;
+	return { id, username, name };
+}
+
+function normalizeMediaItem(
+	item: JsonRecord,
+	line: number,
+): XurlMedia | { error: string } {
+	const mediaKey = readStringField(item, "media_key", line, "media.media_key");
+	if (typeof mediaKey !== "string") return mediaKey;
+	const type = readStringField(item, "type", line, "media.type");
+	if (typeof type !== "string") return type;
+	if (item.variants !== undefined && !Array.isArray(item.variants)) {
+		return { error: `Line ${String(line)}: media.variants must be an array` };
+	}
+	const media: XurlMedia = { media_key: mediaKey, type };
+	if (typeof item.url === "string" && item.url.trim().length > 0) {
+		media.url = item.url.trim();
+	}
+	if (
+		typeof item.preview_image_url === "string" &&
+		item.preview_image_url.trim().length > 0
+	) {
+		media.preview_image_url = item.preview_image_url.trim();
+	}
+	if (typeof item.alt_text === "string") {
+		media.alt_text = item.alt_text;
+	}
+	if (Number.isFinite(Number(item.width))) {
+		media.width = Number(item.width);
+	}
+	if (Number.isFinite(Number(item.height))) {
+		media.height = Number(item.height);
+	}
+	if (Number.isFinite(Number(item.duration_ms))) {
+		media.duration_ms = Number(item.duration_ms);
+	}
+	if (Array.isArray(item.variants)) {
+		media.variants = item.variants.flatMap((variant) => {
+			if (!isRecord(variant)) return [];
+			if (
+				typeof variant.url !== "string" ||
+				typeof variant.content_type !== "string"
+			) {
+				return [];
+			}
+			return [
+				{
+					url: variant.url,
+					content_type: variant.content_type,
+					...(Number.isFinite(Number(variant.bit_rate))
+						? { bit_rate: Number(variant.bit_rate) }
+						: {}),
+				},
+			];
+		});
+	}
+	return media;
 }
 
 function normalizeIncludes(
@@ -189,23 +377,18 @@ function normalizeIncludes(
 		if (!Array.isArray(value.media)) {
 			return { error: `Line ${String(line)}: includes.media must be an array` };
 		}
+		const mediaItems: XurlMedia[] = [];
 		for (const item of value.media) {
 			if (!isRecord(item)) {
 				return {
 					error: `Line ${String(line)}: includes.media entries must be objects`,
 				};
 			}
-			const mediaKey = readStringField(
-				item,
-				"media_key",
-				line,
-				"media.media_key",
-			);
-			if (typeof mediaKey !== "string") return mediaKey;
-			const type = readStringField(item, "type", line, "media.type");
-			if (typeof type !== "string") return type;
+			const normalized = normalizeMediaItem(item, line);
+			if ("error" in normalized) return normalized;
+			mediaItems.push(normalized);
 		}
-		includes.media = value.media as XurlMedia[];
+		includes.media = mediaItems;
 	}
 	return includes;
 }
@@ -338,7 +521,6 @@ export function importXJsonText(
 				accountId: PUBLIC_ACCOUNT_ID,
 				payload: normalized.payload,
 				source: X_JSON_IMPORT_SOURCE,
-				edgeKind: "home",
 				provenance: normalized.sourceUrlByTweetId.size
 					? { sourceUrlByTweetId: normalized.sourceUrlByTweetId }
 					: undefined,

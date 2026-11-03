@@ -59,3 +59,5 @@ BIRDCLAW_BACKUP_AUTO_SYNC=0 birdclaw import x-json ./exports/tweets.jsonl --json
 ```
 
 The command prints `{ imported, skipped, errors }`. Malformed JSONL lines are rejected whole; re-importing the same tweet ids is idempotent.
+
+Imported primary tweets are stored like FxTwitter public imports. They do not receive a `home` account edge, so default `search tweets` (which filters on home membership) will not list them. Canonical tweet rows and the FTS index are still updated the same way as other offline public imports.
