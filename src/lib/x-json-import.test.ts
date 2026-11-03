@@ -289,7 +289,9 @@ describe("importXJsonText", () => {
 		const good = JSON.stringify(singleTweetResponse({ id: "880111" }));
 		const result = importXJsonText(db, `${bad}\n${good}`);
 		expect(result.imported).toBe(1);
-		expect(result.errors[0]?.message).toContain("media.variants must be an array");
+		expect(result.errors[0]?.message).toContain(
+			"media.variants must be an array",
+		);
 		expect(
 			db.prepare("select id from tweets where id = ?").get("880111"),
 		).toEqual({ id: "880111" });
@@ -501,14 +503,7 @@ describe("import x-json CLI", () => {
 		writeFileSync(file, `${bad}\n${good}\n`);
 		process.exitCode = 0;
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
-		await runCliMain([
-			"node",
-			"birdclaw",
-			"import",
-			"x-json",
-			file,
-			"--json",
-		]);
+		await runCliMain(["node", "birdclaw", "import", "x-json", file, "--json"]);
 		const payload = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
 		expect(payload.imported).toBe(1);
 		expect(payload.errors[0]?.message).toContain(
@@ -541,14 +536,7 @@ describe("import x-json CLI", () => {
 		writeFileSync(file, `${bad}\n${good}\n`);
 		process.exitCode = 0;
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
-		await runCliMain([
-			"node",
-			"birdclaw",
-			"import",
-			"x-json",
-			file,
-			"--json",
-		]);
+		await runCliMain(["node", "birdclaw", "import", "x-json", file, "--json"]);
 		const payload = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
 		expect(payload.imported).toBe(2);
 		expect(payload.errors).toEqual([]);
@@ -571,14 +559,7 @@ describe("import x-json CLI", () => {
 		writeFileSync(file, `${bad}\n${good}\n`);
 		process.exitCode = 0;
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
-		await runCliMain([
-			"node",
-			"birdclaw",
-			"import",
-			"x-json",
-			file,
-			"--json",
-		]);
+		await runCliMain(["node", "birdclaw", "import", "x-json", file, "--json"]);
 		const payload = JSON.parse(String(log.mock.calls.at(-1)?.[0]));
 		expect(payload.imported).toBe(1);
 		expect(payload.errors[0]?.message).toContain("note_tweet.text");
@@ -588,19 +569,9 @@ describe("import x-json CLI", () => {
 	it("does not create home edges when importing through the CLI", async () => {
 		const home = testHome();
 		const file = path.join(home.root, "no-home-edge.json");
-		writeFileSync(
-			file,
-			JSON.stringify(singleTweetResponse({ id: "880126" })),
-		);
+		writeFileSync(file, JSON.stringify(singleTweetResponse({ id: "880126" })));
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
-		await runCliMain([
-			"node",
-			"birdclaw",
-			"import",
-			"x-json",
-			file,
-			"--json",
-		]);
+		await runCliMain(["node", "birdclaw", "import", "x-json", file, "--json"]);
 		expect(JSON.parse(String(log.mock.calls.at(-1)?.[0]))).toMatchObject({
 			imported: 1,
 			errors: [],

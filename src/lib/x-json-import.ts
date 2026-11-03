@@ -77,7 +77,9 @@ function normalizeNoteTweet(
 ): XurlNoteTweet | undefined | { error: string } {
 	if (value === undefined) return undefined;
 	if (!isRecord(value)) {
-		return { error: `Line ${String(line)}: tweet.note_tweet must be an object` };
+		return {
+			error: `Line ${String(line)}: tweet.note_tweet must be an object`,
+		};
 	}
 	const text = readStringField(value, "text", line, "tweet.note_tweet.text");
 	if (typeof text !== "string") return text;
@@ -93,7 +95,9 @@ function normalizeAttachments(
 ): XurlTweetAttachments | undefined | { error: string } {
 	if (value === undefined) return undefined;
 	if (!isRecord(value)) {
-		return { error: `Line ${String(line)}: tweet.attachments must be an object` };
+		return {
+			error: `Line ${String(line)}: tweet.attachments must be an object`,
+		};
 	}
 	const attachments: XurlTweetAttachments = {};
 	if (value.media_keys !== undefined) {
@@ -150,7 +154,12 @@ function normalizeReferencedTweets(
 				error: `Line ${String(line)}: tweet.referenced_tweets.type must be quoted, replied_to, or retweeted`,
 			};
 		}
-		const refId = readStringField(entry, "id", line, "tweet.referenced_tweets.id");
+		const refId = readStringField(
+			entry,
+			"id",
+			line,
+			"tweet.referenced_tweets.id",
+		);
 		if (typeof refId !== "string") return refId;
 		if (!TWEET_ID_PATTERN.test(refId)) {
 			return {
