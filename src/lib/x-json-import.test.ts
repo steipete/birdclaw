@@ -441,6 +441,98 @@ describe("importXJsonText", () => {
 		});
 	});
 
+	it("applies renames from sparse includes.users while keeping stored metadata (k2)", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900012";
+		const profileId = buildExternalProfileId(userId);
+		upsertProfileFromXUser(db, {
+			id: userId,
+			username: "synth_old_handle",
+			name: "Synth Old Name",
+			description: "Existing synth bio",
+			profile_image_url: "https://example.test/avatar.png",
+			public_metrics: { followers_count: 4242 },
+		});
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880204",
+					author_id: userId,
+					text: "rename import",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [
+						{
+							id: userId,
+							username: "synth_new_handle",
+							name: "Synth New Name",
+						},
+					],
+				},
+			}),
+		);
+		expect(
+			db
+				.prepare(
+					"select handle, display_name, bio, followers_count, avatar_url from profiles where id = ?",
+				)
+				.get(profileId),
+		).toEqual({
+			handle: "synth_new_handle",
+			display_name: "Synth New Name",
+			bio: "Existing synth bio",
+			followers_count: 4242,
+			avatar_url: "https://example.test/avatar.png",
+		});
+	});
+
+	it("keeps stored metadata when includes.users adds partial fields (k3)", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900013";
+		const handle = "synth_partial";
+		const profileId = buildExternalProfileId(userId);
+		upsertProfileFromXUser(db, {
+			id: userId,
+			username: handle,
+			name: "Synth Partial",
+			description: "Existing synth bio",
+			public_metrics: { followers_count: 5150 },
+		});
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880205",
+					author_id: userId,
+					text: "partial user import",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [
+						{
+							id: userId,
+							username: handle,
+							name: "Synth Partial",
+							verified: false,
+						},
+					],
+				},
+			}),
+		);
+		expect(
+			db
+				.prepare("select bio, followers_count from profiles where id = ?")
+				.get(profileId),
+		).toEqual({
+			bio: "Existing synth bio",
+			followers_count: 5150,
+		});
+	});
+
 	it("updates profile fields when includes.users carries richer metadata", () => {
 		const home = testHome();
 		const db = home.db;

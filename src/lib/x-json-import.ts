@@ -287,12 +287,6 @@ function forwardUser(record: JsonRecord): XurlMentionUser {
 	return { ...record, id: String(record.id).trim() } as XurlMentionUser;
 }
 
-const SPARSE_INCLUDED_USER_KEYS = new Set(["id", "username", "name"]);
-
-function isSparseIncludedUser(record: JsonRecord) {
-	return Object.keys(record).every((key) => SPARSE_INCLUDED_USER_KEYS.has(key));
-}
-
 function forwardTweetFromRecord(record: JsonRecord): XurlTweetData {
 	const { url: _ignored, ...rest } = record;
 	const tweet = { ...rest } as unknown as XurlTweetData;
@@ -508,24 +502,51 @@ function profileExistsForXUser(db: Database, userId: string) {
 	);
 }
 
+function storedXUserRecord(db: Database, userId: string): JsonRecord {
+	const row = db
+		.prepare("select raw_json from profiles where id = ?")
+		.get(buildExternalProfileId(String(userId).trim())) as
+		| { raw_json: string | null }
+		| undefined;
+	if (!row?.raw_json) return {};
+	try {
+		const parsed: unknown = JSON.parse(row.raw_json);
+		return isRecord(parsed) ? parsed : {};
+	} catch {
+		return {};
+	}
+}
+
+function mergeIncludedUserWithStoredProfile(
+	db: Database,
+	user: XurlMentionUser,
+): XurlMentionUser {
+	if (!profileExistsForXUser(db, user.id)) return user;
+	const stored = storedXUserRecord(db, user.id);
+	const incoming = user as unknown as JsonRecord;
+	return {
+		...stored,
+		...incoming,
+		id: String(user.id).trim(),
+	} as XurlMentionUser;
+}
+
 function payloadForIngest(
 	db: Database,
 	payload: XurlTweetsResponse,
 ): XurlTweetsResponse {
 	const users = payload.includes?.users;
 	if (!users?.length) return payload;
-	const filtered = users.filter((user) => {
-		if (!isSparseIncludedUser(user as unknown as JsonRecord)) return true;
-		return !profileExistsForXUser(db, user.id);
-	});
-	if (filtered.length === users.length) return payload;
-	const includes = { ...payload.includes };
-	if (filtered.length > 0) {
-		includes.users = filtered;
-	} else {
-		delete includes.users;
-	}
-	return { ...payload, includes };
+	const mergedUsers = users.map((user) =>
+		mergeIncludedUserWithStoredProfile(db, user),
+	);
+	return {
+		...payload,
+		includes: {
+			...payload.includes,
+			users: mergedUsers,
+		},
+	};
 }
 
 function ensurePublicImportAccount(db: Database) {
@@ -571,9 +592,11 @@ export function importXJsonText(
 		const primaryIds = [
 			...new Set(normalized.payload.data.map((tweet) => tweet.id)),
 		];
-		const existingCount = primaryIds.filter((id) => tweetExists(db, id)).length;
-		const newCount = primaryIds.length - existingCount;
 		try {
+			const existingCount = primaryIds.filter((id) =>
+				tweetExists(db, id),
+			).length;
+			const newCount = primaryIds.length - existingCount;
 			db.transaction(() => {
 				ingestTweetPayload(db, {
 					accountId: PUBLIC_ACCOUNT_ID,
