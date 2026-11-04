@@ -502,19 +502,20 @@ function profileExistsForXUser(db: Database, userId: string) {
 	);
 }
 
-function storedXUserRecord(db: Database, userId: string): JsonRecord {
-	const row = db
-		.prepare("select raw_json from profiles where id = ?")
+function storedProfileColumns(db: Database, userId: string) {
+	return db
+		.prepare(
+			`select bio, followers_count, following_count, public_metrics_json
+       from profiles where id = ?`,
+		)
 		.get(buildExternalProfileId(String(userId).trim())) as
-		| { raw_json: string | null }
+		| {
+				bio: string;
+				followers_count: number;
+				following_count: number | null;
+				public_metrics_json: string | null;
+		  }
 		| undefined;
-	if (!row?.raw_json) return {};
-	try {
-		const parsed: unknown = JSON.parse(row.raw_json);
-		return isRecord(parsed) ? parsed : {};
-	} catch {
-		return {};
-	}
 }
 
 function mergeIncludedUserWithStoredProfile(
@@ -522,13 +523,30 @@ function mergeIncludedUserWithStoredProfile(
 	user: XurlMentionUser,
 ): XurlMentionUser {
 	if (!profileExistsForXUser(db, user.id)) return user;
-	const stored = storedXUserRecord(db, user.id);
+	const stored = storedProfileColumns(db, user.id);
+	if (!stored) return user;
 	const incoming = user as unknown as JsonRecord;
-	return {
-		...stored,
-		...incoming,
-		id: String(user.id).trim(),
-	} as XurlMentionUser;
+	const merged: JsonRecord = { ...incoming, id: String(user.id).trim() };
+	if (!Object.hasOwn(incoming, "description")) {
+		merged.description = stored.bio;
+	}
+	if (!Object.hasOwn(incoming, "public_metrics")) {
+		let metrics: JsonRecord = {};
+		if (stored.public_metrics_json) {
+			try {
+				const parsed: unknown = JSON.parse(stored.public_metrics_json);
+				if (isRecord(parsed)) metrics = { ...parsed };
+			} catch {
+				metrics = {};
+			}
+		}
+		metrics.followers_count = stored.followers_count;
+		if (stored.following_count !== null) {
+			metrics.following_count = stored.following_count;
+		}
+		merged.public_metrics = metrics;
+	}
+	return merged as unknown as XurlMentionUser;
 }
 
 function payloadForIngest(

@@ -533,6 +533,87 @@ describe("importXJsonText", () => {
 		});
 	});
 
+	it("uses profile columns when stored raw_json is unusable (k4)", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900014";
+		const handle = "synth_bad_raw";
+		const profileId = buildExternalProfileId(userId);
+		upsertProfileFromXUser(db, {
+			id: userId,
+			username: handle,
+			name: "Synth Bad Raw",
+			description: "Column bio survives",
+			public_metrics: { followers_count: 7070 },
+		});
+		db.prepare("update profiles set raw_json = ? where id = ?").run(
+			"{not json",
+			profileId,
+		);
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880206",
+					author_id: userId,
+					text: "bad raw json import",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [{ id: userId, username: handle, name: "Synth Bad Raw" }],
+				},
+			}),
+		);
+		expect(
+			db
+				.prepare("select bio, followers_count from profiles where id = ?")
+				.get(profileId),
+		).toEqual({
+			bio: "Column bio survives",
+			followers_count: 7070,
+		});
+	});
+
+	it("uses profile columns when raw_json is stale after column-only updates (k5)", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900015";
+		const handle = "synth_stale_raw";
+		const profileId = buildExternalProfileId(userId);
+		upsertProfileFromXUser(db, {
+			id: userId,
+			username: handle,
+			name: "Synth Stale Raw",
+			description: "Old",
+			public_metrics: { followers_count: 10 },
+		});
+		db.prepare(
+			"update profiles set bio = ?, followers_count = ? where id = ?",
+		).run("Newer", 999, profileId);
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880207",
+					author_id: userId,
+					text: "stale raw json import",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [{ id: userId, username: handle, name: "Synth Stale Raw" }],
+				},
+			}),
+		);
+		expect(
+			db
+				.prepare("select bio, followers_count from profiles where id = ?")
+				.get(profileId),
+		).toEqual({
+			bio: "Newer",
+			followers_count: 999,
+		});
+	});
+
 	it("updates profile fields when includes.users carries richer metadata", () => {
 		const home = testHome();
 		const db = home.db;
