@@ -6,6 +6,8 @@ import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { runCliMain } from "../cli";
 import { exportBackup, importBackup } from "./backup";
+import { upsertProfileFromXUser, buildExternalProfileId } from "./x-profile";
+import { renderTweetPlainText, tweetEntitiesFromXurl } from "./tweet-render";
 import { importXJsonText } from "./x-json-import";
 import { useTestHome } from "../test/test-home";
 import { writeFileSync } from "node:fs";
@@ -396,6 +398,149 @@ describe("importXJsonText", () => {
 				)
 				.get("880115"),
 		).toEqual({ count: 0 });
+	});
+
+	it("preserves populated profile fields when includes.users is minimal", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900010";
+		const handle = "synth_author";
+		upsertProfileFromXUser(db, {
+			id: userId,
+			username: handle,
+			name: "Synth Author",
+			description: "Existing synth bio",
+			profile_image_url: "https://example.test/avatar.png",
+			public_metrics: { followers_count: 4242 },
+		});
+		const profileId = buildExternalProfileId(userId);
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880200",
+					author_id: userId,
+					text: "profile preserve needle",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [{ id: userId, username: handle, name: "Synth Author" }],
+				},
+			}),
+		);
+		expect(
+			db
+				.prepare(
+					"select bio, followers_count, avatar_url from profiles where id = ?",
+				)
+				.get(profileId),
+		).toEqual({
+			bio: "Existing synth bio",
+			followers_count: 4242,
+			avatar_url: "https://example.test/avatar.png",
+		});
+	});
+
+	it("updates profile fields when includes.users carries richer metadata", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900011";
+		const handle = "synth_richer";
+		upsertProfileFromXUser(db, {
+			id: userId,
+			username: handle,
+			name: "Synth Richer",
+			description: "Old bio",
+			public_metrics: { followers_count: 1 },
+		});
+		const profileId = buildExternalProfileId(userId);
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880201",
+					author_id: userId,
+					text: "richer profile import",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [
+						{
+							id: userId,
+							username: handle,
+							name: "Synth Richer",
+							description: "Updated synth bio",
+							profile_image_url: "https://example.test/new-avatar.png",
+							public_metrics: { followers_count: 9000 },
+						},
+					],
+				},
+			}),
+		);
+		expect(
+			db
+				.prepare(
+					"select bio, followers_count, avatar_url, public_metrics_json from profiles where id = ?",
+				)
+				.get(profileId),
+		).toMatchObject({
+			bio: "Updated synth bio",
+			followers_count: 9000,
+			avatar_url: "https://example.test/new-avatar.png",
+		});
+	});
+
+	it("stores tweet text byte-identically with mention entity offsets", () => {
+		const home = testHome();
+		const db = home.db;
+		const text = "  @syn_mnt hello";
+		const entities = {
+			mentions: [{ username: "syn_mnt", start: 2, end: 10 }],
+		};
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880202",
+					author_id: SYNTH_AUTHOR.id,
+					text,
+					created_at: "2026-03-01T12:00:00.000Z",
+					entities,
+				},
+				includes: { users: [SYNTH_AUTHOR] },
+			}),
+		);
+		const row = db
+			.prepare("select text, entities_json from tweets where id = ?")
+			.get("880202") as { text: string; entities_json: string };
+		expect(row.text).toBe(text);
+		const parsedEntities = tweetEntitiesFromXurl(JSON.parse(row.entities_json));
+		expect(renderTweetPlainText(row.text, parsedEntities)).toContain(
+			"@syn_mnt",
+		);
+	});
+
+	it("stores note_tweet text without trimming", () => {
+		const home = testHome();
+		const db = home.db;
+		const noteText = "  synth longform preserved  ";
+		importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880203",
+					author_id: SYNTH_AUTHOR.id,
+					text: "preview",
+					created_at: "2026-03-01T12:00:00.000Z",
+					note_tweet: { text: noteText },
+				},
+				includes: { users: [SYNTH_AUTHOR] },
+			}),
+		);
+		const row = db
+			.prepare("select note_tweet_json from tweets where id = ?")
+			.get("880203") as { note_tweet_json: string };
+		expect(JSON.parse(row.note_tweet_json).text).toBe(noteText);
 	});
 });
 
