@@ -42,3 +42,22 @@ Partial refreshes never delete rows, remove relationships, or interpret a missin
 ## Read-only boundary
 
 The FxTwitter transport supports named public tweet, author-thread, conversation, profile-object, and bounded post-search reads only. It does not expose user timelines/status feeds, followers/following, trends, typeahead, standalone quote/repost products, bulk archival sync, DMs, home timelines, bookmarks, likes, authenticated mentions, private content, or any write.
+
+## Offline X API v2 JSON import
+
+Import tweet payloads already saved as X API v2 responses (`XurlTweetsResponse`) without network access or credentials. Each document may use `data` as one tweet object or an array; optional per-tweet `url` values are stored as `tweet_sources` provenance with `source = 'x-json'`.
+
+```bash
+birdclaw import x-json ./exports/tweets.jsonl --json
+cat tweets.jsonl | birdclaw import x-json - --json
+```
+
+The import path itself does not call X or FxTwitter. Like other data-changing commands, a successful import still runs backup auto-sync when that preference is enabled, which can reconcile Git history and push your configured backup remote. For a strictly offline run with auto-sync disabled for one process:
+
+```bash
+BIRDCLAW_BACKUP_AUTO_SYNC=0 birdclaw import x-json ./exports/tweets.jsonl --json
+```
+
+The command prints `{ imported, skipped, errors }`. Malformed JSONL lines are rejected whole; re-importing the same tweet ids is idempotent.
+
+Imported primary tweets receive a `home` edge on the `public` import account and appear in default `search tweets` results. Tweets included only as quoted or referenced context do not receive that edge. Re-importing earlier saved files also adds missing search membership without duplicating tweets. Empty included-user display names fall back to the username, matching shared ingestion.

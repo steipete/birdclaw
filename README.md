@@ -46,6 +46,7 @@ A Twitter/X archive establishes the account identity for a new real database and
 
 ```bash
 birdclaw import archive ~/Downloads/twitter-archive.zip --json
+birdclaw import x-json ~/Downloads/saved-tweets.jsonl --json
 ```
 
 Imports are idempotent and merge destination-only rows by default. Selected re-imports and exact replacement are documented in [Archive import](https://birdclaw.sh/archive.html).

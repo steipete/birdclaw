@@ -2,6 +2,8 @@
 
 ## 0.16.4 - Unreleased
 
+- Import saved X API v2 JSON or JSONL from files/stdin without live reads, with default-search visibility, idempotent ingestion, and empty display-name support. Thanks @TheAngryPit (#252).
+
 - Refresh compatible runtime and development dependencies while retaining the pinned Bun canary, Node 26 floor, jsdom compatibility pin, and security overrides.
 - Give the large timeline reconciliation regression its existing coverage timeout under ordinary runs too, preserving assertions and the global default (#253, thanks @rymalia).
 
