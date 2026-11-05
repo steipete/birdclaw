@@ -138,6 +138,8 @@ Archive ZIPs ship the actual image and video files for every media kind X export
 - `moments` — moments-tweet attachments (`data/moments_tweets_media/`)
 - `dmGroup` — group DM attachments (`data/direct_messages_group_media/`)
 
+X archives whose ZIP entries omit Unix file-type bits are supported; their bundled media is extracted even when `unzip` lists file modes with a leading `?`.
+
 `<id>` is the parent tweet or DM event id. `<filename>` is the original file name X chose. Extraction is idempotent: a file is rewritten only if its size on disk differs from the size in the ZIP.
 
 ## video_info.variants extraction
