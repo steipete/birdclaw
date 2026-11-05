@@ -276,9 +276,11 @@ function validateUser(value: unknown, line: number): true | ImportFieldError {
 			"user.id must be a numeric string",
 		),
 		validateNonEmptyString(value.username, line, "user.username"),
-		validateNonEmptyString(value.name, line, "user.name"),
 	]) {
 		if (result !== true) return result;
+	}
+	if (typeof value.name !== "string") {
+		return validationError(line, "user.name must be a non-empty string");
 	}
 	return true;
 }
