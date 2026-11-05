@@ -65,8 +65,8 @@ describe("package configuration", () => {
 			node: ">=26.5.1 <27",
 		});
 		expect(packageJson.overrides).toEqual({
-			"@hono/node-server": "2.1.5",
-			hono: "4.13.13",
+			"@hono/node-server": "2.1.6",
+			hono: "4.13.16",
 			nanoid: "6.0.2",
 		});
 		expect(packageJson.trustedDependencies).toEqual([
