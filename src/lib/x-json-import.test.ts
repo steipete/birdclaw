@@ -715,6 +715,128 @@ describe("importXJsonText", () => {
 			.get("880203") as { note_tweet_json: string };
 		expect(JSON.parse(row.note_tweet_json).text).toBe(noteText);
 	});
+
+	it("imports tweets when an included user has an empty name", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900041";
+		const username = "synth_nameless";
+		const tweetId = "880310";
+		const profileId = buildExternalProfileId(userId);
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: tweetId,
+					author_id: userId,
+					text: "synth empty name needle",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [{ id: userId, username, name: "" }],
+				},
+			}),
+		);
+		expect(result).toEqual({ imported: 1, skipped: 0, errors: [] });
+		expect(
+			db.prepare("select id, text from tweets where id = ?").get(tweetId),
+		).toEqual({ id: tweetId, text: "synth empty name needle" });
+		expect(
+			db
+				.prepare("select handle, display_name from profiles where id = ?")
+				.get(profileId),
+		).toEqual({ handle: username, display_name: username });
+	});
+
+	it("updates an existing profile to the username when an included user has an empty name", () => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900042";
+		const username = "synth_blank";
+		const tweetId = "880311";
+		const profileId = buildExternalProfileId(userId);
+		upsertProfileFromXUser(db, {
+			id: userId,
+			username,
+			name: "Synth Prior",
+			description: "Synth prior bio",
+		});
+		expect(
+			db
+				.prepare("select handle, display_name, bio from profiles where id = ?")
+				.get(profileId),
+		).toEqual({
+			handle: username,
+			display_name: "Synth Prior",
+			bio: "Synth prior bio",
+		});
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: tweetId,
+					author_id: userId,
+					text: "synth blank update needle",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [{ id: userId, username, name: "" }],
+				},
+			}),
+		);
+		expect(result).toEqual({ imported: 1, skipped: 0, errors: [] });
+		expect(
+			db.prepare("select id, text from tweets where id = ?").get(tweetId),
+		).toEqual({ id: tweetId, text: "synth blank update needle" });
+		expect(
+			db
+				.prepare("select handle, display_name, bio from profiles where id = ?")
+				.get(profileId),
+		).toEqual({
+			handle: username,
+			display_name: username,
+			bio: "Synth prior bio",
+		});
+	});
+
+	it.each([
+		["a number", 7],
+		["null", null],
+		["missing", undefined],
+	] as const)("rejects an included user whose name is %s", (_label, name) => {
+		const home = testHome();
+		const db = home.db;
+		const userId = "900043";
+		const username = "synth_bad_name";
+		const tweetId = "880312";
+		const user: Record<string, unknown> = { id: userId, username };
+		if (name !== undefined) user.name = name;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: tweetId,
+					author_id: userId,
+					text: "synth bad name needle",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: { users: [user] },
+			}),
+		);
+		expect(result.imported).toBe(0);
+		expect(result.skipped).toBe(0);
+		expect(result.errors).toEqual([
+			{
+				line: 1,
+				message: "Line 1: user.name must be a non-empty string",
+			},
+		]);
+		expect(
+			db
+				.prepare("select count(*) as count from tweets where id = ?")
+				.get(tweetId),
+		).toEqual({ count: 0 });
+	});
 });
 
 describe("importXJsonText backup compatibility", () => {
