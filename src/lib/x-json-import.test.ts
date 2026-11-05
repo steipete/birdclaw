@@ -1,16 +1,15 @@
 // @vitest-environment node
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { runCliMain } from "../cli";
+import { useTestHome } from "../test/test-home";
 import { exportBackup, importBackup } from "./backup";
-import { upsertProfileFromXUser, buildExternalProfileId } from "./x-profile";
 import { renderTweetPlainText, tweetEntitiesFromXurl } from "./tweet-render";
 import { importXJsonText } from "./x-json-import";
-import { useTestHome } from "../test/test-home";
-import { writeFileSync } from "node:fs";
+import { buildExternalProfileId, upsertProfileFromXUser } from "./x-profile";
 
 const testHome = useTestHome({
 	prefix: "birdclaw-x-json-",
@@ -24,11 +23,7 @@ const SYNTH_AUTHOR = {
 };
 
 function singleTweetResponse(
-	overrides: {
-		id?: string;
-		text?: string;
-		url?: string;
-	} = {},
+	overrides: { id?: string; text?: string; url?: string } = {},
 ) {
 	const id = overrides.id ?? "880001";
 	return {
@@ -135,6 +130,13 @@ describe("importXJsonText", () => {
 		expect(
 			db
 				.prepare(
+					"select count(*) as count from tweet_account_edges where tweet_id = ? and kind = 'home'",
+				)
+				.get("880011"),
+		).toEqual({ count: 0 });
+		expect(
+			db
+				.prepare(
 					"select tweet_id from tweets_fts where tweets_fts match 'longform'",
 				)
 				.all(),
@@ -185,6 +187,75 @@ describe("importXJsonText", () => {
 			skipped: 1,
 			errors: [],
 		});
+	});
+
+	it("preserves existing likes when an imported response omits metrics", () => {
+		const db = testHome().db;
+		const input = JSON.stringify(singleTweetResponse({ id: "880041" }));
+		importXJsonText(db, input);
+		db.prepare("update tweets set like_count = 42 where id = ?").run("880041");
+		expect(importXJsonText(db, input)).toEqual({
+			imported: 0,
+			skipped: 1,
+			errors: [],
+		});
+		expect(
+			db.prepare("select like_count from tweets where id = ?").get("880041"),
+		).toEqual({ like_count: 42 });
+	});
+
+	it("preserves stored entities when a saved response omits them", () => {
+		const db = testHome().db;
+		const input = singleTweetResponse({ id: "880042" });
+		const entities = {
+			urls: [
+				{
+					start: 0,
+					end: 5,
+					url: "https://t.co/a",
+					expanded_url: "https://example.test/saved",
+				},
+			],
+		};
+		importXJsonText(
+			db,
+			JSON.stringify({ ...input, data: { ...input.data, entities } }),
+		);
+		importXJsonText(db, JSON.stringify(input));
+		expect(
+			JSON.parse(
+				(
+					db
+						.prepare("select entities_json from tweets where id = ?")
+						.get("880042") as { entities_json: string }
+				).entities_json,
+			),
+		).toEqual(tweetEntitiesFromXurl(entities));
+	});
+
+	it("merges partial user metrics without losing omitted counts", () => {
+		const db = testHome().db;
+		upsertProfileFromXUser(db, {
+			...SYNTH_AUTHOR,
+			public_metrics: { followers_count: 42, following_count: 7 },
+		});
+		const input = singleTweetResponse({ id: "880043" });
+		importXJsonText(
+			db,
+			JSON.stringify({
+				...input,
+				includes: {
+					users: [{ ...SYNTH_AUTHOR, public_metrics: { following_count: 12 } }],
+				},
+			}),
+		);
+		expect(
+			db
+				.prepare(
+					"select followers_count, following_count from profiles where id = ?",
+				)
+				.get(buildExternalProfileId(SYNTH_AUTHOR.id)),
+		).toEqual({ followers_count: 42, following_count: 12 });
 	});
 
 	it("rejects non-numeric author_id without aborting later valid lines", () => {
@@ -387,7 +458,7 @@ describe("importXJsonText", () => {
 		).toEqual({ id: "880114" });
 	});
 
-	it("does not create home account edges for imported primary tweets", () => {
+	it("creates home account edges for imported primary tweets", () => {
 		const home = testHome();
 		const db = home.db;
 		importXJsonText(db, JSON.stringify(singleTweetResponse({ id: "880115" })));
@@ -397,7 +468,7 @@ describe("importXJsonText", () => {
 					"select count(*) as count from tweet_account_edges where tweet_id = ? and kind = 'home'",
 				)
 				.get("880115"),
-		).toEqual({ count: 0 });
+		).toEqual({ count: 1 });
 	});
 
 	it("preserves populated profile fields when includes.users is minimal", () => {
@@ -828,7 +899,7 @@ describe("importXJsonText", () => {
 		expect(result.errors).toEqual([
 			{
 				line: 1,
-				message: "Line 1: user.name must be a non-empty string",
+				message: "Line 1: user.name must be a string",
 			},
 		]);
 		expect(
@@ -936,7 +1007,9 @@ describe("import x-json CLI", () => {
 				"gamma",
 				"--json",
 			]);
-			expect(JSON.parse(String(log.mock.calls.at(-1)?.[0]))).toEqual([]);
+			expect(JSON.parse(String(log.mock.calls.at(-1)?.[0]))).toEqual([
+				expect.objectContaining({ id: "880050" }),
+			]);
 		} finally {
 			if (stdinDescriptor) {
 				Object.defineProperty(process, "stdin", stdinDescriptor);
@@ -1054,9 +1127,9 @@ describe("import x-json CLI", () => {
 		expect(process.exitCode).toBe(1);
 	});
 
-	it("does not create home edges when importing through the CLI", async () => {
+	it("creates home edges when importing through the CLI", async () => {
 		const home = testHome();
-		const file = path.join(home.root, "no-home-edge.json");
+		const file = path.join(home.root, "home-edge.json");
 		writeFileSync(file, JSON.stringify(singleTweetResponse({ id: "880126" })));
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		await runCliMain(["node", "birdclaw", "import", "x-json", file, "--json"]);
@@ -1070,6 +1143,6 @@ describe("import x-json CLI", () => {
 					"select count(*) as count from tweet_account_edges where tweet_id = ? and kind = 'home'",
 				)
 				.get("880126"),
-		).toEqual({ count: 0 });
+		).toEqual({ count: 1 });
 	});
 });

@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Database } from "./sqlite";
 import { ingestTweetPayload } from "./tweet-repository";
-import { buildExternalProfileId } from "./x-profile";
 import type {
 	XurlMedia,
 	XurlMentionUser,
@@ -9,6 +8,7 @@ import type {
 	XurlTweetData,
 	XurlTweetsResponse,
 } from "./types";
+import { buildExternalProfileId } from "./x-profile";
 
 const TWEET_ID_PATTERN = /^\d{1,20}$/;
 const X_USER_ID_PATTERN = /^[0-9]+$/;
@@ -280,7 +280,7 @@ function validateUser(value: unknown, line: number): true | ImportFieldError {
 		if (result !== true) return result;
 	}
 	if (typeof value.name !== "string") {
-		return validationError(line, "user.name must be a non-empty string");
+		return validationError(line, "user.name must be a string");
 	}
 	return true;
 }
@@ -532,22 +532,23 @@ function mergeIncludedUserWithStoredProfile(
 	if (!Object.hasOwn(incoming, "description")) {
 		merged.description = stored.bio;
 	}
-	if (!Object.hasOwn(incoming, "public_metrics")) {
-		let metrics: JsonRecord = {};
-		if (stored.public_metrics_json) {
-			try {
-				const parsed: unknown = JSON.parse(stored.public_metrics_json);
-				if (isRecord(parsed)) metrics = { ...parsed };
-			} catch {
-				metrics = {};
-			}
+	let metrics: JsonRecord = {};
+	if (stored.public_metrics_json) {
+		try {
+			const parsed: unknown = JSON.parse(stored.public_metrics_json);
+			if (isRecord(parsed)) metrics = { ...parsed };
+		} catch {
+			metrics = {};
 		}
-		metrics.followers_count = stored.followers_count;
-		if (stored.following_count !== null) {
-			metrics.following_count = stored.following_count;
-		}
-		merged.public_metrics = metrics;
 	}
+	metrics.followers_count = stored.followers_count;
+	if (stored.following_count !== null)
+		metrics.following_count = stored.following_count;
+	merged.public_metrics = {
+		...metrics,
+		...(isRecord(incoming.public_metrics) ? incoming.public_metrics : {}),
+	};
+
 	return merged as unknown as XurlMentionUser;
 }
 
@@ -556,16 +557,35 @@ function payloadForIngest(
 	payload: XurlTweetsResponse,
 ): XurlTweetsResponse {
 	const users = payload.includes?.users;
-	if (!users?.length) return payload;
-	const mergedUsers = users.map((user) =>
+	const mergedUsers = users?.map((user) =>
 		mergeIncludedUserWithStoredProfile(db, user),
 	);
+	function mergeTweet(tweet: XurlTweetData): XurlTweetData {
+		const stored = db
+			.prepare("select like_count, entities_json from tweets where id = ?")
+			.get(tweet.id) as
+			| { like_count: number; entities_json: string }
+			| undefined;
+		if (!stored) return tweet;
+		return {
+			...tweet,
+			public_metrics: {
+				like_count: stored.like_count,
+				...tweet.public_metrics,
+			},
+			entities: tweet.entities ?? JSON.parse(stored.entities_json),
+		};
+	}
 	return {
 		...payload,
-		includes: {
-			...payload.includes,
-			users: mergedUsers,
-		},
+		data: payload.data.map(mergeTweet),
+		includes: payload.includes
+			? {
+					...payload.includes,
+					users: mergedUsers,
+					tweets: payload.includes.tweets?.map(mergeTweet),
+				}
+			: undefined,
 	};
 }
 
@@ -622,6 +642,7 @@ export function importXJsonText(
 					accountId: PUBLIC_ACCOUNT_ID,
 					payload: payloadForIngest(db, normalized.payload),
 					source: X_JSON_IMPORT_SOURCE,
+					edgeKind: "home",
 					provenance: normalized.sourceUrlByTweetId.size
 						? { sourceUrlByTweetId: normalized.sourceUrlByTweetId }
 						: undefined,
