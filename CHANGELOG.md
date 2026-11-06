@@ -1,13 +1,15 @@
 # CHANGELOG
 
-## 0.16.4 - Unreleased
+## 0.17.1 - Unreleased
+
+## 0.17.0 - 2026-11-05
+
+**Highlights:** Import saved X API JSON without live requests and recover media from real X archives.
 
 - Import saved X API v2 JSON or JSONL from files/stdin without live reads, with default-search visibility, idempotent ingestion, and empty display-name support. Thanks @TheAngryPit (#252).
-
+- Fix archive import extracting no media from real X archives, whose zip entries carry no Unix file-type bits and list as `?rw-------`; tweet, DM, and profile media now land in `media/originals/archive`. (#254 — thanks @rymalia)
 - Refresh compatible runtime and development dependencies while retaining the pinned Bun canary, Node 26 floor, jsdom compatibility pin, and security overrides.
 - Give the large timeline reconciliation regression its existing coverage timeout under ordinary runs too, preserving assertions and the global default (#253, thanks @rymalia).
-
-- Fix archive import extracting no media from real X archives, whose zip entries carry no Unix file-type bits and list as `?rw-------`; tweet, DM, and profile media now land in `media/originals/archive`. (#254 — thanks @rymalia)
 
 ## 0.16.3 - 2026-10-24
 
