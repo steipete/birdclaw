@@ -167,6 +167,16 @@ export function runModerationActionEffect({
 	expectedAccount,
 }: RunActionParams): Effect.Effect<ActionTransportResult, unknown> {
 	return Effect.gen(function* () {
+		if (
+			transport !== undefined &&
+			transport !== "auto" &&
+			transport !== "bird" &&
+			transport !== "xurl"
+		) {
+			return yield* Effect.fail(
+				new Error("--transport must be auto, bird, or xurl"),
+			);
+		}
 		const requestedTransport = yield* trySync(() =>
 			resolveActionsTransport(transport),
 		);

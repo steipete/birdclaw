@@ -129,6 +129,25 @@ describe("actions transport", () => {
 		}
 	});
 
+	it.each(["bogus", "", "XURL", " xurl "])(
+		"rejects explicit invalid transport %j before authentication or mutation",
+		async (transport) => {
+			process.env.BIRDCLAW_ACTIONS_TRANSPORT = "bird";
+			const { runModerationAction } = await import("./actions-transport");
+			await expect(
+				runModerationAction({
+					action: "block",
+					query: "sam",
+					targetUserId: "42",
+					transport,
+					expectedAccount: { id: "acct_primary", handle: "@steipete" },
+				}),
+			).rejects.toThrow("--transport must be auto, bird, or xurl");
+			for (const mock of Object.values(mocks))
+				expect(mock).not.toHaveBeenCalled();
+		},
+	);
+
 	it("tries xurl before Bird when the global preference requests it", async () => {
 		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "xurl";
 		mocks.blockUserViaXurl.mockResolvedValue({
