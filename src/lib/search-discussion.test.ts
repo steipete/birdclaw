@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
+import * as tweetSearch from "./tweet-search-live";
 import { processOpenAIResponseSseChunk } from "./openai-response-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
@@ -53,12 +54,70 @@ afterEach(() => {
 	delete process.env.BIRDCLAW_OPENAI_REASONING_EFFORT;
 	delete process.env.BIRDCLAW_OPENAI_SERVICE_TIER;
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
 	}
 });
 
 describe("search discussion", () => {
+	for (const mode of ["auto", "bird", "xurl"] as const) {
+		it.each(["", "   ", "\t\n"])(
+			"Pass 11 rejects blank " + mode + " query %j before live search",
+			async (query) => {
+				const live = vi
+					.spyOn(tweetSearch, "syncTweetSearchEffect")
+					.mockReturnValue(
+						Effect.fail(new Error("Live transport was invoked")),
+					);
+				const effect = streamSearchDiscussionEffect({ query, mode });
+				expect(live).not.toHaveBeenCalled();
+				await expect(Effect.runPromise(effect)).rejects.toThrow(
+					"Search query is required",
+				);
+				expect(live).not.toHaveBeenCalled();
+			},
+		);
+	}
+	it.each(["Thanks for the detail", "  Thanks for the detail"])(
+		"Pass 11 excludes metadata replies without a leading mention: %j",
+		(text) => {
+			const db = getNativeDb();
+			db.prepare(
+				"update tweets set text = ?, reply_to_id = 'tweet_002' where id = 'tweet_001'",
+			).run(text);
+			db.prepare(
+				"update tweets set text = 'Original standalone post', reply_to_id = null where id = 'tweet_003'",
+			).run();
+			const options = {
+				query: "detail",
+				source: "search" as const,
+				limit: 20,
+				liveSearch: {
+					ok: true as const,
+					source: "xurl" as const,
+					accountId: "acct_primary",
+					query: "detail",
+					count: 2,
+					pageCount: 1,
+					tweetIds: ["tweet_001", "tweet_003"],
+				},
+			};
+			expect(
+				collectSearchDiscussionContext({
+					...options,
+					originalsOnly: true,
+				}).tweets.map((t) => t.id),
+			).toEqual(["tweet_003"]);
+			expect(
+				collectSearchDiscussionContext({
+					...options,
+					originalsOnly: false,
+				}).tweets.map((t) => t.id),
+			).toEqual(["tweet_001", "tweet_003"]);
+		},
+	);
+
 	it("collects keyword matches from tweets and optional DMs", () => {
 		const context = collectSearchDiscussionContext({
 			query: "local-first",

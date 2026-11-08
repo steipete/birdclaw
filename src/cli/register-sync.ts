@@ -14,6 +14,15 @@ import { syncHomeTimeline } from "#/lib/timeline-live";
 import { syncXLists, type XListSyncMode } from "#/lib/x-lists";
 import { errorMessage, type CliCommandContext } from "./command-context";
 
+function parseCacheTtlMs(value: string | undefined): number | undefined {
+	if (value === undefined) return undefined;
+	const milliseconds = Number(value) * 1000;
+	if (!value.trim() || !Number.isFinite(milliseconds) || milliseconds < 0) {
+		throw new Error("--cache-ttl must be a non-negative number");
+	}
+	return milliseconds;
+}
+
 export function registerSyncCommands({
 	program,
 	print,
@@ -70,17 +79,30 @@ export function registerSyncCommands({
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 		.option("--refresh", "Bypass live-cache freshness window")
 		.action(async (options) => {
-			const result = await syncHomeTimeline({
-				account: options.account,
-				mode: options.mode,
-				limit: Number(options.limit),
-				maxPages: Number(options.maxPages),
-				following: !options.forYou,
-				refresh: Boolean(options.refresh),
-				cacheTtlMs: Number(options.cacheTtl) * 1000,
-			});
-			await autoSyncAfterWrite();
-			print(result, true);
+			try {
+				const result = await syncHomeTimeline({
+					account: options.account,
+					mode: options.mode,
+					limit: Number(options.limit),
+					maxPages: Number(options.maxPages),
+					following: !options.forYou,
+					refresh: Boolean(options.refresh),
+					cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
+				});
+				await autoSyncAfterWrite();
+				print(result, true);
+			} catch (error) {
+				print(
+					{
+						ok: false,
+						kind: "timeline",
+						mode: options.mode,
+						error: errorMessage(error),
+					},
+					true,
+				);
+				process.exitCode = 1;
+			}
 		});
 
 	syncCommand
@@ -119,7 +141,7 @@ export function registerSyncCommands({
 					sinceId: options.sinceId,
 					startTime: options.startTime,
 					refresh: Boolean(options.refresh),
-					cacheTtlMs: Number(options.cacheTtl) * 1000,
+					cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
 				});
 				await autoSyncAfterWrite();
 				print(result, true);
@@ -238,20 +260,33 @@ export function registerSyncCommands({
 			.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 			.option("--refresh", "Bypass live-cache freshness window")
 			.action(async (options) => {
-				const result = await syncTimelineCollection({
-					kind,
-					account: options.account,
-					mode: options.mode as TimelineCollectionMode,
-					limit: Number(options.limit),
-					all: Boolean(options.all) || options.maxPages !== undefined,
-					maxPages: options.maxPages ? Number(options.maxPages) : undefined,
-					paginationToken: options.paginationToken,
-					refresh: Boolean(options.refresh),
-					cacheTtlMs: Number(options.cacheTtl) * 1000,
-					earlyStop: Boolean(options.earlyStop),
-				});
-				await autoSyncAfterWrite();
-				print(result, true);
+				try {
+					const result = await syncTimelineCollection({
+						kind,
+						account: options.account,
+						mode: options.mode as TimelineCollectionMode,
+						limit: Number(options.limit),
+						all: Boolean(options.all) || options.maxPages !== undefined,
+						maxPages: options.maxPages ? Number(options.maxPages) : undefined,
+						paginationToken: options.paginationToken,
+						refresh: Boolean(options.refresh),
+						cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
+						earlyStop: Boolean(options.earlyStop),
+					});
+					await autoSyncAfterWrite();
+					print(result, true);
+				} catch (error) {
+					print(
+						{
+							ok: false,
+							kind,
+							mode: options.mode,
+							error: errorMessage(error),
+						},
+						true,
+					);
+					process.exitCode = 1;
+				}
 			});
 	}
 
@@ -281,7 +316,7 @@ export function registerSyncCommands({
 						maxResources: options.maxResources
 							? Number(options.maxResources)
 							: undefined,
-						cacheTtlMs: Number(options.cacheTtl) * 1000,
+						cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
 						refresh: Boolean(options.refresh),
 						allowPartial: Boolean(options.allowPartial),
 						yes: Boolean(options.yes),

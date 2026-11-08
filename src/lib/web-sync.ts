@@ -114,8 +114,8 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 					account,
 					mode:
 						getPreferredTransport() ||
-						!account ||
-						account === resolveDefaultSyncAccountId(runtime)
+						resolveSyncAccountId(account, runtime) ===
+							resolveDefaultSyncAccountId(runtime)
 							? "auto"
 							: "xurl",
 					limit: 100,
@@ -223,7 +223,8 @@ function syncSavedCollection(
 ): Effect.Effect<WebSyncStep[], unknown> {
 	return Effect.gen(function* () {
 		const isNonDefaultAccount =
-			account !== undefined && account !== resolveDefaultSyncAccountId(runtime);
+			resolveSyncAccountId(account, runtime) !==
+			resolveDefaultSyncAccountId(runtime);
 		const result = yield* syncTimelineCollectionEffect({
 			kind,
 			account,
@@ -300,6 +301,40 @@ function resolveDefaultSyncAccountId(runtime: ServerRuntimeServices) {
 	}
 }
 
+function resolveSyncAccountId(
+	account: string | undefined,
+	runtime: ServerRuntimeServices,
+): string {
+	const selector = account?.trim();
+	if (!selector) return resolveDefaultSyncAccountId(runtime);
+	const dbPath = runtime.getPaths().dbPath;
+	if (!existsSync(dbPath)) return selector;
+	let db: NativeSqliteDatabase | undefined;
+	try {
+		db = new NativeSqliteDatabase(dbPath, { readonly: true });
+		const row = db
+			.prepare(`
+      select id from accounts
+      where id = ?
+        or lower(ltrim(handle, '@')) = lower(ltrim(?, '@'))
+        or lower(name) = lower(?)
+      order by case
+        when id = ? then 0
+        when lower(ltrim(handle, '@')) = lower(ltrim(?, '@')) then 1
+        else 2 end, is_default desc, created_at asc
+      limit 1
+    `)
+			.get(selector, selector, selector, selector, selector) as
+			| { id: string }
+			| undefined;
+		return row?.id ?? selector;
+	} catch {
+		return selector;
+	} finally {
+		db?.close();
+	}
+}
+
 function serializeSyncOptions(kind: WebSyncKind, options: WebSyncOptions) {
 	if (kind !== "dms") return "";
 	const parts = [
@@ -318,7 +353,7 @@ function getRunningSyncKey(
 	runtime: ServerRuntimeServices = defaultServerRuntimeServices,
 ) {
 	const optionKey = serializeSyncOptions(kind, options);
-	return `${kind}:${accountId ?? resolveDefaultSyncAccountId(runtime)}${optionKey ? `:${optionKey}` : ""}`;
+	return `${kind}:${resolveSyncAccountId(accountId, runtime)}${optionKey ? `:${optionKey}` : ""}`;
 }
 
 function setJobSnapshot(snapshot: WebSyncJobSnapshot) {
