@@ -66,7 +66,10 @@ export function registerAnalysisCommands({
 		if (normalized === "yesterday") return "yesterday";
 		if (normalized === "24h" || normalized === "day") return "24h";
 		if (normalized === "week" || normalized === "7d") return "week";
-		return "today";
+		if (value === undefined || normalized === "today") return "today";
+		throw new CliInputError(
+			"period must be today, 24h, day, yesterday, week, or 7d",
+		);
 	}
 
 	function buildDigestOptions(
@@ -305,12 +308,17 @@ export function registerAnalysisCommands({
 		.option("--thread-depth <n>", "Maximum ancestor walk depth", "10")
 		.option("--out <path>", "Write the markdown brief to a file")
 		.action(async (query, options) => {
+			const limit = parsePositiveIntegerOption(options.limit, "--limit");
+			const maxThreadDepth = parsePositiveIntegerOption(
+				options.threadDepth,
+				"--thread-depth",
+			);
 			await autoUpdateBeforeRead();
 			const report = await runResearchMode({
 				account: options.account,
 				query,
-				limit: Number(options.limit),
-				maxThreadDepth: Number(options.threadDepth),
+				limit,
+				maxThreadDepth,
 				outPath: options.out,
 			});
 			print(
@@ -402,8 +410,8 @@ export function registerAnalysisCommands({
 			defaultDigestLiveSyncMode(),
 		)
 		.action(async (options) => {
-			await autoUpdateBeforeRead();
 			const digestOptions = buildDigestOptions("today", options);
+			await autoUpdateBeforeRead();
 			await runDigestCli(digestOptions);
 		});
 
@@ -429,8 +437,8 @@ export function registerAnalysisCommands({
 			defaultDigestLiveSyncMode(),
 		)
 		.action(async (period, options) => {
-			await autoUpdateBeforeRead();
 			const digestOptions = buildDigestOptions(period, options);
+			await autoUpdateBeforeRead();
 			await runDigestCli(digestOptions);
 		});
 }

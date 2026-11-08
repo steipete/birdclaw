@@ -1,3 +1,4 @@
+import { findOperationAccount } from "./account-selection";
 import { parseJsonField } from "./json-codec";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -195,7 +196,10 @@ function toResearchNode(
 	};
 }
 
-function getTweetRowById(tweetId: string): ResearchRow | null {
+function getTweetRowById(
+	tweetId: string,
+	accountId?: string,
+): ResearchRow | null {
 	const db = getNativeDb();
 	const row = db
 		.prepare(
@@ -209,10 +213,12 @@ function getTweetRowById(tweetId: string): ResearchRow | null {
 		exists (
 		  select 1 from tweet_collections collection
 		  where collection.tweet_id = t.id and collection.kind = 'bookmarks'
+		  ${accountId ? "and collection.account_id = ?" : ""}
 		) as bookmarked,
 		exists (
 		  select 1 from tweet_collections collection
 		  where collection.tweet_id = t.id and collection.kind = 'likes'
+		  ${accountId ? "and collection.account_id = ?" : ""}
 		) as liked,
         t.reply_to_id,
         t.quoted_tweet_id,
@@ -230,7 +236,9 @@ function getTweetRowById(tweetId: string): ResearchRow | null {
 	  where t.id = ? and t.deleted_at is null and t.superseded_at is null
       `,
 		)
-		.get(tweetId) as ResearchRow | undefined;
+		.get(...(accountId ? [accountId, accountId] : []), tweetId) as
+		| ResearchRow
+		| undefined;
 
 	return row ?? null;
 }
@@ -238,6 +246,7 @@ function getTweetRowById(tweetId: string): ResearchRow | null {
 function getTweetDescendants(
 	rootTweetId: string,
 	maxThreadDepth: number,
+	accountId?: string,
 ): ResearchNode[] {
 	const db = getNativeDb();
 	const rows = db
@@ -263,10 +272,12 @@ function getTweetDescendants(
 		exists (
 		  select 1 from tweet_collections collection
 		  where collection.tweet_id = t.id and collection.kind = 'bookmarks'
+		  ${accountId ? "and collection.account_id = ?" : ""}
 		) as bookmarked,
 		exists (
 		  select 1 from tweet_collections collection
 		  where collection.tweet_id = t.id and collection.kind = 'likes'
+		  ${accountId ? "and collection.account_id = ?" : ""}
 		) as liked,
         t.reply_to_id,
         t.quoted_tweet_id,
@@ -288,7 +299,11 @@ function getTweetDescendants(
       order by t.created_at asc, t.id asc
       `,
 		)
-		.all(rootTweetId, maxThreadDepth) as ResearchRow[];
+		.all(
+			rootTweetId,
+			maxThreadDepth,
+			...(accountId ? [accountId, accountId] : []),
+		) as ResearchRow[];
 
 	return rows.map((row) => toResearchNode(row, "local"));
 }
@@ -344,6 +359,7 @@ function lookupTweetNodeEffect(
 function collectAncestorChainEffect(
 	tweetId: string,
 	maxThreadDepth: number,
+	accountId?: string,
 ): Effect.Effect<ResearchNode[], unknown> {
 	return Effect.gen(function* () {
 		const chain: ResearchNode[] = [];
@@ -355,7 +371,7 @@ function collectAncestorChainEffect(
 			const lookupId: string = currentId;
 			visited.add(lookupId);
 			const localRow: ResearchRow | null = yield* trySync(() =>
-				getTweetRowById(lookupId),
+				getTweetRowById(lookupId, accountId),
 			);
 			if (localRow) {
 				chain.push(yield* trySync(() => toResearchNode(localRow, "local")));
@@ -545,23 +561,32 @@ function resolveSeedTimelineItems({
 	});
 }
 
+function positiveInteger(value: number, name: string) {
+	if (!Number.isSafeInteger(value) || value < 1) {
+		throw new Error(name + " must be a positive integer");
+	}
+	return value;
+}
+
 export function runResearchModeEffect(
 	options: ResearchOptions = {},
 ): Effect.Effect<ResearchReport, unknown> {
 	return Effect.gen(function* () {
 		const limit = yield* trySync(() =>
-			Number.isFinite(options.limit ?? 20)
-				? Math.max(1, Math.floor(options.limit ?? 20))
-				: 20,
+			positiveInteger(options.limit ?? 20, "limit"),
 		);
 		const maxThreadDepth = yield* trySync(() =>
-			Number.isFinite(options.maxThreadDepth ?? 10)
-				? Math.max(1, Math.floor(options.maxThreadDepth ?? 10))
-				: 10,
+			positiveInteger(options.maxThreadDepth ?? 10, "maxThreadDepth"),
+		);
+		const accountId = yield* trySync(() =>
+			options.account && options.account !== "all"
+				? (findOperationAccount(getNativeDb(), options.account)?.id ??
+					options.account)
+				: undefined,
 		);
 		const seeds = yield* trySync(() =>
 			resolveSeedTimelineItems({
-				account: options.account,
+				account: accountId,
 				query: options.query,
 				limit,
 			}),
@@ -572,10 +597,11 @@ export function runResearchModeEffect(
 			const ancestorChain = yield* collectAncestorChainEffect(
 				seed.id,
 				maxThreadDepth,
+				accountId,
 			);
 			const rootId = ancestorChain[0]?.id ?? seed.id;
 			const localThread = yield* trySync(() =>
-				getTweetDescendants(rootId, maxThreadDepth),
+				getTweetDescendants(rootId, maxThreadDepth, accountId),
 			);
 			const thread = yield* trySync(() =>
 				orderThreadNodes(
