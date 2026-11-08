@@ -21,7 +21,12 @@ export function registerJobCommands({
 }: CliCommandContext) {
 	const jobsCommand = program
 		.command("jobs")
-		.description("Run and install background Birdclaw jobs");
+		.description("Run and install background Birdclaw jobs")
+		.hook("preAction", (_command, actionCommand) => {
+			const options = actionCommand.opts();
+			parsePositiveLimitOption(options.limit, "--limit");
+			parsePositiveLimitOption(options.maxPages, "--max-pages");
+		});
 
 	jobsCommand
 		.command("sync-account")
@@ -142,7 +147,7 @@ export function registerJobCommands({
 		.option("--mode <mode>", "auto, xurl, or bird", "auto")
 		.option("--limit <n>", "Per-page/result limit", "100")
 		.option("--all", "Fetch every retrievable page")
-		.option("--max-pages <n>", "Stop after N pages", "5")
+		.option("--max-pages <n>", "Stop after N pages (default: 5 unless --all)")
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 		.option("--refresh", "Bypass live-cache freshness window")
 		.option("--log <path>", "Audit JSONL path")
@@ -151,8 +156,8 @@ export function registerJobCommands({
 				account: options.account,
 				mode: options.mode as TimelineCollectionMode,
 				limit: Number(options.limit),
-				all: Boolean(options.all) || options.maxPages !== undefined,
-				maxPages: options.all ? undefined : Number(options.maxPages),
+				all: options.all,
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
 				refresh: Boolean(options.refresh),
 				cacheTtlMs: Number(options.cacheTtl) * 1000,
 				logPath: options.log,
@@ -182,7 +187,7 @@ export function registerJobCommands({
 		.option("--mode <mode>", "auto, xurl, or bird", "auto")
 		.option("--limit <n>", "Per-page/result limit", "100")
 		.option("--all", "Fetch every retrievable page")
-		.option("--max-pages <n>", "Stop after N pages", "5")
+		.option("--max-pages <n>", "Stop after N pages (default: 5 unless --all)")
 		.option("--cache-ttl <seconds>", "Live-cache freshness window", "120")
 		.option("--no-refresh", "Allow live-cache reuse")
 		.option("--log <path>", "Audit JSONL path")
@@ -207,8 +212,8 @@ export function registerJobCommands({
 				runtimeArgs: options.runtimeArg,
 				mode: options.mode as TimelineCollectionMode,
 				limit: Number(options.limit),
-				all: Boolean(options.all) || options.maxPages !== undefined,
-				maxPages: options.all ? undefined : Number(options.maxPages),
+				all: options.all,
+				maxPages: options.maxPages ? Number(options.maxPages) : undefined,
 				refresh: options.refresh,
 				cacheTtlSeconds: Number(options.cacheTtl),
 				logPath: options.log,

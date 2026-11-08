@@ -896,6 +896,94 @@ describe("cli", () => {
 		},
 	);
 
+	it.each(
+		[
+			"sync-account",
+			"sync-bookmarks",
+			"install-account-launchd",
+			"install-bookmarks-launchd",
+		].flatMap((command) =>
+			["--limit", "--max-pages"].flatMap((flag) => [
+				{ command, flag, all: false },
+				...(command.includes("bookmarks")
+					? [{ command, flag, all: true }]
+					: []),
+			]),
+		),
+	)(
+		"rejects zero $flag before any work in $command (all=$all)",
+		async ({ command, flag, all }) => {
+			const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-cli-job-"));
+			getBirdclawPathsMock.mockReturnValue({ rootDir: tempDir });
+			getNativeDbMock.mockReturnValue({
+				prepare: () => ({ get: () => ({ count: 0 }) }),
+			});
+			const error = vi.spyOn(console, "error").mockImplementation(() => {});
+			try {
+				const { runCli } = await loadCli();
+				await runCli([
+					"node",
+					"birdclaw",
+					"--json",
+					"jobs",
+					command,
+					flag,
+					"0",
+					...(all ? ["--all"] : []),
+				]);
+				expect(error).toHaveBeenCalledWith(
+					JSON.stringify({ error: flag + " must be at least 1" }),
+				);
+				expect(process.exitCode).toBe(1);
+				expect(ensureBirdclawDirsMock).not.toHaveBeenCalled();
+				expect(getNativeDbMock).not.toHaveBeenCalled();
+				expect(maybeAutoSyncBackupMock).not.toHaveBeenCalled();
+				expect(installAccountSyncLaunchAgentMock).not.toHaveBeenCalled();
+				expect(installBookmarkSyncLaunchAgentMock).not.toHaveBeenCalled();
+				expect(consoleLogMock).not.toHaveBeenCalled();
+			} finally {
+				error.mockRestore();
+				process.exitCode = 0;
+				rmSync(tempDir, { recursive: true, force: true });
+			}
+		},
+	);
+
+	it.each(["install-account-launchd", "install-bookmarks-launchd"])(
+		"preserves positive job limits and zero cache TTL in %s",
+		async (command) => {
+			const { runCli } = await loadCli();
+			const installer = command.includes("bookmarks")
+				? installBookmarkSyncLaunchAgentMock
+				: installAccountSyncLaunchAgentMock;
+			for (const [limit, maxPages] of [
+				["1", "1"],
+				["1e2", "0x2"],
+			]) {
+				await runCli([
+					"node",
+					"birdclaw",
+					"jobs",
+					command,
+					"--limit",
+					limit,
+					"--max-pages",
+					maxPages,
+					"--cache-ttl",
+					"0",
+				]);
+				expect(process.exitCode).toBe(0);
+				expect(installer).toHaveBeenLastCalledWith(
+					expect.objectContaining({
+						limit: Number(limit),
+						maxPages: Number(maxPages),
+						cacheTtlSeconds: 0,
+					}),
+				);
+			}
+		},
+	);
+
 	it("exits nonzero when account sync backup returns a failure", async () => {
 		const tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-cli-job-"));
 		try {

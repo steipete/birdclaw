@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Database from "./sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const maybeAutoSyncBackupMock = vi.hoisted(() => vi.fn());
@@ -45,8 +46,16 @@ import {
 
 describe("account sync job", () => {
 	let tempDir: string | undefined;
+	let accountDb: Database;
 
 	beforeEach(() => {
+		accountDb = new Database(":memory:");
+		accountDb.exec(
+			"create table accounts (id text primary key, handle text, external_user_id text, is_default integer, created_at text)",
+		);
+		accountDb.exec(
+			"insert into accounts values ('acct_primary', '@alice', '1', 1, '2026-01-02'), ('acct_openclaw', '@bob', '2', 0, '2026-01-01')",
+		);
 		maybeAutoSyncBackupMock.mockReset();
 		syncDirectMessagesViaCachedBirdMock.mockReset();
 		syncMentionThreadsMock.mockReset();
@@ -61,6 +70,7 @@ describe("account sync job", () => {
 	});
 
 	afterEach(() => {
+		accountDb.close();
 		if (tempDir) {
 			rmSync(tempDir, { recursive: true, force: true });
 			tempDir = undefined;
@@ -301,11 +311,7 @@ describe("account sync job", () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = accountDb;
 
 		const result = await runAccountSyncJob({
 			account: "acct_openclaw",
@@ -333,11 +339,7 @@ describe("account sync job", () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = accountDb;
 		syncTimelineCollectionMock.mockResolvedValue({
 			source: "xurl",
 			count: 4,
@@ -368,11 +370,7 @@ describe("account sync job", () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = accountDb;
 
 		const result = await runAccountSyncJob({
 			account: "acct_openclaw",
@@ -427,11 +425,7 @@ describe("account sync job", () => {
 		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 		const logPath = path.join(tempDir, "audit.jsonl");
 		const lockPath = path.join(tempDir, "sync.lock");
-		const db = {
-			prepare: () => ({
-				get: () => ({ id: "acct_primary" }),
-			}),
-		} as never;
+		const db = accountDb;
 		syncHomeTimelineMock.mockResolvedValue({
 			source: "bird",
 			count: 10,
@@ -514,7 +508,7 @@ describe("account sync job", () => {
 			steps: ["mention-threads"],
 			logPath: path.join(tempDir, "audit.jsonl"),
 			lockPath: path.join(tempDir, "sync.lock"),
-			db: { prepare: () => ({ get: () => ({ id: "acct_primary" }) }) } as never,
+			db: accountDb,
 		});
 		expect(syncMentionThreadsMock).toHaveBeenCalledWith(
 			expect.objectContaining({ mode: "bird" }),
@@ -533,11 +527,7 @@ describe("account sync job", () => {
 			tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
 			const logPath = path.join(tempDir, "audit.jsonl");
 			const lockPath = path.join(tempDir, "sync.lock");
-			const db = {
-				prepare: () => ({
-					get: () => ({ id: "acct_primary" }),
-				}),
-			} as never;
+			const db = accountDb;
 			syncHomeTimelineMock.mockResolvedValue({
 				source: "bird",
 				count: 10,
@@ -574,11 +564,7 @@ describe("account sync job", () => {
 			limit: 100,
 			logPath,
 			lockPath,
-			db: {
-				prepare: () => ({
-					get: () => ({ id: "acct_primary" }),
-				}),
-			} as never,
+			db: accountDb,
 		});
 
 		expect(syncMentionThreadsMock).toHaveBeenCalledWith(
@@ -602,4 +588,137 @@ describe("account sync job", () => {
 			],
 		});
 	});
+
+	it.each(
+		[
+			undefined,
+			"acct_primary",
+			"alice",
+			"@alice",
+			"  @ALIce  ",
+			" acct_primary ",
+		].flatMap((account) =>
+			(["bird", "auto", "xurl"] as const).map((mode) => ({ account, mode })),
+		),
+	)(
+		"preserves $mode for default-account selector $account",
+		async ({ account, mode }) => {
+			tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+			const result = await runAccountSyncJob({
+				account,
+				mode,
+				db: accountDb,
+				logPath: path.join(tempDir, "audit.jsonl"),
+				lockPath: path.join(tempDir, "sync.lock"),
+			});
+			expect(result.ok).toBe(true);
+			expect(result.steps).toHaveLength(6);
+			for (const mock of [
+				syncHomeTimelineMock,
+				syncMentionsMock,
+				syncMentionThreadsMock,
+				syncDirectMessagesViaCachedBirdMock,
+				syncTimelineCollectionMock,
+			]) {
+				expect(mock).toHaveBeenLastCalledWith(
+					expect.objectContaining({ account, mode }),
+				);
+			}
+		},
+	);
+
+	it.each(["acct_openclaw", "bob", "  @BoB  ", "missing", "@", "   ", "alice"])(
+		"keeps non-default or unresolved selector %j guarded",
+		async (account) => {
+			// An exact ID must win over the default account's matching handle.
+			accountDb.exec(
+				"insert into accounts values ('alice', '@other', '3', 0, '2026-01-03')",
+			);
+			tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+			const options = {
+				account,
+				db: accountDb,
+				logPath: path.join(tempDir, "audit.jsonl"),
+				lockPath: path.join(tempDir, "sync.lock"),
+			};
+			const result = await runAccountSyncJob({ ...options, mode: "bird" });
+			expect(result.ok).toBe(false);
+			expect(result.steps).toHaveLength(6);
+			for (const step of result.steps) {
+				expect(step).toMatchObject({
+					ok: false,
+					error: expect.stringContaining("--allow-bird-account"),
+				});
+			}
+			for (const mock of [
+				syncHomeTimelineMock,
+				syncMentionsMock,
+				syncMentionThreadsMock,
+				syncDirectMessagesViaCachedBirdMock,
+				syncTimelineCollectionMock,
+			]) {
+				expect(mock).not.toHaveBeenCalled();
+			}
+			await runAccountSyncJob({ ...options, mode: "auto" });
+			for (const mock of [
+				syncHomeTimelineMock,
+				syncMentionsMock,
+				syncMentionThreadsMock,
+				syncDirectMessagesViaCachedBirdMock,
+				syncTimelineCollectionMock,
+			]) {
+				expect(mock).toHaveBeenLastCalledWith(
+					expect.objectContaining({ mode: "xurl" }),
+				);
+			}
+		},
+	);
+
+	it("does not authorize an unresolved selector when no default exists", async () => {
+		accountDb.exec("delete from accounts");
+		tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+		const result = await runAccountSyncJob({
+			account: "missing",
+			mode: "bird",
+			steps: ["timeline"],
+			db: accountDb,
+			logPath: path.join(tempDir, "audit.jsonl"),
+			lockPath: path.join(tempDir, "sync.lock"),
+		});
+		expect(result.ok).toBe(false);
+		expect(syncHomeTimelineMock).not.toHaveBeenCalled();
+	});
+
+	it.each([undefined, 1, 2, 5])(
+		"forwards page cap %j to every paginated step",
+		async (maxPages) => {
+			tempDir = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-job-"));
+			const result = await runAccountSyncJob({
+				maxPages,
+				limit: 100,
+				mode: "xurl",
+				db: accountDb,
+				logPath: path.join(tempDir, "audit.jsonl"),
+				lockPath: path.join(tempDir, "sync.lock"),
+			});
+			expect(result.ok).toBe(true);
+			for (const mock of [
+				syncHomeTimelineMock,
+				syncMentionsMock,
+				syncTimelineCollectionMock,
+				syncMentionThreadsMock,
+			]) {
+				expect(mock).toHaveBeenCalledWith(
+					expect.objectContaining({ maxPages: maxPages ?? 3 }),
+				);
+			}
+			expect(syncMentionThreadsMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					limit: 30,
+					delayMs: 1500,
+					timeoutMs: 15000,
+				}),
+			);
+		},
+	);
 });

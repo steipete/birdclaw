@@ -1,4 +1,5 @@
 import path from "node:path";
+import { findOperationAccount } from "./account-selection";
 import { maybeAutoSyncBackup, type BackupAutoUpdateResult } from "./backup";
 import { ensureBirdclawDirs, getBirdclawPaths } from "./config";
 import { getNativeDb } from "./db";
@@ -161,7 +162,8 @@ function isExplicitNonDefaultAccount(
 	account: string | undefined,
 ) {
 	if (!account) return false;
-	return account !== defaultAccountId(db);
+	const selectedAccount = findOperationAccount(db, account);
+	return !selectedAccount || selectedAccount.id !== defaultAccountId(db);
 }
 
 function birdAccountError(kind: AccountSyncStepKind) {
@@ -247,6 +249,7 @@ async function runStep({
 				account,
 				mode: allowBirdAccount ? mode : "xurl",
 				limit: Math.min(30, limit),
+				maxPages,
 				delayMs: 1500,
 				timeoutMs: 15000,
 			});
