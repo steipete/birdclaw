@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithQueryClient as render } from "#/test/render";
 
 import { BlocksRouteView as BlocksRoute } from "./blocks";
+import { validateBlocksSearch } from "#/lib/route-search";
 
 describe("blocks route", () => {
 	beforeEach(() => {
@@ -13,6 +14,68 @@ describe("blocks route", () => {
 		cleanup();
 		vi.unstubAllGlobals();
 	});
+
+	it.each([false, true])(
+		"uses the stored default unless the account was explicit=%s",
+		async (explicit) => {
+			const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.endsWith("/api/status"))
+					return new Response(
+						JSON.stringify({
+							stats: { home: 0, mentions: 0, dms: 0, needsReply: 0, inbox: 0 },
+							transport: { statusText: "local" },
+							archives: [],
+							accounts: [
+								{
+									id: "acct_studio",
+									handle: "@studio",
+									name: "Studio",
+									isDefault: 1,
+								},
+								{
+									id: "acct_primary",
+									handle: "@primary",
+									name: "Primary",
+									isDefault: 0,
+								},
+							],
+						}),
+					);
+				if (url.includes("/api/blocks"))
+					return new Response(JSON.stringify({ items: [], matches: [] }));
+				if (url.endsWith("/api/action"))
+					return new Response(
+						JSON.stringify({ ok: true, transport: { ok: true } }),
+					);
+				throw new Error("Unexpected fetch " + url);
+			});
+			vi.stubGlobal("fetch", fetchMock);
+			const onSearchChange = vi.fn();
+			render(
+				<BlocksRoute
+					searchState={validateBlocksSearch(
+						explicit ? { account: "acct_primary" } : {},
+					)}
+					onSearchChange={onSearchChange}
+				/>,
+			);
+			await screen.findByRole("option", { name: "@studio" });
+			const expectedChanges = explicit
+				? []
+				: [[{ account: "acct_studio", q: "" }, { replace: true }]];
+			await waitFor(() =>
+				expect(onSearchChange.mock.calls).toEqual(expectedChanges),
+			);
+			await waitFor(() =>
+				expect(
+					fetchMock.mock.calls.some(([input]) =>
+						String(input).includes("account=acct_primary"),
+					),
+				).toBe(explicit),
+			);
+		},
+	);
 
 	it("preserves a newer draft across stale controlled navigation responses", async () => {
 		vi.stubGlobal(
@@ -456,7 +519,9 @@ describe("blocks route", () => {
 						JSON.stringify({
 							stats: { home: 3, mentions: 1, dms: 4, needsReply: 2, inbox: 3 },
 							transport: { statusText: "xurl available" },
-							accounts: [],
+							accounts: [
+								{ id: "acct_primary", handle: "@primary", name: "Primary" },
+							],
 							archives: [],
 						}),
 					);

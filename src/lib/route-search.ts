@@ -122,7 +122,8 @@ export type BlocksRouteSearch = ReturnType<typeof validateBlocksSearch>;
 
 export function validateBlocksSearch(search: Record<string, unknown>) {
 	return {
-		account: stringValue(search.account, "acct_primary"),
+		// Leave omission unresolved until status supplies the default-first accounts.
+		account: stringValue(search.account),
 		q: stringValue(search.q),
 	};
 }

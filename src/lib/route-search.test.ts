@@ -46,7 +46,7 @@ describe("route search schemas", () => {
 		);
 		expect(validateTodaySearch({ includeDms: "1" }).includeDms).toBe(true);
 		expect(validateBlocksSearch({ account: 3, q: "sam" })).toEqual({
-			account: "acct_primary",
+			account: "",
 			q: "sam",
 		});
 	});

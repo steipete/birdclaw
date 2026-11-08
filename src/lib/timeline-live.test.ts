@@ -60,6 +60,96 @@ afterEach(() => {
 });
 
 describe("live home timeline sync", () => {
+	it.each(["bird", "xurl"] as const)(
+		"restores %s cached timeline rows, edges and FTS for a handle-selected account",
+		async (mode) => {
+			makeTempHome();
+			const db = getNativeDb();
+			const selected = birdAccountForTest(db, "acct_studio");
+			getAuthenticatedBirdAccountMock.mockResolvedValue(selected);
+			const payload = {
+				data: [
+					{
+						id: "cache_restore",
+						author_id: "42",
+						text: "restorationneedle",
+						created_at: "2026-04-26T13:43:34.000Z",
+					},
+				],
+				includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+				meta: {},
+			};
+			const transport =
+				mode === "bird"
+					? listHomeTimelineViaBirdMock
+					: listHomeTimelineViaXurlMock;
+			transport.mockResolvedValue(payload);
+			const { syncHomeTimeline } = await import("./timeline-live");
+			const options = {
+				mode,
+				account: "@" + selected.username.replace(/^@/, ""),
+				limit: 5,
+				cacheTtlMs: 60_000,
+			};
+			await syncHomeTimeline(options);
+			const cacheBefore = db
+				.prepare("select * from sync_cache where cache_key like 'timeline:%'")
+				.all();
+			for (const deletion of [
+				"delete from tweet_account_edges where tweet_id = 'cache_restore'",
+				"delete from tweets where id = 'cache_restore'",
+			]) {
+				db.prepare(deletion).run();
+				const progress = vi.fn();
+				await expect(
+					syncHomeTimeline({ ...options, onProgress: progress }),
+				).resolves.toMatchObject({
+					source: "cache",
+					count: 1,
+					accountId: "acct_studio",
+				});
+				expect(
+					listTimelineItems({
+						resource: "home",
+						account: "acct_studio",
+						search: "restorationneedle",
+					}).map((tweet) => tweet.id),
+				).toEqual(["cache_restore"]);
+				expect(
+					listTimelineItems({
+						resource: "home",
+						account: "acct_primary",
+						search: "restorationneedle",
+					}),
+				).toEqual([]);
+				expect(progress).toHaveBeenLastCalledWith(
+					expect.objectContaining({ source: "cache", fetched: 1, done: true }),
+				);
+			}
+			expect(transport).toHaveBeenCalledTimes(1);
+			expect(
+				db
+					.prepare("select * from sync_cache where cache_key like 'timeline:%'")
+					.all(),
+			).toEqual(cacheBefore);
+		},
+	);
+
+	it.each([1, 2, 3, 4])(
+		"keeps total-result limit %i valid on xurl while requesting a valid page",
+		async (limit) => {
+			makeTempHome();
+			listHomeTimelineViaXurlMock.mockResolvedValue({ data: [], meta: {} });
+			const { syncHomeTimeline } = await import("./timeline-live");
+			await expect(
+				syncHomeTimeline({ mode: "xurl", limit }),
+			).resolves.toMatchObject({ count: 0 });
+			expect(listHomeTimelineViaXurlMock).toHaveBeenCalledWith(
+				expect.objectContaining({ maxResults: 5 }),
+			);
+		},
+	);
+
 	it("honors config preference and does not reuse another auto preference's cache", async () => {
 		makeTempHome();
 		const { setPreferredTransport } = await import("./config");

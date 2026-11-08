@@ -154,43 +154,69 @@ describe("api query route", () => {
 		);
 	});
 
-	it("defaults invalid reply filters to all", async () => {
-		queryResourceMock.mockReturnValue({ resource: "home", items: [] });
-		await GET({
-			request: new Request(
-				"http://localhost/api/query?resource=home&replyFilter=bad&since=2020-01-01&until=2021-01-01&qualityFilter=summary&originalsOnly=true",
-			),
-		});
+	it.each([
+		"replyFilter=bad",
+		"replyFilter=",
+		"qualityFilter=bad",
+		"qualityFilter=",
+		"inbox=bogus",
+		"inbox=",
+		"sort=bad",
+		"sort=",
+		"minFollowers=wat",
+		"maxFollowers=Infinity",
+		"minInfluenceScore=NaN",
+		"maxInfluenceScore=nope",
+		"minFollowers=",
+	])(
+		"rejects malformed DM filters %s without querying or auto-updating",
+		async (query) => {
+			queryResourceMock.mockReturnValue({ resource: "dms", items: [] });
+			const response = await GET({
+				request: new Request(
+					"http://localhost/api/query?resource=dms&" + query,
+				),
+			});
+			expect(response.status).toBe(400);
+			expect(queryResourceMock).not.toHaveBeenCalled();
+			expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+		},
+	);
 
-		expect(queryResourceMock).toHaveBeenCalledWith(
-			"home",
-			expect.objectContaining({
-				replyFilter: "all",
-				resource: "home",
-				since: "2020-01-01",
-				until: "2021-01-01",
-				includeReplies: false,
-				qualityFilter: "summary",
-			}),
-		);
-	});
+	it.each(["home", "mentions", "authored", "search"])(
+		"rejects malformed reply filters for %s",
+		async (resource) => {
+			queryResourceMock.mockReturnValue({ resource, items: [] });
+			const response = await GET({
+				request: new Request(
+					"http://localhost/api/query?resource=" +
+						resource +
+						"&replyFilter=bad",
+				),
+			});
+			expect(response.status).toBe(400);
+			expect(queryResourceMock).not.toHaveBeenCalled();
+			expect(maybeAutoUpdateBackupMock).not.toHaveBeenCalled();
+		},
+	);
 
-	it("drops invalid numeric filters and defaults sort", async () => {
+	it("keeps valid filters, zero thresholds and legacy sort aliases", async () => {
 		queryResourceMock.mockReturnValue({ resource: "dms", items: [] });
-		await GET({
+		const response = await GET({
 			request: new Request(
-				"http://localhost/api/query?resource=dms&minFollowers=wat&maxFollowers=33&maxInfluenceScore=nope&sort=bad",
+				"http://localhost/api/query?resource=dms&replyFilter=all&inbox=accepted&sort=influence&qualityFilter=summary&minFollowers=0&maxInfluenceScore=3.5",
 			),
 		});
-
+		expect(response.status).toBe(200);
 		expect(queryResourceMock).toHaveBeenCalledWith(
 			"dms",
 			expect.objectContaining({
-				minFollowers: undefined,
-				maxFollowers: 33,
-				maxInfluenceScore: undefined,
-				inbox: "all",
-				sort: "recent",
+				replyFilter: "all",
+				inbox: "accepted",
+				sort: "followers",
+				minFollowers: 0,
+				maxInfluenceScore: 3.5,
+				qualityFilter: "summary",
 			}),
 		);
 	});

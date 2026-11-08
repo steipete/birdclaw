@@ -24,6 +24,7 @@ export function registerDirectMessageCommands({
 	autoUpdateBeforeRead,
 	parseNonNegativeIntegerOption,
 	parseFiniteNumberOption,
+	parsePositiveLimitOption,
 }: CliCommandContext) {
 	const dmsCommand = program.command("dms").description("Direct messages");
 
@@ -58,6 +59,12 @@ export function registerDirectMessageCommands({
 		.option("--unreplied", "Only unreplied threads")
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (options) => {
+			if (options.replied && options.unreplied) {
+				throw new CliInputError("Cannot combine --replied and --unreplied");
+			}
+			if (!["recent", "followers", "influence"].includes(options.sort)) {
+				throw new CliInputError("--sort must be recent or followers");
+			}
 			const replyFilter = options.replied
 				? "replied"
 				: options.unreplied
@@ -86,7 +93,7 @@ export function registerDirectMessageCommands({
 				await syncDirectMessagesViaCachedBird({
 					account: options.account,
 					mode,
-					limit: Number(options.limit),
+					limit: parsePositiveLimitOption(options.limit, "--limit"),
 					...(inbox !== "all" ? { inbox } : {}),
 					...(maxPages > 0 ? { maxPages } : {}),
 					...(options.allPages ? { allPages: true } : {}),
@@ -156,7 +163,7 @@ export function registerDirectMessageCommands({
 			const result = await syncDirectMessagesViaCachedBird({
 				account: options.account,
 				mode,
-				limit: Number(options.limit),
+				limit: parsePositiveLimitOption(options.limit, "--limit"),
 				...(inbox !== "all" ? { inbox } : {}),
 				...(maxPages > 0 ? { maxPages } : {}),
 				...(options.allPages ? { allPages: true } : {}),
