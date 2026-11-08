@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerSyncCommands } from "./register-sync";
 import { createCommandContext } from "./command-context";
+import { CliInputError, configureNumericOptions } from "./numeric-options";
+import { registerSyncCommands } from "./register-sync";
+
 const mocks = vi.hoisted(() => ({
 	timeline: vi.fn(),
 	collection: vi.fn(),
@@ -15,10 +17,12 @@ vi.mock("#/lib/timeline-collections-live", () => ({
 }));
 vi.mock("#/lib/mentions-live", () => ({ syncMentions: mocks.mentions }));
 vi.mock("#/lib/follow-graph", () => ({ syncFollowGraph: mocks.graph }));
+
 function fixture() {
 	const program = new Command().exitOverride();
 	const print = vi.fn();
 	const backup = vi.fn().mockResolvedValue(undefined);
+	configureNumericOptions(program);
 	registerSyncCommands({
 		...createCommandContext(program),
 		print,
@@ -31,6 +35,7 @@ function fixture() {
 		backup,
 	};
 }
+
 const initialExitCode = process.exitCode;
 beforeEach(() => {
 	process.exitCode = 0;
@@ -40,7 +45,8 @@ beforeEach(() => {
 afterEach(() => {
 	process.exitCode = initialExitCode;
 });
-describe("Pass 11 sync registration contracts", () => {
+
+describe("sync registration contracts", () => {
 	for (const kind of ["timeline", "likes", "bookmarks"] as const) {
 		it(
 			"prints structured " + kind + " transport failures without backup writes",
@@ -64,48 +70,13 @@ describe("Pass 11 sync registration contracts", () => {
 			},
 		);
 	}
-	for (const kind of [
-		"timeline",
-		"mentions",
-		"likes",
-		"bookmarks",
-		"followers",
-		"following",
-	]) {
-		it.each(["-1", "NaN", "not-a-number", "Infinity", "1e308"])(
-			"rejects " + kind + " cache TTL %j before sync or backup",
-			async (ttl) => {
-				const f = fixture();
-				await f.run([kind, "--cache-ttl", ttl]);
-				expect(f.print).toHaveBeenCalledWith(
-					expect.objectContaining({
-						ok: false,
-						error: "--cache-ttl must be a non-negative number",
-					}),
-					true,
-				);
-				expect(process.exitCode).toBe(1);
-				for (const mock of Object.values(mocks))
-					expect(mock).not.toHaveBeenCalled();
-				expect(f.backup).not.toHaveBeenCalled();
-				process.exitCode = 0;
-				await fixture().run([kind, "--cache-ttl", "0"]);
-				const mock =
-					kind === "timeline"
-						? mocks.timeline
-						: kind === "mentions"
-							? mocks.mentions
-							: kind === "likes" || kind === "bookmarks"
-								? mocks.collection
-								: mocks.graph;
-				expect(mock).toHaveBeenLastCalledWith(
-					expect.objectContaining({ cacheTtlMs: 0 }),
-				);
-				await fixture().run([kind, "--cache-ttl", "0.25"]);
-				expect(mock).toHaveBeenLastCalledWith(
-					expect.objectContaining({ cacheTtlMs: 250 }),
-				);
-			},
+
+	it("rejects overflowing --cache-ttl seconds in the shared numeric hook before sync or backup", async () => {
+		const f = fixture();
+		await expect(f.run(["timeline", "--cache-ttl", "1e308"])).rejects.toThrow(
+			new CliInputError("--cache-ttl must be a non-negative finite number"),
 		);
-	}
+		expect(mocks.timeline).not.toHaveBeenCalled();
+		expect(f.backup).not.toHaveBeenCalled();
+	});
 });

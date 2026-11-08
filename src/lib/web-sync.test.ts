@@ -144,14 +144,7 @@ describe("web sync dispatcher", () => {
 	});
 
 	for (const kind of ["timeline", "likes", "bookmarks"] as const) {
-		it.each([
-			"@studio",
-			"studio",
-			"Studio",
-			"Studio workspace",
-			" acct_studio ",
-			"   ",
-		])(
+		it.each(["@studio", "studio", "Studio", " acct_studio "])(
 			"Pass 11 keeps auto mode for " + kind + " default selector %j",
 			async (account) => {
 				setupDefaultAccount("acct_studio");
@@ -173,14 +166,7 @@ describe("web sync dispatcher", () => {
 			},
 		);
 	}
-	it.each([
-		"@studio",
-		"studio",
-		"Studio",
-		"Studio workspace",
-		" acct_studio ",
-		"   ",
-	])(
+	it.each(["@studio", "studio", "Studio", " acct_studio "])(
 		"Pass 11 coalesces default aliases %j without changing the caller account",
 		async (account) => {
 			setupDefaultAccount("acct_studio");

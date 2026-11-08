@@ -14,15 +14,6 @@ import { syncHomeTimeline } from "#/lib/timeline-live";
 import { syncXLists, type XListSyncMode } from "#/lib/x-lists";
 import { errorMessage, type CliCommandContext } from "./command-context";
 
-function parseCacheTtlMs(value: string | undefined): number | undefined {
-	if (value === undefined) return undefined;
-	const milliseconds = Number(value) * 1000;
-	if (!value.trim() || !Number.isFinite(milliseconds) || milliseconds < 0) {
-		throw new Error("--cache-ttl must be a non-negative number");
-	}
-	return milliseconds;
-}
-
 export function registerSyncCommands({
 	program,
 	print,
@@ -87,7 +78,7 @@ export function registerSyncCommands({
 					maxPages: Number(options.maxPages),
 					following: !options.forYou,
 					refresh: Boolean(options.refresh),
-					cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
+					cacheTtlMs: Number(options.cacheTtl) * 1000,
 				});
 				await autoSyncAfterWrite();
 				print(result, true);
@@ -141,7 +132,7 @@ export function registerSyncCommands({
 					sinceId: options.sinceId,
 					startTime: options.startTime,
 					refresh: Boolean(options.refresh),
-					cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
+					cacheTtlMs: Number(options.cacheTtl) * 1000,
 				});
 				await autoSyncAfterWrite();
 				print(result, true);
@@ -270,7 +261,7 @@ export function registerSyncCommands({
 						maxPages: options.maxPages ? Number(options.maxPages) : undefined,
 						paginationToken: options.paginationToken,
 						refresh: Boolean(options.refresh),
-						cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
+						cacheTtlMs: Number(options.cacheTtl) * 1000,
 						earlyStop: Boolean(options.earlyStop),
 					});
 					await autoSyncAfterWrite();
@@ -316,7 +307,7 @@ export function registerSyncCommands({
 						maxResources: options.maxResources
 							? Number(options.maxResources)
 							: undefined,
-						cacheTtlMs: parseCacheTtlMs(options.cacheTtl),
+						cacheTtlMs: Number(options.cacheTtl) * 1000,
 						refresh: Boolean(options.refresh),
 						allowPartial: Boolean(options.allowPartial),
 						yes: Boolean(options.yes),

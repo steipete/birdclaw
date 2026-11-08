@@ -24,7 +24,12 @@ export function configureNumericOptions(program: Command) {
 					throw new CliInputError(`${option.long} must be a finite number`);
 				}
 			} else if (name === "cacheTtl") {
-				if (!text || !Number.isFinite(number) || number < 0) {
+				if (
+					!text ||
+					!Number.isFinite(number) ||
+					!Number.isFinite(number * 1000) ||
+					number < 0
+				) {
 					throw new CliInputError(
 						`${option.long} must be a non-negative finite number`,
 					);

@@ -1,3 +1,4 @@
+import { findOperationAccount } from "./account-selection";
 import type { z } from "zod";
 import type * as contracts from "./api-contracts";
 import { existsSync } from "node:fs";
@@ -305,31 +306,15 @@ function resolveSyncAccountId(
 	account: string | undefined,
 	runtime: ServerRuntimeServices,
 ): string {
-	const selector = account?.trim();
-	if (!selector) return resolveDefaultSyncAccountId(runtime);
+	if (account === undefined) return resolveDefaultSyncAccountId(runtime);
 	const dbPath = runtime.getPaths().dbPath;
-	if (!existsSync(dbPath)) return selector;
+	if (!existsSync(dbPath)) return account;
 	let db: NativeSqliteDatabase | undefined;
 	try {
 		db = new NativeSqliteDatabase(dbPath, { readonly: true });
-		const row = db
-			.prepare(`
-      select id from accounts
-      where id = ?
-        or lower(ltrim(handle, '@')) = lower(ltrim(?, '@'))
-        or lower(name) = lower(?)
-      order by case
-        when id = ? then 0
-        when lower(ltrim(handle, '@')) = lower(ltrim(?, '@')) then 1
-        else 2 end, is_default desc, created_at asc
-      limit 1
-    `)
-			.get(selector, selector, selector, selector, selector) as
-			| { id: string }
-			| undefined;
-		return row?.id ?? selector;
+		return findOperationAccount(db, account)?.id ?? account;
 	} catch {
-		return selector;
+		return account;
 	} finally {
 		db?.close();
 	}
