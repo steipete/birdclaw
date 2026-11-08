@@ -1,3 +1,4 @@
+import { resolveOperationAccount } from "#/lib/account-selection";
 import type { Command } from "commander";
 import {
 	addBlock,
@@ -45,11 +46,11 @@ export function registerModerationCommands({
 
 	blocksCommand
 		.command("add <query>")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addBlock(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);
@@ -58,11 +59,11 @@ export function registerModerationCommands({
 
 	blocksCommand
 		.command("remove <query>")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeBlock(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);
@@ -71,18 +72,23 @@ export function registerModerationCommands({
 
 	blocksCommand
 		.command("sync")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.action(async (options) => {
-			const result = await syncBlocks(options.account);
+			const result = await syncBlocks(
+				resolveOperationAccount(options.account).id,
+			);
 			print(result, asJson());
 		});
 
 	blocksCommand
 		.command("import <path>")
 		.description("Import a newline-delimited blocklist file")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.action(async (filePath, options) => {
-			const result = await importBlocklist(options.account, filePath);
+			const result = await importBlocklist(
+				resolveOperationAccount(options.account).id,
+				filePath,
+			);
 			print(result, asJson());
 		});
 
@@ -91,9 +97,12 @@ export function registerModerationCommands({
 		.description(
 			"Record a known-good remote block locally without another live write",
 		)
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.action(async (query, options) => {
-			const result = await recordBlock(options.account, query);
+			const result = await recordBlock(
+				resolveOperationAccount(options.account).id,
+				query,
+			);
 			print(result, asJson());
 		});
 
@@ -117,11 +126,11 @@ export function registerModerationCommands({
 
 	mutesCommand
 		.command("add <query>")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addMute(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);
@@ -130,11 +139,11 @@ export function registerModerationCommands({
 
 	mutesCommand
 		.command("remove <query>")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeMute(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);
@@ -146,20 +155,23 @@ export function registerModerationCommands({
 		.description(
 			"Record a known-good remote mute locally without another live write",
 		)
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.action(async (query, options) => {
-			const result = await recordMute(options.account, query);
+			const result = await recordMute(
+				resolveOperationAccount(options.account).id,
+				query,
+			);
 			print(result, asJson());
 		});
 
 	program
 		.command("ban <query>")
 		.description("Alias for blocks add")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addBlock(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);
@@ -169,11 +181,11 @@ export function registerModerationCommands({
 	program
 		.command("unban <query>")
 		.description("Alias for blocks remove")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeBlock(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);
@@ -183,11 +195,11 @@ export function registerModerationCommands({
 	program
 		.command("mute <query>")
 		.description("Mute a user for one account")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await addMute(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);
@@ -197,11 +209,11 @@ export function registerModerationCommands({
 	program
 		.command("unmute <query>")
 		.description("Unmute a user for one account")
-		.option("--account <username>", "Account username or id", "acct_primary")
+		.option("--account <username>", "Account username or id")
 		.option("--transport <mode>", "auto, bird, or xurl")
 		.action(async (query, options) => {
 			const result = await removeMute(
-				options.account,
+				resolveOperationAccount(options.account).id,
 				query,
 				resolveActionOptions(options),
 			);

@@ -1,5 +1,6 @@
 import { listInboxItems, scoreInbox } from "#/lib/inbox";
 import type { CliCommandContext } from "./command-context";
+import { CliInputError } from "./numeric-options";
 
 export function registerInboxCommand({
 	program,
@@ -12,6 +13,7 @@ export function registerInboxCommand({
 }: CliCommandContext) {
 	program
 		.command("inbox")
+		.option("--account <username>", "Account username or id")
 		.option("--kind <kind>", "mixed, mentions, or dms", "mixed")
 		.option("--min-score <n>", "Minimum rank", "0")
 		.option("--hide-low-signal", "Hide low-signal items")
@@ -22,14 +24,15 @@ export function registerInboxCommand({
 
 			const limit = parseLimitOption(options.limit, "--limit");
 
+			const kind = options.kind;
+			if (kind !== "mixed" && kind !== "mentions" && kind !== "dms") {
+				throw new CliInputError("--kind must be mixed, mentions, or dms");
+			}
 			await autoUpdateBeforeRead();
-			const kind =
-				options.kind === "mentions" || options.kind === "dms"
-					? options.kind
-					: "mixed";
 			if (options.score) {
 				await scoreInbox({
 					kind,
+					account: options.account,
 					limit,
 				});
 				await autoSyncAfterWrite();
@@ -37,6 +40,7 @@ export function registerInboxCommand({
 			print(
 				listInboxItems({
 					kind,
+					account: options.account,
 					minScore,
 					hideLowSignal: Boolean(options.hideLowSignal),
 					limit,

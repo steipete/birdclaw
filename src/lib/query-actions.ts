@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
+import {
+	findOperationAccount,
+	resolveOperationAccount,
+} from "./account-selection";
 import type { Database } from "./sqlite";
 import { deleteSearchRows, refreshSearchRows } from "./search-index";
 import { getReadDb } from "./db";
@@ -139,6 +143,7 @@ function preflightWrite<T>(db: Database, write: (db: Database) => T) {
 }
 
 type PostDraft = {
+	accountId: string;
 	actionId: string;
 	authorProfileId: string;
 	createdAt: string;
@@ -146,12 +151,14 @@ type PostDraft = {
 };
 
 function preparePostDraft(accountId: string): PostDraft {
-	const authorProfileId = getLocalAuthorProfileId(accountId);
+	const resolvedAccountId = resolveOperationAccount(accountId, getReadDb()).id;
+	const authorProfileId = getLocalAuthorProfileId(resolvedAccountId);
 	if (!authorProfileId) {
 		throw new Error("No local author profile for account");
 	}
 
 	return {
+		accountId: resolvedAccountId,
 		actionId: randomUUID(),
 		authorProfileId,
 		createdAt: new Date().toISOString(),
@@ -199,17 +206,17 @@ export function createPostEffect(accountId: string, text: string) {
 		const draft = yield* trySync(() => preparePostDraft(accountId));
 		yield* databaseWriteEffect((db) =>
 			preflightWrite(db, (writeDb) =>
-				writePostDraft(writeDb, accountId, text, draft),
+				writePostDraft(writeDb, draft.accountId, text, draft),
 			),
 		);
 
-		yield* verifySelectedXurlAccountEffect(accountId);
+		yield* verifySelectedXurlAccountEffect(draft.accountId);
 		const transport = yield* postViaXurlEffect(text);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "post failed"));
 		}
 		yield* databaseWriteEffect((db) =>
-			writePostDraft(db, accountId, text, draft),
+			writePostDraft(db, draft.accountId, text, draft),
 		);
 
 		return { ok: true, transport, tweetId: draft.tweetId };
@@ -247,7 +254,7 @@ export function createTweetReplyEffect(
     `,
 		).run(draft.replyId, draft.authorProfileId, text, draft.createdAt, tweetId);
 		upsertTweetAccountEdge(db, {
-			accountId,
+			accountId: draft.accountId,
 			tweetId: draft.replyId,
 			kind: "home",
 			source: "local",
@@ -257,7 +264,14 @@ export function createTweetReplyEffect(
 
 		db.prepare(
 			"insert into tweet_actions (id, account_id, tweet_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?)",
-		).run(draft.actionId, accountId, tweetId, "reply", text, draft.createdAt);
+		).run(
+			draft.actionId,
+			draft.accountId,
+			tweetId,
+			"reply",
+			text,
+			draft.createdAt,
+		);
 	}
 
 	return Effect.gen(function* () {
@@ -266,7 +280,7 @@ export function createTweetReplyEffect(
 			preflightWrite(db, (writeDb) => writeReplyDraft(writeDb, draft)),
 		);
 
-		yield* verifySelectedXurlAccountEffect(accountId);
+		yield* verifySelectedXurlAccountEffect(draft.accountId);
 		const transport = yield* replyViaXurlEffect(tweetId, text);
 		if (!transport.ok) {
 			return yield* Effect.fail(new Error(transport.output || "reply failed"));
@@ -296,9 +310,15 @@ export function createDmReplyEffect(
 			if (!conversation) {
 				throw new Error("Conversation not found");
 			}
-			if (accountId && conversation.conversation.accountId !== accountId) {
+			const selectedAccountId = accountId
+				? (findOperationAccount(getReadDb(), accountId)?.id ?? accountId)
+				: undefined;
+			if (
+				selectedAccountId &&
+				conversation.conversation.accountId !== selectedAccountId
+			) {
 				throw new Error(
-					`Conversation belongs to ${conversation.conversation.accountId}, not ${accountId}`,
+					`Conversation belongs to ${conversation.conversation.accountId}, not ${selectedAccountId}`,
 				);
 			}
 			const authorProfileId = getLocalAuthorProfileId(

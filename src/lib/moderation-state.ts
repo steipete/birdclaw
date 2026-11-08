@@ -1,5 +1,9 @@
 import { Effect } from "effect";
 import {
+	findOperationAccount,
+	resolveOperationAccount,
+} from "./account-selection";
+import {
 	type ActionTransportResult,
 	runModerationAction,
 } from "./actions-transport";
@@ -9,7 +13,6 @@ import { databaseWriteEffect } from "./database-writer";
 import { runEffectPromise, tryPromise, trySync } from "./effect-runtime";
 import {
 	getAccountHandle,
-	getDefaultAccountId,
 	normalizeProfileQuery,
 	resolveProfileEffect,
 } from "./moderation-target";
@@ -144,7 +147,7 @@ export function listModerationState<K extends ModerationKind>(
 
 	if (account && account !== "all") {
 		where += " and state.account_id = ?";
-		params.push(account);
+		params.push(findOperationAccount(db, account)?.id ?? account);
 	}
 
 	if (search?.trim()) {
@@ -211,7 +214,9 @@ export function searchModerationCandidates<K extends ModerationKind>(
 	const db = getNativeDb();
 	if (!search?.trim()) return [];
 
-	const accountHandle = getAccountHandle(db, accountId);
+	const resolvedAccountId =
+		findOperationAccount(db, accountId)?.id ?? accountId;
+	const accountHandle = getAccountHandle(db, resolvedAccountId);
 	const rows = db
 		.prepare(
 			`
@@ -245,7 +250,7 @@ export function searchModerationCandidates<K extends ModerationKind>(
       `,
 		)
 		.all(
-			accountId,
+			resolvedAccountId,
 			accountHandle,
 			`%${search.trim()}%`,
 			`%${search.trim()}%`,
@@ -370,7 +375,9 @@ export function resolveModerationTargetEffect({
 }) {
 	return Effect.gen(function* () {
 		const db = yield* trySync(() => getNativeDb());
-		const resolvedAccountId = accountId || getDefaultAccountId(db);
+		const resolvedAccountId = yield* trySync(
+			() => resolveOperationAccount(accountId || undefined, db).id,
+		);
 		const accountHandle = yield* trySync(() =>
 			getAccountHandle(db, resolvedAccountId),
 		);

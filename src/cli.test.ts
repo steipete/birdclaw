@@ -2847,7 +2847,7 @@ describe("cli", () => {
 
 		await runCli(["node", "birdclaw", "search", "tweets", "default"]);
 		await runCli(["node", "birdclaw", "search", "dms", "default"]);
-		await runCli(["node", "birdclaw", "inbox", "--kind", "weird"]);
+		await runCli(["node", "birdclaw", "inbox"]);
 		await runCli(["node", "birdclaw", "compose", "post", "Ship it"]);
 		await runCli([
 			"node",
@@ -4058,14 +4058,14 @@ describe("cli", () => {
 		);
 	});
 
-	it("preserves legacy command defaults without forcing named xurl auth", async () => {
+	it("resolves the database default without forcing named xurl auth", async () => {
 		delete process.env.BIRDCLAW_XURL_OAUTH2_USERNAME;
 		const { runCli } = await loadCli();
 
 		await runCli(["node", "birdclaw", "compose", "post", "Ship it"]);
 
 		expect(createPostMock).toHaveBeenCalledWith("acct_primary", "Ship it");
-		expect(resolveOperationAccountMock).not.toHaveBeenCalled();
+		expect(resolveOperationAccountMock).toHaveBeenCalledWith(undefined);
 		expect(process.env.BIRDCLAW_XURL_OAUTH2_USERNAME).toBeUndefined();
 	});
 
