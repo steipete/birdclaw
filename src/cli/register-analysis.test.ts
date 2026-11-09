@@ -5,10 +5,15 @@ import { createCommandContext } from "./command-context";
 import { configureNumericOptions, CliInputError } from "./numeric-options";
 import { registerAnalysisCommands } from "./register-analysis";
 const mocks = vi.hoisted(() => ({
+	backupUpdate: vi.fn(),
 	digest: vi.fn(),
 	discuss: vi.fn(),
 	profile: vi.fn(),
 	research: vi.fn(),
+}));
+vi.mock("#/lib/backup", async (original) => ({
+	...(await original<typeof import("#/lib/backup")>()),
+	maybeAutoUpdateBackup: mocks.backupUpdate,
 }));
 vi.mock("#/lib/period-digest", async (original) => ({
 	...(await original<typeof import("#/lib/period-digest")>()),
@@ -17,7 +22,8 @@ vi.mock("#/lib/period-digest", async (original) => ({
 vi.mock("#/lib/search-discussion", () => ({
 	streamSearchDiscussion: mocks.discuss,
 }));
-vi.mock("#/lib/profile-analysis", () => ({
+vi.mock("#/lib/profile-analysis", async (original) => ({
+	...(await original<typeof import("#/lib/profile-analysis")>()),
 	streamProfileAnalysis: mocks.profile,
 }));
 vi.mock("#/lib/research", () => ({ runResearchMode: mocks.research }));
@@ -41,6 +47,7 @@ beforeEach(() => {
 		mock.mockReset();
 		mock.mockResolvedValue({ markdown: "ok" });
 	}
+	mocks.backupUpdate.mockResolvedValue({ ok: true, updated: false });
 });
 describe("pass13 real analysis command parsing", () => {
 	it.each([
@@ -62,6 +69,9 @@ describe("pass13 real analysis command parsing", () => {
 		["discuss", "topic", "--source", "bad"],
 		["discuss", "topic", "--mode", "bad"],
 		["discuss", "topic", "--limit", "0"],
+		["profile-analyze", "@bad!handle"],
+		["profile-analyze", "   "],
+		["profile-analyze", "abcdefghijklmnop"],
 		["profile-analyze", "alice", "--max-tweets", "0"],
 		["profile-analyze", "alice", "--max-pages", "0"],
 		["research", "topic", "--limit", "0"],
@@ -70,8 +80,37 @@ describe("pass13 real analysis command parsing", () => {
 		const { run, update } = cli();
 		await expect(run(args)).rejects.toBeInstanceOf(CliInputError);
 		expect(update).not.toHaveBeenCalled();
-		for (const mock of Object.values(mocks))
+		expect(mocks.backupUpdate).not.toHaveBeenCalled();
+		for (const mock of [
+			mocks.digest,
+			mocks.discuss,
+			mocks.profile,
+			mocks.research,
+		])
 			expect(mock).not.toHaveBeenCalled();
+	});
+	it("rejects invalid profile handles before writable automatic backup sync", async () => {
+		const program = new Command();
+		configureNumericOptions(program);
+		registerAnalysisCommands({
+			...createCommandContext(program),
+			print: vi.fn(),
+			asJson: () => true,
+		});
+		await expect(
+			program.parseAsync(["profile-analyze", "@bad!handle"], { from: "user" }),
+		).rejects.toBeInstanceOf(CliInputError);
+		expect(mocks.backupUpdate).not.toHaveBeenCalled();
+		expect(mocks.profile).not.toHaveBeenCalled();
+
+		await program.parseAsync(["profile-analyze", "https://x.com/alice"], {
+			from: "user",
+		});
+		expect(mocks.backupUpdate).toHaveBeenCalledOnce();
+		expect(mocks.profile).toHaveBeenCalledWith(
+			expect.objectContaining({ handle: "alice" }),
+			expect.anything(),
+		);
 	});
 	it.each(["today", "yesterday", "24h", "day", "week", "7d"])(
 		"preserves digest period %s and zero caps",
@@ -96,7 +135,10 @@ describe("pass13 real analysis command parsing", () => {
 		await run(args);
 		expect(update).toHaveBeenCalledOnce();
 		expect(
-			Object.values(mocks).reduce((n, mock) => n + mock.mock.calls.length, 0),
+			[mocks.digest, mocks.discuss, mocks.profile, mocks.research].reduce(
+				(n, mock) => n + mock.mock.calls.length,
+				0,
+			),
 		).toBe(1);
 	});
 });

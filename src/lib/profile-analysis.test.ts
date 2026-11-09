@@ -674,16 +674,33 @@ describe("pass13 profile analysis contracts", () => {
 		"BIRDCLAW_PROFILE_ANALYSIS_CONVERSATION_DELAY_MS",
 		"BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_RETRY_MS",
 		"BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_MAX_RETRIES",
-	])("rejects invalid environment %s", async (key) => {
-		for (const value of ["-1", "NaN", "0.5", "9007199254740992"]) {
-			vi.stubEnv(key, value);
-			const result = await Effect.runPromise(
-				Effect.either(collectProfileAnalysisContextEffect(small)),
-			);
-			expect(Either.isLeft(result)).toBe(true);
-			expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
-		}
-	});
+	])(
+		"falls back to defaults for malformed environment %s, including cached reads",
+		async (key) => {
+			const seeded = await streamProfileAnalysis(small);
+			mocks.lookupUsersByHandlesEffect.mockClear();
+			vi.mocked(fetch).mockClear();
+			vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+			for (const value of ["-1", "NaN", "bad", "9007199254740992"]) {
+				vi.stubEnv(key, value);
+				const cached = await streamProfileAnalysis(small);
+				expect(cached.cached).toBe(true);
+				expect(cached.markdown).toBe(seeded.markdown);
+				expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
+				expect(fetch).not.toHaveBeenCalled();
+			}
+			vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "");
+			for (const value of ["-1", "NaN", "bad", "9007199254740992"]) {
+				vi.stubEnv(key, value);
+				const live = await Effect.runPromise(
+					Effect.either(
+						collectProfileAnalysisContextEffect({ ...small, refresh: true }),
+					),
+				);
+				expect(Either.isRight(live)).toBe(true);
+			}
+		},
+	);
 	it.each(["not a handle", "bad!handle", "abcdefghijklmnop"])(
 		"rejects invalid handle %j before transport",
 		async (handle) => {

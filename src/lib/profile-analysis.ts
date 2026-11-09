@@ -174,7 +174,7 @@ function tryProfilePromise<T>(
 	return tryPromise(try_).pipe(Effect.mapError(toError));
 }
 
-function normalizeHandle(value: string) {
+export function normalizeProfileHandle(value: string) {
 	const handle = value
 		.trim()
 		.replace(/^https?:\/\/(x|twitter)\.com\//i, "")
@@ -191,6 +191,8 @@ function normalizeHandle(value: string) {
 	}
 	return handle;
 }
+
+const normalizeHandle = normalizeProfileHandle;
 
 function normalizePositiveInteger(
 	value: number | undefined,
@@ -219,10 +221,9 @@ function envNonNegativeInteger(name: string) {
 	const value = process.env[name];
 	if (value === undefined || value.trim() === "") return undefined;
 	const numeric = Number(value);
-	if (!Number.isSafeInteger(numeric) || numeric < 0) {
-		throw new Error(name + " must be a non-negative safe integer");
-	}
-	return numeric;
+	if (!Number.isFinite(numeric) || numeric < 0) return undefined;
+	const floored = Math.floor(numeric);
+	return Number.isSafeInteger(floored) ? floored : undefined;
 }
 
 function conversationDelayMsFromOptions(options: ProfileAnalysisOptions) {

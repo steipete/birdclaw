@@ -979,4 +979,67 @@ describe("pass13 digest input and read-only contracts", () => {
 			}).tweets,
 		).toEqual([]);
 	});
+	it("hydrates cited tweets outside the window for @handle selectors while isolating other accounts", async () => {
+		const db = getNativeDb();
+		const seed = db
+			.prepare(`
+				select edge.account_id, tweet.author_profile_id
+				from tweets tweet
+				join tweet_account_edges edge on edge.tweet_id = tweet.id
+				where edge.account_id = 'acct_primary'
+				limit 1
+			`)
+			.get() as { account_id: string; author_profile_id: string };
+		const primaryCitedId = "2065597531644744901";
+		const otherCitedId = "2065597531644744902";
+		db.prepare(
+			`insert into accounts (id, name, handle, transport, is_default, created_at)
+			 values ('acct_secondary', 'Secondary', '@secondary', 'archive', 0, '2025-01-01T00:00:00.000Z')`,
+		).run();
+		for (const [id, text, accountId] of [
+			[primaryCitedId, "Outside-window primary citation", seed.account_id],
+			[otherCitedId, "Outside-window secondary citation", "acct_secondary"],
+		] as const) {
+			db.prepare(
+				"insert into tweets (id, author_profile_id, text, created_at) values (?, ?, ?, '2025-12-31T23:59:00.000Z')",
+			).run(id, seed.author_profile_id, text);
+			db.prepare(
+				`insert into tweet_account_edges (
+					account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count, source, raw_json, updated_at
+				) values (?, ?, 'home', '2025-12-31T23:59:00.000Z', '2025-12-31T23:59:00.000Z', 1, 'test', '{}', '2025-12-31T23:59:00.000Z')`,
+			).run(accountId, id);
+		}
+		const streamed = [
+			sseFrame({
+				type: "response.output_text.delta",
+				delta: `# Digest\n\nRefs (${primaryCitedId}, ${otherCitedId})\n\n---\n{"title":"Digest","summary":"Refs","keyTopics":[],"notableLinks":[],"people":[],"actionItems":[],"sourceTweetIds":["${primaryCitedId}","${otherCitedId}"]}`,
+			}),
+			"data: [DONE]\n\n",
+		].join("");
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamResponse(streamed)));
+
+		const fresh = await streamPeriodDigest({
+			...window,
+			account: " @STEIPETE ",
+			liveSync: false,
+			refresh: true,
+		});
+		expect(fresh.context.account).toBe("acct_primary");
+		expect(fresh.context.tweets.map((t) => t.id)).toContain(primaryCitedId);
+		expect(fresh.context.tweets.map((t) => t.id)).not.toContain(otherCitedId);
+
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const cachedByAlias = await streamPeriodDigest({
+			...window,
+			account: "steipete",
+			liveSync: false,
+		});
+		expect(cachedByAlias.cached).toBe(true);
+		expect(cachedByAlias.context.tweets.map((t) => t.id)).toContain(
+			primaryCitedId,
+		);
+		expect(cachedByAlias.context.tweets.map((t) => t.id)).not.toContain(
+			otherCitedId,
+		);
+	});
 });

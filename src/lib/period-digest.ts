@@ -526,15 +526,18 @@ function contextHash(context: Omit<PeriodDigestContext, "hash">) {
 		.digest("hex");
 }
 
+function resolveDigestAccountSelector(account: string | undefined) {
+	const trimmed = account?.trim();
+	if (!trimmed) return undefined;
+	if (trimmed === "all") return "all";
+	return findOperationAccount(getReadDb(), trimmed)?.id ?? trimmed;
+}
+
 export function collectPeriodDigestContext(
 	options: PeriodDigestOptions = {},
 ): PeriodDigestContext {
 	const window = resolvePeriodDigestWindow(options);
-	const account =
-		options.account && options.account !== "all"
-			? (findOperationAccount(getReadDb(), options.account)?.id ??
-				options.account)
-			: options.account;
+	const account = resolveDigestAccountSelector(options.account);
 	const maxTweets = digestCount(
 		options.maxTweets,
 		DEFAULT_MAX_TWEETS,
@@ -586,7 +589,7 @@ export function collectPeriodDigestContext(
 	]).slice(0, maxTweets);
 	const withoutHash = {
 		window,
-		...(options.account ? { account: options.account } : {}),
+		...(account ? { account } : {}),
 		includeDms: Boolean(options.includeDms),
 		counts: {
 			home: home.length,
@@ -888,7 +891,7 @@ function latestDigestCacheKey(options: PeriodDigestOptions) {
 				: localDateStart(new Date()).toISOString(),
 		since: options.since?.trim() || null,
 		until: options.until?.trim() || null,
-		account: options.account?.trim() || null,
+		account: resolveDigestAccountSelector(options.account) ?? null,
 		includeDms: Boolean(options.includeDms),
 		maxTweets: digestCount(options.maxTweets, DEFAULT_MAX_TWEETS, "maxTweets"),
 		maxLinks: digestCount(options.maxLinks, DEFAULT_MAX_LINKS, "maxLinks"),
@@ -925,9 +928,10 @@ function enrichContextWithCitedTweets(
 		(tweetId) => !existingIds.has(tweetId.replace(/^tweet_/, "")),
 	);
 	if (missingIds.length === 0) return context;
-	const citedTweets = getTweetsByIds(missingIds, context.account).map(
-		compactEmbeddedTweet,
-	);
+	const citedTweets = getTweetsByIds(
+		missingIds,
+		resolveDigestAccountSelector(context.account),
+	).map(compactEmbeddedTweet);
 	return citedTweets.length > 0
 		? { ...context, tweets: [...context.tweets, ...citedTweets] }
 		: context;

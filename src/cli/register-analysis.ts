@@ -10,6 +10,7 @@ import {
 	type PeriodDigestPreset,
 } from "#/lib/period-digest";
 import {
+	normalizeProfileHandle,
 	streamProfileAnalysis,
 	type ProfileAnalysisOptions,
 } from "#/lib/profile-analysis";
@@ -262,6 +263,15 @@ export function registerAnalysisCommands({
 			rateLimitRetries?: string;
 		},
 	): ProfileAnalysisOptions {
+		let normalizedHandle: string;
+		try {
+			normalizedHandle = normalizeProfileHandle(handle);
+		} catch (error) {
+			throw new CliInputError(
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+
 		const maxTweets = parsePositiveIntegerOption(
 			options.maxTweets,
 			"--max-tweets",
@@ -298,7 +308,7 @@ export function registerAnalysisCommands({
 		);
 
 		return {
-			handle,
+			handle: normalizedHandle,
 			account: options.account,
 			model: options.model,
 			refresh: Boolean(options.refresh),
