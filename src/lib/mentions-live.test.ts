@@ -106,6 +106,7 @@ describe("cached live mentions", () => {
 	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
@@ -2612,14 +2613,27 @@ describe("cached live mentions", () => {
 						created_at: "2026-10-01T00:00:00.000Z",
 						public_metrics: { like_count: 10 },
 					},
+					{
+						id: "901",
+						author_id: "43",
+						text: "second mention",
+						created_at: "2026-10-01T00:01:00.000Z",
+						public_metrics: { like_count: 5 },
+					},
 				],
 				includes: {
 					users: [
 						{
 							id: "42",
-							username: "sam",
+							username: "alice",
 							name: "New Sam",
 							public_metrics: { followers_count: 250 },
+						},
+						{
+							id: "43",
+							username: "sam",
+							name: "Current Sam",
+							public_metrics: { followers_count: 500 },
 						},
 					],
 				},
@@ -2652,9 +2666,37 @@ describe("cached live mentions", () => {
 		expect(
 			db
 				.prepare(
-					"select display_name, followers_count from profiles where id = 'profile_user_42'",
+					"select id, handle, display_name, followers_count from profiles where id in ('profile_user_42', 'profile_user_43') order by id",
 				)
-				.get(),
-		).toEqual({ display_name: "New Sam", followers_count: 250 });
+				.all(),
+		).toEqual([
+			{
+				id: "profile_user_42",
+				handle: "alice",
+				display_name: "New Sam",
+				followers_count: 250,
+			},
+			{
+				id: "profile_user_43",
+				handle: "sam",
+				display_name: "Current Sam",
+				followers_count: 500,
+			},
+		]);
+
+		resetDatabaseForTests();
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const freshReadOnly = await exportMentionsViaCachedXurl({
+			limit: 5,
+			search: "needle",
+		});
+		expect(freshReadOnly.data.map((row) => row.id)).toEqual(["900"]);
+		listMentionsViaXurlMock.mockRejectedValueOnce(new Error("offline"));
+		const staleReadOnly = await exportMentionsViaCachedXurl({
+			limit: 5,
+			cacheTtlMs: 0,
+			search: "needle",
+		});
+		expect(staleReadOnly.data.map((row) => row.id)).toEqual(["900"]);
 	});
 });

@@ -14,7 +14,11 @@ import {
 	type MentionScanShape,
 	type MentionSyncIntent,
 } from "./mentions-cursor";
-import { getAutoTransportOrder, autoTransportCacheSuffix } from "./config";
+import {
+	getAutoTransportOrder,
+	autoTransportCacheSuffix,
+	isReadOnlyDeployment,
+} from "./config";
 import { Effect } from "effect";
 import { listMentionsViaBirdEffect } from "./bird";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
@@ -665,14 +669,18 @@ function exportMentionsViaCachedLiveSourceEffect({
 		};
 
 		const restoreCached = (payload: XurlMentionsResponse) =>
-			databaseWriteEffect((writeDb) => {
-				mergeMentionsIntoLocalStore(
-					writeDb,
-					resolvedAccount.accountId,
-					payload,
-					"cache",
-				);
-			}).pipe(Effect.flatMap(() => trySync(() => readFilteredOrRaw(payload))));
+			isReadOnlyDeployment()
+				? trySync(() => readFilteredOrRaw(payload))
+				: databaseWriteEffect((writeDb) => {
+						mergeMentionsIntoLocalStore(
+							writeDb,
+							resolvedAccount.accountId,
+							payload,
+							"cache",
+						);
+					}).pipe(
+						Effect.flatMap(() => trySync(() => readFilteredOrRaw(payload))),
+					);
 
 		if (!refresh && cached && cache.fresh) {
 			return yield* restoreCached(cached.value);

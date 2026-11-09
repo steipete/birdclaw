@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { getPreferredTransport } from "./config";
+import { getPreferredTransport, isReadOnlyDeployment } from "./config";
 import { findOperationAccount } from "./account-selection";
 import { databaseWriteEffect } from "./database-writer";
 import { toError } from "./effect-runtime";
@@ -257,11 +257,12 @@ export function runCachedLiveSyncEffect<
 		});
 		const cached = cache.entry;
 		if (!refresh && cached && cache.fresh) {
-			const persisted = persistCached
-				? yield* databaseWriteEffect((writeDb) =>
-						persistCached(writeDb, cached.value),
-					)
-				: undefined;
+			const persisted =
+				persistCached && !isReadOnlyDeployment()
+					? yield* databaseWriteEffect((writeDb) =>
+							persistCached(writeDb, cached.value),
+						)
+					: undefined;
 			return {
 				source: "cache",
 				payload: cached.value,

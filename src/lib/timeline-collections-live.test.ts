@@ -1499,14 +1499,25 @@ describe("live timeline collection sync", () => {
 						...makeTweet("900", "collection needle"),
 						public_metrics: { like_count: 10 },
 					},
+					{
+						...makeTweet("901", "second needle"),
+						author_id: "43",
+						public_metrics: { like_count: 5 },
+					},
 				],
 				includes: {
 					users: [
 						{
 							id: "42",
-							username: "sam",
+							username: "alice",
 							name: "New Sam",
 							public_metrics: { followers_count: 250 },
+						},
+						{
+							id: "43",
+							username: "sam",
+							name: "Current Sam",
+							public_metrics: { followers_count: 500 },
 						},
 					],
 				},
@@ -1554,9 +1565,22 @@ describe("live timeline collection sync", () => {
 		expect(
 			db
 				.prepare(
-					"select display_name, followers_count from profiles where id = 'profile_user_42'",
+					"select id, handle, display_name, followers_count from profiles where id in ('profile_user_42', 'profile_user_43') order by id",
 				)
-				.get(),
-		).toEqual({ display_name: "New Sam", followers_count: 250 });
+				.all(),
+		).toEqual([
+			{
+				id: "profile_user_42",
+				handle: "alice",
+				display_name: "New Sam",
+				followers_count: 250,
+			},
+			{
+				id: "profile_user_43",
+				handle: "sam",
+				display_name: "Current Sam",
+				followers_count: 500,
+			},
+		]);
 	});
 });
