@@ -35,6 +35,7 @@ import { registerInboxCommand } from "./register-inbox";
 
 const mocks = vi.hoisted(() => ({
 	moderate: vi.fn(),
+	birdMe: vi.fn(),
 	me: vi.fn(),
 	blocked: vi.fn(),
 	post: vi.fn(),
@@ -42,15 +43,32 @@ const mocks = vi.hoisted(() => ({
 	dm: vi.fn(),
 	score: vi.fn(),
 }));
-vi.mock("../lib/actions-transport", () => ({
-	runModerationAction: mocks.moderate,
-}));
+vi.mock("../lib/bird", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		getAuthenticatedBirdAccountEffect: effectFromMock(mocks.birdMe),
+	};
+});
+vi.mock("../lib/bird-actions", async () => {
+	const { effectFromMock } = await import("../test/effect-mocks");
+	return {
+		blockUserViaBirdEffect: effectFromMock(mocks.moderate),
+		unblockUserViaBirdEffect: effectFromMock(mocks.moderate),
+		muteUserViaBirdEffect: effectFromMock(mocks.moderate),
+		unmuteUserViaBirdEffect: effectFromMock(mocks.moderate),
+		lookupProfileViaBirdEffect: effectFromMock(() => Promise.resolve(null)),
+	};
+});
 vi.mock("../lib/xurl", async () => {
 	const { effectFromMock } = await import("../test/effect-mocks");
 	return {
 		lookupAuthenticatedUserFreshEffect: effectFromMock(mocks.me),
 		lookupAuthenticatedUserEffect: effectFromMock(mocks.me),
 		listBlockedUsersEffect: effectFromMock(mocks.blocked),
+		blockUserViaXurlEffect: effectFromMock(mocks.moderate),
+		unblockUserViaXurlEffect: effectFromMock(mocks.moderate),
+		muteUserViaXurlEffect: effectFromMock(mocks.moderate),
+		unmuteUserViaXurlEffect: effectFromMock(mocks.moderate),
 		postViaXurlEffect: effectFromMock(mocks.post),
 		replyViaXurlEffect: effectFromMock(mocks.reply),
 		dmViaXurlEffect: effectFromMock(mocks.dm),
@@ -91,6 +109,7 @@ describe("account selection at CLI and local action boundaries", () => {
 		home = mkdtempSync(path.join(os.tmpdir(), "birdclaw-account-scope-"));
 		vi.stubEnv("BIRDCLAW_HOME", home);
 		vi.stubEnv("BIRDCLAW_CONFIG", path.join(home, "config.json"));
+		vi.stubEnv("BIRDCLAW_TEST_SEED_DEMO_DATA", "1");
 		vi.stubEnv("BIRDCLAW_DISABLE_LIVE_WRITES", "0");
 		vi.stubEnv("BIRDCLAW_DISABLE_LIVE_PROFILE_LOOKUP", "1");
 		vi.stubEnv("BIRDCLAW_E2E_FAKE_LIVE_WRITES", "0");
@@ -103,11 +122,15 @@ describe("account selection at CLI and local action boundaries", () => {
 		db.prepare(
 			"insert into profiles (id, handle, display_name, bio, followers_count, following_count, avatar_hue, created_at) values (?, ?, ?, '', 0, 0, 0, ?)",
 		).run("profile_studio", "birdclaw_lab", "Studio", "2026-01-01");
+		db.exec(
+			"pragma foreign_keys = off; update profiles set id = 'profile_user_7' where id = 'profile_amelia'; update tweets set author_profile_id = 'profile_user_7' where author_profile_id = 'profile_amelia'; update dm_conversations set participant_profile_id = 'profile_user_7' where participant_profile_id = 'profile_amelia'; update dm_messages set sender_profile_id = 'profile_user_7' where sender_profile_id = 'profile_amelia'; pragma foreign_keys = on;",
+		);
 		db.prepare(
 			"insert into tweet_account_edges (account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count, source, raw_json, updated_at) values (?, ?, 'mention', ?, ?, 1, 'test', '{}', ?)",
 		).run("acct_studio", "tweet_006", "2026-01-01", "2026-01-01", "2026-01-01");
 		for (const mock of Object.values(mocks)) mock.mockReset();
 		mocks.moderate.mockResolvedValue({ ok: true, output: "mocked moderation" });
+		mocks.birdMe.mockResolvedValue({ id: "25401953", username: "steipete" });
 		mocks.me.mockResolvedValue({ id: "25401953", username: "steipete" });
 		mocks.blocked.mockResolvedValue({
 			items: [{ id: "7", username: "amelia", name: "Amelia" }],
@@ -161,7 +184,7 @@ describe("account selection at CLI and local action boundaries", () => {
 				"insert into " +
 					table +
 					" (account_id, profile_id, source, created_at) values (?, ?, 'manual', ?)",
-			).run("acct_primary", "profile_amelia", "2026-01-01");
+			).run("acct_primary", "profile_user_7", "2026-01-01");
 			db.prepare(
 				"insert into " +
 					table +
@@ -242,13 +265,13 @@ describe("account selection at CLI and local action boundaries", () => {
 				args,
 				configured: undefined,
 				explicit: undefined,
-				expected: "acct_studio",
+				expected: args[1] === "sync" ? "acct_primary" : "acct_primary",
 			},
 			{
 				args,
-				configured: "@steipete",
+				configured: "@birdclaw_lab",
 				explicit: undefined,
-				expected: "acct_primary",
+				expected: "acct_studio",
 			},
 			{
 				args,
@@ -262,11 +285,12 @@ describe("account selection at CLI and local action boundaries", () => {
 		async ({ args, configured, explicit, expected }) => {
 			writeBirdclawConfig({ accounts: { default: configured } });
 			seedModeration();
-			mocks.me.mockResolvedValue(
+			const principal =
 				expected === "acct_primary"
 					? { id: "25401953", username: "steipete" }
-					: { id: "studio-id", username: "birdclaw_lab" },
-			);
+					: { id: "studio-id", username: "birdclaw_lab" };
+			mocks.me.mockResolvedValue(principal);
+			mocks.birdMe.mockResolvedValue(principal);
 			const file = path.join(home, "blocks.txt");
 			writeFileSync(file, "@amelia");
 			const { program, print } = cli();
@@ -290,8 +314,10 @@ describe("account selection at CLI and local action boundaries", () => {
 						).account_id
 					: result.accountId;
 			expect(accountId).toBe(expected);
-			for (const call of mocks.moderate.mock.calls)
-				expect(call[0].expectedAccount.id).toBe(expected);
+			for (const call of mocks.moderate.mock.calls) {
+				expect([principal.id, "7"]).toContain(call[0]);
+				expect([principal.id, "7", undefined]).toContain(call[1]);
+			}
 		},
 	);
 
@@ -302,7 +328,9 @@ describe("account selection at CLI and local action boundaries", () => {
 				[addBlock, recordBlock, removeBlock],
 				[addMute, recordMute, removeMute],
 			] as const) {
-				expect(await add(account, "@amelia")).toMatchObject({
+				expect(
+					await add(account, "@amelia", { transport: "xurl" }),
+				).toMatchObject({
 					ok: true,
 					accountId: "acct_primary",
 				});
@@ -310,7 +338,9 @@ describe("account selection at CLI and local action boundaries", () => {
 					ok: true,
 					accountId: "acct_primary",
 				});
-				expect(await remove(account, "@amelia")).toMatchObject({
+				expect(
+					await remove(account, "@amelia", { transport: "xurl" }),
+				).toMatchObject({
 					ok: true,
 					accountId: "acct_primary",
 				});
@@ -318,7 +348,7 @@ describe("account selection at CLI and local action boundaries", () => {
 			expect(mocks.moderate).toHaveBeenCalledTimes(4);
 			expect(
 				mocks.moderate.mock.calls.every(
-					(call) => call[0].expectedAccount.id === "acct_primary",
+					(call) => call[0] === "25401953" && call[1] === "7",
 				),
 			).toBe(true);
 		},
@@ -464,6 +494,7 @@ describe("account selection at CLI and local action boundaries", () => {
 	});
 	it("does not weaken remote identity checks for normalized selectors", async () => {
 		mocks.me.mockResolvedValue({ id: "wrong", username: "other" });
+		mocks.birdMe.mockResolvedValue({ id: "wrong", username: "other" });
 		await expect(createPost("@steipete", "not sent")).rejects.toThrow(
 			"not @steipete",
 		);
@@ -473,10 +504,25 @@ describe("account selection at CLI and local action boundaries", () => {
 		await expect(
 			createDmReply("dm_003", "not sent", "@steipete"),
 		).rejects.toThrow("not @steipete");
+		expect(
+			await addBlock("@birdclaw_lab", "@amelia", { transport: "xurl" }),
+		).toMatchObject({
+			ok: false,
+			accountId: "acct_studio",
+			transport: {
+				ok: false,
+				transport: "xurl",
+				output: expect.stringContaining("not @birdclaw_lab"),
+			},
+		});
+		await expect(
+			addMute("@birdclaw_lab", "@amelia", { transport: "bird" }),
+		).rejects.toThrow("refusing to sync into acct_studio (@birdclaw_lab)");
 		expect(await syncBlocks("@steipete")).toMatchObject({
 			ok: false,
 			synced: false,
 		});
+		expect(mocks.moderate).not.toHaveBeenCalled();
 		expect(mocks.post).not.toHaveBeenCalled();
 		expect(mocks.reply).not.toHaveBeenCalled();
 		expect(mocks.dm).not.toHaveBeenCalled();
@@ -484,6 +530,16 @@ describe("account selection at CLI and local action boundaries", () => {
 		expect(
 			getNativeDb()
 				.prepare("select id from tweets where text = 'not sent'")
+				.all(),
+		).toEqual([]);
+		expect(
+			getNativeDb()
+				.prepare("select * from blocks where account_id = 'acct_studio'")
+				.all(),
+		).toEqual([]);
+		expect(
+			getNativeDb()
+				.prepare("select * from mutes where account_id = 'acct_studio'")
 				.all(),
 		).toEqual([]);
 	});

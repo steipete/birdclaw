@@ -1,4 +1,3 @@
-import { resolveOperationAccount } from "#/lib/account-selection";
 import {
 	createDmReply,
 	createPost,
@@ -18,25 +17,18 @@ export function registerComposeCommands({
 
 	composeCommand
 		.command("post <text>")
-		.option("--account <username>", "Account username or id")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (text, options) => {
-			const result = await createPost(
-				resolveOperationAccount(options.account).id,
-				text,
-			);
+			const result = await createPost(options.account, text);
 			await autoSyncAfterWrite();
 			print(result, asJson());
 		});
 
 	composeCommand
 		.command("reply <tweetId> <text>")
-		.option("--account <username>", "Account username or id")
+		.option("--account <username>", "Account username or id", "acct_primary")
 		.action(async (tweetId, text, options) => {
-			const result = await createTweetReply(
-				resolveOperationAccount(options.account).id,
-				tweetId,
-				text,
-			);
+			const result = await createTweetReply(options.account, tweetId, text);
 			await autoSyncAfterWrite();
 			print(result, asJson());
 		});
