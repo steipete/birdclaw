@@ -46,6 +46,7 @@ function makeTempHome() {
 }
 
 afterEach(() => {
+	vi.unstubAllEnvs();
 	delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
@@ -170,14 +171,27 @@ describe("live home timeline sync", () => {
 						created_at: "2026-04-26T13:43:34.000Z",
 						public_metrics: { like_count: 99 },
 					},
+					{
+						id: "home_cache_freshness_2",
+						author_id: "43",
+						text: "second home item",
+						created_at: "2026-04-26T13:44:34.000Z",
+						public_metrics: { like_count: 5 },
+					},
 				],
 				includes: {
 					users: [
 						{
 							id: "42",
-							username: "sam",
+							username: "alice",
 							name: "New Sam",
 							public_metrics: { followers_count: 250 },
+						},
+						{
+							id: "43",
+							username: "sam",
+							name: "Current Sam",
+							public_metrics: { followers_count: 500 },
 						},
 					],
 				},
@@ -232,10 +246,36 @@ describe("live home timeline sync", () => {
 		expect(
 			db
 				.prepare(
-					"select display_name, followers_count from profiles where id = 'profile_user_42'",
+					"select id, handle, display_name, followers_count from profiles where id in ('profile_user_42', 'profile_user_43') order by id",
 				)
-				.get(),
-		).toEqual({ display_name: "New Sam", followers_count: 250 });
+				.all(),
+		).toEqual([
+			{
+				id: "profile_user_42",
+				handle: "alice",
+				display_name: "New Sam",
+				followers_count: 250,
+			},
+			{
+				id: "profile_user_43",
+				handle: "sam",
+				display_name: "Current Sam",
+				followers_count: 500,
+			},
+		]);
+
+		resetDatabaseForTests();
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const readOnlyCached = await syncHomeTimeline({
+			mode: "xurl",
+			limit: 5,
+			refresh: false,
+		});
+		expect(readOnlyCached).toMatchObject({
+			ok: true,
+			source: "cache",
+			count: 1,
+		});
 	});
 
 	it("honors config preference and does not reuse another auto preference's cache", async () => {
