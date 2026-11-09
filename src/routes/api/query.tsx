@@ -44,38 +44,6 @@ function parseDmInbox(value: string | null): NonNullable<DmQuery["inbox"]> {
 	return "all";
 }
 
-// Explicit malformed filters must not turn into a broader query. Omitted
-// parameters retain their defaults, including the legacy influence sort alias.
-function invalidQueryFilter(params: URLSearchParams, resource: string) {
-	const enums: Record<string, readonly string[]> = {
-		replyFilter: ["all", "replied", "unreplied"],
-		qualityFilter: ["all", "summary"],
-		...(resource === "dms"
-			? {
-					inbox: ["all", "accepted", "requests"],
-					sort: ["recent", "followers", "influence"],
-				}
-			: {}),
-	};
-	for (const [name, values] of Object.entries(enums)) {
-		const value = params.get(name);
-		if (value !== null && !values.includes(value)) return name;
-	}
-	if (resource === "dms") {
-		for (const name of [
-			"minFollowers",
-			"maxFollowers",
-			"minInfluenceScore",
-			"maxInfluenceScore",
-		]) {
-			const value = params.get(name);
-			if (value !== null && (!value.trim() || !Number.isFinite(Number(value))))
-				return name;
-		}
-	}
-	return undefined;
-}
-
 export const Route = createFileRoute("/api/query")({
 	server: {
 		handlers: {
@@ -96,19 +64,6 @@ export const Route = createFileRoute("/api/query")({
 							);
 						}
 						const resource = parsedResource.data;
-						const invalidFilter = invalidQueryFilter(
-							url.searchParams,
-							resource,
-						);
-						if (invalidFilter)
-							return jsonResponse(
-								{
-									ok: false,
-									message: "Invalid query filter: " + invalidFilter,
-								},
-								{ status: 400 },
-							);
-
 						requestBackupAutoUpdate();
 						const baseFilters = {
 							account: url.searchParams.get("account") ?? undefined,

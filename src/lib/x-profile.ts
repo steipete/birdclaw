@@ -19,6 +19,7 @@ export interface ResolvedXProfile {
 
 export interface XProfileIdentityOptions {
 	provenLegacyProfileIds?: ReadonlySet<string>;
+	preserveExisting?: boolean;
 }
 
 export function buildExternalProfileId(externalUserId: string) {
@@ -212,18 +213,31 @@ function upsertProfileFromXUserInTransaction(
 	const existingRow = db
 		.prepare(
 			`
-      select id
+      select id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url,
+        location, url, verified_type, entities_json, created_at
       from profiles
       where id = ?
       limit 1
       `,
 		)
-		.get(profileId) as { id: string } | undefined;
+		.get(profileId) as Record<string, unknown> | undefined;
 
 	if (existingRow) {
+		const existingHandle = String(existingRow.handle ?? "");
+		const existingDisplayName = String(existingRow.display_name ?? "");
+		if (
+			options.preserveExisting &&
+			!existingHandle.startsWith("birdclaw_stub_") &&
+			!existingDisplayName.startsWith("birdclaw_stub_")
+		) {
+			return {
+				profile: profileFromDbRow(existingRow),
+				externalUserId: String(user.id),
+			};
+		}
 		return updateExistingProfileFromUser(
 			db,
-			existingRow.id,
+			String(existingRow.id),
 			user,
 			storedHandle,
 		);

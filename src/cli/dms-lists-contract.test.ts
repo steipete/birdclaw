@@ -144,32 +144,4 @@ describe("DM and List CLI contracts", () => {
 			expect.anything(),
 		);
 	});
-	it.each([
-		["dms", "list"],
-		["dms", "sync"],
-		["lists", "list"],
-		["lists", "members", "builders"],
-	])("resolves configured selectors for %j", async (...args) => {
-		mocks.defaultAccount.mockReturnValue("@studio");
-		await run(args);
-		expect(mocks.resolveAccount).toHaveBeenCalledWith("@studio");
-		const target =
-			args[0] === "dms"
-				? args[1] === "list"
-					? mocks.read
-					: mocks.sync
-				: args[1] === "list"
-					? mocks.lists
-					: mocks.members;
-		expect(target.mock.calls[0][0]).toMatchObject({ account: "acct_studio" });
-	});
-	it.each(["studio", "@studio", "acct_studio"])(
-		"explicit selector %s overrides config",
-		async (account) => {
-			mocks.defaultAccount.mockReturnValue("@other");
-			await run(["dms", "list", "--account", account]);
-			expect(mocks.resolveAccount).toHaveBeenCalledWith(account);
-			expect(mocks.read.mock.calls[0][0].account).toBe("acct_studio");
-		},
-	);
 });

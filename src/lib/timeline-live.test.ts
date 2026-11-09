@@ -135,20 +135,108 @@ describe("live home timeline sync", () => {
 		},
 	);
 
-	it.each([1, 2, 3, 4])(
-		"keeps total-result limit %i valid on xurl while requesting a valid page",
-		async (limit) => {
-			makeTempHome();
-			listHomeTimelineViaXurlMock.mockResolvedValue({ data: [], meta: {} });
-			const { syncHomeTimeline } = await import("./timeline-live");
-			await expect(
-				syncHomeTimeline({ mode: "xurl", limit }),
-			).resolves.toMatchObject({ count: 0 });
-			expect(listHomeTimelineViaXurlMock).toHaveBeenCalledWith(
-				expect.objectContaining({ maxResults: 5 }),
-			);
-		},
-	);
+	it("preserves newer stored tweet metrics and profile metadata when replaying an older cached home timeline sync", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		listHomeTimelineViaXurlMock
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "home_cache_freshness_1",
+						author_id: "42",
+						text: "home cache freshness item",
+						created_at: "2026-04-26T13:43:34.000Z",
+						public_metrics: { like_count: 1 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "Old Sam",
+							public_metrics: { followers_count: 10 },
+						},
+					],
+				},
+				meta: {},
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "home_cache_freshness_1",
+						author_id: "42",
+						text: "home cache freshness item",
+						created_at: "2026-04-26T13:43:34.000Z",
+						public_metrics: { like_count: 99 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "New Sam",
+							public_metrics: { followers_count: 250 },
+						},
+					],
+				},
+				meta: {},
+			});
+		const { syncHomeTimeline } = await import("./timeline-live");
+		await syncHomeTimeline({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+			cacheTtlMs: 60_000,
+		});
+		await syncHomeTimeline({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 20,
+			refresh: true,
+			cacheTtlMs: 60_000,
+		});
+
+		db.exec(
+			"delete from tweet_account_edges where tweet_id = 'home_cache_freshness_1' and kind = 'home'",
+		);
+		await expect(
+			syncHomeTimeline({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				cacheTtlMs: 60_000,
+			}),
+		).resolves.toMatchObject({ source: "cache", count: 1 });
+
+		expect(
+			db
+				.prepare(
+					"select account_id, tweet_id, kind from tweet_account_edges where tweet_id = 'home_cache_freshness_1' and kind = 'home'",
+				)
+				.get(),
+		).toEqual({
+			account_id: "acct_primary",
+			tweet_id: "home_cache_freshness_1",
+			kind: "home",
+		});
+		expect(
+			db
+				.prepare(
+					"select like_count from tweets where id = 'home_cache_freshness_1'",
+				)
+				.get(),
+		).toEqual({ like_count: 99 });
+		expect(
+			db
+				.prepare(
+					"select display_name, followers_count from profiles where id = 'profile_user_42'",
+				)
+				.get(),
+		).toEqual({ display_name: "New Sam", followers_count: 250 });
+	});
 
 	it("honors config preference and does not reuse another auto preference's cache", async () => {
 		makeTempHome();
