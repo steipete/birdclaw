@@ -16,6 +16,7 @@ import {
 	resolveAnalysisModelSettings,
 } from "./analysis-runtime";
 import { getNativeDb } from "./db";
+import { isReadOnlyDeployment } from "./config";
 import {
 	runEffectPromise,
 	toError,
@@ -183,6 +184,11 @@ function normalizeHandle(value: string) {
 	if (!handle) {
 		throw new Error("Profile handle is required");
 	}
+	if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+		throw new Error(
+			"Profile handle must contain 1 to 15 letters, digits, or underscores",
+		);
+	}
 	return handle;
 }
 
@@ -192,27 +198,31 @@ function normalizePositiveInteger(
 	optionName: string,
 ) {
 	if (value === undefined) return defaultValue;
-	if (!Number.isFinite(value) || value < 1) {
+	if (!Number.isSafeInteger(value) || value < 1) {
 		throw new Error(`${optionName} must be at least 1`);
 	}
-	return Math.floor(value);
+	return value;
 }
 
 function normalizeNonNegativeInteger(
 	value: number | undefined,
 	defaultValue: number,
+	name: string,
 ) {
 	if (value === undefined) return defaultValue;
-	if (!Number.isFinite(value) || value < 0) return defaultValue;
-	return Math.floor(value);
+	if (!Number.isSafeInteger(value) || value < 0)
+		throw new Error(name + " must be a non-negative safe integer");
+	return value;
 }
 
 function envNonNegativeInteger(name: string) {
 	const value = process.env[name];
 	if (value === undefined || value.trim() === "") return undefined;
 	const numeric = Number(value);
-	if (!Number.isFinite(numeric) || numeric < 0) return undefined;
-	return Math.floor(numeric);
+	if (!Number.isSafeInteger(numeric) || numeric < 0) {
+		throw new Error(name + " must be a non-negative safe integer");
+	}
+	return numeric;
 }
 
 function conversationDelayMsFromOptions(options: ProfileAnalysisOptions) {
@@ -220,6 +230,7 @@ function conversationDelayMsFromOptions(options: ProfileAnalysisOptions) {
 		options.conversationDelayMs ??
 			envNonNegativeInteger("BIRDCLAW_PROFILE_ANALYSIS_CONVERSATION_DELAY_MS"),
 		DEFAULT_CONVERSATION_DELAY_MS,
+		"conversationDelayMs",
 	);
 }
 
@@ -228,6 +239,7 @@ function rateLimitRetryMsFromOptions(options: ProfileAnalysisOptions) {
 		options.rateLimitRetryMs ??
 			envNonNegativeInteger("BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_RETRY_MS"),
 		DEFAULT_RATE_LIMIT_RETRY_MS,
+		"rateLimitRetryMs",
 	);
 }
 
@@ -236,6 +248,7 @@ function rateLimitMaxRetriesFromOptions(options: ProfileAnalysisOptions) {
 		options.rateLimitMaxRetries ??
 			envNonNegativeInteger("BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_MAX_RETRIES"),
 		DEFAULT_RATE_LIMIT_MAX_RETRIES,
+		"rateLimitMaxRetries",
 	);
 }
 
@@ -537,9 +550,7 @@ export function collectProfileAnalysisContextEffect(
 	handlers: ProfileAnalysisStreamHandlers = {},
 ): Effect.Effect<ProfileAnalysisContext, Error> {
 	return Effect.gen(function* () {
-		const db = getNativeDb();
 		const handle = yield* trySync(() => normalizeHandle(options.handle));
-		const account = yield* trySync(() => resolveAccount(db, options.account));
 		const maxTweets = yield* trySync(() =>
 			normalizePositiveInteger(
 				options.maxTweets,
@@ -568,9 +579,17 @@ export function collectProfileAnalysisContextEffect(
 				"--max-conversation-pages",
 			),
 		);
-		const conversationDelayMs = conversationDelayMsFromOptions(options);
-		const rateLimitRetryMs = rateLimitRetryMsFromOptions(options);
-		const rateLimitMaxRetries = rateLimitMaxRetriesFromOptions(options);
+		const conversationDelayMs = yield* trySync(() =>
+			conversationDelayMsFromOptions(options),
+		);
+		const rateLimitRetryMs = yield* trySync(() =>
+			rateLimitRetryMsFromOptions(options),
+		);
+		const rateLimitMaxRetries = yield* trySync(() =>
+			rateLimitMaxRetriesFromOptions(options),
+		);
+		const db = yield* trySync(() => getNativeDb());
+		const account = yield* trySync(() => resolveAccount(db, options.account));
 		const contextKey = contextCacheKey({
 			accountId: account.id,
 			handle,
@@ -594,6 +613,13 @@ export function collectProfileAnalysisContextEffect(
 			emitStatus(handlers, "Using cached profile backfill", `@${handle}`);
 			return { ...cached.value, fetchCached: true };
 		}
+
+		if (isReadOnlyDeployment())
+			return yield* Effect.fail(
+				new Error(
+					"Profile backfill requires a writable deployment; no usable cache in read-only mode",
+				),
+			);
 
 		const recordTimelineAttempt = (attempt: XurlJsonCommandAttempt) =>
 			recordXurlRateLimitEventSafe({
@@ -888,6 +914,13 @@ export function streamProfileAnalysisEffect(
 			emitCachedAnalysis(cached, handlers);
 			return cached;
 		}
+
+		if (isReadOnlyDeployment())
+			return yield* Effect.fail(
+				new Error(
+					"No cached profile analysis is available in this read-only deployment",
+				),
+			);
 
 		return yield* generateAnalysisReportEffect({
 			context,

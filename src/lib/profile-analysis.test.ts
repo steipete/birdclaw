@@ -2,11 +2,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
-import { streamProfileAnalysis } from "./profile-analysis";
+import {
+	streamProfileAnalysis,
+	streamProfileAnalysisEffect,
+	collectProfileAnalysisContextEffect,
+} from "./profile-analysis";
 import { listTimelineItems } from "./timeline-read-model";
 
 const mocks = vi.hoisted(() => ({
@@ -126,6 +130,7 @@ afterEach(() => {
 	delete process.env.BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_MAX_RETRIES;
 	delete process.env.BIRDCLAW_PROFILE_ANALYSIS_ACCOUNT;
 	vi.unstubAllGlobals();
+	vi.unstubAllEnvs();
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
 	}
@@ -620,5 +625,179 @@ describe("profile analysis", () => {
 		).rejects.toThrow("Profile analysis aborted");
 		expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
 		expect(mocks.listUserTweetsEffect).not.toHaveBeenCalled();
+	});
+});
+
+describe("pass13 profile analysis contracts", () => {
+	const small = {
+		handle: "alice",
+		maxTweets: 1,
+		maxPages: 1,
+		maxConversations: 1,
+		maxConversationPages: 1,
+	};
+	it.each([
+		"maxTweets",
+		"maxPages",
+		"maxConversations",
+		"maxConversationPages",
+	] as const)(
+		"rejects non-integer and unsafe %s before transport",
+		async (key) => {
+			for (const value of [1.5, Number.MAX_SAFE_INTEGER + 1]) {
+				const result = await Effect.runPromise(
+					Effect.either(
+						collectProfileAnalysisContextEffect({ ...small, [key]: value }),
+					),
+				);
+				expect(Either.isLeft(result)).toBe(true);
+				expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
+			}
+		},
+	);
+	it.each([
+		"conversationDelayMs",
+		"rateLimitRetryMs",
+		"rateLimitMaxRetries",
+	] as const)("rejects invalid %s in the Effect channel", async (key) => {
+		for (const value of [-1, NaN, Infinity, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+			const result = await Effect.runPromise(
+				Effect.either(
+					collectProfileAnalysisContextEffect({ ...small, [key]: value }),
+				),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+			expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
+		}
+	});
+	it.each([
+		"BIRDCLAW_PROFILE_ANALYSIS_CONVERSATION_DELAY_MS",
+		"BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_RETRY_MS",
+		"BIRDCLAW_PROFILE_ANALYSIS_RATE_LIMIT_MAX_RETRIES",
+	])("rejects invalid environment %s", async (key) => {
+		for (const value of ["-1", "NaN", "0.5", "9007199254740992"]) {
+			vi.stubEnv(key, value);
+			const result = await Effect.runPromise(
+				Effect.either(collectProfileAnalysisContextEffect(small)),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+			expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
+		}
+	});
+	it.each(["not a handle", "bad!handle", "abcdefghijklmnop"])(
+		"rejects invalid handle %j before transport",
+		async (handle) => {
+			const result = await Effect.runPromise(
+				Effect.either(
+					collectProfileAnalysisContextEffect({ ...small, handle }),
+				),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+			expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
+		},
+	);
+	it("preserves invalid minima in the failure channel", async () => {
+		for (const value of [0, -1, NaN, Infinity]) {
+			const result = await Effect.runPromise(
+				Effect.either(
+					collectProfileAnalysisContextEffect({ ...small, maxTweets: value }),
+				),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+		}
+		const blank = await Effect.runPromise(
+			Effect.either(
+				collectProfileAnalysisContextEffect({ ...small, handle: " " }),
+			),
+		);
+		expect(Either.isLeft(blank)).toBe(true);
+	});
+	it("preserves account aliases and explicit zero pacing/retries", async () => {
+		for (const account of ["acct_primary", "steipete", " @STEIPETE "]) {
+			const result = await Effect.runPromise(
+				collectProfileAnalysisContextEffect({
+					...small,
+					account,
+					conversationDelayMs: 0,
+					rateLimitRetryMs: 0,
+					rateLimitMaxRetries: 0,
+				}),
+			);
+			expect(result.accountId).toBe("acct_primary");
+		}
+		const unknown = await Effect.runPromise(
+			Effect.either(
+				collectProfileAnalysisContextEffect({ ...small, account: "@missing" }),
+			),
+		);
+		expect(Either.isLeft(unknown) ? unknown.left.message : "success").toMatch(
+			/Unknown account/,
+		);
+	});
+	it.each([false, true])(
+		"blocks uncached read-only profile work (refresh=%s)",
+		async (refresh) => {
+			getNativeDb();
+			vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+			const result = await Effect.runPromise(
+				Effect.either(streamProfileAnalysisEffect({ ...small, refresh })),
+			);
+			expect(Either.isLeft(result) ? result.left.message : "success").toMatch(
+				/read.only/i,
+			);
+			expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
+			expect(fetch).not.toHaveBeenCalled();
+		},
+	);
+	it("reads a prepared cached profile report in read-only mode", async () => {
+		const first = await streamProfileAnalysis(small);
+		const db = getNativeDb();
+		const before = db
+			.prepare("select * from sync_cache order by cache_key")
+			.all();
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		mocks.lookupUsersByHandlesEffect.mockClear();
+		vi.mocked(fetch).mockClear();
+		const cached = await streamProfileAnalysis(small);
+		expect(cached.markdown).toBe(first.markdown);
+		expect(cached.cached).toBe(true);
+		expect(mocks.lookupUsersByHandlesEffect).not.toHaveBeenCalled();
+		expect(fetch).not.toHaveBeenCalled();
+		expect(
+			db.prepare("select * from sync_cache order by cache_key").all(),
+		).toEqual(before);
+	});
+	it("does not generate when only the backfill is cached in read-only mode", async () => {
+		await Effect.runPromise(collectProfileAnalysisContextEffect(small));
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const result = await Effect.runPromise(
+			Effect.either(streamProfileAnalysisEffect(small)),
+		);
+		expect(Either.isLeft(result) ? result.left.message : "success").toMatch(
+			/read.only/i,
+		);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("reports a missing read-only database through the Effect channel", async () => {
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const result = await Effect.runPromise(
+			Effect.either(collectProfileAnalysisContextEffect(small)),
+		);
+		expect(Either.isLeft(result)).toBe(true);
+	});
+	it("accepts URL handles and explicit overrides of invalid environment settings", async () => {
+		vi.stubEnv("BIRDCLAW_PROFILE_ANALYSIS_CONVERSATION_DELAY_MS", "bad");
+		const context = await Effect.runPromise(
+			collectProfileAnalysisContextEffect({
+				...small,
+				handle: "https://x.com/alice/status/123",
+				conversationDelayMs: 0,
+			}),
+		);
+		expect(context.handle).toBe("alice");
+		expect(mocks.lookupUsersByHandlesEffect).toHaveBeenCalledWith(
+			["alice"],
+			expect.anything(),
+		);
 	});
 });
