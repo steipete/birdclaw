@@ -25,6 +25,7 @@ export function registerAnalysisCommands({
 	autoUpdateBeforeRead,
 	parseNonNegativeIntegerOption,
 	parsePositiveIntegerOption,
+	parsePositiveLimitOption,
 }: CliCommandContext) {
 	function printAnalysisStream<Result extends { markdown: string }>(
 		run: (
@@ -308,8 +309,8 @@ export function registerAnalysisCommands({
 		.option("--thread-depth <n>", "Maximum ancestor walk depth", "10")
 		.option("--out <path>", "Write the markdown brief to a file")
 		.action(async (query, options) => {
-			const limit = parsePositiveIntegerOption(options.limit, "--limit");
-			const maxThreadDepth = parsePositiveIntegerOption(
+			const limit = parsePositiveLimitOption(options.limit, "--limit");
+			const maxThreadDepth = parsePositiveLimitOption(
 				options.threadDepth,
 				"--thread-depth",
 			);

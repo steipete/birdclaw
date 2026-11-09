@@ -15,7 +15,7 @@ export function registerMentionCommands({
 	asJson,
 	autoSyncAfterWrite,
 	autoUpdateBeforeRead,
-	parsePositiveIntegerOption,
+	parsePositiveLimitOption,
 }: CliCommandContext) {
 	const mentionsCommand = program
 		.command("mentions")
@@ -47,8 +47,8 @@ export function registerMentionCommands({
 			if (options.replied && options.unreplied) {
 				throw new CliInputError("Cannot combine --replied and --unreplied");
 			}
-			const limit = parsePositiveIntegerOption(options.limit, "--limit");
-			const maxPages = parsePositiveIntegerOption(
+			const limit = parsePositiveLimitOption(options.limit, "--limit");
+			const maxPages = parsePositiveLimitOption(
 				options.maxPages,
 				"--max-pages",
 			);
@@ -98,7 +98,7 @@ export function registerMentionCommands({
 		.option("--account <username>", "Account username or id")
 		.option("--limit <n>", "Limit replies", "12")
 		.action(async (query, options) => {
-			const limit = parsePositiveIntegerOption(options.limit, "--limit");
+			const limit = parsePositiveLimitOption(options.limit, "--limit");
 			const result = await inspectProfileReplies(query, {
 				account: options.account,
 				limit,

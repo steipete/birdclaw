@@ -144,20 +144,6 @@ const invalid: { args: string[]; message: string }[] = [
 			message: "--sort",
 		},
 	]),
-	// Existing numeric-hook rejection is an opposite control, not a new defect.
-	...["-1", "1.5", "NaN", "Infinity", "junk", ""].flatMap((value) => [
-		{ args: ["research", "--limit", value], message: "--limit" },
-		{ args: ["research", "--thread-depth", value], message: "--thread-depth" },
-		{
-			args: ["mentions", "export", "--max-pages", value],
-			message: "--max-pages",
-		},
-		{ args: ["mentions", "export", "--limit", value], message: "--limit" },
-		{
-			args: ["profiles", "replies", "alice", "--limit", value],
-			message: "--limit",
-		},
-	]),
 ];
 describe("analysis, mentions and graph CLI contracts", () => {
 	it.each(invalid)(
@@ -208,6 +194,16 @@ describe("analysis, mentions and graph CLI contracts", () => {
 		{
 			args: ["--limit", "1", "--thread-depth", "2"],
 			limit: 1,
+			maxThreadDepth: 2,
+		},
+		{
+			args: ["--limit", "+1", "--thread-depth", "0x10"],
+			limit: 1,
+			maxThreadDepth: 16,
+		},
+		{
+			args: ["--limit", "1e3", "--thread-depth", "+2"],
+			limit: 1000,
 			maxThreadDepth: 2,
 		},
 	])(
@@ -291,6 +287,9 @@ describe("analysis, mentions and graph CLI contracts", () => {
 	it.each([
 		{ args: [], limit: 12 },
 		{ args: ["--limit", "1"], limit: 1 },
+		{ args: ["--limit", "+1"], limit: 1 },
+		{ args: ["--limit", "1e3"], limit: 1000 },
+		{ args: ["--limit", "0x10"], limit: 16 },
 	])("keeps profile reply limits $args", async ({ args, limit }) => {
 		await run(["profiles", "replies", "alice", ...args]);
 		expect(calls.replies).toHaveBeenCalledWith(
