@@ -1470,4 +1470,93 @@ describe("live timeline collection sync", () => {
 			);
 		},
 	);
+
+	it("preserves newer stored tweet metrics and profile metadata when replaying an older cached collection sync", async () => {
+		setupTempHome();
+		mocks.listLikedTweetsViaXurl
+			.mockResolvedValueOnce({
+				data: [
+					{
+						...makeTweet("900", "collection needle"),
+						public_metrics: { like_count: 1 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "Old Sam",
+							public_metrics: { followers_count: 10 },
+						},
+					],
+				},
+				meta: {},
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						...makeTweet("900", "collection needle"),
+						public_metrics: { like_count: 10 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "New Sam",
+							public_metrics: { followers_count: 250 },
+						},
+					],
+				},
+				meta: {},
+			});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+		await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+		await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 20,
+			refresh: true,
+		});
+
+		const db = getNativeDb();
+		db.exec("delete from tweet_collections where tweet_id = '900'");
+		await expect(
+			syncTimelineCollection({
+				kind: "likes",
+				mode: "xurl",
+				limit: 5,
+			}),
+		).resolves.toMatchObject({ source: "cache", count: 1 });
+
+		expect(
+			db
+				.prepare(
+					"select account_id, tweet_id, kind from tweet_collections where tweet_id = '900'",
+				)
+				.get(),
+		).toEqual({
+			account_id: "acct_primary",
+			tweet_id: "900",
+			kind: "likes",
+		});
+		expect(
+			db.prepare("select like_count from tweets where id = '900'").get(),
+		).toEqual({ like_count: 10 });
+		expect(
+			db
+				.prepare(
+					"select display_name, followers_count from profiles where id = 'profile_user_42'",
+				)
+				.get(),
+		).toEqual({ display_name: "New Sam", followers_count: 250 });
+	});
 });

@@ -2576,4 +2576,85 @@ describe("cached live mentions", () => {
 			expect.objectContaining({ maxResults: 5 }),
 		);
 	});
+
+	it("preserves newer stored tweet metrics and profile metadata when replaying an older cached mention export", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "900",
+						author_id: "42",
+						text: "mention needle",
+						created_at: "2026-10-01T00:00:00.000Z",
+						public_metrics: { like_count: 1 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "Old Sam",
+							public_metrics: { followers_count: 10 },
+						},
+					],
+				},
+				meta: {},
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "900",
+						author_id: "42",
+						text: "mention needle",
+						created_at: "2026-10-01T00:00:00.000Z",
+						public_metrics: { like_count: 10 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "New Sam",
+							public_metrics: { followers_count: 250 },
+						},
+					],
+				},
+				meta: {},
+			});
+		const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+		await exportMentionsViaCachedXurl({ limit: 5, refresh: true });
+		await exportMentionsViaCachedXurl({ limit: 20, refresh: true });
+
+		const db = getNativeDb();
+		db.exec(
+			"delete from tweet_account_edges where tweet_id = '900' and kind = 'mention'",
+		);
+		await exportMentionsViaCachedXurl({ limit: 5, search: "needle" });
+
+		expect(
+			db
+				.prepare(
+					"select account_id, tweet_id, kind from tweet_account_edges where tweet_id = '900' and kind = 'mention'",
+				)
+				.get(),
+		).toEqual({
+			account_id: "acct_primary",
+			tweet_id: "900",
+			kind: "mention",
+		});
+		expect(
+			db.prepare("select like_count from tweets where id = '900'").get(),
+		).toEqual({ like_count: 10 });
+		expect(
+			db
+				.prepare(
+					"select display_name, followers_count from profiles where id = 'profile_user_42'",
+				)
+				.get(),
+		).toEqual({ display_name: "New Sam", followers_count: 250 });
+	});
 });

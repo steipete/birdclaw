@@ -81,7 +81,11 @@ export function ingestTweetPayload(
 		}
 		handleOwners.set(handle, user.id);
 	}
+	const isCacheSource = source === "cache";
 	const mediaByKey = indexMediaIncludes(payload.includes?.media);
+	const hasTweetRow = isCacheSource
+		? db.prepare("select 1 from tweets where id = ? limit 1")
+		: undefined;
 	const upsertTweet = db.prepare(`
     insert into tweets (
       id, author_profile_id, text, created_at, is_replied, reply_to_id,
@@ -89,22 +93,29 @@ export function ingestTweetPayload(
       quoted_tweet_id
     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     on conflict(id) do update set
-      author_profile_id = excluded.author_profile_id,
+      author_profile_id = case when ? then tweets.author_profile_id else excluded.author_profile_id end,
       text = case
+        when ? then tweets.text
         when excluded.note_tweet_json is null and tweets.note_tweet_json is not null then tweets.text
         else excluded.text
       end,
-      created_at = excluded.created_at,
+      created_at = case when ? then tweets.created_at else excluded.created_at end,
       is_replied = max(tweets.is_replied, excluded.is_replied),
       reply_to_id = coalesce(tweets.reply_to_id, excluded.reply_to_id),
       like_count = case when ? then tweets.like_count else excluded.like_count end,
       media_count = max(tweets.media_count, excluded.media_count),
       entities_json = case
+        when ? then tweets.entities_json
         when excluded.note_tweet_json is null and tweets.note_tweet_json is not null then tweets.entities_json
         else excluded.entities_json
       end,
-      note_tweet_json = coalesce(excluded.note_tweet_json, tweets.note_tweet_json),
+      note_tweet_json = coalesce(
+        case when ? then tweets.note_tweet_json else excluded.note_tweet_json end,
+        tweets.note_tweet_json,
+        excluded.note_tweet_json
+      ),
       media_json = case
+        when ? and tweets.media_json not in ('', '[]', 'null') then tweets.media_json
         when excluded.media_json not in ('', '[]', 'null') then excluded.media_json
         else tweets.media_json
       end,
@@ -116,9 +127,18 @@ export function ingestTweetPayload(
           account_id, tweet_id, kind, collected_at, source, raw_json, updated_at
         ) values (?, ?, ?, null, ?, ?, ?)
         on conflict(account_id, tweet_id, kind) do update set
-          source = excluded.source,
-          raw_json = excluded.raw_json,
-          updated_at = excluded.updated_at
+          source = case
+            when excluded.source = 'cache' then tweet_collections.source
+            else excluded.source
+          end,
+          raw_json = case
+            when excluded.source = 'cache' and tweet_collections.raw_json not in ('', '{}', 'null') then tweet_collections.raw_json
+            else excluded.raw_json
+          end,
+          updated_at = case
+            when excluded.source = 'cache' then tweet_collections.updated_at
+            else excluded.updated_at
+          end
       `)
 		: undefined;
 	const tweetIds: string[] = [];
@@ -140,11 +160,14 @@ export function ingestTweetPayload(
 		for (const tweet of toCanonicalTweets(payload)) {
 			touchedTweetIds.push(tweet.id);
 			const isPrimaryTweet = primaryTweetIds.has(tweet.id);
+			const tweetAlreadyStored = Boolean(hasTweetRow?.get(tweet.id));
 			let profileId = profileIdsByAuthor.get(tweet.author_id);
 			if (!profileId) {
 				const author = usersById.get(tweet.author_id);
 				const profile = author
-					? upsertProfileFromXUser(db, author)
+					? upsertProfileFromXUser(db, author, {
+							preserveExisting: isCacheSource,
+						})
 					: ensureStubProfileForXUser(db, tweet.author_id);
 				profileId = profile.profile.id;
 				// Keep order-dependent handle-collision reconciliation for ambiguous payloads.
@@ -159,6 +182,7 @@ export function ingestTweetPayload(
 			// Included tweets are reference data, not members of the caller's result set.
 			const shouldMarkReplied =
 				isPrimaryTweet && markRepliesAsReplied && Boolean(replyToId);
+			const preserveExistingTweet = isCacheSource ? 1 : 0;
 			upsertTweet.run(
 				tweet.id,
 				profileId,
@@ -172,17 +196,26 @@ export function ingestTweetPayload(
 				serializeNoteTweet(tweet.note_tweet),
 				media.json,
 				quotedTweetId,
-				!isPrimaryTweet && tweet.public_metrics?.like_count === undefined
+				preserveExistingTweet,
+				preserveExistingTweet,
+				preserveExistingTweet,
+				isCacheSource ||
+					(!isPrimaryTweet && tweet.public_metrics?.like_count === undefined)
 					? 1
 					: 0,
+				preserveExistingTweet,
+				preserveExistingTweet,
+				preserveExistingTweet,
 			);
-			recordTweetRevision(db, {
-				tweetId: tweet.id,
-				editHistoryIds: editHistoryIdsFromPayload(tweet.id, tweet),
-				payloadJson: JSON.stringify(tweet),
-				source,
-				observedAt,
-			});
+			if (!isCacheSource || !tweetAlreadyStored) {
+				recordTweetRevision(db, {
+					tweetId: tweet.id,
+					editHistoryIds: editHistoryIdsFromPayload(tweet.id, tweet),
+					payloadJson: JSON.stringify(tweet),
+					source,
+					observedAt,
+				});
+			}
 			const sourceUrl = provenance?.sourceUrlByTweetId.get(tweet.id);
 			if (sourceUrl) {
 				upsertSource?.run(tweet.id, source, sourceUrl, observedAt);
