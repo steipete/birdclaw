@@ -25,7 +25,6 @@ export function registerAnalysisCommands({
 	autoUpdateBeforeRead,
 	parseNonNegativeIntegerOption,
 	parsePositiveIntegerOption,
-	parsePositiveLimitOption,
 }: CliCommandContext) {
 	function printAnalysisStream<Result extends { markdown: string }>(
 		run: (
@@ -67,10 +66,7 @@ export function registerAnalysisCommands({
 		if (normalized === "yesterday") return "yesterday";
 		if (normalized === "24h" || normalized === "day") return "24h";
 		if (normalized === "week" || normalized === "7d") return "week";
-		if (value === undefined || normalized === "today") return "today";
-		throw new CliInputError(
-			"period must be today, 24h, day, yesterday, week, or 7d",
-		);
+		return "today";
 	}
 
 	function buildDigestOptions(
@@ -309,17 +305,12 @@ export function registerAnalysisCommands({
 		.option("--thread-depth <n>", "Maximum ancestor walk depth", "10")
 		.option("--out <path>", "Write the markdown brief to a file")
 		.action(async (query, options) => {
-			const limit = parsePositiveLimitOption(options.limit, "--limit");
-			const maxThreadDepth = parsePositiveLimitOption(
-				options.threadDepth,
-				"--thread-depth",
-			);
 			await autoUpdateBeforeRead();
 			const report = await runResearchMode({
 				account: options.account,
 				query,
-				limit,
-				maxThreadDepth,
+				limit: Number(options.limit),
+				maxThreadDepth: Number(options.threadDepth),
 				outPath: options.out,
 			});
 			print(
@@ -411,8 +402,8 @@ export function registerAnalysisCommands({
 			defaultDigestLiveSyncMode(),
 		)
 		.action(async (options) => {
-			const digestOptions = buildDigestOptions("today", options);
 			await autoUpdateBeforeRead();
+			const digestOptions = buildDigestOptions("today", options);
 			await runDigestCli(digestOptions);
 		});
 
@@ -438,8 +429,8 @@ export function registerAnalysisCommands({
 			defaultDigestLiveSyncMode(),
 		)
 		.action(async (period, options) => {
-			const digestOptions = buildDigestOptions(period, options);
 			await autoUpdateBeforeRead();
+			const digestOptions = buildDigestOptions(period, options);
 			await runDigestCli(digestOptions);
 		});
 }

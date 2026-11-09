@@ -1,4 +1,3 @@
-import { CliInputError } from "./numeric-options";
 import {
 	getFollowGraphSummary,
 	listFollowEvents,
@@ -53,18 +52,13 @@ export function registerGraphCommands({
 		.option("--direction <direction>", "followers or following", "followers")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (options) => {
-			if (
-				options.direction !== "followers" &&
-				options.direction !== "following"
-			) {
-				throw new CliInputError("--direction must be followers or following");
-			}
 			await autoUpdateBeforeRead();
 			print(
 				listUnfollowedSince({
 					account: options.account,
 					date: options.date,
-					direction: options.direction,
+					direction:
+						options.direction === "following" ? "following" : "followers",
 					limit: Number(options.limit),
 				}),
 				true,
@@ -81,26 +75,19 @@ export function registerGraphCommands({
 		.option("--until <date>", "YYYY-MM-DD or ISO timestamp")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (options) => {
-			if (
-				options.direction !== undefined &&
-				options.direction !== "followers" &&
-				options.direction !== "following"
-			) {
-				throw new CliInputError("--direction must be followers or following");
-			}
-			if (
-				options.kind !== undefined &&
-				options.kind !== "started" &&
-				options.kind !== "ended"
-			) {
-				throw new CliInputError("--kind must be started or ended");
-			}
 			await autoUpdateBeforeRead();
 			print(
 				listFollowEvents({
 					account: options.account,
-					direction: options.direction,
-					kind: options.kind,
+					direction:
+						options.direction === "followers" ||
+						options.direction === "following"
+							? options.direction
+							: undefined,
+					kind:
+						options.kind === "started" || options.kind === "ended"
+							? options.kind
+							: undefined,
 					since: options.since,
 					until: options.until,
 					limit: Number(options.limit),
@@ -116,14 +103,11 @@ export function registerGraphCommands({
 		.option("--sort <mode>", "followers or handle", "followers")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (options) => {
-			if (options.sort !== "followers" && options.sort !== "handle") {
-				throw new CliInputError("--sort must be followers or handle");
-			}
 			await autoUpdateBeforeRead();
 			print(
 				listNonMutualFollowing({
 					account: options.account,
-					sort: options.sort,
+					sort: options.sort === "handle" ? "handle" : "followers",
 					limit: Number(options.limit),
 				}),
 				true,

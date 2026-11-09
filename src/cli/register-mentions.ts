@@ -1,4 +1,3 @@
-import { CliInputError } from "./numeric-options";
 import { resolveMentionsDataSource } from "#/lib/config";
 import { exportMentionItems } from "#/lib/mentions-export";
 import {
@@ -15,7 +14,6 @@ export function registerMentionCommands({
 	asJson,
 	autoSyncAfterWrite,
 	autoUpdateBeforeRead,
-	parsePositiveLimitOption,
 }: CliCommandContext) {
 	const mentionsCommand = program
 		.command("mentions")
@@ -38,27 +36,14 @@ export function registerMentionCommands({
 		)
 		.option("--limit <n>", "Limit results", "20")
 		.action(async (query, options) => {
-			if (
-				options.mode !== undefined &&
-				!["birdclaw", "auto", "xurl", "bird"].includes(options.mode)
-			) {
-				throw new CliInputError("--mode must be birdclaw, auto, xurl, or bird");
-			}
-			if (options.replied && options.unreplied) {
-				throw new CliInputError("Cannot combine --replied and --unreplied");
-			}
-			const limit = parsePositiveLimitOption(options.limit, "--limit");
-			const maxPages = parsePositiveLimitOption(
-				options.maxPages,
-				"--max-pages",
-			);
-			const mode = resolveMentionsDataSource(options.mode);
 			await autoUpdateBeforeRead();
 			const replyFilter = options.replied
 				? "replied"
 				: options.unreplied
 					? "unreplied"
 					: "all";
+			const limit = Number(options.limit);
+			const mode = resolveMentionsDataSource(options.mode);
 			if (mode === "xurl" || mode === "bird" || mode === "auto") {
 				const exportFn =
 					mode === "xurl"
@@ -72,7 +57,7 @@ export function registerMentionCommands({
 					replyFilter,
 					limit,
 					all: Boolean(options.all) || options.maxPages !== undefined,
-					maxPages,
+					maxPages: options.maxPages ? Number(options.maxPages) : undefined,
 					refresh: Boolean(options.refresh),
 					cacheTtlMs: Number(options.cacheTtl) * 1000,
 				});
@@ -98,10 +83,9 @@ export function registerMentionCommands({
 		.option("--account <username>", "Account username or id")
 		.option("--limit <n>", "Limit replies", "12")
 		.action(async (query, options) => {
-			const limit = parsePositiveLimitOption(options.limit, "--limit");
 			const result = await inspectProfileReplies(query, {
 				account: options.account,
-				limit,
+				limit: Number(options.limit),
 			});
 			print(result, asJson());
 		});

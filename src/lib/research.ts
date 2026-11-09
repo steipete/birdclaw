@@ -561,22 +561,19 @@ function resolveSeedTimelineItems({
 	});
 }
 
-function positiveInteger(value: number, name: string) {
-	if (!Number.isSafeInteger(value) || value < 1) {
-		throw new Error(name + " must be a positive integer");
-	}
-	return value;
-}
-
 export function runResearchModeEffect(
 	options: ResearchOptions = {},
 ): Effect.Effect<ResearchReport, unknown> {
 	return Effect.gen(function* () {
 		const limit = yield* trySync(() =>
-			positiveInteger(options.limit ?? 20, "limit"),
+			Number.isFinite(options.limit ?? 20)
+				? Math.max(1, Math.floor(options.limit ?? 20))
+				: 20,
 		);
 		const maxThreadDepth = yield* trySync(() =>
-			positiveInteger(options.maxThreadDepth ?? 10, "maxThreadDepth"),
+			Number.isFinite(options.maxThreadDepth ?? 10)
+				? Math.max(1, Math.floor(options.maxThreadDepth ?? 10))
+				: 10,
 		);
 		const accountId = yield* trySync(() =>
 			options.account && options.account !== "all"

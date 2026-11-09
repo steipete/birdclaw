@@ -219,28 +219,6 @@ describe("research mode", () => {
 		expect((await runResearchMode({ account: "missing" })).items).toEqual([]);
 	});
 
-	it.each(["limit", "maxThreadDepth"] as const)(
-		"rejects invalid %s without writing output",
-		async (option) => {
-			const { runResearchMode } = await import("./research");
-			const outPath = path.join(process.env.BIRDCLAW_HOME ?? "", "invalid.md");
-			for (const value of [
-				0,
-				-1,
-				1.5,
-				NaN,
-				Infinity,
-				-Infinity,
-				Number.MAX_SAFE_INTEGER + 1,
-			]) {
-				await expect(
-					runResearchMode({ [option]: value, outPath }).then(() => undefined),
-				).rejects.toThrow("positive integer");
-				expect(existsSync(outPath)).toBe(false);
-			}
-		},
-	);
-
 	it("expands bookmarked threads into a markdown brief", async () => {
 		const { runResearchMode } = await import("./research");
 
