@@ -2,6 +2,7 @@
 
 ## 0.17.1 - Unreleased
 
+- Refresh compatible query, CLI, icon, map, build, and test dependencies while preserving the Bun canary, Node floor, jsdom compatibility pin, and security overrides.
 - Reject unsafe Git index permissions before backup publication can change the live generation, and keep recovery index snapshots private.
 - Restore native web DM account verification by discovering the viewer query's current Relay variables and rediscovering stale metadata after HTTP 422. Thanks @rymalia (#256).
 - Honor bookmark job page caps and account aliases, allow small Bird authored batches, and restore cached timelines, collections, and mentions without overwriting newer profiles or observations. Thanks @saariuslystoned (#257, #261).
