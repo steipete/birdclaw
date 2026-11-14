@@ -1,6 +1,6 @@
 import { registerModerationCommands as registerCommands } from "#/cli-moderation";
 import { importBlocklist } from "#/lib/blocklist";
-import type { ActionsTransport } from "#/lib/config";
+import { CliInputError } from "./numeric-options";
 import type { CliCommandContext } from "./command-context";
 
 export function registerModerationCommands(context: CliCommandContext) {
@@ -9,8 +9,16 @@ export function registerModerationCommands(context: CliCommandContext) {
 		print: context.print,
 		asJson: context.asJson,
 		importBlocklist,
-		resolveActionOptions: (options: { transport?: string }) => ({
-			transport: options.transport as ActionsTransport | undefined,
-		}),
+		resolveActionOptions: ({ transport }: { transport?: string }) => {
+			if (
+				transport !== undefined &&
+				transport !== "auto" &&
+				transport !== "bird" &&
+				transport !== "xurl"
+			) {
+				throw new CliInputError("--transport must be auto, bird, or xurl");
+			}
+			return { transport };
+		},
 	});
 }

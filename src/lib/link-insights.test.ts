@@ -237,6 +237,71 @@ describe("link insights", () => {
 		rmSync(homeDir, { recursive: true, force: true });
 	});
 
+	it.each(["@steipete", "steipete", " STEIPETE ", " acct_primary "])(
+		"Pass 11 resolves link insight selector %j across every membership path",
+		(account) => {
+			const db = insertAccountFixture();
+			db.prepare(
+				"update accounts set handle = '@steipete' where id = 'acct_primary'",
+			).run();
+			for (const id of ["direct", "edge", "collection", "other"]) {
+				insertTweet(db, {
+					id,
+					accountId: "acct_secondary",
+					authorProfileId: "profile_a",
+					text: id,
+					createdAt: localIso(),
+				});
+				insertExpansion(db, {
+					shortUrl: "https://t.co/" + id,
+					finalUrl: "https://example.com/" + id,
+				});
+				insertOccurrence(db, {
+					sourceKind: "tweet",
+					sourceId: id,
+					shortUrl: "https://t.co/" + id,
+					accountId: id === "direct" ? "acct_primary" : "acct_secondary",
+					createdAt: localIso(),
+				});
+			}
+			insertTweetAccountEdge(db, {
+				accountId: "acct_primary",
+				tweetId: "edge",
+			});
+			db.prepare(
+				"insert into tweet_collections (account_id, tweet_id, kind, collected_at, source, raw_json, updated_at) values ('acct_primary', 'collection', 'bookmarks', ?, 'test', '{}', ?)",
+			).run(localIso(), localIso());
+			insertDmMessage(db, {
+				id: "dm_link",
+				senderProfileId: "profile_b",
+				text: "https://t.co/dm",
+				createdAt: localIso(),
+			});
+			insertExpansion(db, {
+				shortUrl: "https://t.co/dm",
+				finalUrl: "https://example.com/dm",
+			});
+			insertOccurrence(db, {
+				sourceKind: "dm",
+				sourceId: "dm_link",
+				shortUrl: "https://t.co/dm",
+				createdAt: localIso(),
+			});
+			const query = { now: localDate(), range: "all" as const };
+			const expected = getLinkInsights({ ...query, account: "acct_primary" });
+			expect(expected.stats.occurrences).toBe(4);
+			expect(getLinkInsights({ ...query, account })).toEqual(expected);
+			expect(
+				getLinkInsights({ ...query, account: "all" }).stats.occurrences,
+			).toBe(5);
+			expect(getLinkInsights(query).stats.occurrences).toBe(5);
+			expect(
+				getLinkInsights({ ...query, account: "acct_secondary" }).stats
+					.occurrences,
+			).toBe(4);
+		},
+	);
+
 	it("keeps every video host form while rejecting URLs that only contain a host hint", () => {
 		const db = insertAccountFixture();
 		const suffixes = [

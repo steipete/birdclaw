@@ -194,6 +194,36 @@ describe("link index", () => {
 		rmSync(homeDir, { recursive: true, force: true });
 	});
 
+	it.each(["!!!", "???", "$", "🔥"])(
+		"does not drop a tokenless link query: %j",
+		async (query) => {
+			getNativeDb();
+			const { searchLinks } = await import("./link-index");
+			expect(searchLinks("")).not.toHaveLength(0);
+			expect(searchLinks(query)).toEqual([]);
+		},
+	);
+
+	it("keeps empty link browsing and URL-shaped searches", async () => {
+		getNativeDb();
+		const { searchLinks } = await import("./link-index");
+		const all = searchLinks("");
+		expect(all).not.toHaveLength(0);
+		expect(searchLinks("   ")).toEqual(all);
+		const url = all[0].occurrence.shortUrl;
+		expect(
+			searchLinks(url).some((item) => item.occurrence.shortUrl === url),
+		).toBe(true);
+		getNativeDb()
+			.prepare("update url_expansions set title = ? where short_url = ?")
+			.run("Literal link punctuation @ ---", url);
+		for (const query of ["@", "---"]) {
+			expect(
+				searchLinks(query).some((item) => item.occurrence.shortUrl === url),
+			).toBe(true);
+		}
+	});
+
 	it("keeps fresh demo link insights after rebuilding occurrences", async () => {
 		getNativeDb();
 		const { getLinkInsights } = await import("./link-insights");

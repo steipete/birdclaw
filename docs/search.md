@@ -67,6 +67,8 @@ birdclaw search tweets "AI from:sam" --limit 20 --json
 
 Each query supports one author. An explicit `--author` takes precedence over `from:` in the query. The author filter also works with `--liked` and `--bookmarked`.
 
+Nonblank queries that contain no searchable terms return no matches. An explicitly empty author selector, such as `from:@` or `--author "@"`, also returns no matches rather than dropping the filter.
+
 ### Full flag list
 
 - `--author <handle>`
@@ -89,6 +91,7 @@ birdclaw search dms "blacksmith" --context 4 --resolve-profiles --expand-urls --
 
 DM-specific filters layer follower-count and influence on top of FTS5:
 
+- `--account <username-or-id>` — overrides `accounts.default`; without either selector, search spans accounts
 - `--participant <handle-or-id>`
 - `--min-followers <n>` / `--max-followers <n>`
 - `--min-influence-score <n>` / `--max-influence-score <n>`
@@ -110,6 +113,8 @@ bio/profile URL signals, profile-change snapshots, extracted bio entities, and
 cached URL expansion. In JSON, inspect `profileEvidence` for typed reasons such
 as `affiliation`, `bio_handle`, `bio_domain`, `profile_history`,
 `profile_url`, and `expanded_url`.
+
+In a read-only archive deployment, `whois` uses existing profile and identity-index data without live profile resolution, URL expansion, or index writes. Prepare the index in a writable archive before serving it read-only.
 
 `whois` interprets query shape before ranking. A handle-like query such as
 `@github` prefers handle, affiliation, and bio-entity evidence; a domain query

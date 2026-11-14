@@ -2667,6 +2667,9 @@ function exportBackupUnlockedEffect({
 	generatedCommitForPushReceipt,
 }: BackupExportUnlockedOptions): Effect.Effect<BackupExportResult, unknown> {
 	return Effect.gen(function* () {
+		const maxBytes = yield* trySync(() =>
+			normalizeMaxBackupShardBytes(maxShardBytes),
+		);
 		const resolvedRepoPath = path.resolve(repoPath);
 		// Keep the option source-compatible; staged generations are always validated.
 		void validate;
@@ -2725,9 +2728,6 @@ function exportBackupUnlockedEffect({
 			yield* ensureBackupReadmeEffect(stagingPath);
 			yield* tryPromise(() => durableMkdir(path.join(stagingPath, DATA_DIR)));
 
-			const maxBytes = yield* trySync(() =>
-				normalizeMaxBackupShardBytes(maxShardBytes),
-			);
 			const rowSets = yield* trySync(() =>
 				database.readTransaction(() => getExportRowSets(database))(),
 			);
@@ -2882,6 +2882,7 @@ function readManifestEffect(
 			);
 		}
 		if (
+			!Number.isInteger(parsed.schemaVersion) ||
 			parsed.schemaVersion < MIN_SUPPORTED_BACKUP_SCHEMA_VERSION ||
 			parsed.schemaVersion > BACKUP_SCHEMA_VERSION
 		) {

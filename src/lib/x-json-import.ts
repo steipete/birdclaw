@@ -103,18 +103,20 @@ function validateMetricCount(
 	record: JsonRecord,
 	field: (typeof PUBLIC_METRIC_FIELDS)[number],
 	line: number,
+	label: string,
 ): true | ImportFieldError {
 	const value = record[field];
 	if (value === undefined) return true;
-	if (typeof value === "number" && Number.isFinite(value)) {
-		return true;
-	}
-	if (typeof value === "string" && value.trim().length > 0) {
-		if (Number.isFinite(Number(value))) return true;
+	if (
+		typeof value === "number" ||
+		(typeof value === "string" && value.trim().length > 0)
+	) {
+		const count = Number(value);
+		if (Number.isSafeInteger(count) && count >= 0) return true;
 	}
 	return validationError(
 		line,
-		`tweet.public_metrics.${field} must be a number`,
+		`${label}.${field} must be a non-negative integer`,
 	);
 }
 
@@ -159,13 +161,17 @@ function validateEntities(
 function validatePublicMetrics(
 	value: unknown,
 	line: number,
+	label = "tweet.public_metrics",
+	fields: ReadonlyArray<
+		(typeof PUBLIC_METRIC_FIELDS)[number]
+	> = PUBLIC_METRIC_FIELDS,
 ): true | ImportFieldError {
 	if (value === undefined) return true;
 	if (!isRecord(value)) {
-		return validationError(line, "tweet.public_metrics must be an object");
+		return validationError(line, `${label} must be an object`);
 	}
-	for (const field of PUBLIC_METRIC_FIELDS) {
-		const result = validateMetricCount(value, field, line);
+	for (const field of fields) {
+		const result = validateMetricCount(value, field, line, label);
 		if (result !== true) return result;
 	}
 	return true;
@@ -276,6 +282,12 @@ function validateUser(value: unknown, line: number): true | ImportFieldError {
 			"user.id must be a numeric string",
 		),
 		validateNonEmptyString(value.username, line, "user.username"),
+		validatePublicMetrics(value.public_metrics, line, "user.public_metrics", [
+			"followers_count",
+			"following_count",
+			"tweet_count",
+			"listed_count",
+		]),
 	]) {
 		if (result !== true) return result;
 	}

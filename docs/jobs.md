@@ -102,7 +102,7 @@ Flags:
 - `--runtime-arg <value>` — repeatable runtime argument; Bun source jobs should pass `--runtime-arg=--no-env-file`
 - `--env-path <path>` — source an export-only shell env file inside the scheduled process
 - `--no-load` — write the plist but do not load it; useful when you want to inspect first
-- `--all` — pass `--all` to the underlying sync, fetching every retrievable page each run (default caps at 5 pages)
+- `--all` — fetch every retrievable page each run unless an explicit `--max-pages` caps it; without either option, the default cap is 5 pages
 
 ### Env files for launchd
 

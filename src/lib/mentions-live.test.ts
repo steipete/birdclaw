@@ -106,6 +106,7 @@ describe("cached live mentions", () => {
 	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
@@ -2365,5 +2366,337 @@ describe("cached live mentions", () => {
 				refresh: true,
 			}),
 		).rejects.toThrow("transport down");
+	});
+
+	it.each(
+		(["xurl", "bird", "auto"] as const).flatMap((mode) =>
+			[false, true].flatMap((stale) =>
+				(["raw", "search", "unreplied"] as const).map((filter) => ({
+					mode,
+					stale,
+					filter,
+				})),
+			),
+		),
+	)(
+		"restores cached mention rows before export: $mode stale=$stale $filter",
+		async ({ mode, stale, filter }) => {
+			makeTempHome();
+			process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+			const live = {
+				data: [
+					{
+						id: "900",
+						author_id: "42",
+						text: "cached needle",
+						created_at: "2026-10-01T00:00:00.000Z",
+					},
+				],
+				includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+				meta: {},
+			};
+			listMentionsViaBirdMock.mockResolvedValue(live);
+			listMentionsViaXurlMock.mockResolvedValue(live);
+			const api = await import("./mentions-live");
+			const run =
+				mode === "xurl"
+					? api.exportMentionsViaCachedXurl
+					: mode === "bird"
+						? api.exportMentionsViaCachedBird
+						: api.exportMentionsViaCachedAuto;
+			await run({ limit: 5 });
+			clearLocalMentionRows();
+			const db = getNativeDb();
+			if (stale)
+				db.exec(
+					"update sync_cache set updated_at = '2000-01-01T00:00:00.000Z' where cache_key like 'mentions:export:%'",
+				);
+			const cache = db
+				.prepare(
+					"select * from sync_cache where cache_key like 'mentions:export:%'",
+				)
+				.all();
+			listMentionsViaBirdMock
+				.mockClear()
+				.mockRejectedValue(new Error("offline"));
+			listMentionsViaXurlMock
+				.mockClear()
+				.mockRejectedValue(new Error("offline"));
+			const options = {
+				limit: 5,
+				...(filter === "search" ? { search: "needle" } : {}),
+				...(filter === "unreplied"
+					? { replyFilter: "unreplied" as const }
+					: {}),
+			};
+			expect((await run(options)).data.map((tweet) => tweet.id)).toEqual([
+				"900",
+			]);
+			expect(
+				db
+					.prepare(
+						"select account_id, tweet_id, kind from tweet_account_edges where kind = 'mention'",
+					)
+					.all(),
+			).toEqual([
+				{ account_id: "acct_primary", tweet_id: "900", kind: "mention" },
+			]);
+			expect(
+				listTimelineItems({
+					resource: "mentions",
+					search: "needle",
+					account: "acct_primary",
+				}).map((tweet) => tweet.id),
+			).toEqual(["900"]);
+			expect(
+				db
+					.prepare(
+						"select * from sync_cache where cache_key like 'mentions:export:%'",
+					)
+					.all(),
+			).toEqual(cache);
+			if (!stale) await run(options);
+			expect(listMentionsViaBirdMock).toHaveBeenCalledTimes(
+				stale && mode !== "xurl" ? 1 : 0,
+			);
+			expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(
+				stale && mode !== "bird" ? 1 : 0,
+			);
+		},
+	);
+
+	it.each([0, 1])(
+		"does not shrink filtered all-pages limit to payload size %s",
+		async (size) => {
+			makeTempHome();
+			clearLocalMentionRows();
+			const { ingestTweetPayload } = await import("./tweet-repository");
+			ingestTweetPayload(getNativeDb(), {
+				accountId: "acct_primary",
+				edgeKind: "mention",
+				source: "archive",
+				payload: {
+					data: ["801", "802", "803"].map((id) => ({
+						id,
+						author_id: "42",
+						text: "archived mention",
+						created_at: "2026-09-01T00:00:00.000Z",
+					})),
+					includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+					meta: {},
+				},
+			});
+			listMentionsViaXurlMock.mockResolvedValue({
+				data: size
+					? [
+							{
+								id: "900",
+								author_id: "42",
+								text: "new mention",
+								created_at: "2026-10-01T00:00:00.000Z",
+							},
+						]
+					: [],
+				meta: {},
+			});
+			const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+			const result = await exportMentionsViaCachedXurl({
+				limit: 5,
+				maxPages: 2,
+				replyFilter: "unreplied",
+				refresh: true,
+			});
+			expect(result.data.map((tweet) => tweet.id).sort()).toEqual(
+				size ? ["801", "802", "803", "900"] : ["801", "802", "803"],
+			);
+		},
+	);
+
+	it.each([false, true])(
+		"uses requested limit for single-page and full payload for all=%s",
+		async (all) => {
+			makeTempHome();
+			clearLocalMentionRows();
+			const tweets = Array.from({ length: 7 }, (_, i) => ({
+				id: String(900 + i),
+				author_id: "42",
+				text: "mention",
+				created_at: "2026-10-01T00:00:00.000Z",
+			}));
+			listMentionsViaXurlMock.mockImplementation(
+				async ({ paginationToken }) => ({
+					data: paginationToken ? tweets.slice(5) : tweets.slice(0, 5),
+					includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+					meta: paginationToken ? {} : { next_token: "next" },
+				}),
+			);
+			const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+			const result = await exportMentionsViaCachedXurl({
+				all,
+				limit: 5,
+				replyFilter: "unreplied",
+				refresh: true,
+			});
+			expect(result.data).toHaveLength(all ? 7 : 5);
+			expect(listMentionsViaXurlMock).toHaveBeenCalledTimes(all ? 2 : 1);
+		},
+	);
+
+	it.each([1, 2, 3, 4])(
+		"rejects low-limit %s auto export fallback before Xurl fetch",
+		async (limit) => {
+			makeTempHome();
+			process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+			listMentionsViaBirdMock.mockRejectedValue(new Error("offline"));
+			listMentionsViaXurlMock.mockResolvedValue({ data: [], meta: {} });
+			const { exportMentionsViaCachedAuto } = await import("./mentions-live");
+			await expect(
+				exportMentionsViaCachedAuto({ limit, refresh: true }),
+			).rejects.toThrow("xurl mode requires --limit between 5 and 100");
+			expect(listMentionsViaBirdMock).toHaveBeenCalledTimes(1);
+			expect(listMentionsViaXurlMock).not.toHaveBeenCalled();
+		},
+	);
+
+	it("keeps small Bird exports and valid Xurl fallback working", async () => {
+		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		listMentionsViaBirdMock
+			.mockResolvedValueOnce({ data: [], meta: {} })
+			.mockRejectedValue(new Error("offline"));
+		listMentionsViaXurlMock.mockResolvedValue({ data: [], meta: {} });
+		const { exportMentionsViaCachedAuto } = await import("./mentions-live");
+		await expect(
+			exportMentionsViaCachedAuto({ limit: 2, refresh: true }),
+		).resolves.toMatchObject({ data: [] });
+		expect(listMentionsViaXurlMock).not.toHaveBeenCalled();
+		await expect(
+			exportMentionsViaCachedAuto({ limit: 5, refresh: true }),
+		).resolves.toMatchObject({ data: [] });
+		expect(listMentionsViaXurlMock).toHaveBeenCalledWith(
+			expect.objectContaining({ maxResults: 5 }),
+		);
+	});
+
+	it("preserves newer stored tweet metrics and profile metadata when replaying an older cached mention export", async () => {
+		makeTempHome();
+		clearLocalMentionRows();
+		listMentionsViaXurlMock
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "900",
+						author_id: "42",
+						text: "mention needle",
+						created_at: "2026-10-01T00:00:00.000Z",
+						public_metrics: { like_count: 1 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "Old Sam",
+							public_metrics: { followers_count: 10 },
+						},
+					],
+				},
+				meta: {},
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "900",
+						author_id: "42",
+						text: "mention needle",
+						created_at: "2026-10-01T00:00:00.000Z",
+						public_metrics: { like_count: 10 },
+					},
+					{
+						id: "901",
+						author_id: "43",
+						text: "second mention",
+						created_at: "2026-10-01T00:01:00.000Z",
+						public_metrics: { like_count: 5 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "alice",
+							name: "New Sam",
+							public_metrics: { followers_count: 250 },
+						},
+						{
+							id: "43",
+							username: "sam",
+							name: "Current Sam",
+							public_metrics: { followers_count: 500 },
+						},
+					],
+				},
+				meta: {},
+			});
+		const { exportMentionsViaCachedXurl } = await import("./mentions-live");
+		await exportMentionsViaCachedXurl({ limit: 5, refresh: true });
+		await exportMentionsViaCachedXurl({ limit: 20, refresh: true });
+
+		const db = getNativeDb();
+		db.exec(
+			"delete from tweet_account_edges where tweet_id = '900' and kind = 'mention'",
+		);
+		await exportMentionsViaCachedXurl({ limit: 5, search: "needle" });
+
+		expect(
+			db
+				.prepare(
+					"select account_id, tweet_id, kind from tweet_account_edges where tweet_id = '900' and kind = 'mention'",
+				)
+				.get(),
+		).toEqual({
+			account_id: "acct_primary",
+			tweet_id: "900",
+			kind: "mention",
+		});
+		expect(
+			db.prepare("select like_count from tweets where id = '900'").get(),
+		).toEqual({ like_count: 10 });
+		expect(
+			db
+				.prepare(
+					"select id, handle, display_name, followers_count from profiles where id in ('profile_user_42', 'profile_user_43') order by id",
+				)
+				.all(),
+		).toEqual([
+			{
+				id: "profile_user_42",
+				handle: "alice",
+				display_name: "New Sam",
+				followers_count: 250,
+			},
+			{
+				id: "profile_user_43",
+				handle: "sam",
+				display_name: "Current Sam",
+				followers_count: 500,
+			},
+		]);
+
+		resetDatabaseForTests();
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const freshReadOnly = await exportMentionsViaCachedXurl({
+			limit: 5,
+			search: "needle",
+		});
+		expect(freshReadOnly.data.map((row) => row.id)).toEqual(["900"]);
+		listMentionsViaXurlMock.mockRejectedValueOnce(new Error("offline"));
+		const staleReadOnly = await exportMentionsViaCachedXurl({
+			limit: 5,
+			cacheTtlMs: 0,
+			search: "needle",
+		});
+		expect(staleReadOnly.data.map((row) => row.id)).toEqual(["900"]);
 	});
 });

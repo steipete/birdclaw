@@ -46,6 +46,7 @@ function makeTempHome() {
 }
 
 afterEach(() => {
+	vi.unstubAllEnvs();
 	delete process.env.BIRDCLAW_PREFERRED_TRANSPORT;
 	resetDatabaseForTests();
 	resetBirdclawPathsForTests();
@@ -60,6 +61,223 @@ afterEach(() => {
 });
 
 describe("live home timeline sync", () => {
+	it.each(["bird", "xurl"] as const)(
+		"restores %s cached timeline rows, edges and FTS for a handle-selected account",
+		async (mode) => {
+			makeTempHome();
+			const db = getNativeDb();
+			const selected = birdAccountForTest(db, "acct_studio");
+			getAuthenticatedBirdAccountMock.mockResolvedValue(selected);
+			const payload = {
+				data: [
+					{
+						id: "cache_restore",
+						author_id: "42",
+						text: "restorationneedle",
+						created_at: "2026-04-26T13:43:34.000Z",
+					},
+				],
+				includes: { users: [{ id: "42", username: "sam", name: "Sam" }] },
+				meta: {},
+			};
+			const transport =
+				mode === "bird"
+					? listHomeTimelineViaBirdMock
+					: listHomeTimelineViaXurlMock;
+			transport.mockResolvedValue(payload);
+			const { syncHomeTimeline } = await import("./timeline-live");
+			const options = {
+				mode,
+				account: "@" + selected.username.replace(/^@/, ""),
+				limit: 5,
+				cacheTtlMs: 60_000,
+			};
+			await syncHomeTimeline(options);
+			const cacheBefore = db
+				.prepare("select * from sync_cache where cache_key like 'timeline:%'")
+				.all();
+			for (const deletion of [
+				"delete from tweet_account_edges where tweet_id = 'cache_restore'",
+				"delete from tweets where id = 'cache_restore'",
+			]) {
+				db.prepare(deletion).run();
+				const progress = vi.fn();
+				await expect(
+					syncHomeTimeline({ ...options, onProgress: progress }),
+				).resolves.toMatchObject({
+					source: "cache",
+					count: 1,
+					accountId: "acct_studio",
+				});
+				expect(
+					listTimelineItems({
+						resource: "home",
+						account: "acct_studio",
+						search: "restorationneedle",
+					}).map((tweet) => tweet.id),
+				).toEqual(["cache_restore"]);
+				expect(
+					listTimelineItems({
+						resource: "home",
+						account: "acct_primary",
+						search: "restorationneedle",
+					}),
+				).toEqual([]);
+				expect(progress).toHaveBeenLastCalledWith(
+					expect.objectContaining({ source: "cache", fetched: 1, done: true }),
+				);
+			}
+			expect(transport).toHaveBeenCalledTimes(1);
+			expect(
+				db
+					.prepare("select * from sync_cache where cache_key like 'timeline:%'")
+					.all(),
+			).toEqual(cacheBefore);
+		},
+	);
+
+	it("preserves newer stored tweet metrics and profile metadata when replaying an older cached home timeline sync", async () => {
+		makeTempHome();
+		const db = getNativeDb();
+		listHomeTimelineViaXurlMock
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "home_cache_freshness_1",
+						author_id: "42",
+						text: "home cache freshness item",
+						created_at: "2026-04-26T13:43:34.000Z",
+						public_metrics: { like_count: 1 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "Old Sam",
+							public_metrics: { followers_count: 10 },
+						},
+					],
+				},
+				meta: {},
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: "home_cache_freshness_1",
+						author_id: "42",
+						text: "home cache freshness item",
+						created_at: "2026-04-26T13:43:34.000Z",
+						public_metrics: { like_count: 99 },
+					},
+					{
+						id: "home_cache_freshness_2",
+						author_id: "43",
+						text: "second home item",
+						created_at: "2026-04-26T13:44:34.000Z",
+						public_metrics: { like_count: 5 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "alice",
+							name: "New Sam",
+							public_metrics: { followers_count: 250 },
+						},
+						{
+							id: "43",
+							username: "sam",
+							name: "Current Sam",
+							public_metrics: { followers_count: 500 },
+						},
+					],
+				},
+				meta: {},
+			});
+		const { syncHomeTimeline } = await import("./timeline-live");
+		await syncHomeTimeline({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+			cacheTtlMs: 60_000,
+		});
+		await syncHomeTimeline({
+			account: "acct_primary",
+			mode: "xurl",
+			limit: 20,
+			refresh: true,
+			cacheTtlMs: 60_000,
+		});
+
+		db.exec(
+			"delete from tweet_account_edges where tweet_id = 'home_cache_freshness_1' and kind = 'home'",
+		);
+		await expect(
+			syncHomeTimeline({
+				account: "acct_primary",
+				mode: "xurl",
+				limit: 5,
+				cacheTtlMs: 60_000,
+			}),
+		).resolves.toMatchObject({ source: "cache", count: 1 });
+
+		expect(
+			db
+				.prepare(
+					"select account_id, tweet_id, kind from tweet_account_edges where tweet_id = 'home_cache_freshness_1' and kind = 'home'",
+				)
+				.get(),
+		).toEqual({
+			account_id: "acct_primary",
+			tweet_id: "home_cache_freshness_1",
+			kind: "home",
+		});
+		expect(
+			db
+				.prepare(
+					"select like_count from tweets where id = 'home_cache_freshness_1'",
+				)
+				.get(),
+		).toEqual({ like_count: 99 });
+		expect(
+			db
+				.prepare(
+					"select id, handle, display_name, followers_count from profiles where id in ('profile_user_42', 'profile_user_43') order by id",
+				)
+				.all(),
+		).toEqual([
+			{
+				id: "profile_user_42",
+				handle: "alice",
+				display_name: "New Sam",
+				followers_count: 250,
+			},
+			{
+				id: "profile_user_43",
+				handle: "sam",
+				display_name: "Current Sam",
+				followers_count: 500,
+			},
+		]);
+
+		resetDatabaseForTests();
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const readOnlyCached = await syncHomeTimeline({
+			mode: "xurl",
+			limit: 5,
+			refresh: false,
+		});
+		expect(readOnlyCached).toMatchObject({
+			ok: true,
+			source: "cache",
+			count: 1,
+		});
+	});
+
 	it("honors config preference and does not reuse another auto preference's cache", async () => {
 		makeTempHome();
 		const { setPreferredTransport } = await import("./config");

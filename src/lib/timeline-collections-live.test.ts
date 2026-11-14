@@ -5,6 +5,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { birdAccountForTest } from "../test/bird-account";
+import { runBookmarkSyncJob } from "./bookmark-sync-job";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
 import { listTimelineItems } from "./timeline-read-model";
@@ -115,6 +116,33 @@ afterEach(() => {
 });
 
 describe("live timeline collection sync", () => {
+	it.each([
+		{ options: {}, pages: 5 },
+		{ options: { all: true }, pages: 7 },
+		{ options: { all: true, maxPages: 2 }, pages: 2 },
+	])(
+		"bookmark job retrieves $pages pages for $options",
+		async ({ options, pages }) => {
+			setupTempHome();
+			getNativeDb();
+			mocks.listBookmarkedTweetsViaXurl.mockImplementation(
+				async ({ paginationToken }) => {
+					const page = Number(paginationToken ?? 0) + 1;
+					return {
+						data: [makeTweet("job-page-" + page)],
+						meta: { next_token: page < 7 ? String(page) : undefined },
+					};
+				},
+			);
+			const result = await runBookmarkSyncJob({
+				mode: "xurl",
+				refresh: true,
+				...options,
+			});
+			expect(result).toMatchObject({ ok: true, sync: { count: pages } });
+			expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenCalledTimes(pages);
+		},
+	);
 	it("rejects a mismatched Bird account before collection persistence", async () => {
 		setupTempHome();
 		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
@@ -1014,7 +1042,7 @@ describe("live timeline collection sync", () => {
 		expect(mocks.listLikedTweetsViaBird).toHaveBeenCalledTimes(1);
 		expect(mocks.listLikedTweetsViaBird).toHaveBeenCalledWith({
 			maxResults: 3,
-			all: false,
+			all: true,
 			maxPages: 2,
 		});
 		expect(row).toMatchObject({
@@ -1228,5 +1256,331 @@ describe("live timeline collection sync", () => {
 		await expect(syncHomeTimeline({})).rejects.toThrow(
 			"Unknown account: default",
 		);
+	});
+
+	it.each(["bookmarks", "likes"] as const)(
+		"honors explicit page caps and cache aliases for %s",
+		async (kind) => {
+			setupTempHome();
+			const transport =
+				kind === "bookmarks"
+					? mocks.listBookmarkedTweetsViaXurl
+					: mocks.listLikedTweetsViaXurl;
+			const { syncTimelineCollection } =
+				await import("./timeline-collections-live");
+			for (const all of [undefined, false]) {
+				transport
+					.mockReset()
+					.mockImplementation(async ({ paginationToken }) => {
+						const page = Number(paginationToken ?? 1);
+						return {
+							data: [makeTweet(String(page))],
+							includes: { users: [makeUser()] },
+							meta: { next_token: String(page + 1) },
+						};
+					});
+				const options = {
+					kind,
+					mode: "xurl" as const,
+					limit: 5,
+					maxPages: 3,
+					all,
+				};
+				const result = await syncTimelineCollection({
+					...options,
+					refresh: true,
+				});
+				expect(result.count).toBe(3);
+				expect(transport).toHaveBeenCalledTimes(3);
+				expect(result.payload.meta?.next_token).toBe("4");
+				expect(transport.mock.calls[0]?.[0]).toMatchObject(
+					kind === "bookmarks" ? { isPaginatedWalk: true } : { maxResults: 5 },
+				);
+				expect(transport.mock.calls[1]?.[0]).toMatchObject({
+					paginationToken: "2",
+				});
+				await expect(
+					syncTimelineCollection({ ...options, all: true }),
+				).resolves.toMatchObject({ source: "cache", count: 3 });
+				expect(transport).toHaveBeenCalledTimes(3);
+			}
+		},
+	);
+
+	it.each(["bookmarks", "likes"] as const)(
+		"passes implied all to Bird for %s",
+		async (kind) => {
+			setupTempHome();
+			const transport =
+				kind === "bookmarks"
+					? mocks.listBookmarkedTweetsViaBird
+					: mocks.listLikedTweetsViaBird;
+			transport.mockResolvedValue({ data: [makeTweet("1")], meta: {} });
+			const { syncTimelineCollection } =
+				await import("./timeline-collections-live");
+			for (const all of [undefined, false]) {
+				await syncTimelineCollection({
+					kind,
+					mode: "bird",
+					limit: 2,
+					maxPages: 3,
+					all,
+					refresh: true,
+				});
+				expect(transport).toHaveBeenLastCalledWith(
+					expect.objectContaining({ all: true, maxPages: 3 }),
+				);
+			}
+			await expect(
+				syncTimelineCollection({
+					kind,
+					mode: "bird",
+					limit: 2,
+					maxPages: 3,
+					all: true,
+				}),
+			).resolves.toMatchObject({ source: "cache" });
+			expect(transport).toHaveBeenCalledTimes(2);
+		},
+	);
+
+	it.each(
+		(["bookmarks", "likes"] as const).flatMap((kind) =>
+			(["bird", "xurl"] as const).map((mode) => ({ kind, mode })),
+		),
+	)(
+		"restores cached collection membership: $kind/$mode",
+		async ({ kind, mode }) => {
+			setupTempHome();
+			const transport =
+				kind === "bookmarks"
+					? mode === "bird"
+						? mocks.listBookmarkedTweetsViaBird
+						: mocks.listBookmarkedTweetsViaXurl
+					: mode === "bird"
+						? mocks.listLikedTweetsViaBird
+						: mocks.listLikedTweetsViaXurl;
+			transport.mockResolvedValue({
+				data: [makeTweet("1")],
+				includes: { users: [makeUser()], tweets: [makeTweet("context")] },
+				meta: {},
+			});
+			const { syncTimelineCollection } =
+				await import("./timeline-collections-live");
+			const options = { kind, mode, limit: 5 };
+			await syncTimelineCollection(options);
+			const db = getNativeDb();
+			const cache = db
+				.prepare(
+					"select * from sync_cache where cache_key like 'timeline-collection:%'",
+				)
+				.all();
+			db.exec("delete from tweet_collections; delete from tweets");
+			await expect(syncTimelineCollection(options)).resolves.toMatchObject({
+				source: "cache",
+				count: 1,
+			});
+			expect(db.prepare("select id from tweets order by id").all()).toEqual([
+				{ id: "1" },
+				{ id: "context" },
+			]);
+			expect(
+				db
+					.prepare("select account_id, tweet_id, kind from tweet_collections")
+					.all(),
+			).toEqual([{ account_id: "acct_primary", tweet_id: "1", kind }]);
+			await syncTimelineCollection(options);
+			expect(
+				db.prepare("select count(*) as count from tweet_collections").get(),
+			).toEqual({ count: 1 });
+			expect(
+				db
+					.prepare(
+						"select * from sync_cache where cache_key like 'timeline-collection:%'",
+					)
+					.all(),
+			).toEqual(cache);
+			expect(transport).toHaveBeenCalledTimes(1);
+		},
+	);
+
+	it("preserves early-stop membership exclusions when restoring cache", async () => {
+		setupTempHome();
+		insertCollectionRow({ tweetId: "old" });
+		mocks.listLikedTweetsViaXurl.mockResolvedValue({
+			data: [makeTweet("old"), makeTweet("new")],
+			meta: {},
+		});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+		const options = {
+			kind: "likes" as const,
+			mode: "xurl" as const,
+			limit: 5,
+			earlyStop: true,
+		};
+		await expect(syncTimelineCollection(options)).resolves.toMatchObject({
+			count: 1,
+		});
+		const db = getNativeDb();
+		const old = db
+			.prepare("select * from tweet_collections where tweet_id = 'old'")
+			.get();
+		db.exec("delete from tweet_collections where tweet_id = 'new'");
+		await expect(syncTimelineCollection(options)).resolves.toMatchObject({
+			source: "cache",
+			count: 1,
+		});
+		expect(
+			db
+				.prepare(
+					"select tweet_id from tweet_collections where tweet_id in ('old', 'new') order by tweet_id",
+				)
+				.all(),
+		).toEqual([{ tweet_id: "new" }, { tweet_id: "old" }]);
+		expect(
+			db
+				.prepare("select * from tweet_collections where tweet_id = 'old'")
+				.get(),
+		).toEqual(old);
+	});
+
+	it.each([false, true])(
+		"preserves uncapped all=%s without explicit maxPages",
+		async (all) => {
+			setupTempHome();
+			mocks.listBookmarkedTweetsViaXurl.mockImplementation(
+				async ({ paginationToken }) => ({
+					data: [makeTweet(paginationToken ?? "1")],
+					meta: paginationToken ? {} : { next_token: "2" },
+				}),
+			);
+			const { syncTimelineCollection } =
+				await import("./timeline-collections-live");
+			await expect(
+				syncTimelineCollection({
+					kind: "bookmarks",
+					mode: "xurl",
+					all,
+					limit: 5,
+				}),
+			).resolves.toMatchObject({ count: all ? 2 : 1 });
+			expect(mocks.listBookmarkedTweetsViaXurl).toHaveBeenCalledTimes(
+				all ? 2 : 1,
+			);
+		},
+	);
+
+	it("preserves newer stored tweet metrics and profile metadata when replaying an older cached collection sync", async () => {
+		setupTempHome();
+		mocks.listLikedTweetsViaXurl
+			.mockResolvedValueOnce({
+				data: [
+					{
+						...makeTweet("900", "collection needle"),
+						public_metrics: { like_count: 1 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "sam",
+							name: "Old Sam",
+							public_metrics: { followers_count: 10 },
+						},
+					],
+				},
+				meta: {},
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						...makeTweet("900", "collection needle"),
+						public_metrics: { like_count: 10 },
+					},
+					{
+						...makeTweet("901", "second needle"),
+						author_id: "43",
+						public_metrics: { like_count: 5 },
+					},
+				],
+				includes: {
+					users: [
+						{
+							id: "42",
+							username: "alice",
+							name: "New Sam",
+							public_metrics: { followers_count: 250 },
+						},
+						{
+							id: "43",
+							username: "sam",
+							name: "Current Sam",
+							public_metrics: { followers_count: 500 },
+						},
+					],
+				},
+				meta: {},
+			});
+		const { syncTimelineCollection } =
+			await import("./timeline-collections-live");
+		await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 5,
+			refresh: true,
+		});
+		await syncTimelineCollection({
+			kind: "likes",
+			mode: "xurl",
+			limit: 20,
+			refresh: true,
+		});
+
+		const db = getNativeDb();
+		db.exec("delete from tweet_collections where tweet_id = '900'");
+		await expect(
+			syncTimelineCollection({
+				kind: "likes",
+				mode: "xurl",
+				limit: 5,
+			}),
+		).resolves.toMatchObject({ source: "cache", count: 1 });
+
+		expect(
+			db
+				.prepare(
+					"select account_id, tweet_id, kind from tweet_collections where tweet_id = '900'",
+				)
+				.get(),
+		).toEqual({
+			account_id: "acct_primary",
+			tweet_id: "900",
+			kind: "likes",
+		});
+		expect(
+			db.prepare("select like_count from tweets where id = '900'").get(),
+		).toEqual({ like_count: 10 });
+		expect(
+			db
+				.prepare(
+					"select id, handle, display_name, followers_count from profiles where id in ('profile_user_42', 'profile_user_43') order by id",
+				)
+				.all(),
+		).toEqual([
+			{
+				id: "profile_user_42",
+				handle: "alice",
+				display_name: "New Sam",
+				followers_count: 250,
+			},
+			{
+				id: "profile_user_43",
+				handle: "sam",
+				display_name: "Current Sam",
+				followers_count: 500,
+			},
+		]);
 	});
 });

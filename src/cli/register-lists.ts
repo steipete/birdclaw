@@ -6,6 +6,7 @@ export function registerListCommands({
 	print,
 	asJson,
 	autoUpdateBeforeRead,
+	parsePositiveLimitOption,
 }: CliCommandContext) {
 	const listsCommand = program
 		.command("lists")
@@ -40,13 +41,14 @@ export function registerListCommands({
 		.option("--include-ended", "Include members absent from a complete sync")
 		.option("--limit <n>", "Limit results", "100")
 		.action(async (name, options) => {
+			const limit = parsePositiveLimitOption(options.limit, "--limit");
 			await autoUpdateBeforeRead();
 			const result = listStoredXListMembers({
 				account: options.account,
 				name,
 				listId: options.listId,
 				includeEnded: Boolean(options.includeEnded),
-				limit: Number(options.limit),
+				limit,
 			});
 			if (asJson()) {
 				print(result, true);

@@ -86,7 +86,7 @@ function mergeTimelineCollectionIntoLocalStore(
 	kind: TimelineCollectionKind,
 	payload: XurlMentionsResponse,
 	collectionTweetIds: readonly string[],
-	source: "xurl" | "bird",
+	source: "xurl" | "bird" | "cache",
 ) {
 	ingestTweetPayload(db, {
 		accountId,
@@ -268,6 +268,7 @@ export function syncTimelineCollectionEffect({
 		yield* trySync(() => parseLivePageSize(limit));
 		const parsedMaxPages =
 			(yield* trySync(() => parseOptionalMaxPages(maxPages))) ?? null;
+		const effectiveAll = all || parsedMaxPages !== null;
 		const shouldApplyEarlyStopCap =
 			earlyStop && !all && parsedMaxPages === null && parsedMode !== "bird";
 		const xurlMaxPages = shouldApplyEarlyStopCap
@@ -287,7 +288,7 @@ export function syncTimelineCollectionEffect({
 			resolveLiveSyncAccount(db, account),
 		);
 		const cacheMaxPages = parsedMode === "bird" ? parsedMaxPages : xurlMaxPages;
-		const cacheKey = `timeline-collection:v2:${kind}:${parsedMode}:${resolvedAccount.accountId}:${String(limit)}:${all ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${paginationToken === undefined ? "" : `:cursor:${JSON.stringify(paginationToken)}`}${earlyStop ? ":early-stop" : ""}`;
+		const cacheKey = `timeline-collection:v2:${kind}:${parsedMode}:${resolvedAccount.accountId}:${String(limit)}:${effectiveAll ? "all" : "single"}:${cacheMaxPages === null ? "all-pages" : String(cacheMaxPages)}${paginationToken === undefined ? "" : `:cursor:${JSON.stringify(paginationToken)}`}${earlyStop ? ":early-stop" : ""}`;
 
 		if (shouldApplyEarlyStopCap) {
 			console.error(
@@ -302,7 +303,7 @@ export function syncTimelineCollectionEffect({
 			username: resolvedAccount.username,
 			userId: resolvedAccount.externalUserId,
 			limit,
-			all,
+			all: effectiveAll,
 			maxPages: xurlMaxPages,
 			paginationToken,
 			earlyStop,
@@ -311,7 +312,7 @@ export function syncTimelineCollectionEffect({
 			account: resolvedAccount,
 			kind,
 			limit,
-			all,
+			all: effectiveAll,
 			maxPages: parsedMaxPages,
 		});
 		const transports =
@@ -330,6 +331,15 @@ export function syncTimelineCollectionEffect({
 			cacheTtlMs,
 			defaultCacheTtlMs: DEFAULT_COLLECTION_CACHE_TTL_MS,
 			transports,
+			persistCached: (writeDb, cachedResult) =>
+				mergeTimelineCollectionIntoLocalStore(
+					writeDb,
+					resolvedAccount.accountId,
+					kind,
+					cachedResult.payload,
+					cachedResult.collectionTweetIds,
+					"cache",
+				),
 			persistLive: (writeDb, liveResult, liveSource) =>
 				mergeTimelineCollectionIntoLocalStore(
 					writeDb,

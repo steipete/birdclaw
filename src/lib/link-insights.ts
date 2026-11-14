@@ -1,6 +1,7 @@
 import { profileSelect, type ProfileSqlRow } from "./profile-row";
 import { parseJsonField } from "./json-codec";
 import { getNativeDb } from "./db";
+import { findOperationAccount } from "./account-selection";
 import { isReadOnlyDeployment } from "./config";
 import { ReadOnlyQueryCache } from "./read-only-query-cache";
 import type { Database } from "./sqlite";
@@ -716,7 +717,11 @@ function buildLinkInsights(
 		conditions.push("o.source_kind = ?");
 		params.push(source);
 	}
-	if (query.account && query.account !== "all") {
+	const accountId =
+		query.account && query.account !== "all"
+			? (findOperationAccount(db, query.account)?.id ?? query.account)
+			: undefined;
+	if (accountId) {
 		conditions.push(`(
 	    (o.source_kind = 'dm' and o.account_id = ?)
 	    or (
@@ -738,7 +743,7 @@ function buildLinkInsights(
 	      )
 	    )
 	  )`);
-		params.push(query.account, query.account, query.account, query.account);
+		params.push(accountId, accountId, accountId, accountId);
 	}
 	if (kind === "videos") {
 		addVideoUrlPrefilter(conditions);

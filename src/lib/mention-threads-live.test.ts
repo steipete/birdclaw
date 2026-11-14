@@ -107,6 +107,64 @@ afterEach(() => {
 });
 
 describe("mention thread sync", () => {
+	it.each([
+		{ maxPages: undefined, expected: 3 },
+		{ maxPages: 1, expected: 1 },
+		{ maxPages: 2, expected: 2 },
+		{ maxPages: 5, expected: 4 },
+	])(
+		"scheduled threads honor page cap $maxPages in actual pagination",
+		async ({ maxPages, expected }) => {
+			setupTempHome();
+			upsertMentionEdge("mention_1", {
+				id: "mention_1",
+				author_id: "42",
+				text: "mention text",
+				created_at: "2026-05-04T07:00:00.000Z",
+				conversation_id: "mention_1",
+			});
+			mocks.searchRecentByConversationId.mockImplementation(
+				async (_id, options) => {
+					const page = Number(options.paginationToken ?? 1);
+					return {
+						data: [
+							{
+								id: page === 1 ? "mention_1" : "reply_" + page,
+								author_id: "42",
+								text: "page " + page,
+								created_at: "2026-05-04T07:00:00.000Z",
+								conversation_id: "mention_1",
+							},
+						],
+						meta: {
+							result_count: 1,
+							...(page < 4 ? { next_token: String(page + 1) } : {}),
+						},
+					};
+				},
+			);
+			const { runAccountSyncJob } = await import("./account-sync-job");
+			const result = await runAccountSyncJob({
+				steps: ["mention-threads"],
+				mode: "xurl",
+				limit: 1,
+				maxPages,
+			});
+			expect(mocks.searchRecentByConversationId).toHaveBeenCalledTimes(
+				expected,
+			);
+			expect(result.steps).toEqual([
+				{ kind: "mention-threads", ok: true, count: expected, source: "xurl" },
+			]);
+			const row = getNativeDb()
+				.prepare(
+					"select count(*) as count from tweet_account_edges where kind = 'thread_context'",
+				)
+				.get();
+			expect(row).toEqual({ count: expected });
+		},
+	);
+
 	it("uses Bird first for auto threads and falls back to xurl", async () => {
 		setupTempHome();
 		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";

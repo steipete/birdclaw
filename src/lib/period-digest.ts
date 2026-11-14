@@ -11,6 +11,9 @@ import {
 } from "./analysis-report";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
+import { isReadOnlyDeployment } from "./config";
+import { findOperationAccount } from "./account-selection";
+import { getReadDb } from "./db";
 import { z } from "zod";
 import {
 	fitAnalysisDataset,
@@ -234,10 +237,18 @@ function addDays(date: Date, days: number) {
 	return next;
 }
 
-function parseDate(value: string | undefined) {
-	if (!value?.trim()) return null;
-	const parsed = new Date(value);
-	return Number.isNaN(parsed.getTime()) ? null : parsed;
+const digestDateSchema = z.union([
+	z.iso.date(),
+	z.iso.datetime({ offset: true, local: true }),
+]);
+
+function parseDate(value: string | undefined, name: string) {
+	if (value === undefined) return null;
+	const text = value.trim();
+	if (!digestDateSchema.safeParse(text).success) {
+		throw new Error(name + " must be a valid YYYY-MM-DD or ISO timestamp");
+	}
+	return new Date(text);
 }
 
 function floorIsoToHour(value: string) {
@@ -251,7 +262,8 @@ function normalizePeriod(value: string | undefined): PeriodDigestPreset {
 	if (normalized === "yesterday") return "yesterday";
 	if (normalized === "24h" || normalized === "day") return "24h";
 	if (normalized === "week" || normalized === "7d") return "week";
-	return "today";
+	if (value === undefined || normalized === "today") return "today";
+	throw new Error("period must be today, 24h, day, yesterday, week, or 7d");
 }
 
 export function resolvePeriodDigestWindow(
@@ -260,11 +272,14 @@ export function resolvePeriodDigestWindow(
 	} = {},
 ): PeriodDigestWindow {
 	const now = options.now ?? new Date();
-	const explicitSince = parseDate(options.since);
-	const explicitUntil = parseDate(options.until);
+	const period = normalizePeriod(options.period);
+	const explicitSince = parseDate(options.since, "since");
+	const explicitUntil = parseDate(options.until, "until");
 	if (explicitSince || explicitUntil) {
 		const since = explicitSince ?? addDays(explicitUntil ?? now, -1);
 		const until = explicitUntil ?? now;
+		if (since.getTime() > until.getTime())
+			throw new Error("since must be before or equal to until");
 		return {
 			label: `${since.toLocaleString()} - ${until.toLocaleString()}`,
 			since: since.toISOString(),
@@ -272,7 +287,6 @@ export function resolvePeriodDigestWindow(
 		};
 	}
 
-	const period = normalizePeriod(options.period);
 	if (period === "24h") {
 		const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 		return {
@@ -387,6 +401,7 @@ function collectTweetsForSource(
 		limit: number;
 	},
 ) {
+	if (options.limit === 0) return [];
 	if (source === "likes" || source === "bookmarks") {
 		return listTimelineItems({
 			resource: "home",
@@ -413,7 +428,7 @@ function collectDms(options: {
 	window: PeriodDigestWindow;
 	limit: number;
 }) {
-	if (!options.includeDms) return [];
+	if (!options.includeDms || options.limit === 0) return [];
 	return listDmConversations({
 		account: options.account,
 		since: options.window.since,
@@ -436,6 +451,7 @@ function compactLinks(options: {
 	window: PeriodDigestWindow;
 	limit: number;
 }) {
+	if (options.limit === 0) return [];
 	return getLinkInsights({
 		account: options.account,
 		range: "today",
@@ -510,51 +526,57 @@ function contextHash(context: Omit<PeriodDigestContext, "hash">) {
 		.digest("hex");
 }
 
+function resolveDigestAccountSelector(account: string | undefined) {
+	const trimmed = account?.trim();
+	if (!trimmed) return undefined;
+	if (trimmed === "all") return "all";
+	return findOperationAccount(getReadDb(), trimmed)?.id ?? trimmed;
+}
+
 export function collectPeriodDigestContext(
 	options: PeriodDigestOptions = {},
 ): PeriodDigestContext {
 	const window = resolvePeriodDigestWindow(options);
-	const maxTweets = Math.max(
-		20,
-		Math.trunc(options.maxTweets ?? DEFAULT_MAX_TWEETS),
+	const account = resolveDigestAccountSelector(options.account);
+	const maxTweets = digestCount(
+		options.maxTweets,
+		DEFAULT_MAX_TWEETS,
+		"maxTweets",
 	);
-	const maxLinks = Math.max(
-		3,
-		Math.trunc(options.maxLinks ?? DEFAULT_MAX_LINKS),
-	);
+	const maxLinks = digestCount(options.maxLinks, DEFAULT_MAX_LINKS, "maxLinks");
 	const home = collectTweetsForSource("home", {
-		account: options.account,
+		account,
 		window,
 		limit: maxTweets,
 	});
 	const mentions = collectTweetsForSource("mentions", {
-		account: options.account,
+		account,
 		window,
 		limit: maxTweets,
 	});
 	const authored = collectTweetsForSource("authored", {
-		account: options.account,
+		account,
 		window,
 		limit: maxTweets,
 	});
 	const likes = collectTweetsForSource("likes", {
-		account: options.account,
+		account,
 		window,
 		limit: maxTweets,
 	});
 	const bookmarks = collectTweetsForSource("bookmarks", {
-		account: options.account,
+		account,
 		window,
 		limit: maxTweets,
 	});
 	const dms = collectDms({
-		account: options.account,
+		account,
 		includeDms: Boolean(options.includeDms),
 		window,
 		limit: Math.ceil(maxTweets / 3),
 	});
 	const links = compactLinks({
-		account: options.account,
+		account,
 		window,
 		limit: maxLinks,
 	});
@@ -567,7 +589,7 @@ export function collectPeriodDigestContext(
 	]).slice(0, maxTweets);
 	const withoutHash = {
 		window,
-		...(options.account ? { account: options.account } : {}),
+		...(account ? { account } : {}),
 		includeDms: Boolean(options.includeDms),
 		counts: {
 			home: home.length,
@@ -592,6 +614,17 @@ function languageFromOptions(options: PeriodDigestOptions) {
 	return normalizeDigestLanguage(
 		options.language ?? process.env.BIRDCLAW_DIGEST_LANGUAGE,
 	);
+}
+
+function digestCount(
+	value: number | undefined,
+	fallback: number,
+	name: string,
+) {
+	if (value === undefined) return fallback;
+	if (!Number.isSafeInteger(value) || value < 0)
+		throw new Error(name + " must be a non-negative safe integer");
+	return value;
 }
 
 function boundedPositiveInteger(
@@ -858,13 +891,10 @@ function latestDigestCacheKey(options: PeriodDigestOptions) {
 				: localDateStart(new Date()).toISOString(),
 		since: options.since?.trim() || null,
 		until: options.until?.trim() || null,
-		account: options.account?.trim() || null,
+		account: resolveDigestAccountSelector(options.account) ?? null,
 		includeDms: Boolean(options.includeDms),
-		maxTweets: Math.max(
-			20,
-			Math.trunc(options.maxTweets ?? DEFAULT_MAX_TWEETS),
-		),
-		maxLinks: Math.max(3, Math.trunc(options.maxLinks ?? DEFAULT_MAX_LINKS)),
+		maxTweets: digestCount(options.maxTweets, DEFAULT_MAX_TWEETS, "maxTweets"),
+		maxLinks: digestCount(options.maxLinks, DEFAULT_MAX_LINKS, "maxLinks"),
 		model: settings.model,
 		language: languageFromOptions(options) ?? null,
 		reasoningEffort: settings.reasoningEffort,
@@ -898,9 +928,10 @@ function enrichContextWithCitedTweets(
 		(tweetId) => !existingIds.has(tweetId.replace(/^tweet_/, "")),
 	);
 	if (missingIds.length === 0) return context;
-	const citedTweets = getTweetsByIds(missingIds, context.account).map(
-		compactEmbeddedTweet,
-	);
+	const citedTweets = getTweetsByIds(
+		missingIds,
+		resolveDigestAccountSelector(context.account),
+	).map(compactEmbeddedTweet);
 	return citedTweets.length > 0
 		? { ...context, tweets: [...context.tweets, ...citedTweets] }
 		: context;
@@ -1048,8 +1079,19 @@ export function streamPeriodDigestEffect(
 	handlers: PeriodDigestStreamHandlers = {},
 ): Effect.Effect<PeriodDigestRunResult, Error> {
 	return Effect.gen(function* () {
+		yield* trySync(() => {
+			resolvePeriodDigestWindow(options);
+			digestCount(options.maxTweets, DEFAULT_MAX_TWEETS, "maxTweets");
+			digestCount(options.maxLinks, DEFAULT_MAX_LINKS, "maxLinks");
+		});
+		const readOnly = isReadOnlyDeployment();
+		if (readOnly && options.refresh)
+			return yield* Effect.fail(
+				new Error("Cannot refresh a digest in a read-only deployment"),
+			);
 		const resolvedOptions = {
 			...options,
+			liveSync: !readOnly && options.liveSync,
 			language: yield* trySync(() => languageFromOptions(options)),
 		};
 		const latestCached = resolvedOptions.refresh
@@ -1089,10 +1131,16 @@ export function streamPeriodDigestEffect(
 
 		if (cached) {
 			const result = yield* trySync(() => cachedDigestResult(cached, context));
-			yield* trySync(() => cacheLatestDigest(result, resolvedOptions));
+			if (!readOnly)
+				yield* trySync(() => cacheLatestDigest(result, resolvedOptions));
 			emitCachedAnalysis(result, handlers);
 			return result;
 		}
+
+		if (readOnly)
+			return yield* Effect.fail(
+				new Error("No cached digest is available in this read-only deployment"),
+			);
 
 		yield* refreshPeriodDigestInputsEffect(
 			resolvedOptions,

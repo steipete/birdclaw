@@ -239,7 +239,7 @@ describe("live authored tweet sync", () => {
 		makeTempHome();
 		const { syncAuthoredTweetsEffect } = await import("./authored-live");
 
-		const effect = syncAuthoredTweetsEffect({ limit: 4 });
+		const effect = syncAuthoredTweetsEffect({ mode: "xurl", limit: 4 });
 
 		await expect(Effect.runPromise(effect)).rejects.toThrow(
 			"--limit must be between 5 and 100",
@@ -1611,5 +1611,106 @@ describe("live authored tweet sync", () => {
 				)
 				.get("authored"),
 		).toEqual({ count: 1 });
+	});
+
+	it.each(
+		(["bird", "auto"] as const).flatMap((mode) =>
+			[1, 2, 3, 4].map((limit) => ({ mode, limit })),
+		),
+	)(
+		"accepts Bird authored limit $limit in $mode mode",
+		async ({ mode, limit }) => {
+			makeTempHome();
+			process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+			mocks.listAuthoredTweetsViaBird.mockResolvedValue({
+				data: [authoredTweet("900")],
+				meta: {},
+			});
+			const { syncAuthoredTweets } = await import("./authored-live");
+			await expect(syncAuthoredTweets({ mode, limit })).resolves.toMatchObject({
+				source: "bird",
+				count: 1,
+				partial: false,
+			});
+			expect(mocks.listAuthoredTweetsViaBird).toHaveBeenCalledWith(
+				expect.objectContaining({ maxResults: limit }),
+			);
+			expect(authoredEdgeCount("900")).toEqual({ count: 1 });
+			expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+			expect(mocks.listUserTweets).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([1, 2, 3, 4, 101])(
+		"rejects Xurl authored limit %s before transport access",
+		async (limit) => {
+			makeTempHome();
+			const { syncAuthoredTweets } = await import("./authored-live");
+			await expect(syncAuthoredTweets({ mode: "xurl", limit })).rejects.toThrow(
+				"--limit must be between 5 and 100",
+			);
+			expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+			expect(mocks.listUserTweets).not.toHaveBeenCalled();
+			expect(mocks.getAuthenticatedBirdAccount).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([5, 100])("accepts Xurl authored boundary %s", async (limit) => {
+		makeTempHome();
+		mocks.listUserTweets.mockResolvedValue(authoredPage("900"));
+		const { syncAuthoredTweets } = await import("./authored-live");
+		await expect(
+			syncAuthoredTweets({ mode: "xurl", limit }),
+		).resolves.toMatchObject({ source: "xurl", count: 1 });
+		expect(mocks.listUserTweets).toHaveBeenCalledWith(
+			"25401953",
+			expect.objectContaining({ maxResults: limit }),
+		);
+	});
+
+	it.each(["bird", "xurl", "auto"] as const)(
+		"rejects zero authored limit in %s before identity or fetch",
+		async (mode) => {
+			makeTempHome();
+			const { syncAuthoredTweets } = await import("./authored-live");
+			await expect(syncAuthoredTweets({ mode, limit: 0 })).rejects.toThrow(
+				"--limit",
+			);
+			expect(mocks.getAuthenticatedBirdAccount).not.toHaveBeenCalled();
+			expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		},
+	);
+
+	it("allows low-limit auto fallback to Bird but never sends it to Xurl", async () => {
+		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "xurl";
+		mocks.listAuthoredTweetsViaBird.mockResolvedValue({
+			data: [authoredTweet("900")],
+			meta: {},
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+		await expect(
+			syncAuthoredTweets({ mode: "auto", limit: 2 }),
+		).resolves.toMatchObject({ source: "bird", count: 1 });
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		mocks.listAuthoredTweetsViaBird.mockRejectedValue(new Error("offline"));
+		await expect(
+			syncAuthoredTweets({ mode: "auto", limit: 2 }),
+		).rejects.toThrow("--limit must be between 5 and 100");
+		expect(mocks.getTransportStatus).not.toHaveBeenCalled();
+		expect(mocks.listUserTweets).not.toHaveBeenCalled();
+	});
+
+	it("still verifies Bird identity with a small authored limit", async () => {
+		makeTempHome();
+		mocks.getAuthenticatedBirdAccount.mockResolvedValue({
+			id: "999",
+			username: "wrong",
+		});
+		const { syncAuthoredTweets } = await import("./authored-live");
+		await expect(
+			syncAuthoredTweets({ mode: "bird", limit: 2 }),
+		).rejects.toThrow("refusing to sync");
+		expect(mocks.listAuthoredTweetsViaBird).not.toHaveBeenCalled();
 	});
 });

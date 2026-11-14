@@ -56,24 +56,43 @@ const XURL_PAGE_SIZE = 100;
 
 function normalizeLimit(limit: number | undefined) {
 	if (limit === undefined) return DEFAULT_SEARCH_LIMIT;
-	if (!Number.isFinite(limit) || limit < 1) {
+	if (!Number.isSafeInteger(limit) || limit < 1) {
 		throw new Error("--limit must be at least 1");
 	}
-	return Math.floor(limit);
+	return limit;
 }
 
 function normalizeMaxPages(maxPages: number | undefined) {
 	if (maxPages === undefined) return DEFAULT_MAX_PAGES;
-	if (!Number.isFinite(maxPages) || maxPages < 1) {
+	if (!Number.isSafeInteger(maxPages) || maxPages < 1) {
 		throw new Error("--max-pages must be at least 1");
 	}
-	return Math.floor(maxPages);
+	return maxPages;
 }
 
 function normalizeTime(value: string | undefined, optionName: string) {
 	if (!value?.trim()) return undefined;
-	const date = new Date(value);
-	if (!Number.isFinite(date.getTime())) {
+	const text = value.trim();
+	const match =
+		/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/.exec(
+			text,
+		);
+	const date = new Date(text);
+	const calendar = new Date(0);
+	if (match)
+		calendar.setUTCFullYear(
+			Number(match[1]),
+			Number(match[2]) - 1,
+			Number(match[3]),
+		);
+	if (
+		!match ||
+		!Number.isFinite(date.getTime()) ||
+		calendar.getUTCFullYear() !== Number(match[1]) ||
+		calendar.getUTCMonth() + 1 !== Number(match[2]) ||
+		calendar.getUTCDate() !== Number(match[3]) ||
+		Number(match[4] ?? 0) > 23
+	) {
 		throw new Error(`${optionName} must be a valid date`);
 	}
 	return date.toISOString();
@@ -342,14 +361,29 @@ export function syncTweetSearchEffect({
 		if (!normalizedQuery) {
 			return yield* Effect.fail(new Error("Search query is required"));
 		}
-		const normalizedLimit = normalizeLimit(limit);
-		const normalizedMaxPages = normalizeMaxPages(maxPages);
+		const { normalizedLimit, normalizedMaxPages } = yield* trySync(() => {
+			if (!["auto", "bird", "xurl", "local"].includes(mode))
+				throw new Error("--mode must be auto, bird, xurl, or local");
+			return {
+				normalizedLimit: normalizeLimit(limit),
+				normalizedMaxPages: normalizeMaxPages(maxPages),
+			};
+		});
 		const normalizedSince = yield* trySync(() =>
 			normalizeTime(since, "--since"),
 		);
 		const normalizedUntil = yield* trySync(() =>
 			normalizeTime(until, "--until"),
 		);
+		if (
+			normalizedSince &&
+			normalizedUntil &&
+			Date.parse(normalizedSince) > Date.parse(normalizedUntil)
+		) {
+			return yield* Effect.fail(
+				new Error("--since must be before or equal to --until"),
+			);
+		}
 		const db = getNativeDb();
 		const resolvedAccount = yield* trySync(() =>
 			resolveLiveSyncAccount(db, account),

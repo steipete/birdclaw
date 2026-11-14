@@ -20,6 +20,8 @@ Returns a flat list of actionable items, ranked by:
 - author influence (follower count plus the derived score)
 - low-signal heuristic (templated AI cadence, generic praise, link-only spam → demoted)
 
+Use `--account <username-or-id>` to scope both listing and scoring to one account. This overrides `accounts.default`; when neither is set, the queue spans accounts.
+
 ## By kind
 
 ```bash

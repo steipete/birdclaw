@@ -215,6 +215,7 @@ function collectLiveSearchTweets(
         t.text,
         t.created_at,
         t.is_replied,
+        t.reply_to_id,
         t.like_count,
 			t.media_count,
 			t.entities_json,
@@ -291,7 +292,11 @@ function liveSearchRowPassesFilters(
 ) {
 	const text = String(row.text);
 	const createdAt = String(row.created_at);
-	if (options.originalsOnly && text.startsWith("@")) return false;
+	if (
+		options.originalsOnly &&
+		(Boolean(row.reply_to_id) || text.startsWith("@"))
+	)
+		return false;
 	if (options.since?.trim() && createdAt < options.since.trim()) return false;
 	if (options.until?.trim() && createdAt >= options.until.trim()) return false;
 	if (!options.hideLowQuality) return true;
@@ -561,6 +566,9 @@ export function streamSearchDiscussionEffect(
 	handlers: SearchDiscussionStreamHandlers = {},
 ): Effect.Effect<SearchDiscussionRunResult, Error> {
 	return Effect.gen(function* () {
+		if (!options.query.trim()) {
+			return yield* Effect.fail(new Error("Search query is required"));
+		}
 		const mode = options.mode ?? defaultLiveSyncMode("xurl");
 		const liveSearch =
 			mode === "local"

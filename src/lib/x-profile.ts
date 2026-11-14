@@ -19,6 +19,7 @@ export interface ResolvedXProfile {
 
 export interface XProfileIdentityOptions {
 	provenLegacyProfileIds?: ReadonlySet<string>;
+	preserveExisting?: boolean;
 }
 
 export function buildExternalProfileId(externalUserId: string) {
@@ -198,12 +199,42 @@ function upsertProfileFromXUserInTransaction(
 	}
 
 	const profileId = buildExternalProfileId(externalUserId);
+	if (options.preserveExisting) {
+		const existingCanonical = db
+			.prepare(
+				`
+        select id, handle, display_name, bio, followers_count, following_count, avatar_hue, avatar_url,
+          location, url, verified_type, entities_json, created_at
+        from profiles
+        where id = ?
+        limit 1
+        `,
+			)
+			.get(profileId) as Record<string, unknown> | undefined;
+		if (existingCanonical) {
+			const existingHandle = String(existingCanonical.handle ?? "");
+			const existingDisplayName = String(existingCanonical.display_name ?? "");
+			if (
+				!existingHandle.startsWith("birdclaw_stub_") &&
+				!existingDisplayName.startsWith("birdclaw_stub_")
+			) {
+				return {
+					profile: profileFromDbRow(existingCanonical),
+					externalUserId: String(user.id),
+				};
+			}
+		}
+	}
+
 	const reconciliation = reconcileCanonicalXProfileIdentity({
 		db,
 		externalUserId,
 		canonicalProfileId: profileId,
 		incomingHandle: username,
 		provenLegacyProfileIds: options.provenLegacyProfileIds,
+		...(options.preserveExisting
+			? { canReassignHandleCollision: () => false }
+			: {}),
 	});
 	const storedHandle =
 		reconciliation.blockedHandleProfileIds.length > 0
