@@ -1990,9 +1990,16 @@ function publishStagedBackupEffect(repoPath: string, stagingPath: string) {
 				: path.resolve(repoPath, indexStdout.trim());
 			gitIndexExisted = yield* trySync(() => existsSync(gitIndexPath!));
 			if (gitIndexExisted) {
+				yield* tryPromise(async () =>
+					assertOwnedPathStat(
+						await fs.lstat(gitIndexPath!),
+						"Git index",
+						"file",
+					),
+				);
 				gitIndexBackupPath = path.join(rollbackPath, "git-index");
 				yield* tryPromise(() =>
-					durableCopyFile(gitIndexPath!, gitIndexBackupPath!),
+					durableCopyFile(gitIndexPath!, gitIndexBackupPath!, 0o600),
 				);
 			}
 			if (yield* hasGitCommitsEffect(repoPath)) {

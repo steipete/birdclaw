@@ -2,6 +2,7 @@
 
 ## 0.17.1 - Unreleased
 
+- Reject unsafe Git index permissions before backup publication can change the live generation, and keep recovery index snapshots private.
 - Restore native web DM account verification by discovering the viewer query's current Relay variables and rediscovering stale metadata after HTTP 422. Thanks @rymalia (#256).
 - Honor bookmark job page caps and account aliases, allow small Bird authored batches, and restore cached timelines, collections, and mentions without overwriting newer profiles or observations. Thanks @saariuslystoned (#257, #261).
 - Keep tokenless searches and empty author filters from returning unrelated rows, and honor account selection in DM search and Inbox. Thanks @saariuslystoned (#258, #259).
