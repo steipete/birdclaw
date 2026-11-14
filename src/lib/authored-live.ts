@@ -506,7 +506,10 @@ function syncAuthoredTweetsViaSourceEffect({
 }: SyncAuthoredTweetsOptions & { mode: AuthoredSource }) {
 	return Effect.gen(function* () {
 		const pageLimit = yield* trySync(() =>
-			parseLivePageSize(limit, { min: MIN_XURL_LIMIT, max: MAX_XURL_LIMIT }),
+			parseLivePageSize(limit, {
+				min: mode === "bird" ? 1 : MIN_XURL_LIMIT,
+				max: MAX_XURL_LIMIT,
+			}),
 		);
 		const parsedMaxPages = yield* trySync(() =>
 			parseOptionalMaxPages(maxPages),
@@ -751,7 +754,7 @@ export function syncAuthoredTweetsEffect(options: SyncAuthoredTweetsOptions) {
 		const mode = yield* trySync(() => parseLiveSyncMode(options.mode, "auto"));
 		yield* trySync(() =>
 			parseLivePageSize(options.limit ?? DEFAULT_LIMIT, {
-				min: MIN_XURL_LIMIT,
+				min: mode === "xurl" ? MIN_XURL_LIMIT : 1,
 				max: MAX_XURL_LIMIT,
 			}),
 		);

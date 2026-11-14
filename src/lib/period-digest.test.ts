@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -14,6 +14,32 @@ import {
 	streamPeriodDigestEffect,
 } from "./period-digest";
 import { getTweetsByIds } from "./timeline-read-model";
+
+const pass13Live = vi.hoisted(() => vi.fn());
+vi.mock("./timeline-live", () => ({
+	syncHomeTimelineEffect: () => {
+		pass13Live();
+		return Effect.succeed({ count: 0, source: "xurl" });
+	},
+}));
+vi.mock("./mentions-live", () => ({
+	syncMentionsEffect: () => {
+		pass13Live();
+		return Effect.succeed({ count: 0, source: "xurl" });
+	},
+}));
+vi.mock("./mention-threads-live", () => ({
+	syncMentionThreadsEffect: () => {
+		pass13Live();
+		return Effect.succeed({ uniqueTweets: 0 });
+	},
+}));
+vi.mock("./backup", () => ({
+	maybeAutoSyncBackupEffect: () => {
+		pass13Live();
+		return Effect.void;
+	},
+}));
 
 const tempRoots: string[] = [];
 
@@ -56,6 +82,7 @@ afterEach(() => {
 	delete process.env.BIRDCLAW_OPENAI_REASONING_EFFORT;
 	delete process.env.BIRDCLAW_OPENAI_SERVICE_TIER;
 	vi.unstubAllGlobals();
+	vi.unstubAllEnvs();
 	for (const tempRoot of tempRoots.splice(0)) {
 		rmSync(tempRoot, { recursive: true, force: true });
 	}
@@ -708,5 +735,311 @@ describe("period digest", () => {
 		const empty = await streamPeriodDigest({ ...options, language: "ja" });
 		expect(empty.digest.title).toBe("[ja]");
 		expect(empty.digest.summary).toBe("[ja]");
+	});
+});
+
+describe("pass13 digest input and read-only contracts", () => {
+	const window = { since: "2026-01-01", until: "2027-01-01" };
+	beforeEach(() => {
+		pass13Live.mockClear();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw new Error("mocked network disabled");
+			}),
+		);
+	});
+	it.each(["bogus", "30d", ""])("rejects unknown period %j", (period) => {
+		expect(() => resolvePeriodDigestWindow({ period })).toThrow(/period/i);
+		expect(() => resolvePeriodDigestWindow({ ...window, period })).toThrow(
+			/period/i,
+		);
+	});
+	it.each([
+		"not-a-date",
+		"2026-02-30",
+		"2026-04-31",
+		"2026-01-01T24:00:00Z",
+		"2026-01-01junk",
+		"",
+	])("rejects invalid bounds %j", (date) => {
+		expect(() => resolvePeriodDigestWindow({ since: date })).toThrow(/since/i);
+		expect(() => resolvePeriodDigestWindow({ until: date })).toThrow(/until/i);
+	});
+	it("rejects reversed UTC bounds", () => {
+		expect(() =>
+			resolvePeriodDigestWindow({
+				since: "2026-01-01T10:00:00-05:00",
+				until: "2026-01-01T14:00:00Z",
+			}),
+		).toThrow(/since.*until/i);
+	});
+	it("preserves aliases, leap days, equal instants and offset ordering", () => {
+		for (const period of [
+			undefined,
+			"today",
+			"yesterday",
+			"24h",
+			"day",
+			"week",
+			"7d",
+		]) {
+			expect(resolvePeriodDigestWindow({ period }).since).toBeTruthy();
+		}
+		expect(
+			resolvePeriodDigestWindow({ since: "2024-02-29", until: "2024-02-29" }),
+		).toMatchObject({
+			since: "2024-02-29T00:00:00.000Z",
+			until: "2024-02-29T00:00:00.000Z",
+		});
+		expect(
+			resolvePeriodDigestWindow({
+				since: "2026-01-01T16:00:00+02:00",
+				until: "2026-01-01T15:00:00Z",
+			}).since,
+		).toBe("2026-01-01T14:00:00.000Z");
+	});
+	it.each(["maxTweets", "maxLinks"] as const)(
+		"honors zero and small %s caps",
+		(key) => {
+			const zero = collectPeriodDigestContext({ ...window, [key]: 0 });
+			expect(key === "maxTweets" ? zero.tweets : zero.links).toHaveLength(0);
+			const small = collectPeriodDigestContext({ ...window, [key]: 1 });
+			expect(
+				(key === "maxTweets" ? small.tweets : small.links).length,
+			).toBeLessThanOrEqual(1);
+			expect(collectPeriodDigestContext(window).tweets.length).toBeGreaterThan(
+				1,
+			);
+		},
+	);
+	it.each(["maxTweets", "maxLinks"] as const)(
+		"rejects invalid %s caps in the Effect channel",
+		async (key) => {
+			for (const value of [
+				-1,
+				1.5,
+				NaN,
+				Infinity,
+				Number.MAX_SAFE_INTEGER + 1,
+			]) {
+				const result = await Effect.runPromise(
+					Effect.either(streamPeriodDigestEffect({ ...window, [key]: value })),
+				);
+				expect(Either.isLeft(result) ? result.left.message : "success").toMatch(
+					new RegExp(key),
+				);
+			}
+		},
+	);
+	it("validates bad live windows before transport in the Effect channel", async () => {
+		const fetch = vi.fn();
+		vi.stubGlobal("fetch", fetch);
+		const result = await Effect.runPromise(
+			Effect.either(
+				streamPeriodDigestEffect({ since: "2026-02-30", liveSync: true }),
+			),
+		);
+		expect(Either.isLeft(result) ? result.left.message : "success").toMatch(
+			/since/i,
+		);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(pass13Live).not.toHaveBeenCalled();
+	});
+	it.each([false, true])(
+		"does not generate or refresh an uncached read-only digest (refresh=%s)",
+		async (refresh) => {
+			const db = getNativeDb();
+			const before = db.prepare("select * from sync_cache").all();
+			const fetch = vi.fn();
+			vi.stubGlobal("fetch", fetch);
+			vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+			const result = await Effect.runPromise(
+				Effect.either(
+					streamPeriodDigestEffect({ ...window, refresh, liveSync: true }),
+				),
+			);
+			expect(Either.isLeft(result) ? result.left.message : "success").toMatch(
+				/read.only/i,
+			);
+			expect(fetch).not.toHaveBeenCalled();
+			expect(pass13Live).not.toHaveBeenCalled();
+			expect(db.prepare("select * from sync_cache").all()).toEqual(before);
+		},
+	);
+	it("reads a cached digest without rewriting latest cache in read-only mode", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				streamResponse(
+					sseFrame({
+						type: "response.output_text.delta",
+						delta: "# Digest\n\nLocal summary",
+					}) +
+						sseFrame({
+							type: "response.completed",
+							response: { id: "digest-test" },
+						}),
+				),
+			),
+		);
+		const first = await streamPeriodDigest({ ...window, liveSync: false });
+		const db = getNativeDb();
+		db.prepare(
+			"delete from sync_cache where cache_key like 'period-digest-latest:%'",
+		).run();
+		const before = db
+			.prepare("select * from sync_cache order by cache_key")
+			.all();
+		const fetch = vi.fn();
+		vi.stubGlobal("fetch", fetch);
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const cached = await streamPeriodDigest({ ...window, liveSync: false });
+		expect(cached.markdown).toBe(first.markdown);
+		expect(cached.cached).toBe(true);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(pass13Live).not.toHaveBeenCalled();
+		expect(
+			db.prepare("select * from sync_cache order by cache_key").all(),
+		).toEqual(before);
+	});
+	it("keeps zero/small caps distinct in the latest cache", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				streamResponse(
+					sseFrame({
+						type: "response.output_text.delta",
+						delta: "# Digest\n\nLocal summary",
+					}) +
+						sseFrame({
+							type: "response.completed",
+							response: { id: "cap-test" },
+						}),
+				),
+			),
+		);
+		await streamPeriodDigest({ ...window, maxTweets: 20, maxLinks: 3 });
+		const zero = await streamPeriodDigest({
+			...window,
+			maxTweets: 0,
+			maxLinks: 0,
+			includeDms: true,
+		});
+		expect(zero.context.tweets).toHaveLength(0);
+		expect(zero.context.links).toHaveLength(0);
+		expect(zero.context.dms).toHaveLength(0);
+		const one = await streamPeriodDigest({
+			...window,
+			maxTweets: 1,
+			maxLinks: 1,
+		});
+		expect(one.context.tweets).toHaveLength(1);
+		expect(one.context.links).toHaveLength(1);
+		const cached = await streamPeriodDigest({
+			...window,
+			maxTweets: 1,
+			maxLinks: 1,
+		});
+		expect(cached.cached).toBe(true);
+		expect(cached.context.tweets).toHaveLength(1);
+	});
+	it("preserves scoped tweet selectors and unknown-account isolation", () => {
+		const expected = collectPeriodDigestContext({
+			...window,
+			account: "acct_primary",
+			maxLinks: 2,
+			includeDms: true,
+		});
+		expect(expected.tweets.length).toBeGreaterThan(0);
+		for (const account of ["steipete", " @STEIPETE "])
+			expect(
+				((context) => ({
+					tweets: context.tweets,
+					links: context.links,
+					dms: context.dms,
+				}))(
+					collectPeriodDigestContext({
+						...window,
+						account,
+						maxLinks: 2,
+						includeDms: true,
+					}),
+				),
+			).toEqual({
+				tweets: expected.tweets,
+				links: expected.links,
+				dms: expected.dms,
+			});
+		expect(
+			collectPeriodDigestContext({
+				...window,
+				account: "@missing",
+				maxLinks: 0,
+			}).tweets,
+		).toEqual([]);
+	});
+	it("hydrates cited tweets outside the window for @handle selectors while isolating other accounts", async () => {
+		const db = getNativeDb();
+		const seed = db
+			.prepare(`
+				select edge.account_id, tweet.author_profile_id
+				from tweets tweet
+				join tweet_account_edges edge on edge.tweet_id = tweet.id
+				where edge.account_id = 'acct_primary'
+				limit 1
+			`)
+			.get() as { account_id: string; author_profile_id: string };
+		const primaryCitedId = "2065597531644744901";
+		const otherCitedId = "2065597531644744902";
+		db.prepare(
+			`insert into accounts (id, name, handle, transport, is_default, created_at)
+			 values ('acct_secondary', 'Secondary', '@secondary', 'archive', 0, '2025-01-01T00:00:00.000Z')`,
+		).run();
+		for (const [id, text, accountId] of [
+			[primaryCitedId, "Outside-window primary citation", seed.account_id],
+			[otherCitedId, "Outside-window secondary citation", "acct_secondary"],
+		] as const) {
+			db.prepare(
+				"insert into tweets (id, author_profile_id, text, created_at) values (?, ?, ?, '2025-12-31T23:59:00.000Z')",
+			).run(id, seed.author_profile_id, text);
+			db.prepare(
+				`insert into tweet_account_edges (
+					account_id, tweet_id, kind, first_seen_at, last_seen_at, seen_count, source, raw_json, updated_at
+				) values (?, ?, 'home', '2025-12-31T23:59:00.000Z', '2025-12-31T23:59:00.000Z', 1, 'test', '{}', '2025-12-31T23:59:00.000Z')`,
+			).run(accountId, id);
+		}
+		const streamed = [
+			sseFrame({
+				type: "response.output_text.delta",
+				delta: `# Digest\n\nRefs (${primaryCitedId}, ${otherCitedId})\n\n---\n{"title":"Digest","summary":"Refs","keyTopics":[],"notableLinks":[],"people":[],"actionItems":[],"sourceTweetIds":["${primaryCitedId}","${otherCitedId}"]}`,
+			}),
+			"data: [DONE]\n\n",
+		].join("");
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamResponse(streamed)));
+
+		const fresh = await streamPeriodDigest({
+			...window,
+			account: " @STEIPETE ",
+			liveSync: false,
+			refresh: true,
+		});
+		expect(fresh.context.account).toBe("acct_primary");
+		expect(fresh.context.tweets.map((t) => t.id)).toContain(primaryCitedId);
+		expect(fresh.context.tweets.map((t) => t.id)).not.toContain(otherCitedId);
+
+		vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+		const cachedByAlias = await streamPeriodDigest({
+			...window,
+			account: "steipete",
+			liveSync: false,
+		});
+		expect(cachedByAlias.cached).toBe(true);
+		expect(cachedByAlias.context.tweets.map((t) => t.id)).toContain(
+			primaryCitedId,
+		);
+		expect(cachedByAlias.context.tweets.map((t) => t.id)).not.toContain(
+			otherCitedId,
+		);
 	});
 });

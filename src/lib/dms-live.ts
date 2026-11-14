@@ -10,7 +10,7 @@ import {
 } from "./bird";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
 import { getNativeDb } from "./db";
-import { runEffectPromise, tryPromise } from "./effect-runtime";
+import { runEffectPromise, tryPromise, trySync } from "./effect-runtime";
 import { getProvenSelectedAccountLegacyProfileIds } from "./profile-identity";
 import {
 	assertLiveAccountMatches,
@@ -828,6 +828,9 @@ export function syncDirectMessagesViaCachedBirdEffect({
 				inbox !== "requests";
 			if (tryXurl) {
 				const xurlResult = yield* Effect.gen(function* () {
+					yield* trySync(() =>
+						parseLivePageSize(limit, { max: XURL_DMS_MAX_RESULTS }),
+					);
 					const authenticated = getAuthenticatedXurlAccount(
 						yield* lookupAuthenticatedOAuth2UserEffect(
 							resolvedAccount.username,

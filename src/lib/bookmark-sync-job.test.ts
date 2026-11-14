@@ -3,7 +3,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Command } from "commander";
 import { Effect } from "effect";
+import { createCommandContext } from "../cli/command-context";
+import { configureNumericOptions } from "../cli/numeric-options";
+import { registerJobCommands } from "../cli/register-jobs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	buildBookmarkSyncLaunchAgentPlist,
@@ -74,6 +78,71 @@ afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+function paginationFixture() {
+	process.env.BIRDCLAW_HOME = makeTempDir("birdclaw-pages-");
+	resetBirdclawPathsForTests();
+	syncTimelineCollectionMock.mockResolvedValue({
+		source: "xurl",
+		count: 0,
+		accountId: "acct_primary",
+	});
+	maybeAutoSyncBackupMock.mockResolvedValue({ ok: true, enabled: false });
+}
+
+function jobCli() {
+	const program = new Command().option("--json").exitOverride();
+	const print = vi.fn();
+	configureNumericOptions(program);
+	registerJobCommands({ ...createCommandContext(program), print });
+	return { program, print };
+}
+
+async function installedArguments(flags: string[], cap: number | undefined) {
+	const install = jobCli();
+	await install.program.parseAsync(
+		[
+			"jobs",
+			"install-bookmarks-launchd",
+			...flags,
+			"--program",
+			"/birdclaw",
+			"--no-load",
+			"--launch-agents-dir",
+			process.env.BIRDCLAW_HOME!,
+		],
+		{ from: "user" },
+	);
+	const agent = install.print.mock.lastCall![0];
+	expect(agent.loaded).toBe(false);
+	expect(readFileSync(agent.plistPath, "utf8")).toContain("sync-bookmarks");
+	const args: string[] = agent.programArguments.slice(1);
+	const index = args.indexOf("--max-pages");
+	expect(index < 0 ? undefined : Number(args[index + 1])).toBe(cap);
+	return args;
+}
+
+describe.each([false, true])("bookmark pagination, launchd=%s", (launchd) => {
+	it.each([
+		{ flags: [], cap: 5 },
+		{ flags: ["--max-pages", "2"], cap: 2 },
+		{ flags: ["--max-pages", "7"], cap: 7 },
+		{ flags: ["--all"], cap: undefined },
+		{ flags: ["--all", "--max-pages", "2"], cap: 2 },
+		{ flags: ["--max-pages", "7", "--all"], cap: 7 },
+	])("preserves $flags as cap=$cap", async ({ flags, cap }) => {
+		paginationFixture();
+		let args = ["jobs", "sync-bookmarks", ...flags];
+		if (launchd) args = await installedArguments(flags, cap);
+		const run = jobCli();
+		await run.program.parseAsync(args, { from: "user" });
+		expect(run.print.mock.lastCall![0].ok).toBe(true);
+		expect(run.print.mock.lastCall![0].options.maxPages).toBe(cap);
+		expect(syncTimelineCollectionMock).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ all: true, maxPages: cap }),
+		);
+	});
 });
 
 describe("bookmark sync job", () => {

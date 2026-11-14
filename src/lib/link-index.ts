@@ -462,7 +462,9 @@ export function searchLinks(query: string, options: LinkSearchOptions = {}) {
     )
   `;
 
-	for (const term of query.match(/[\p{L}\p{N}_:.@/-]+/gu) ?? []) {
+	const terms = query.match(/[\p{L}\p{N}_:.@/-]+/gu) ?? [];
+	if (query.trim() && terms.length === 0) return [];
+	for (const term of terms) {
 		conditions.push(`${searchFields} like ? escape '\\'`);
 		params.push(likePattern(term));
 	}

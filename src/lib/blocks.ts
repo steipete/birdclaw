@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { resolveOperationAccount } from "./account-selection";
 import { getNativeDb } from "./db";
 import { databaseWriteEffect } from "./database-writer";
 import { runEffectPromise, trySync } from "./effect-runtime";
@@ -98,7 +99,9 @@ export function getBlocksResponse({
 export function syncBlocksEffect(accountId: string) {
 	return Effect.gen(function* () {
 		const db = yield* trySync(() => getNativeDb());
-		const resolvedAccountId = accountId || getDefaultAccountId(db);
+		const resolvedAccountId = yield* trySync(
+			() => resolveOperationAccount(accountId || undefined, db).id,
+		);
 		const accountHandle = getAccountHandle(db, resolvedAccountId);
 		if (!accountHandle) {
 			return yield* Effect.fail(

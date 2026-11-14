@@ -650,6 +650,7 @@ const FTS_MATCH_COUNT_LIMIT = FTS_DRIVE_FROM_MATCHES_MAX + 1;
 
 interface ParsedTimelineSearch {
 	ftsSearch: string;
+	hasUnmatchableText: boolean;
 	authorHandle: string | undefined;
 }
 
@@ -659,15 +660,18 @@ export function parseTimelineSearch({
 }: Pick<TimelineQuery, "search" | "author">): ParsedTimelineSearch {
 	let queryAuthor: string | undefined;
 	const text = (search ?? "").replace(
-		/(?:^|\s)from:@?([A-Za-z0-9_]{1,15})\b/i,
-		(_match, handle: string) => {
-			queryAuthor = handle;
+		/(?:^|\s)from:(?:@?([A-Za-z0-9_]{1,15})\b|@?(?=\s|$))/i,
+		(_match, handle: string | undefined) => {
+			queryAuthor = handle ?? "";
 			return " ";
 		},
 	);
+	const ftsSearch = toFtsSearchQuery(text);
 	return {
-		ftsSearch: toFtsSearchQuery(text),
-		authorHandle: author?.trim().replace(/^@/, "") || queryAuthor,
+		ftsSearch,
+		hasUnmatchableText: Boolean(text.trim()) && !ftsSearch,
+		authorHandle:
+			author === undefined ? queryAuthor : author.trim().replace(/^@/, ""),
 	};
 }
 
@@ -704,7 +708,10 @@ export function buildTimelineItemsQuery(
 	const effectiveAccountId = hasLiteralAccountId ? literalAccountId : account;
 	const shouldDedupeAcrossAccounts =
 		!hasLiteralAccountId && (!account || account === "all");
-	const { ftsSearch, authorHandle } = parseTimelineSearch({ search, author });
+	const { ftsSearch, authorHandle, hasUnmatchableText } = parseTimelineSearch({
+		search,
+		author,
+	});
 	const timelineEdgeIndexHint = ftsSearch
 		? " indexed by idx_tweet_account_edges_kind_tweet"
 		: "";
@@ -782,6 +789,7 @@ export function buildTimelineItemsQuery(
 		params.push(kind);
 	}
 	where += " and t.deleted_at is null and t.superseded_at is null";
+	if (hasUnmatchableText || authorHandle === "") where += " and 0";
 
 	if (
 		hasLiteralAccountId ||
@@ -1113,7 +1121,9 @@ export function listTimelineItems(
 	} = query;
 	const normalizedLowQualityThreshold =
 		normalizeLowQualityThreshold(lowQualityThreshold);
-	const { ftsSearch } = parseTimelineSearch(query);
+	const { ftsSearch, authorHandle, hasUnmatchableText } =
+		parseTimelineSearch(query);
+	if (hasUnmatchableText || authorHandle === "") return [];
 	const ftsMatchCount = ftsSearch
 		? (options.ftsMatchCountHint ??
 			Number(

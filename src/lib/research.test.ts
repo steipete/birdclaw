@@ -166,6 +166,59 @@ describe("research mode", () => {
 		}
 	});
 
+	it.each([
+		{ account: "acct_research", scoped: true },
+		{ account: "researchsam", scoped: true },
+		{ account: "@researchsam", scoped: true },
+		{ account: " @RESEARCHSAM ", scoped: true },
+		{ account: undefined, scoped: false },
+		{ account: "all", scoped: false },
+	])(
+		"scopes ancestor and descendant collection flags for $account",
+		async ({ account, scoped }) => {
+			const db = getNativeDb();
+			db.prepare(
+				"insert into accounts (id, name, handle, transport, created_at) values ('acct_other', 'Other', '@other', 'xurl', '2026-05-01')",
+			).run();
+			db.prepare(
+				"update tweet_collections set tweet_id = 'tweet_reply_1' where account_id = 'acct_research'",
+			).run();
+			const insert = db.prepare(
+				"insert into tweet_collections (account_id, tweet_id, kind, collected_at, source, raw_json, updated_at) values (?, ?, ?, '2026-05-01', 'fixture', '{}', '2026-05-01')",
+			);
+			for (const id of ["tweet_root", "tweet_reply_2"]) {
+				for (const kind of ["bookmarks", "likes"])
+					insert.run("acct_other", id, kind);
+			}
+			insert.run("acct_research", "tweet_reply_1", "likes");
+			for (const kind of ["bookmarks", "likes"])
+				insert.run("acct_research", "tweet_reply_3", kind);
+			const { runResearchMode } = await import("./research");
+			const report = await runResearchMode({ account });
+			const item = report.items.find(
+				({ seedTweetId }) => seedTweetId === "tweet_reply_1",
+			);
+			expect(item).toBeDefined();
+			// Root comes from the ancestor lookup, reply_2 from the recursive descendant query.
+			const flags = item?.thread.map(({ id, bookmarked, liked }) => ({
+				id,
+				bookmarked,
+				liked,
+			}));
+			expect(flags).toEqual([
+				{ id: "tweet_root", bookmarked: !scoped, liked: !scoped },
+				{ id: "tweet_reply_1", bookmarked: true, liked: true },
+				{ id: "tweet_reply_2", bookmarked: !scoped, liked: !scoped },
+				{ id: "tweet_reply_3", bookmarked: true, liked: true },
+			]);
+		},
+	);
+
+	it("does not fall back to all accounts for an unknown selector", async () => {
+		const { runResearchMode } = await import("./research");
+		expect((await runResearchMode({ account: "missing" })).items).toEqual([]);
+	});
+
 	it("expands bookmarked threads into a markdown brief", async () => {
 		const { runResearchMode } = await import("./research");
 

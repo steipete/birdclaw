@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBirdclawPathsForTests } from "./config";
 import { getNativeDb, resetDatabaseForTests } from "./db";
@@ -551,4 +551,120 @@ describe("live tweet search sync", () => {
 		});
 		expect(mocks.searchTweetsViaBird).toHaveBeenCalledTimes(1);
 	});
+});
+
+describe("Pass 12 live search input contracts", () => {
+	it.each(
+		(["limit", "maxPages"] as const).flatMap((option) =>
+			[0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1].map((value) => ({
+				option,
+				value,
+			})),
+		),
+	)(
+		"rejects $option=$value through Effect failure before transport",
+		async ({ option, value }) => {
+			const { syncTweetSearchEffect } = await import("./tweet-search-live");
+			const result = await Effect.runPromise(
+				Effect.either(
+					syncTweetSearchEffect({
+						query: "test",
+						mode: "local",
+						[option]: value,
+					}),
+				),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+			expect(Either.isLeft(result) ? result.left.message : undefined).toContain(
+				option === "limit" ? "--limit" : "--max-pages",
+			);
+			expect(mocks.searchTweetsViaBird).not.toHaveBeenCalled();
+			expect(mocks.searchRecentTweets).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(["bogus", "", "BIRD"])(
+		"rejects unsupported mode %s instead of running auto",
+		async (mode) => {
+			const { syncTweetSearchEffect } = await import("./tweet-search-live");
+			mocks.searchTweetsViaBird.mockResolvedValue(payload([]));
+			mocks.searchRecentTweets.mockResolvedValue(payload([]));
+			const result = await Effect.runPromise(
+				Effect.either(
+					syncTweetSearchEffect({ query: "test", mode: mode as "auto" }),
+				),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+			expect(Either.isLeft(result) ? result.left.message : undefined).toContain(
+				"--mode",
+			);
+			expect(mocks.searchTweetsViaBird).not.toHaveBeenCalled();
+			expect(mocks.searchRecentTweets).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([
+		"2026-02-30",
+		"2025-02-29",
+		"2026-04-31T12:00:00Z",
+		"2026-01-01 junk",
+		"2026-01-01T24:00:00Z",
+		"01/02/2026",
+	])("rejects invalid/non-ISO date %s for both bounds", async (date) => {
+		const { syncTweetSearchEffect } = await import("./tweet-search-live");
+		for (const option of ["since", "until"] as const) {
+			const result = await Effect.runPromise(
+				Effect.either(
+					syncTweetSearchEffect({
+						query: "test",
+						mode: "local",
+						[option]: date,
+					}),
+				),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+			expect(Either.isLeft(result) ? result.left.message : undefined).toContain(
+				"--" + option,
+			);
+		}
+	});
+
+	it("rejects reversed normalized date bounds", async () => {
+		const { syncTweetSearchEffect } = await import("./tweet-search-live");
+		const result = await Effect.runPromise(
+			Effect.either(
+				syncTweetSearchEffect({
+					query: "test",
+					mode: "local",
+					since: "2026-01-01T00:30:00-02:00",
+					until: "2026-01-01T01:00:00Z",
+				}),
+			),
+		);
+		expect(Either.isLeft(result)).toBe(true);
+		expect(Either.isLeft(result) ? result.left.message : undefined).toContain(
+			"--since",
+		);
+	});
+
+	it.each([
+		["2024-02-29", "2024-02-29"],
+		["2026-01-01T01:00:00+02:00", "2026-01-01T00:00:00Z"],
+		["2026-01-01T00:00:00.123Z", "2026-01-01T00:00:00.124Z"],
+	])(
+		"accepts valid calendar and normalized bounds %s / %s",
+		async (since, until) => {
+			const { syncTweetSearch } = await import("./tweet-search-live");
+			await expect(
+				syncTweetSearch({
+					query: "test",
+					mode: "local",
+					since,
+					until,
+					limit: 1,
+					maxPages: 1,
+				}),
+			).resolves.toMatchObject({ ok: true });
+		},
+	);
 });

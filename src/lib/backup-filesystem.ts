@@ -54,10 +54,15 @@ export async function durableRemove(
 	await syncDirectory(path.dirname(target));
 }
 
-export async function durableCopyFile(source: string, destination: string) {
+export async function durableCopyFile(
+	source: string,
+	destination: string,
+	mode?: number,
+) {
 	await fs.copyFile(source, destination);
 	const handle = await fs.open(destination, "r");
 	try {
+		if (mode !== undefined) await handle.chmod(mode);
 		await handle.sync();
 	} finally {
 		await handle.close();

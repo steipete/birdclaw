@@ -198,6 +198,7 @@ export function registerSearchCommands({
 
 	searchCommand
 		.command("dms <query>")
+		.option("--account <username>", "Account username or id")
 		.option("--inbox <kind>", "all, accepted, or requests", "all")
 		.option("--participant <value>")
 		.option("--min-followers <n>", "Minimum sender follower count")
@@ -252,6 +253,7 @@ export function registerSearchCommands({
 					: "all";
 			const items = await enrichDmItems(
 				{
+					account: options.account,
 					search: query,
 					...(inbox !== "all" ? { inbox } : {}),
 					participant: options.participant,

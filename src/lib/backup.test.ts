@@ -94,7 +94,12 @@ async function makeRecoveryJournalFixture(repoPath: string) {
 		? rawIndexPath
 		: path.resolve(repoPath, rawIndexPath);
 	const gitIndexBackupPath = path.join(rollbackPath, "git-index");
-	writeFileSync(gitIndexBackupPath, readFileSync(gitIndexPath));
+	writeFileSync(gitIndexBackupPath, readFileSync(gitIndexPath), {
+		mode: 0o600,
+	});
+	writeFileSync(path.join(transactionRoot, "journal.json"), "", {
+		mode: 0o600,
+	});
 	const headBefore = execFileSync(
 		"git",
 		["-C", repoPath, "rev-parse", "HEAD"],
@@ -3159,6 +3164,33 @@ describe("text backup", () => {
 			__test__.setAfterPublicationRename(undefined);
 		}
 	}, 120000);
+
+	it("rejects a group-writable Git index before publication", async () => {
+		switchHome("birdclaw-backup-shared-index-home-");
+		seedBackupFixture();
+		const repoPath = makeTempDir("birdclaw-backup-shared-index-repo-");
+		await exportBackup({ repoPath, commit: true });
+		const indexPath = path.join(repoPath, ".git", "index");
+		chmodSync(indexPath, 0o664);
+		const before = snapshotTree(repoPath);
+		const renamed = vi.fn();
+		__test__.setAfterPublicationRename(renamed);
+		const previousUmask = process.umask(0o002);
+		try {
+			await expect(exportBackup({ repoPath })).rejects.toThrow(
+				"Git index is group/world writable",
+			);
+		} finally {
+			process.umask(previousUmask);
+		}
+		expect(renamed).not.toHaveBeenCalled();
+		expect(snapshotTree(repoPath)).toEqual(before);
+		expect(
+			execFileSync("git", ["-C", repoPath, "status", "--porcelain"], {
+				encoding: "utf8",
+			}),
+		).toBe("");
+	});
 
 	it("falls back when the preferred transaction root is not writable", async () => {
 		switchHome("birdclaw-backup-root-fallback-home-");

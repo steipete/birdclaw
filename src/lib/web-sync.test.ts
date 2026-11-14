@@ -103,7 +103,14 @@ function setupDefaultAccount(accountId: string) {
       values (?, ?, ?, ?, ?, ?)
       `,
 		)
-		.run(accountId, "Studio", "@studio", "bird", 1, "2026-01-01T00:00:00.000Z");
+		.run(
+			accountId,
+			"Studio workspace",
+			"@studio",
+			"bird",
+			1,
+			"2026-01-01T00:00:00.000Z",
+		);
 }
 
 describe("web sync dispatcher", () => {
@@ -135,6 +142,60 @@ describe("web sync dispatcher", () => {
 			rmSync(tempRoot, { recursive: true, force: true });
 		}
 	});
+
+	for (const kind of ["timeline", "likes", "bookmarks"] as const) {
+		it.each(["@studio", "studio", "Studio", " acct_studio "])(
+			"Pass 11 keeps auto mode for " + kind + " default selector %j",
+			async (account) => {
+				setupDefaultAccount("acct_studio");
+				const mock =
+					kind === "timeline"
+						? syncHomeTimelineMock
+						: syncTimelineCollectionMock;
+				mock.mockResolvedValue({ ok: true, source: "bird", count: 1 });
+				const response = await runWebSync(kind, account);
+				expect(response.ok).toBe(true);
+				expect(mock).toHaveBeenCalledWith(
+					expect.objectContaining({ account, mode: "auto" }),
+				);
+				expect(response.accountId).toBe(account);
+				await runWebSync(kind, "acct_other");
+				expect(mock).toHaveBeenLastCalledWith(
+					expect.objectContaining({ account: "acct_other", mode: "xurl" }),
+				);
+			},
+		);
+	}
+	it.each(["@studio", "studio", "Studio", " acct_studio "])(
+		"Pass 11 coalesces default aliases %j without changing the caller account",
+		async (account) => {
+			setupDefaultAccount("acct_studio");
+			const pending = deferred<{
+				ok: boolean;
+				source: string;
+				count: number;
+			}>();
+			syncHomeTimelineMock.mockReturnValue(pending.promise);
+			const first = startWebSync("timeline", account);
+			const omitted = startWebSync("timeline");
+			const canonical = startWebSync("timeline", "acct_studio");
+			const other = startWebSync("timeline", "acct_other");
+			pending.resolve({ ok: true, source: "bird", count: 1 });
+			await vi.waitFor(() => {
+				for (const job of [first, omitted, canonical, other])
+					expect(getWebSyncJob(job.id)?.status).toBe("succeeded");
+			});
+			expect(omitted.id).toBe(first.id);
+			expect(canonical.id).toBe(first.id);
+			expect(other.id).not.toBe(first.id);
+			expect(first.accountId).toBe(account);
+			expect(syncHomeTimelineMock).toHaveBeenCalledTimes(2);
+			expect(syncHomeTimelineMock).toHaveBeenNthCalledWith(
+				1,
+				expect.objectContaining({ account }),
+			);
+		},
+	);
 
 	it("syncs the home timeline with a live refresh and backup pass", async () => {
 		syncHomeTimelineMock.mockResolvedValue({

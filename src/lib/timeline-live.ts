@@ -70,7 +70,7 @@ function mergeHomeTimelineIntoLocalStore(
 	db: Database,
 	accountId: string,
 	payload: XurlMentionsResponse,
-	source: "bird" | "xurl",
+	source: "bird" | "xurl" | "cache",
 ) {
 	ingestTweetPayload(db, {
 		accountId,
@@ -212,6 +212,8 @@ export function syncHomeTimelineEffect({
 					livePayload,
 					liveSource,
 				),
+			persistCached: (writeDb, payload) =>
+				mergeHomeTimelineIntoLocalStore(writeDb, accountId, payload, "cache"),
 		});
 		const { source, payload } = syncResult;
 		if (source === "cache") {

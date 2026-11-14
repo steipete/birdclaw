@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { CliInputError } from "./numeric-options";
 import type { CliCommandContext } from "./command-context";
 import { defaultLiveSyncMode } from "#/lib/config";
@@ -9,6 +10,7 @@ import {
 	type PeriodDigestPreset,
 } from "#/lib/period-digest";
 import {
+	normalizeProfileHandle,
 	streamProfileAnalysis,
 	type ProfileAnalysisOptions,
 } from "#/lib/profile-analysis";
@@ -18,6 +20,11 @@ import {
 	type SearchDiscussionOptions,
 	type SearchDiscussionSource,
 } from "#/lib/search-discussion";
+
+const digestDateSchema = z.union([
+	z.iso.date(),
+	z.iso.datetime({ offset: true, local: true }),
+]);
 
 export function registerAnalysisCommands({
 	program,
@@ -66,7 +73,10 @@ export function registerAnalysisCommands({
 		if (normalized === "yesterday") return "yesterday";
 		if (normalized === "24h" || normalized === "day") return "24h";
 		if (normalized === "week" || normalized === "7d") return "week";
-		return "today";
+		if (value === undefined || normalized === "today") return "today";
+		throw new CliInputError(
+			"period must be today, 24h, day, yesterday, week, or 7d",
+		);
 	}
 
 	function buildDigestOptions(
@@ -105,8 +115,31 @@ export function registerAnalysisCommands({
 				error instanceof Error ? error.message : String(error),
 			);
 		}
+		const parsedPeriod = parseDigestPeriod(period);
+		for (const [name, value] of [
+			["since", options.since],
+			["until", options.until],
+		]) {
+			if (
+				value !== undefined &&
+				!digestDateSchema.safeParse(value.trim()).success
+			) {
+				throw new CliInputError(
+					"--" + name + " must be a valid YYYY-MM-DD or ISO timestamp",
+				);
+			}
+		}
+		if (
+			options.since !== undefined &&
+			new Date(options.since.trim()).getTime() >
+				(options.until === undefined
+					? Date.now()
+					: new Date(options.until.trim()).getTime())
+		) {
+			throw new CliInputError("since must be before or equal to until");
+		}
 		return {
-			period: parseDigestPeriod(period),
+			period: parsedPeriod,
 			since: options.since,
 			until: options.until,
 			account: options.account,
@@ -230,6 +263,15 @@ export function registerAnalysisCommands({
 			rateLimitRetries?: string;
 		},
 	): ProfileAnalysisOptions {
+		let normalizedHandle: string;
+		try {
+			normalizedHandle = normalizeProfileHandle(handle);
+		} catch (error) {
+			throw new CliInputError(
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+
 		const maxTweets = parsePositiveIntegerOption(
 			options.maxTweets,
 			"--max-tweets",
@@ -266,7 +308,7 @@ export function registerAnalysisCommands({
 		);
 
 		return {
-			handle,
+			handle: normalizedHandle,
 			account: options.account,
 			model: options.model,
 			refresh: Boolean(options.refresh),
@@ -305,12 +347,17 @@ export function registerAnalysisCommands({
 		.option("--thread-depth <n>", "Maximum ancestor walk depth", "10")
 		.option("--out <path>", "Write the markdown brief to a file")
 		.action(async (query, options) => {
+			const limit = parsePositiveIntegerOption(options.limit, "--limit");
+			const maxThreadDepth = parsePositiveIntegerOption(
+				options.threadDepth,
+				"--thread-depth",
+			);
 			await autoUpdateBeforeRead();
 			const report = await runResearchMode({
 				account: options.account,
 				query,
-				limit: Number(options.limit),
-				maxThreadDepth: Number(options.threadDepth),
+				limit,
+				maxThreadDepth,
 				outPath: options.out,
 			});
 			print(
@@ -343,8 +390,8 @@ export function registerAnalysisCommands({
 		.option("--limit <n>", "Maximum tweet context", "20000")
 		.option("--max-pages <n>", "Maximum live search pages", "200")
 		.action(async (query, options) => {
-			await autoUpdateBeforeRead();
 			const discussionOptions = buildSearchDiscussionOptions(query, options);
+			await autoUpdateBeforeRead();
 			await runSearchDiscussionCli(discussionOptions);
 		});
 
@@ -377,8 +424,8 @@ export function registerAnalysisCommands({
 		)
 		.option("--rate-limit-retries <n>", "Conversation 429 retry count")
 		.action(async (handle, options) => {
-			await autoUpdateBeforeRead();
 			const analysisOptions = buildProfileAnalysisOptions(handle, options);
+			await autoUpdateBeforeRead();
 			await runProfileAnalysisCli(analysisOptions);
 		});
 
@@ -402,8 +449,8 @@ export function registerAnalysisCommands({
 			defaultDigestLiveSyncMode(),
 		)
 		.action(async (options) => {
-			await autoUpdateBeforeRead();
 			const digestOptions = buildDigestOptions("today", options);
+			await autoUpdateBeforeRead();
 			await runDigestCli(digestOptions);
 		});
 
@@ -429,8 +476,8 @@ export function registerAnalysisCommands({
 			defaultDigestLiveSyncMode(),
 		)
 		.action(async (period, options) => {
-			await autoUpdateBeforeRead();
 			const digestOptions = buildDigestOptions(period, options);
+			await autoUpdateBeforeRead();
 			await runDigestCli(digestOptions);
 		});
 }

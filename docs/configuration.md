@@ -207,6 +207,8 @@ external data commit; normal writable deployments continue to read fresh counts.
 The status API includes `readOnly: true`, and the web app hides writing controls,
 automatic sync timers, and pages that require live fetching or generation. The
 existing read-only MCP endpoint remains available when separately configured.
+
+CLI analysis reads follow the same boundary: `whois` uses the prepared identity index, and digest/profile analysis can return usable cached reports. Cache misses fail without live collection, generation, or writes. Explicit digest refresh requires a writable deployment.
 Without this environment variable, normal behavior is unchanged.
 
 This mode does not authenticate visitors, isolate accounts, or change the

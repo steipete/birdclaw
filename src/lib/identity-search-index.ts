@@ -1,4 +1,6 @@
 import type { Database } from "./sqlite";
+import { findOperationAccount } from "./account-selection";
+import { isReadOnlyDeployment } from "./config";
 import { fetchProfileAffiliations } from "./profile-affiliations";
 import { fetchProfileBioEntities } from "./profile-bio-entities";
 import { fetchProfileSnapshots } from "./profile-history";
@@ -105,6 +107,7 @@ export function syncIdentitySearchIndexForProfileIds(
 	db: Database,
 	profileIds: string[],
 ) {
+	if (isReadOnlyDeployment()) return { profiles: 0, entries: 0 };
 	const uniqueProfileIds = Array.from(new Set(profileIds)).filter(Boolean);
 	if (uniqueProfileIds.length === 0) {
 		return { profiles: 0, entries: 0 };
@@ -228,11 +231,14 @@ export function ensureIdentitySearchIndexForDmProfiles(
 	db: Database,
 	account?: string,
 ) {
+	if (isReadOnlyDeployment()) return { profiles: 0, entries: 0 };
 	const params: string[] = [];
 	let accountClause = "";
 	if (account && account !== "all") {
+		const resolved = findOperationAccount(db, account);
+		if (!resolved) return { profiles: 0, entries: 0 };
 		accountClause = "where c.account_id = ?";
-		params.push(account);
+		params.push(resolved.id);
 	}
 	const rows = db
 		.prepare(

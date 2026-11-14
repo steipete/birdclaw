@@ -39,6 +39,152 @@ function singleTweetResponse(
 }
 
 describe("importXJsonText", () => {
+	it.each([
+		-1,
+		1.5,
+		"-1",
+		"1.5",
+		Number.MAX_SAFE_INTEGER + 1,
+		"9007199254740992",
+	])(
+		"rejects invalid tweet metric %j without overwriting stored data",
+		(value) => {
+			const { db } = testHome();
+			const payload = singleTweetResponse();
+			expect(importXJsonText(db, JSON.stringify(payload)).errors).toEqual([]);
+			db.prepare("update tweets set like_count = 42 where id = ?").run(
+				"880001",
+			);
+			const result = importXJsonText(
+				db,
+				JSON.stringify({
+					...payload,
+					data: {
+						...payload.data,
+						text: "must not overwrite",
+						public_metrics: { like_count: value },
+					},
+				}),
+			);
+			expect(result.imported).toBe(0);
+			expect(result.errors).toEqual([
+				{
+					line: 1,
+					message: expect.stringContaining(
+						"tweet.public_metrics.like_count must be a non-negative integer",
+					),
+				},
+			]);
+			expect(
+				db
+					.prepare("select text, like_count from tweets where id = ?")
+					.get("880001"),
+			).toEqual({ text: payload.data.text, like_count: 42 });
+		},
+	);
+
+	it.each([
+		-1,
+		1.5,
+		"-1",
+		"1.5",
+		"many",
+		null,
+		true,
+		Number.MAX_SAFE_INTEGER + 1,
+		"9007199254740992",
+	])(
+		"rejects invalid included-user metric %j before changing profiles",
+		(value) => {
+			const { db } = testHome();
+			upsertProfileFromXUser(db, {
+				...SYNTH_AUTHOR,
+				public_metrics: { followers_count: 42 },
+			});
+			const payload = singleTweetResponse();
+			const result = importXJsonText(
+				db,
+				JSON.stringify({
+					...payload,
+					includes: {
+						users: [
+							{ ...SYNTH_AUTHOR, public_metrics: { followers_count: value } },
+						],
+					},
+				}),
+			);
+			expect(result.imported).toBe(0);
+			expect(result.errors).toEqual([
+				{
+					line: 1,
+					message: expect.stringContaining(
+						"user.public_metrics.followers_count must be a non-negative integer",
+					),
+				},
+			]);
+			expect(
+				db
+					.prepare("select followers_count from profiles where handle = ?")
+					.get(SYNTH_AUTHOR.username),
+			).toEqual({ followers_count: 42 });
+			expect(
+				db.prepare("select id from tweets where id = ?").get("880001"),
+			).toBeUndefined();
+		},
+	);
+
+	it.each([null, [], "invalid"].map((value) => ({ value })))(
+		"rejects malformed user metrics %j",
+		({ value: public_metrics }) => {
+			const { db } = testHome();
+			const result = importXJsonText(
+				db,
+				JSON.stringify({
+					...singleTweetResponse(),
+					includes: { users: [{ ...SYNTH_AUTHOR, public_metrics }] },
+				}),
+			);
+			expect(result.imported).toBe(0);
+			expect(result.errors).toEqual([
+				{
+					line: 1,
+					message: expect.stringContaining(
+						"user.public_metrics must be an object",
+					),
+				},
+			]);
+		},
+	);
+
+	it.each([0, 17, "0", "17"])(
+		"preserves valid count %j, including zero and numeric strings",
+		(value) => {
+			const { db } = testHome();
+			const payload = singleTweetResponse();
+			const result = importXJsonText(
+				db,
+				JSON.stringify({
+					...payload,
+					data: { ...payload.data, public_metrics: { like_count: value } },
+					includes: {
+						users: [
+							{ ...SYNTH_AUTHOR, public_metrics: { followers_count: value } },
+						],
+					},
+				}),
+			);
+			expect(result).toEqual({ imported: 1, skipped: 0, errors: [] });
+			expect(
+				db.prepare("select like_count from tweets where id = ?").get("880001"),
+			).toEqual({ like_count: Number(value) });
+			expect(
+				db
+					.prepare("select followers_count from profiles where handle = ?")
+					.get(SYNTH_AUTHOR.username),
+			).toEqual({ followers_count: Number(value) });
+		},
+	);
+
 	it("imports a single-object data payload with provenance", () => {
 		const home = testHome();
 		const db = home.db;
@@ -384,7 +530,7 @@ describe("importXJsonText", () => {
 		expect(result).toMatchObject({ imported: 1, skipped: 0 });
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0]?.message).toContain(
-			"public_metrics.like_count must be a number",
+			"public_metrics.like_count must be a non-negative integer",
 		);
 		expect(
 			db.prepare("select id from tweets where id = ?").get("880119"),

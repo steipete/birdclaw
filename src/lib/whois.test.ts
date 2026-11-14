@@ -2,9 +2,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, Either } from "effect";
 import { resetBirdclawPathsForTests } from "./config";
-import { getNativeDb, resetDatabaseForTests } from "./db";
+import { getNativeDb, getReadDb, resetDatabaseForTests } from "./db";
 
 let homeDir = "";
 
@@ -206,6 +207,8 @@ describe("whois", () => {
 	}
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
 		resetDatabaseForTests();
 		resetBirdclawPathsForTests();
 		delete process.env.BIRDCLAW_HOME;
@@ -728,4 +731,201 @@ describe("whois", () => {
 		expect(formatWhois(result)).toContain("No matching DM candidates.");
 		expect(formatWhois(result)).toContain("Related tweets: 1");
 	});
+
+	function seedAccountEvidence() {
+		getNativeDb().exec(`
+			update profiles set bio = 'indexneedle' where id = 'profile_user_42';
+			insert into accounts (id, name, handle, transport, is_default, created_at)
+			values ('acct_studio', 'Studio', '@studio', 'archive', 0, '2026-01-01');
+			insert into profiles (id, handle, display_name, bio, followers_count, avatar_hue, created_at)
+			values ('profile_studio', 'studio_friend', 'Studio Friend', 'indexneedle', 0, 0, '2026-01-01');
+			insert into dm_conversations (id, account_id, participant_profile_id, title, last_message_at, unread_count, needs_reply)
+			values ('dm_studio', 'acct_studio', 'profile_studio', 'Studio Friend', '2026-01-01', 0, 0);
+		`);
+	}
+
+	it.each(["@studio", "studio", "  @STUDIO  "])(
+		"indexes only the selected account for %s",
+		async (account) => {
+			seedAccountEvidence();
+			const { ensureIdentitySearchIndexForDmProfiles } =
+				await import("./identity-search-index");
+			const db = getNativeDb();
+			expect(ensureIdentitySearchIndexForDmProfiles(db, account).profiles).toBe(
+				1,
+			);
+			expect(
+				db
+					.prepare("select distinct profile_id from identity_search_index")
+					.all(),
+			).toEqual([{ profile_id: "profile_studio" }]);
+		},
+	);
+
+	it.each(["@studio", "studio", "  @STUDIO  "])(
+		"finds profile-only evidence for %s without widening accounts",
+		async (account) => {
+			seedAccountEvidence();
+			const { runWhois } = await import("./whois");
+			const result = await runWhois("indexneedle", {
+				account,
+				resolveProfiles: false,
+				expandUrls: false,
+			});
+			expect(result.candidates.map((item) => item.conversation.id)).toEqual([
+				"dm_studio",
+			]);
+		},
+	);
+
+	it.each(["acct_studio", "all", undefined, "missing"])(
+		"preserves account selector control %s",
+		async (account) => {
+			seedAccountEvidence();
+			const { runWhois } = await import("./whois");
+			const { ensureIdentitySearchIndexForDmProfiles } =
+				await import("./identity-search-index");
+			expect(
+				ensureIdentitySearchIndexForDmProfiles(getNativeDb(), account).profiles,
+			).toBe(account === "missing" ? 0 : account === "acct_studio" ? 1 : 2);
+			const result = await runWhois("indexneedle", {
+				account,
+				resolveProfiles: false,
+				expandUrls: false,
+			});
+			expect(
+				result.candidates.map((item) => item.conversation.id).sort(),
+			).toEqual(
+				account === "missing"
+					? []
+					: account === "acct_studio"
+						? ["dm_studio"]
+						: ["dm_blacksmith", "dm_studio"],
+			);
+		},
+	);
+
+	it.each([
+		...[-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1].map((value) => ({
+			option: "limit" as const,
+			value,
+		})),
+		...[-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1].map((value) => ({
+			option: "context" as const,
+			value,
+		})),
+	])(
+		"rejects invalid whois $option=$value through the Effect error channel",
+		async ({ option, value }) => {
+			const { runWhoisEffect } = await import("./whois");
+			const result = await Effect.runPromise(
+				Effect.either(
+					runWhoisEffect("blacksmith", {
+						dms: false,
+						[option]: value,
+						resolveProfiles: false,
+						expandUrls: false,
+					}),
+				),
+			);
+			expect(Either.isLeft(result)).toBe(true);
+			expect(Either.isLeft(result) ? String(result.left) : undefined).toContain(
+				"--" + option,
+			);
+		},
+	);
+
+	it("accepts non-negative limit (including 0) and zero context", async () => {
+		const { runWhois } = await import("./whois");
+		const one = await runWhois("blacksmith", {
+			limit: 1,
+			context: 0,
+			resolveProfiles: false,
+			expandUrls: false,
+		});
+		expect(one.candidates).toHaveLength(1);
+		const zero = await runWhois("blacksmith", {
+			limit: 0,
+			context: 0,
+			resolveProfiles: false,
+			expandUrls: false,
+		});
+		expect(zero.candidates).toEqual([]);
+	});
+
+	it.each(["ensure", "sync"] as const)(
+		"does not mutate a writable handle in read-only deployment: %s",
+		async (operation) => {
+			const {
+				ensureIdentitySearchIndexForDmProfiles,
+				syncIdentitySearchIndexForProfileIds,
+			} = await import("./identity-search-index");
+			const db = getNativeDb();
+			vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+			const result =
+				operation === "ensure"
+					? ensureIdentitySearchIndexForDmProfiles(db)
+					: syncIdentitySearchIndexForProfileIds(db, ["profile_user_42"]);
+			expect(result).toEqual({ profiles: 0, entries: 0 });
+			expect(
+				db.prepare("select count(*) as count from identity_search_index").get(),
+			).toEqual({ count: 0 });
+		},
+	);
+
+	it.each(
+		[false, true].flatMap((prebuilt) =>
+			["acct_studio", "@studio"].map((account) => ({ prebuilt, account })),
+		),
+	)(
+		"reads identity evidence without writes or live enrichment, prebuilt=$prebuilt account=$account",
+		async ({ prebuilt, account }) => {
+			seedAccountEvidence();
+			const { ensureIdentitySearchIndexForDmProfiles } =
+				await import("./identity-search-index");
+			if (prebuilt)
+				ensureIdentitySearchIndexForDmProfiles(getNativeDb(), "acct_studio");
+			const profiles = vi
+				.spyOn(
+					await import("./profile-resolver"),
+					"resolveProfilesForIdsEffect",
+				)
+				.mockReturnValue(Effect.succeed([]));
+			const urls = vi
+				.spyOn(await import("./url-expansion"), "expandUrlsFromTextsEffect")
+				.mockReturnValue(Effect.succeed([]));
+			const before = getNativeDb()
+				.prepare(
+					"select * from identity_search_index order by profile_id, kind, value",
+				)
+				.all();
+			const caches = getNativeDb()
+				.prepare("select * from sync_cache order by cache_key")
+				.all();
+			vi.stubEnv("BIRDCLAW_DEPLOYMENT_READ_ONLY", "1");
+			const { runWhois } = await import("./whois");
+			const result = await runWhois("indexneedle", {
+				account,
+				refreshProfileCache: true,
+				refreshUrlCache: true,
+			});
+			expect(result.candidates.map((item) => item.conversation.id)).toEqual(
+				prebuilt ? ["dm_studio"] : [],
+			);
+			expect(profiles).not.toHaveBeenCalled();
+			expect(urls).not.toHaveBeenCalled();
+			expect(
+				getReadDb()
+					.prepare(
+						"select * from identity_search_index order by profile_id, kind, value",
+					)
+					.all(),
+			).toEqual(before);
+			expect(
+				getReadDb()
+					.prepare("select * from sync_cache order by cache_key")
+					.all(),
+			).toEqual(caches);
+		},
+	);
 });

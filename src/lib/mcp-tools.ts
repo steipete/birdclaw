@@ -185,7 +185,7 @@ function preflightFtsSearch(
 	const { ftsSearch: normalizedQuery, authorHandle } = parseTimelineSearch({
 		search: query,
 	});
-	const filters: string[] = [];
+	const filters: string[] = ["t.deleted_at is null", "t.superseded_at is null"];
 	const params: Array<string | number> = [
 		normalizedQuery,
 		MCP_MAX_FTS_CANDIDATES + 1,

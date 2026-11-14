@@ -14,7 +14,11 @@ import {
 	type MentionScanShape,
 	type MentionSyncIntent,
 } from "./mentions-cursor";
-import { getAutoTransportOrder, autoTransportCacheSuffix } from "./config";
+import {
+	getAutoTransportOrder,
+	autoTransportCacheSuffix,
+	isReadOnlyDeployment,
+} from "./config";
 import { Effect } from "effect";
 import { listMentionsViaBirdEffect } from "./bird";
 import { verifyBirdAccountMatchesEffect } from "./bird-account";
@@ -119,7 +123,7 @@ function mergeMentionsIntoLocalStore(
 	db: Database,
 	accountId: string,
 	payload: XurlMentionsResponse,
-	source: MentionsDataSource,
+	source: MentionsDataSource | "cache",
 ) {
 	ingestTweetPayload(db, {
 		accountId,
@@ -185,6 +189,7 @@ function fetchMentionsViaXurlEffect({
 	onProgress?: (progress: MentionsProgress) => void;
 }) {
 	return Effect.gen(function* () {
+		yield* trySync(() => assertXurlLimit(limit));
 		const accountUserId =
 			resolvedAccount.externalUserId ??
 			(yield* lookupUsersByHandlesEffect([resolvedAccount.username]).pipe(
@@ -657,14 +662,28 @@ function exportMentionsViaCachedLiveSourceEffect({
 					accountId: resolvedAccount.accountId,
 					search,
 					replyFilter,
-					limit: fetchAll ? payload.data.length : limit,
+					limit: fetchAll ? Math.max(limit, payload.data.length) : limit,
 				});
 			}
 			return payload;
 		};
 
+		const restoreCached = (payload: XurlMentionsResponse) =>
+			isReadOnlyDeployment()
+				? trySync(() => readFilteredOrRaw(payload))
+				: databaseWriteEffect((writeDb) => {
+						mergeMentionsIntoLocalStore(
+							writeDb,
+							resolvedAccount.accountId,
+							payload,
+							"cache",
+						);
+					}).pipe(
+						Effect.flatMap(() => trySync(() => readFilteredOrRaw(payload))),
+					);
+
 		if (!refresh && cached && cache.fresh) {
-			return yield* trySync(() => readFilteredOrRaw(cached.value));
+			return yield* restoreCached(cached.value);
 		}
 
 		let source: MentionLiveSource = primaryMode;
@@ -705,8 +724,9 @@ function exportMentionsViaCachedLiveSourceEffect({
 						source,
 					);
 					writeSyncCache(cacheKey, payload, writeDb);
-					return readFilteredOrRaw(payload);
-				}),
+				}).pipe(
+					Effect.flatMap(() => trySync(() => readFilteredOrRaw(payload))),
+				),
 			),
 			Effect.map((payload) => ({ ok: true as const, payload })),
 			Effect.catchAll((error) => {
@@ -723,7 +743,7 @@ function exportMentionsViaCachedLiveSourceEffect({
 					new Error("Mention export failed without cache"),
 				);
 			}
-			return yield* trySync(() => readFilteredOrRaw(cached.value));
+			return yield* restoreCached(cached.value);
 		}
 
 		return liveResult.payload;

@@ -1,5 +1,7 @@
 import { Effect } from "effect";
-import { getNativeDb } from "./db";
+import { getNativeDb, getReadDb } from "./db";
+import { isReadOnlyDeployment } from "./config";
+import { findOperationAccount } from "./account-selection";
 import { runEffectPromise } from "./effect-runtime";
 import {
 	ensureIdentitySearchIndexForDmProfiles,
@@ -684,8 +686,15 @@ function findProfileEvidenceConversationIds(
 	if (terms.length === 0) {
 		return [];
 	}
-	const db = getNativeDb();
-	ensureIdentitySearchIndexForDmProfiles(db, account);
+	const db = getReadDb();
+	const accountId =
+		account && account !== "all"
+			? findOperationAccount(db, account)?.id
+			: undefined;
+	if (account && account !== "all" && !accountId) return [];
+	if (!isReadOnlyDeployment()) {
+		ensureIdentitySearchIndexForDmProfiles(getNativeDb(), account);
+	}
 	const clauses: string[] = [];
 	const params: Array<string | number> = [];
 	for (const term of terms) {
@@ -695,9 +704,9 @@ function findProfileEvidenceConversationIds(
 	}
 
 	let accountClause = "";
-	if (account && account !== "all") {
+	if (accountId) {
 		accountClause = "and c.account_id = ?";
-		params.push(account);
+		params.push(accountId);
 	}
 	params.push(limit);
 
@@ -768,14 +777,30 @@ export function runWhoisEffect(
 	return Effect.gen(function* () {
 		const includeDms = options.dms ?? true;
 		const includeTweets = options.tweets ?? false;
-		const limit = options.limit ?? 10;
-		const context = options.context ?? 4;
+		const { limit, context } = yield* trySync(() => {
+			const limit = options.limit ?? 10;
+			const context = options.context ?? 4;
+			if (!Number.isSafeInteger(limit) || limit < 0)
+				throw new Error("--limit must be a non-negative safe integer");
+			if (!Number.isSafeInteger(context) || context < 0)
+				throw new Error("--context must be a non-negative safe integer");
+			return { limit, context };
+		});
+		const scopedOptions = yield* trySync(() => ({
+			...options,
+			account:
+				options.account && options.account !== "all"
+					? (findOperationAccount(getReadDb(), options.account)?.id ??
+						options.account)
+					: options.account,
+		}));
+		const readOnly = isReadOnlyDeployment();
 		let conversations = yield* trySync(() =>
-			loadWhoisConversations(query, options, includeDms, context, limit),
+			loadWhoisConversations(query, scopedOptions, includeDms, context, limit),
 		);
 		let profileResolution: WhoisResult["profileResolution"];
 
-		if (options.resolveProfiles ?? true) {
+		if (!readOnly && (options.resolveProfiles ?? true)) {
 			profileResolution = yield* resolveProfilesForIdsEffect(
 				conversations.map((item) => item.participant.id),
 				{
@@ -784,27 +809,35 @@ export function runWhoisEffect(
 				},
 			);
 			conversations = yield* trySync(() =>
-				loadWhoisConversations(query, options, includeDms, context, limit),
+				loadWhoisConversations(
+					query,
+					scopedOptions,
+					includeDms,
+					context,
+					limit,
+				),
 			);
 		}
-		yield* trySync(() =>
-			syncIdentitySearchIndexForProfileIds(
-				getNativeDb(),
-				conversations.map((item) => item.participant.id),
-			),
-		);
+		if (!readOnly) {
+			yield* trySync(() =>
+				syncIdentitySearchIndexForProfileIds(
+					getNativeDb(),
+					conversations.map((item) => item.participant.id),
+				),
+			);
+		}
 
 		const relatedTweets = includeTweets
 			? yield* trySync(() => [
 					...listTimelineItems({
 						resource: "home",
-						account: options.account,
+						account: scopedOptions.account,
 						search: query,
 						limit,
 					}),
 					...listTimelineItems({
 						resource: "mentions",
-						account: options.account,
+						account: scopedOptions.account,
 						search: query,
 						limit,
 					}),
@@ -823,7 +856,7 @@ export function runWhoisEffect(
 			...relatedTweets.map((tweet) => tweet.text),
 		]);
 		const urlExpansions =
-			(options.expandUrls ?? true)
+			!readOnly && (options.expandUrls ?? true)
 				? yield* expandUrlsFromTextsEffect(texts, {
 						refresh: options.refreshUrlCache,
 					})
@@ -838,7 +871,7 @@ export function runWhoisEffect(
 			const profileIds = conversations.map(
 				(conversation) => conversation.participant.id,
 			);
-			const db = getNativeDb();
+			const db = getReadDb();
 			const bioEntitiesByProfile = fetchProfileBioEntities(db, profileIds);
 			const snapshotsByProfile = fetchProfileSnapshots(db, profileIds);
 			return conversations

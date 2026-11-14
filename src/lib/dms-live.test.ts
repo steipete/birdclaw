@@ -96,6 +96,86 @@ describe("cached live DMs", () => {
 		}
 	});
 
+	it.each(["bird", "xurl"])(
+		"enforces the xurl DM page maximum in auto mode with %s preferred",
+		async (preferred) => {
+			makeTempHome();
+			process.env.BIRDCLAW_PREFERRED_TRANSPORT = preferred;
+			listDirectMessagesViaBirdMock.mockRejectedValue(
+				new Error("Bird unavailable"),
+			);
+			listDirectMessageEventsViaXurlMock.mockResolvedValue({
+				data: [],
+				meta: {},
+			});
+			const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+			await expect(
+				syncDirectMessagesViaCachedBird({
+					mode: "auto",
+					limit: 101,
+					refresh: true,
+				}),
+			).rejects.toThrow("--limit must be between 1 and 100");
+			expect(listDirectMessageEventsViaXurlMock).not.toHaveBeenCalled();
+		},
+	);
+
+	it("does not impose xurl's maximum on a successful Bird DM read", async () => {
+		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+		listDirectMessagesViaBirdMock.mockResolvedValue({
+			success: true,
+			conversations: [],
+			events: [],
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+		await expect(
+			syncDirectMessagesViaCachedBird({ mode: "auto", limit: 101 }),
+		).resolves.toMatchObject({ source: "bird" });
+		expect(listDirectMessageEventsViaXurlMock).not.toHaveBeenCalled();
+	});
+
+	it("skips an oversized preferred xurl page and still succeeds via Bird", async () => {
+		makeTempHome();
+		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "xurl";
+		listDirectMessagesViaBirdMock.mockResolvedValue({
+			success: true,
+			conversations: [],
+			events: [],
+		});
+		listDirectMessageEventsViaXurlMock.mockResolvedValue({
+			data: [],
+			meta: {},
+		});
+		const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+		await expect(
+			syncDirectMessagesViaCachedBird({ mode: "auto", limit: 101 }),
+		).resolves.toMatchObject({ source: "bird" });
+		expect(listDirectMessageEventsViaXurlMock).not.toHaveBeenCalled();
+	});
+
+	it.each([1, 100])(
+		"allows xurl DM boundary limit %i after Bird failure",
+		async (limit) => {
+			makeTempHome();
+			process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";
+			listDirectMessagesViaBirdMock.mockRejectedValue(
+				new Error("Bird unavailable"),
+			);
+			listDirectMessageEventsViaXurlMock.mockResolvedValue({
+				data: [],
+				meta: {},
+			});
+			const { syncDirectMessagesViaCachedBird } = await import("./dms-live");
+			await expect(
+				syncDirectMessagesViaCachedBird({ mode: "auto", limit, maxPages: 0 }),
+			).resolves.toMatchObject({ source: "xurl" });
+			expect(listDirectMessageEventsViaXurlMock).toHaveBeenCalledWith(
+				expect.objectContaining({ maxResults: limit }),
+			);
+		},
+	);
+
 	it("prefers Bird for auto DMs and falls back to xurl after a Bird failure", async () => {
 		makeTempHome();
 		process.env.BIRDCLAW_PREFERRED_TRANSPORT = "bird";

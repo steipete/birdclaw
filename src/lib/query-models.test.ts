@@ -546,28 +546,14 @@ describe("query models", () => {
 		expect(filtered[0]?.matches?.[0]?.message.id).toBe("msg_dm_handle_query");
 	});
 
-	it("treats punctuation-only DM search as an unfiltered query", () => {
-		setupTempHome();
-
-		const filtered = listDmConversations({
-			search: "@",
-			context: 1,
-		});
-
-		expect(filtered.map((item) => item.id)).toEqual([
-			"dm_001",
-			"dm_003",
-			"dm_002",
-			"dm_004",
-		]);
-		expect(
-			filtered.every(
-				(item) =>
-					item.searchSnippet === null || item.searchSnippet === undefined,
-			),
-		).toBe(true);
-		expect(filtered.every((item) => item.matches === undefined)).toBe(true);
-	});
+	it.each(["!!!", "???", "$", "🔥", "---", "@"])(
+		"does not drop a non-tokenizing DM search: %j",
+		(search) => {
+			setupTempHome();
+			expect(listDmConversations({})).not.toHaveLength(0);
+			expect(listDmConversations({ search, context: 1 })).toEqual([]);
+		},
+	);
 
 	it("omits DM search snippets when no query is provided", () => {
 		setupTempHome();
@@ -596,6 +582,114 @@ describe("query models", () => {
 
 		expect(mentions).toHaveLength(1);
 		expect(mentions[0]?.author.handle).toBe("amelia");
+	});
+
+	it.each([
+		"!!!",
+		"???",
+		"$",
+		"🔥",
+		"---",
+		"@",
+		"from:sam !!!",
+		"!!! from:sam",
+		"from:sam 🔥",
+	])("does not drop a non-tokenizing timeline search: %j", (search) => {
+		setupTempHome();
+		const db = getNativeDb();
+		const query = { resource: "home" as const, search, limit: 100 };
+		expect(listTimelineItems({ resource: "home" })).not.toHaveLength(0);
+		expect(listTimelineItems(query)).toEqual([]);
+		expect(
+			listTimelineItems(query, db, {
+				literalAccountId: "acct_primary",
+				literalAccountCandidateLimit: 0,
+			}),
+		).toEqual([]);
+		const plan = buildTimelineItemsQuery(query);
+		expect(db.prepare(plan.sql).all(...plan.params)).toEqual([]);
+		expect(db.prepare(plan.fallbackSql).all(...plan.fallbackParams)).toEqual(
+			[],
+		);
+	});
+
+	it.each([undefined, "", "   "])(
+		"keeps absent or blank search %j unfiltered",
+		(search) => {
+			setupTempHome();
+			expect(listTimelineItems({ resource: "home", search })).toEqual(
+				listTimelineItems({ resource: "home" }),
+			);
+			expect(listDmConversations({ search })).toEqual(listDmConversations({}));
+		},
+	);
+
+	it.each(
+		["", "@", "   ", " @ "].flatMap((author) =>
+			[undefined, "from:sam", "local-first"].map((search) => ({
+				author,
+				search,
+			})),
+		),
+	)(
+		"does not drop explicit empty author $author with search $search",
+		({ author, search }) => {
+			setupTempHome();
+			const query = { resource: "home" as const, author, search };
+			expect(listTimelineItems(query)).toEqual([]);
+			const plan = buildTimelineItemsQuery(query);
+			expect(
+				getNativeDb()
+					.prepare(plan.sql)
+					.all(...plan.params),
+			).toEqual([]);
+		},
+	);
+
+	it.each(["from:@", "from:"])(
+		"does not reinterpret an empty from selector as text: %j",
+		(search) => {
+			setupTempHome();
+			const db = getNativeDb();
+			insertTestTweet(db, {
+				id: "from_decoy",
+				text: "A message from anyone",
+				createdAt: "2030-01-01",
+			});
+			insertTestEdge(db, "from_decoy", "2030-01-01");
+			refreshSearchRows(db, "tweet", ["from_decoy"]);
+			expect(
+				listTimelineItems({ resource: "home", search: "from" }).map(
+					(item) => item.id,
+				),
+			).toContain("from_decoy");
+			expect(listTimelineItems({ resource: "home", search })).toEqual([]);
+		},
+	);
+
+	it("preserves author-only search and explicit valid author precedence", () => {
+		setupTempHome();
+		getNativeDb()
+			.prepare("update profiles set handle = 'alice' where handle = 'sam'")
+			.run();
+		for (const filters of [
+			{ search: "from:alice" },
+			{ search: " from:@ALICE " },
+			{ author: " @ALICE " },
+			{ search: "from:des", author: "alice" },
+		]) {
+			expect(
+				listTimelineItems({ resource: "home", ...filters }).map(
+					(item) => item.id,
+				),
+			).toEqual(["tweet_001", "tweet_006"]);
+		}
+		expect(
+			listTimelineItems({
+				resource: "home",
+				search: "local-first from:alice",
+			}).map((item) => item.id),
+		).toEqual(["tweet_001"]);
 	});
 
 	it("filters timeline items by account, search, and replied state", () => {

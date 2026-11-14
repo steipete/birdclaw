@@ -53,6 +53,7 @@ export function listDmConversations({
 	let where = "where 1 = 1";
 	let searchSnippetSelect = "";
 	const ftsSearch = search?.trim() ? toFtsSearchQuery(search) : "";
+	if (search?.trim() && !ftsSearch) return [];
 	const influenceMinFollowers =
 		typeof minInfluenceScore === "number"
 			? getMinFollowersForInfluenceScore(minInfluenceScore)

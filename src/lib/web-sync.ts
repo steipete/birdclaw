@@ -1,3 +1,4 @@
+import { findOperationAccount } from "./account-selection";
 import type { z } from "zod";
 import type * as contracts from "./api-contracts";
 import { existsSync } from "node:fs";
@@ -114,8 +115,8 @@ const WEB_SYNC_PLANS: Record<WebSyncKind, WebSyncPlan> = {
 					account,
 					mode:
 						getPreferredTransport() ||
-						!account ||
-						account === resolveDefaultSyncAccountId(runtime)
+						resolveSyncAccountId(account, runtime) ===
+							resolveDefaultSyncAccountId(runtime)
 							? "auto"
 							: "xurl",
 					limit: 100,
@@ -223,7 +224,8 @@ function syncSavedCollection(
 ): Effect.Effect<WebSyncStep[], unknown> {
 	return Effect.gen(function* () {
 		const isNonDefaultAccount =
-			account !== undefined && account !== resolveDefaultSyncAccountId(runtime);
+			resolveSyncAccountId(account, runtime) !==
+			resolveDefaultSyncAccountId(runtime);
 		const result = yield* syncTimelineCollectionEffect({
 			kind,
 			account,
@@ -300,6 +302,24 @@ function resolveDefaultSyncAccountId(runtime: ServerRuntimeServices) {
 	}
 }
 
+function resolveSyncAccountId(
+	account: string | undefined,
+	runtime: ServerRuntimeServices,
+): string {
+	if (account === undefined) return resolveDefaultSyncAccountId(runtime);
+	const dbPath = runtime.getPaths().dbPath;
+	if (!existsSync(dbPath)) return account;
+	let db: NativeSqliteDatabase | undefined;
+	try {
+		db = new NativeSqliteDatabase(dbPath, { readonly: true });
+		return findOperationAccount(db, account)?.id ?? account;
+	} catch {
+		return account;
+	} finally {
+		db?.close();
+	}
+}
+
 function serializeSyncOptions(kind: WebSyncKind, options: WebSyncOptions) {
 	if (kind !== "dms") return "";
 	const parts = [
@@ -318,7 +338,7 @@ function getRunningSyncKey(
 	runtime: ServerRuntimeServices = defaultServerRuntimeServices,
 ) {
 	const optionKey = serializeSyncOptions(kind, options);
-	return `${kind}:${accountId ?? resolveDefaultSyncAccountId(runtime)}${optionKey ? `:${optionKey}` : ""}`;
+	return `${kind}:${resolveSyncAccountId(accountId, runtime)}${optionKey ? `:${optionKey}` : ""}`;
 }
 
 function setJobSnapshot(snapshot: WebSyncJobSnapshot) {
