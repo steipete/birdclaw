@@ -225,9 +225,112 @@ describe("native X web DMs", () => {
 			"/i/api/graphql/fixture-viewer-query/viewerQuery",
 		);
 		expect(JSON.parse(viewers[0].url.searchParams.get("variables")!)).toEqual({
-			__relay_internal__pv__appviewerisloggedinprovider: true,
+			__relay_internal__pv__xclientsfeaturesappviewerisloggedinrelayprovider: true,
 		});
 		expect(viewers[0].authorization).toBe("Bearer " + bearer + "%2F");
+	});
+
+	it("sends the provided variables the discovered viewer query declares", async () => {
+		const ordinaryFetch = fetch;
+		const viewerUrls: URL[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL, init: RequestInit = {}) => {
+				const url = new URL(String(input));
+				if (url.href === "https://x.com/")
+					return new Response(
+						'<script src="https://abs.twimg.com/x-web/x-web/startup.js"></script>',
+					);
+				if (url.pathname.endsWith("/startup.js"))
+					return new Response(
+						'const header="Bearer ' +
+							bearer +
+							'";const p={params:{id:`fixture-other-query`,metadata:{},name:`otherQuery`,operationKind:`query`,text:null}};' +
+							"const q={params:{id:`fixture-viewer-query`,metadata:{},name:`viewerQuery`,operationKind:`query`,text:null,providedVariables:{__relay_internal__pv__fixtureloggedinrelayprovider:Ed,__relay_internal__pv__fixturefeaturerelayprovider:Fd}}};",
+					);
+				if (url.pathname.includes("/graphql/")) {
+					viewerUrls.push(url);
+					return Response.json({
+						data: {
+							viewer: {
+								user_results: {
+									result: {
+										rest_id: "123",
+										core: { screen_name: "fixture", name: "Fixture" },
+									},
+								},
+							},
+						},
+					});
+				}
+				return ordinaryFetch(input, init);
+			}),
+		);
+		const { readWebDirectMessages } = await import("./x-web-dms");
+		await readWebDirectMessages({ account, limit: 1, inbox: "requests" });
+		expect(viewerUrls).toHaveLength(1);
+		expect(viewerUrls[0].pathname).toBe(
+			"/i/api/graphql/fixture-viewer-query/viewerQuery",
+		);
+		expect(JSON.parse(viewerUrls[0].searchParams.get("variables")!)).toEqual({
+			__relay_internal__pv__fixtureloggedinrelayprovider: true,
+			__relay_internal__pv__fixturefeaturerelayprovider: true,
+		});
+	});
+
+	it("rediscovers the public client after X rejects the viewer query variables", async () => {
+		const ordinaryFetch = fetch;
+		let bundleFetches = 0;
+		let viewerCalls = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL, init: RequestInit = {}) => {
+				const url = new URL(String(input));
+				if (url.href === "https://x.com/")
+					return new Response(
+						'<script src="https://abs.twimg.com/x-web/x-web/startup.js"></script>',
+					);
+				if (url.pathname.endsWith("/startup.js")) {
+					bundleFetches += 1;
+					return new Response(
+						'const header="Bearer ' +
+							bearer +
+							'";const q={params:{id:`fixture-viewer-query`,metadata:{},name:`viewerQuery`}};',
+					);
+				}
+				if (url.pathname.includes("/graphql/")) {
+					viewerCalls += 1;
+					if (viewerCalls === 1)
+						return Response.json(
+							{ errors: [{ code: "GRAPHQL_VALIDATION_FAILED" }] },
+							{ status: 422 },
+						);
+					return Response.json({
+						data: {
+							viewer: {
+								user_results: {
+									result: {
+										rest_id: "123",
+										core: { screen_name: "fixture", name: "Fixture" },
+									},
+								},
+							},
+						},
+					});
+				}
+				return ordinaryFetch(input, init);
+			}),
+		);
+		const { XWebSession } = await import("./x-web");
+		await expect(new XWebSession().verifyAccount(account)).rejects.toThrow(
+			"HTTP 422",
+		);
+		await expect(new XWebSession().verifyAccount(account)).resolves.toEqual({
+			id: "123",
+			username: "fixture",
+			name: "Fixture",
+		});
+		expect(bundleFetches).toBe(2);
 	});
 
 	it("fails closed when no current public client metadata can be discovered", async () => {

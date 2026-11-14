@@ -5,8 +5,17 @@ import {
 } from "./live-sync-engine";
 
 const ORIGIN = "https://x.com";
+// The viewer query's Relay provided variable as of 2026-10; used only when
+// the discovered query does not declare its own providedVariables.
+const DEFAULT_VIEWER_PROVIDED_VARIABLES = [
+	"__relay_internal__pv__xclientsfeaturesappviewerisloggedinrelayprovider",
+];
 let publicClient:
-	| Promise<{ bearer: string; viewerQueryId: string }>
+	| Promise<{
+			bearer: string;
+			viewerQueryId: string;
+			viewerProvidedVariables: string[];
+	  }>
 	| undefined;
 
 class XWebHttpError extends Error {
@@ -78,6 +87,7 @@ async function discoverPublicClient() {
 	let remainingBytes = 16 * 1024 * 1024;
 	let bearer: string | undefined;
 	let viewerQueryId: string | undefined;
+	let viewerProvidedVariables = DEFAULT_VIEWER_PROVIDED_VARIABLES;
 	for (
 		let inspected = 0;
 		queue.length && inspected < 12 && remainingBytes > 0;
@@ -111,10 +121,20 @@ async function discoverPublicClient() {
 			const token = match[0];
 			if (/^(?:[A-Za-z0-9]|%[0-9a-fA-F]{2})+$/.test(token)) bearer = token;
 		}
-		viewerQueryId ??= source.match(
-			/params:\{id:["'`]([A-Za-z0-9_-]{10,100})["'`][\s\S]{0,200}?name:["'`]viewerQuery["'`]/,
-		)?.[1];
-		if (bearer && viewerQueryId) return { bearer, viewerQueryId };
+		if (!viewerQueryId) {
+			const viewerQuery = source.match(
+				/params:\{id:["'`]([A-Za-z0-9_-]{10,100})["'`](?:(?!params:\{)[\s\S]){0,200}?name:["'`]viewerQuery["'`]([^}]{0,200}?providedVariables:\{([^}]{0,1000})\})?/,
+			);
+			viewerQueryId = viewerQuery?.[1];
+			const declared = [
+				...new Set(
+					viewerQuery?.[3]?.match(/__relay_internal__pv__[A-Za-z0-9_]+/g),
+				),
+			];
+			if (declared.length > 0) viewerProvidedVariables = declared;
+		}
+		if (bearer && viewerQueryId)
+			return { bearer, viewerQueryId, viewerProvidedVariables };
 		for (const dependency of source.matchAll(
 			/\b(?:from\s*|import\s*\(?\s*)["'`]([^"'`]+\.js)["'`]/g,
 		)) {
@@ -202,7 +222,8 @@ export class XWebSession {
 			if (
 				error instanceof XWebHttpError &&
 				(error.status === 401 ||
-					(error.status === 404 && path.startsWith("/i/api/graphql/")))
+					((error.status === 404 || error.status === 422) &&
+						path.startsWith("/i/api/graphql/")))
 			)
 				publicClient = undefined;
 			throw error;
@@ -236,11 +257,13 @@ export class XWebSession {
 			throw new Error(
 				"X web access is disabled in a read-only archive deployment",
 			);
-		const { viewerQueryId } = await getPublicClient();
+		const { viewerQueryId, viewerProvidedVariables } = await getPublicClient();
+		// The viewer query only runs for a signed-in session, so every provider
+		// it declares (today just "is logged in") resolves to true.
 		const variables = new URLSearchParams({
-			variables: JSON.stringify({
-				__relay_internal__pv__appviewerisloggedinprovider: true,
-			}),
+			variables: JSON.stringify(
+				Object.fromEntries(viewerProvidedVariables.map((name) => [name, true])),
+			),
 		});
 		const payload = await this.json(
 			`/i/api/graphql/${viewerQueryId}/viewerQuery?${variables}`,
