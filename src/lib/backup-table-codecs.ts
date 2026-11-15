@@ -1,3 +1,8 @@
+import {
+	buildPartitionedBackupShards,
+	parseBackupLayoutPath,
+	partitionedBackupTable,
+} from "./backup-layout";
 import { safeHttpUrl } from "./url-safety";
 
 export type BackupJsonValue =
@@ -1049,7 +1054,10 @@ export function backupCodecForPath(
 	codecs: readonly BackupTableCodec[] = BACKUP_TABLE_CODECS,
 ) {
 	const logicalPath = logicalBackupShardPath(relativePath);
-	const matches = codecs.filter((codec) => codec.matchesPath(logicalPath));
+	const layout = parseBackupLayoutPath(logicalPath);
+	const matches = codecs.filter((codec) =>
+		layout ? codec.name === layout.table : codec.matchesPath(logicalPath),
+	);
 	if (matches.length !== 1) {
 		throw new Error(
 			matches.length === 0
@@ -1063,13 +1071,18 @@ export function backupCodecForPath(
 export function buildBackupShardsFromRowSets(
 	rowSets: ReadonlyArray<{ logicalName: string; rows: BackupJsonRecord[] }>,
 	codecs: readonly BackupTableCodec[] = BACKUP_TABLE_CODECS,
+	schemaVersion = 8,
 ) {
 	const codecsByName = new Map(codecs.map((codec) => [codec.name, codec]));
-	const shards = new Map<string, BackupJsonRecord[]>();
+	const shards =
+		schemaVersion >= 9
+			? buildPartitionedBackupShards(rowSets)
+			: new Map<string, BackupJsonRecord[]>();
 	for (const rowSet of rowSets) {
 		const codec = codecsByName.get(rowSet.logicalName);
 		if (!codec)
 			throw new Error(`No backup codec for table: ${rowSet.logicalName}`);
+		if (schemaVersion >= 9 && partitionedBackupTable(codec.name)) continue;
 		for (const row of rowSet.rows) {
 			const relativePath = codec.shardPath(row);
 			const existing = shards.get(relativePath) ?? [];
@@ -1088,7 +1101,11 @@ export function countBackupFiles(
 	for (const file of files) {
 		if (!file.path.startsWith("data/")) continue;
 		const codec = backupCodecForPath(file.path, codecs);
-		const key = codec.countKey(logicalBackupShardPath(file.path));
+		const layout = parseBackupLayoutPath(logicalBackupShardPath(file.path));
+		if (layout?.observation) continue;
+		const key = layout
+			? codec.countKey(codec.shardPath({ kind: layout.kind ?? "unknown" }))
+			: codec.countKey(logicalBackupShardPath(file.path));
 		counts[key] = (counts[key] ?? 0) + file.rows;
 	}
 	return counts;

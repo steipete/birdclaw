@@ -1,4 +1,9 @@
 import {
+	parseBackupLayoutPath,
+	partitionedBackupTable,
+	reassembleBackupRows,
+} from "./backup-layout";
+import {
 	syncDirectory,
 	durableMkdir,
 	durableMkdtemp,
@@ -68,7 +73,7 @@ import {
 } from "./profile-identity";
 import { resolveLiveSyncAccount } from "./live-sync-engine";
 
-const BACKUP_SCHEMA_VERSION = 8;
+const BACKUP_SCHEMA_VERSION = 9;
 const MIN_SUPPORTED_BACKUP_SCHEMA_VERSION = 1;
 const DEFAULT_MAX_BACKUP_SHARD_BYTES = 48 * 1024 * 1024;
 const MANIFEST_PATH = "manifest.json";
@@ -602,21 +607,23 @@ Private text backup for Birdclaw data. The committed files are canonical JSONL s
 
 \`\`\`text
 manifest.json
-data/accounts.jsonl
-data/profiles.jsonl
+data/v9/accounts/all.jsonl
+data/v9/profiles/HH.jsonl
 data/profile_affiliations.jsonl
-data/profile_snapshots.jsonl
+data/v9/profile_snapshots/HH.jsonl
+data/v9/profile_snapshots/YYYY-MM-DD.observations.jsonl
 data/profile_bio_entities.jsonl
-data/tweets/YYYY.jsonl
-data/tweets/unknown.jsonl
+data/v9/tweets/YYYY-MM-DD.jsonl
+data/v9/tweets/YYYY-MM-DD.observations.jsonl
+data/v9/tweets/unknown-HH.jsonl
 data/fxtwitter/fetches.jsonl
 data/fxtwitter/observations.jsonl
-data/timeline_edges/home.jsonl
-data/timeline_edges/mention.jsonl
-data/collections/likes.jsonl
-data/collections/bookmarks.jsonl
-data/dms/conversations.jsonl
-data/dms/YYYY.jsonl
+data/v9/timeline_edges/home/YYYY-MM-DD.jsonl
+data/v9/timeline_edges/mention/YYYY-MM-DD.jsonl
+data/v9/collections/likes/YYYY-MM-DD.jsonl
+data/v9/collections/bookmarks/YYYY-MM-DD.jsonl
+data/v9/conversations/all.jsonl
+data/v9/dms/YYYY-MM-DD.jsonl
 data/links/url_expansions.jsonl
 data/links/occurrences.jsonl
 data/moderation/blocks.jsonl
@@ -629,8 +636,8 @@ data/lists/members.jsonl
 data/follow_events.jsonl
 \`\`\`
 
-Tweets are sharded by creation year. Collection-only tweets whose creation date is unknown live in \`data/tweets/unknown.jsonl\`. Timeline edges keep account-scoped home/mention membership separate from canonical tweet content. DMs are sharded by year and keep \`conversation_id\` in each row.
-Logical shards larger than 48 MiB are split into deterministic \`.part-0001.jsonl\` files so ordinary Git hosting remains usable without Git LFS.
+Schema 9 stores tweet/DM content in UTC-day shards under \`data/v9/\`, with frequently changing observation fields in separate observation-day files. Profiles use stable identifier hash buckets. Other tables retain their paths. Readers import schemas 1–8 too; upgrade every reader and writer before exporting schema 9.
+Logical shards larger than 48 MiB still split into deterministic numbered part files.
 The links shard stores expanded short URLs and their source tweet/DM occurrences so linked-tweet search can be rebuilt without re-expanding every \`t.co\` URL.
 
 Never commit live tokens, browser cookies, raw SQLite WAL/SHM sidecars, or temporary cache files here.
@@ -2530,8 +2537,27 @@ function reconcileBackupGitHistoryEffect(repoPath: string) {
 	});
 }
 
+async function assertBackupWritable(repoPath: string) {
+	const backup = getBirdclawConfig().backup;
+	const configuredPath =
+		backup?.repoPath?.trim() ||
+		path.join(process.env.HOME || ".", "Projects", "backup-birdclaw");
+	if (
+		backup?.readOnly &&
+		(await canonicalizeBackupRepoPath(repoPath)) ===
+			(await canonicalizeBackupRepoPath(configuredPath))
+	) {
+		throw new Error(
+			"Backup repository is read-only; pull and import are allowed, export and push are disabled",
+		);
+	}
+}
+
 function pushBackupHeadEffect(repoPath: string) {
-	return gitEffect(["-C", repoPath, "push", "origin", "HEAD:main"]).pipe(
+	return tryPromise(() => assertBackupWritable(repoPath)).pipe(
+		Effect.flatMap(() =>
+			gitEffect(["-C", repoPath, "push", "origin", "HEAD:main"]),
+		),
 		Effect.asVoid,
 	);
 }
@@ -2677,6 +2703,7 @@ function exportBackupUnlockedEffect({
 		const maxBytes = yield* trySync(() =>
 			normalizeMaxBackupShardBytes(maxShardBytes),
 		);
+		yield* tryPromise(() => assertBackupWritable(repoPath));
 		const resolvedRepoPath = path.resolve(repoPath);
 		// Keep the option source-compatible; staged generations are always validated.
 		void validate;
@@ -2739,7 +2766,11 @@ function exportBackupUnlockedEffect({
 				database.readTransaction(() => getExportRowSets(database))(),
 			);
 			const shards = yield* trySync(() =>
-				buildBackupShardsFromRowSets(rowSets),
+				buildBackupShardsFromRowSets(
+					rowSets,
+					BACKUP_TABLE_CODECS,
+					BACKUP_SCHEMA_VERSION,
+				),
 			);
 			const shardEntries = yield* trySync(() =>
 				[...shards.entries()].sort(([left], [right]) =>
@@ -2942,16 +2973,55 @@ function readBackupImportRowsEffect(
 	return Effect.gen(function* () {
 		yield* trySync(() => {
 			for (const file of manifest.files) {
-				if (file.path.startsWith("data/")) backupCodecForPath(file.path);
+				if (!file.path.startsWith("data/")) continue;
+				const codec = backupCodecForPath(file.path);
+				const layout = parseBackupLayoutPath(logicalBackupShardPath(file.path));
+				if (
+					(manifest.schemaVersion < 9 && layout) ||
+					(manifest.schemaVersion >= 9 &&
+						partitionedBackupTable(codec.name) &&
+						!layout)
+				)
+					throw new Error(
+						`Backup path does not match schema version: ${file.path}`,
+					);
 			}
 		});
 		const entries = yield* Effect.forEach(
 			BACKUP_TABLE_CODECS,
 			(codec) =>
-				readJsonlFilesEffect(
-					resolvedRepoPath,
-					rowsForManifestPath(manifest, codec.matchesPath),
-				).pipe(Effect.map((rows) => [codec.name, rows] as const)),
+				Effect.gen(function* () {
+					if (
+						manifest.schemaVersion < 9 ||
+						!partitionedBackupTable(codec.name)
+					) {
+						const rows = yield* readJsonlFilesEffect(
+							resolvedRepoPath,
+							rowsForManifestPath(manifest, codec.matchesPath),
+						);
+						return [codec.name, rows] as const;
+					}
+					const matching = (observation: boolean) =>
+						rowsForManifestPath(manifest, (relativePath) => {
+							const layout = parseBackupLayoutPath(relativePath);
+							return (
+								layout?.table === codec.name &&
+								layout.observation === observation
+							);
+						});
+					const bodies = yield* readJsonlFilesEffect(
+						resolvedRepoPath,
+						matching(false),
+					);
+					const observations = yield* readJsonlFilesEffect(
+						resolvedRepoPath,
+						matching(true),
+					);
+					const rows = yield* trySync(() =>
+						reassembleBackupRows(codec.name, bodies, observations),
+					);
+					return [codec.name, rows] as const;
+				}),
 			{ concurrency: "unbounded" },
 		);
 		return Object.assign(createBackupImportRows(), Object.fromEntries(entries));
@@ -3237,6 +3307,7 @@ function syncBackupUnlockedEffect({
 }: SyncBackupOptions): Effect.Effect<BackupSyncResult, unknown> {
 	let rollbackCreatedGit = false;
 	return Effect.gen(function* () {
+		yield* tryPromise(() => assertBackupWritable(repoPath));
 		const resolvedRepoPath = path.resolve(repoPath);
 		const existingGitRepository = yield* isGitRepoEffect(resolvedRepoPath);
 		let adoptExistingGeneration = false;
@@ -3506,6 +3577,7 @@ function resolveAutoSyncConfig() {
 			path.join(process.env.HOME || ".", "Projects", "backup-birdclaw"),
 		remote,
 		staleAfterSeconds,
+		readOnly: backup.readOnly === true,
 	};
 }
 
@@ -3543,6 +3615,8 @@ function runAutoBackupEffect(
 				reason: "backup auto-sync is not configured",
 			};
 		}
+
+		if (config.readOnly) mode = "update";
 
 		const state = yield* trySync(() =>
 			db ? readAutoSyncState(db) : readAutoSyncStateWithoutCreatingDatabase(),

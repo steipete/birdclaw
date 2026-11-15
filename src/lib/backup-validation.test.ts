@@ -19,7 +19,7 @@ afterEach(() => __test__.setBeforeDatabaseOpen(undefined));
 
 describe("backup input validation", () => {
 	it.each(
-		[undefined, "8", 1.5, {}, [8], true, null, 0, 9].map((version) => ({
+		[undefined, "8", 1.5, {}, [8], true, null, 0, 10].map((version) => ({
 			version,
 		})),
 	)(

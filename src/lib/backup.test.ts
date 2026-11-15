@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import {
 	appendFileSync,
@@ -49,6 +50,25 @@ import { acquireScheduledJobLock } from "./scheduled-job";
 import { upsertProfileFromXUser } from "./x-profile";
 
 const testHome = useTestHome({ prefix: "birdclaw-backup-home-" });
+
+function backupFiles(repoPath: string, prefix: string) {
+	const manifest = JSON.parse(
+		readFileSync(path.join(repoPath, "manifest.json"), "utf8"),
+	) as { files: { path: string }[] };
+	return manifest.files
+		.map((file) => file.path)
+		.filter(
+			(file) => file.startsWith(prefix) && !file.includes(".observations."),
+		);
+}
+function backupContents(repoPath: string, prefix: string) {
+	return backupFiles(repoPath, prefix)
+		.map((file) => readFileSync(path.join(repoPath, file), "utf8"))
+		.join("");
+}
+function profileFile(repoPath: string) {
+	return backupFiles(repoPath, "data/v9/profiles/")[0]!;
+}
 
 function makeTempDir(prefix: string) {
 	return testHome().makeTempDir(prefix);
@@ -214,6 +234,7 @@ function writeBackupConfig(
 		repoPath?: string;
 		remote?: string;
 		autoSync?: boolean;
+		readOnly?: boolean;
 		staleAfterSeconds?: number;
 	},
 ) {
@@ -634,7 +655,7 @@ describe("text backup", () => {
 		);
 		execFileSync("git", ["init", "--bare", remotePath]);
 		await exportBackup({ repoPath });
-		const metadataPaths = ["data/.DS_Store", "data/tweets/.DS_Store"];
+		const metadataPaths = ["data/.DS_Store", "data/v9/tweets/.DS_Store"];
 		const writeMetadata = (root: string) => {
 			for (const relativePath of metadataPaths)
 				writeFileSync(path.join(root, relativePath), "Finder metadata\n");
@@ -775,15 +796,15 @@ describe("text backup", () => {
 			follow_edges: 1,
 			follow_events: 1,
 		});
-		expect(existsSync(path.join(repoPath, "data/tweets/2024.jsonl"))).toBe(
-			true,
-		);
-		expect(existsSync(path.join(repoPath, "data/tweets/2025.jsonl"))).toBe(
-			true,
-		);
-		expect(existsSync(path.join(repoPath, "data/tweets/unknown.jsonl"))).toBe(
-			true,
-		);
+		expect(
+			existsSync(path.join(repoPath, "data/v9/tweets/2024-12-31.jsonl")),
+		).toBe(true);
+		expect(
+			existsSync(path.join(repoPath, "data/v9/tweets/2025-01-02.jsonl")),
+		).toBe(true);
+		expect(
+			existsSync(path.join(repoPath, "data/v9/tweets/1970-01-01.jsonl")),
+		).toBe(true);
 		expect(existsSync(path.join(repoPath, "data/tweet_sources.jsonl"))).toBe(
 			true,
 		);
@@ -793,7 +814,7 @@ describe("text backup", () => {
 		expect(
 			existsSync(path.join(repoPath, "data/fxtwitter/observations.jsonl")),
 		).toBe(true);
-		expect(existsSync(path.join(repoPath, "data/dms/2025.jsonl"))).toBe(true);
+		expect(backupFiles(repoPath, "data/v9/dms/").length > 0).toBe(true);
 		expect(
 			existsSync(path.join(repoPath, "data/links/url_expansions.jsonl")),
 		).toBe(true);
@@ -801,24 +822,15 @@ describe("text backup", () => {
 			existsSync(path.join(repoPath, "data/links/occurrences.jsonl")),
 		).toBe(true);
 		expect(
-			readFileSync(
-				path.join(repoPath, "data/collections/bookmarks.jsonl"),
-				"utf8",
-			),
+			backupContents(repoPath, "data/v9/collections/bookmarks/"),
 		).toContain('"kind":"bookmarks"');
-		const likesJsonl = readFileSync(
-			path.join(repoPath, "data/collections/likes.jsonl"),
-			"utf8",
-		);
+		const likesJsonl = backupContents(repoPath, "data/v9/collections/likes/");
 		expect(likesJsonl).not.toContain("\u2028");
 		expect(likesJsonl).not.toContain("\u2029");
 		expect(likesJsonl).toContain("\\u2028");
 		expect(likesJsonl).toContain("\\u2029");
 		expect(
-			readFileSync(
-				path.join(repoPath, "data/timeline_edges/search.jsonl"),
-				"utf8",
-			),
+			backupContents(repoPath, "data/v9/timeline_edges/search/"),
 		).toContain('"kind":"search"');
 		expect(
 			readFileSync(
@@ -826,12 +838,12 @@ describe("text backup", () => {
 				"utf8",
 			),
 		).toContain('"expanded_tweet_id":"2039395915421942108"');
-		expect(
-			readFileSync(path.join(repoPath, "data/profiles.jsonl"), "utf8"),
-		).toContain('"public_metrics_json"');
-		expect(
-			readFileSync(path.join(repoPath, "data/dms/conversations.jsonl"), "utf8"),
-		).toContain('"inbox_kind":"request"');
+		expect(backupContents(repoPath, "data/v9/profiles/")).toContain(
+			'"public_metrics_json"',
+		);
+		expect(backupContents(repoPath, "data/dms/conversations")).toContain(
+			'"inbox_kind":"request"',
+		);
 		expect(existsSync(path.join(repoPath, "data/follow_snapshots.jsonl"))).toBe(
 			true,
 		);
@@ -1105,7 +1117,7 @@ describe("text backup", () => {
 		const first = await exportBackup({ repoPath: firstRepoPath });
 		const second = await exportBackup({ repoPath: secondRepoPath });
 
-		expect(first.manifest.schemaVersion).toBe(8);
+		expect(first.manifest.schemaVersion).toBe(9);
 		expect(second.manifest.files).toEqual(first.manifest.files);
 		expect(second.manifest.counts).toEqual(first.manifest.counts);
 		expect(second.manifest.backupHash).toBe(first.manifest.backupHash);
@@ -1122,6 +1134,23 @@ describe("text backup", () => {
 		const db = getNativeDb();
 		const largeRawJson = JSON.stringify({ blob: "x".repeat(700_000) });
 		db.prepare("update profiles set raw_json = ?").run(largeRawJson);
+		const bucket = createHash("sha256")
+			.update("profile_me")
+			.digest("hex")
+			.slice(0, 2);
+		let collision = 0;
+		while (
+			createHash("sha256")
+				.update(`extra_${collision}`)
+				.digest("hex")
+				.slice(0, 2) !== bucket
+		)
+			collision++;
+		insertTestProfile(db, {
+			id: `extra_${collision}`,
+			handle: "extra",
+			rawJson: largeRawJson,
+		});
 		const before = getBackupDatabaseFingerprint();
 		const repoPath = makeTempDir("birdclaw-backup-parts-store-");
 
@@ -1129,13 +1158,15 @@ describe("text backup", () => {
 			repoPath,
 			maxShardBytes: 1_000_000,
 		});
-		const profileFiles = exported.manifest.files.filter((file) =>
-			file.path.startsWith("data/profiles.part-"),
+		const profileFiles = exported.manifest.files.filter(
+			(file) =>
+				file.path.startsWith("data/v9/profiles/") &&
+				file.path.includes(".part-"),
 		);
 
 		expect(profileFiles.map((file) => file.path)).toEqual([
-			"data/profiles.part-0001.jsonl",
-			"data/profiles.part-0002.jsonl",
+			`data/v9/profiles/${bucket}.part-0001.jsonl`,
+			`data/v9/profiles/${bucket}.part-0002.jsonl`,
 		]);
 		expect(profileFiles.every((file) => file.bytes <= 1_000_000)).toBe(true);
 		expect(profileFiles.reduce((sum, file) => sum + file.rows, 0)).toBe(2);
@@ -2258,10 +2289,7 @@ describe("text backup", () => {
 				organization_handle: "currentorg",
 				is_active: 1,
 			});
-			const exportedProfiles = readFileSync(
-				path.join(repoPath, "data/profiles.jsonl"),
-				"utf8",
-			);
+			const exportedProfiles = backupContents(repoPath, "data/v9/profiles/");
 			expect(exportedProfiles).toContain(
 				'"handle":"beta","id":"profile_user_1001"',
 			);
@@ -2941,8 +2969,8 @@ describe("text backup", () => {
 		);
 		rmSync(indexLockPath);
 
-		appendFileSync(path.join(repoPath, "data/profiles.jsonl"), "{}\n");
-		execFileSync("git", ["-C", repoPath, "add", "data/profiles.jsonl"]);
+		appendFileSync(path.join(repoPath, profileFile(repoPath)), "{}\n");
+		execFileSync("git", ["-C", repoPath, "add", "data/v9/profiles"]);
 		execFileSync("git", [
 			"-C",
 			repoPath,
@@ -3083,8 +3111,10 @@ describe("text backup", () => {
 			expect(
 				contender.prepare("select count(*) as count from tweets").get(),
 			).toEqual({ count: 4 });
-			for (const file of result.manifest.files.filter((entry) =>
-				entry.path.startsWith("data/tweets/"),
+			for (const file of result.manifest.files.filter(
+				(entry) =>
+					entry.path.startsWith("data/v9/tweets/") &&
+					!entry.path.includes(".observations."),
 			)) {
 				expect(
 					readFileSync(path.join(repoPath, file.path), "utf8"),
@@ -3108,7 +3138,7 @@ describe("text backup", () => {
 			)
 			.run();
 		__test__.setBeforeStagedValidation((stagingPath) => {
-			appendFileSync(path.join(stagingPath, "data/profiles.jsonl"), "{}\n");
+			appendFileSync(path.join(stagingPath, profileFile(stagingPath)), "{}\n");
 		});
 
 		await expect(exportBackup({ repoPath })).rejects.toThrow(
@@ -3761,9 +3791,9 @@ describe("text backup", () => {
 		expect(synced.pushOnly).not.toBe(true);
 		expect(databaseOpens).toBeGreaterThan(0);
 		expect(syncedHead).not.toBe(unpushedHead);
-		expect(
-			readFileSync(path.join(repoPath, "data", "tweets", "2026.jsonl"), "utf8"),
-		).toContain("tweet_after_local_commit");
+		expect(backupContents(repoPath, "data/v9/tweets/")).toContain(
+			"tweet_after_local_commit",
+		);
 		expect(
 			execFileSync(
 				"git",
@@ -3943,6 +3973,26 @@ describe("text backup", () => {
 		).toBe(aheadHead);
 
 		rmSync(hookPath);
+
+		writeBackupConfig(testHome().root, {
+			repoPath,
+			remote: remotePath,
+			readOnly: true,
+		});
+		await expect(
+			Effect.runPromise(
+				updateBackupFromGitEffect({ repoPath, remote: remotePath }),
+			),
+		).rejects.toThrow("read-only");
+		expect(
+			execFileSync(
+				"git",
+				["--git-dir", remotePath, "rev-parse", "refs/heads/main"],
+				{ encoding: "utf8" },
+			).trim(),
+		).toBe(observedRemoteHead);
+		expect(readFileSync(receiptPath!)).toEqual(receiptBytes);
+		writeBackupConfig(testHome().root, { repoPath, remote: remotePath });
 
 		const retried = await syncBackup({ repoPath, remote: remotePath });
 		expect(retried.imported).toBe(false);
@@ -4312,8 +4362,8 @@ describe("text backup", () => {
 			"user.name",
 			"Backup Test",
 		]);
-		appendFileSync(path.join(otherPath, "data", "profiles.jsonl"), "{}\n");
-		execFileSync("git", ["-C", otherPath, "add", "data/profiles.jsonl"]);
+		appendFileSync(path.join(otherPath, profileFile(otherPath)), "{}\n");
+		execFileSync("git", ["-C", otherPath, "add", "data/v9/profiles"]);
 		execFileSync("git", [
 			"-C",
 			otherPath,
@@ -4466,7 +4516,11 @@ describe("text backup", () => {
 			maxShardBytes: 64 * 1024 * 1024,
 		});
 		expect(
-			statSync(path.join(sourcePath, "data", "profiles.jsonl")).size,
+			Math.max(
+				...backupFiles(sourcePath, "data/v9/profiles/").map(
+					(file) => statSync(path.join(sourcePath, file)).size,
+				),
+			),
 		).toBeGreaterThan(49 * 1024 * 1024);
 
 		switchHome("birdclaw-large-destination-home-");
@@ -4725,14 +4779,19 @@ describe("text backup", () => {
 		manifest.backupHash = "bad-hash";
 		manifest.counts.tweets = -1;
 		writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-		appendFileSync(path.join(repoPath, "data/tweets/2024.jsonl"), "{broken\n");
-		rmSync(path.join(repoPath, "data/profiles.jsonl"));
+		appendFileSync(
+			path.join(repoPath, "data/v9/tweets/2024-12-31.jsonl"),
+			"{broken\n",
+		);
+		rmSync(path.join(repoPath, profileFile(repoPath)));
 
 		const validation = await validateBackup(repoPath);
 
 		expect(validation.ok).toBe(false);
-		expect(validation.errors.join("\n")).toContain("data/profiles.jsonl");
-		expect(validation.errors.join("\n")).toContain("data/tweets/2024.jsonl:2");
+		expect(validation.errors.join("\n")).toContain(profileFile(repoPath));
+		expect(validation.errors.join("\n")).toContain(
+			"data/v9/tweets/2024-12-31.jsonl:2",
+		);
 		expect(validation.errors.join("\n")).toContain("backup hash");
 		expect(validation.errors.join("\n")).toContain("manifest counts");
 	}, 20000);
@@ -5013,6 +5072,101 @@ describe("text backup", () => {
 			}
 		}
 	});
+
+	it("keeps replica research local while importing later producer changes", async () => {
+		process.env.BIRDCLAW_BACKUP_AUTO_SYNC = "1";
+		const remotePath = path.join(
+			makeTempDir("birdclaw-readonly-remote-"),
+			"remote.git",
+		);
+		execFileSync("git", ["init", "--bare", remotePath]);
+		seedBackupFixture();
+		const sourceDbPath = getBirdclawPaths().dbPath;
+		const sourceRepo = makeTempDir("birdclaw-readonly-producer-");
+		await syncBackup({ repoPath: sourceRepo, remote: remotePath });
+		const remoteHead = () =>
+			execFileSync("git", ["--git-dir", remotePath, "rev-parse", "main"], {
+				encoding: "utf8",
+			}).trim();
+		const initialHead = remoteHead();
+
+		switchHome("birdclaw-readonly-replica-");
+		const repoPath = makeTempDir("birdclaw-readonly-clone-");
+		writeBackupConfig(testHome().root, {
+			repoPath,
+			remote: remotePath,
+			autoSync: true,
+			readOnly: true,
+			staleAfterSeconds: 0,
+		});
+		await expect(maybeAutoUpdateBackup()).resolves.toMatchObject({
+			ok: true,
+			imported: true,
+		});
+		const db = getNativeDb();
+		const profile = insertTestProfile(db, {
+			id: "research-profile",
+			handle: "research",
+		});
+		insertTestTweet(db, { id: "research-tweet", authorProfileId: profile.id });
+		const before = snapshotTree(repoPath);
+		await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+			ok: true,
+			skipped: true,
+		});
+		expect(remoteHead()).toBe(initialHead);
+		expect(snapshotTree(repoPath)).toEqual(before);
+		await expect(syncBackup({ repoPath, remote: remotePath })).rejects.toThrow(
+			"read-only",
+		);
+		await expect(exportBackup({ repoPath })).rejects.toThrow("read-only");
+
+		const sourceDb = new NativeSqliteDatabase(sourceDbPath);
+		try {
+			const author = insertTestProfile(sourceDb, {
+				id: "producer-profile",
+				handle: "producer",
+			});
+			insertTestTweet(sourceDb, {
+				id: "producer-tweet",
+				authorProfileId: author.id,
+			});
+			await syncBackup({
+				repoPath: sourceRepo,
+				remote: remotePath,
+				db: sourceDb,
+			});
+			expect(
+				sourceDb
+					.prepare(
+						"select count(*) as count from tweets where id = 'research-tweet'",
+					)
+					.get(),
+			).toEqual({ count: 0 });
+		} finally {
+			sourceDb.close();
+		}
+		const producerHead = remoteHead();
+		expect(producerHead).not.toBe(initialHead);
+		await expect(maybeAutoSyncBackup()).resolves.toMatchObject({
+			ok: true,
+			pulled: true,
+			imported: true,
+		});
+		expect(
+			db
+				.prepare(
+					"select count(*) as count from tweets where id in ('research-tweet', 'producer-tweet')",
+				)
+				.get(),
+		).toEqual({ count: 2 });
+		expect(remoteHead()).toBe(producerHead);
+		expect(
+			execFileSync("git", ["-C", repoPath, "status", "--porcelain"], {
+				encoding: "utf8",
+			}),
+		).toBe("");
+	}, 30000);
 
 	it("auto-syncs local changes back to the configured backup repo", async () => {
 		const previousAutoSyncEnv = process.env.BIRDCLAW_BACKUP_AUTO_SYNC;
