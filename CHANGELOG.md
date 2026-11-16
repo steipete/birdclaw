@@ -1,9 +1,11 @@
 # CHANGELOG
 
-## 0.17.1 - Unreleased
+## 0.17.2 - Unreleased
 
-- Refresh compatible query, CLI, icon, map, build, and test dependencies while preserving the Bun canary, Node floor, jsdom compatibility pin, and security overrides.
-- Reject unsafe Git index permissions before backup publication can change the live generation, and keep recovery index snapshots private.
+## 0.17.1 - 2026-11-15
+
+**Highlights:** Restore native web DM verification and account-scoped archive reads, and harden backup publication against unsafe Git index permissions.
+
 - Restore native web DM account verification by discovering the viewer query's current Relay variables and rediscovering stale metadata after HTTP 422. Thanks @rymalia (#256).
 - Honor bookmark job page caps and account aliases, allow small Bird authored batches, and restore cached timelines, collections, and mentions without overwriting newer profiles or observations. Thanks @saariuslystoned (#257, #261).
 - Keep tokenless searches and empty author filters from returning unrelated rows, and honor account selection in DM search and Inbox. Thanks @saariuslystoned (#258, #259).
@@ -11,6 +13,8 @@
 - Reject invalid DM/List, moderation transport, backup schema/shard, and imported metric inputs before work; preserve valid zero-result reads and transport fallbacks. Thanks @saariuslystoned (#261, #262).
 - Exclude deleted and superseded tweets from MCP search bounds, honor reply metadata in original-only discussions, and report structured sync failures. Thanks @saariuslystoned (#263).
 - Validate search and analysis dates, limits, and handles before automatic updates; preserve cached whois, digest, and profile analysis reads in read-only deployments. Thanks @saariuslystoned (#264, #265).
+- Reject unsafe Git index permissions before backup publication can change the live generation, and keep recovery index snapshots private.
+- Refresh compatible query, CLI, icon, map, build, and test dependencies while preserving the Bun canary, Node floor, jsdom compatibility pin, and security overrides.
 
 ## 0.17.0 - 2026-11-05
 
