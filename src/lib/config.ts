@@ -49,6 +49,7 @@ export interface BirdclawConfig {
 		repoPath?: string;
 		remote?: string;
 		autoSync?: boolean;
+		readOnly?: boolean;
 		staleAfterSeconds?: number;
 	};
 }

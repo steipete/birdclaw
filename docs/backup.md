@@ -9,38 +9,41 @@ birdclaw can write the canonical SQLite store as deterministic JSONL shards that
 
 ## Layout
 
+Schema 9 separates frequently changing observations from content. For example:
+
 ```text
-.gitattributes
 manifest.json
+data/v9/tweets/2026-11-13.jsonl
+data/v9/tweets/2026-11-13.observations.jsonl
+data/v9/tweet_revisions/2026-11-13.jsonl
+data/v9/tweet_revisions/2026-11-13.observations.jsonl
+data/v9/collections/likes/2026-11-13.jsonl
+data/v9/collections/likes/2026-11-13.observations.jsonl
+data/v9/timeline_edges/mention/2026-11-13.jsonl
+data/v9/timeline_edges/mention/2026-11-13.observations.jsonl
+data/v9/profiles/ab.jsonl
+data/v9/profile_snapshots/ab.jsonl
+data/v9/profile_snapshots/2026-11-13.observations.jsonl
+data/v9/dms/2026-11-13.jsonl
 data/accounts.jsonl
-data/profiles.jsonl
-data/profile_affiliations.jsonl
-data/profile_snapshots.jsonl
-data/profile_bio_entities.jsonl
-data/tweets/YYYY.jsonl
-data/tweets/unknown.jsonl
-data/tweet_revisions.jsonl
-data/tweet_subordinate_tombstones.jsonl
-data/collections/likes.jsonl
-data/collections/bookmarks.jsonl
 data/dms/conversations.jsonl
-data/dms/YYYY.jsonl
-data/moderation/blocks.jsonl
-data/moderation/mutes.jsonl
-data/follow_snapshots.jsonl
-data/follow_snapshot_members.jsonl
-data/follow_edges.jsonl
-data/follow_events.jsonl
-data/lists/lists.jsonl
-data/lists/members.jsonl
-data/<logical-shard>.part-NNNN.jsonl
 ```
+
+Content uses UTC creation days; revisions and account edges use the referenced tweet's creation day. Unknown dates use an identifier hash bucket. Profiles and profile snapshots use the first byte of the SHA-256 of the profile ID (256 buckets), so one profile change does not rewrite every profile. Other tables retain their previous paths.
+
+Observation files hold primary keys and `like_count` (tweets), `observed_at` (revisions), `updated_at` (collections), `last_seen_at`/`updated_at`/`seen_count` (account edges), or `last_seen_at` (profile snapshots). They are grouped by their observation's UTC day. Tweet counts use their revision's observation day, falling back to the creation day. These are current values, not an additional observation log. Reobserving a row moves only its small observation record; it leaves content bytes unchanged. A newly discovered historical tweet or a content correction can still change its older content shard.
+
+All fields survive reassembly before the existing merge rules run. Row order depends on primary keys, never observation times. Export layout depends only on the database state, not which machine exported it or earlier exports.
+
+### Migration
+
+Upgrade every reader and writer before publishing schema 9. This release imports schemas 1–8 unchanged and migrates to schema 9 on the next normal export through the existing staged, validated publication. Older binaries reject schema 9 rather than silently importing part of it. No SQLite migration, history rewrite, or change to sync commands is required. The first migrated commit establishes a new layout; old Git history remains available.
 
 Design rules:
 
-- **tweets** are sharded by year for human browsing, partial loads, and yearly analysis
-- **DMs** are sharded by year with `conversation_id` in each row, so Git stays fast while preserving conversation membership
-- **collection-only tweets** with unknown timestamps go to `data/tweets/unknown.jsonl` instead of pretending they belong to 1970
+- **tweets** are sharded by UTC creation day to bound the files rewritten by additions
+- **DMs** are sharded by UTC creation day with `conversation_id` in each row, so Git stays fast while preserving conversation membership
+- **collection-only tweets** with unknown timestamps go to identifier hash buckets instead of pretending they belong to 1970
 - **tweet tombstones and revisions** preserve explicit deletions, subordinate media/quote deletion state, and observable edit chains without re-exposing deleted or superseded rows through search
 - **likes** and **bookmarks** are stored as collection edges and mirrored into the timeline rows so existing queries keep working
 - **profiles** include bio, follower/following counts, profile URL, location, verification type, structured URL entities, and raw profile JSON so the snapshot is meaningful on its own
@@ -72,7 +75,7 @@ Flags:
 - `--no-validate` — skip post-export validation (not recommended)
 
 The `data/` directory is fully rewritten on every export. Anything outside `data/` (your README, license, hooks) is left alone.
-Logical shards at or below 48 MiB keep their existing filename. Larger shards become files such as `data/profile_snapshots.part-0001.jsonl`; import and validation accept both layouts.
+Logical shards at or below 48 MiB keep their filename. Larger shards become numbered `.part-0001.jsonl` files; import and validation accept these parts in both old and new layouts.
 
 ## `backup sync`
 
@@ -101,11 +104,11 @@ Validation ignores regular files named exactly `.DS_Store` anywhere under `data/
 
 ### Note Tweet compatibility
 
-Note Tweets keep their complete text and matching entities in the existing schema-8 tweet fields. New exports add an optional `note_tweet_json` field so current readers can preserve the full body when a later live payload contains only a preview. The backup schema stays at 8: existing readers can still validate and import these backups.
+Note Tweets keep their complete text and matching entities in the existing schema-8 tweet fields. New exports add an optional `note_tweet_json` field so current readers can preserve the full body when a later live payload contains only a preview. Schema 9 preserves these fields when splitting tweet bodies from observations.
 
 Older writers omit that optional marker when re-exporting. They retain the full text and entities, but do not provide the new protection against preview-only live updates or the expandable Note Tweet presentation. Use current Birdclaw versions on machines that refresh Note Tweets.
 
-The local SQLite database migrates to version 14 on writable startup. Prepare read-only archive deployments with a writable initialization before serving the updated application. Stop older writer processes before upgrading; all writers must use the current incremental search-index implementation. Map revision counters are derived locally and do not change the portable backup schema, which remains at 8.
+The local SQLite database migrates to version 14 on writable startup. Prepare read-only archive deployments with a writable initialization before serving the updated application. Stop older writer processes before upgrading; all writers must use the current incremental search-index implementation. Map revision counters are derived locally and do not change the portable backup schema, which is now 9 because of the storage layout change.
 
 ## `backup import`
 
@@ -163,6 +166,13 @@ When `autoSync` is enabled:
 - after a changed backup import, Birdclaw reopens its read pool and requests a passive WAL checkpoint
 - data-changing commands (compose, sync, blocks, mutes, etc.) run a full backup sync afterward
 - a changed import still uses synchronous SQLite work in the server process, so concurrent requests may briefly pause while that import commits; use a separate scheduled updater when strict isolation is required
+
+Set `backup.readOnly: true` for a replica that only pulls and imports. Automatic
+backup checks after local writes also pull instead of exporting; local research
+stays in that instance’s database. Explicit export, sync and pending-push recovery
+for the configured repository fail without writing or pushing. Exports to other
+paths remain available. This is an application preference, not a Git access control;
+use read-only credentials if the replica must have no write access to the remote.
 
 Set `BIRDCLAW_BACKUP_AUTO_SYNC=0` to disable auto-sync for one process — useful for local debugging.
 
