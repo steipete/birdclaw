@@ -224,6 +224,82 @@ describe("importXJsonText", () => {
 		).toEqual([{ tweet_id: "880001" }]);
 	});
 
+	it("imports primary data when an included tweet lacks author_id", () => {
+		const home = testHome();
+		const db = home.db;
+		const payload = {
+			data: {
+				id: "880012",
+				author_id: SYNTH_AUTHOR.id,
+				text: "synth quote parent needle",
+				created_at: "2026-03-01T12:00:00.000Z",
+				referenced_tweets: [{ type: "quoted", id: "880013" }],
+			},
+			includes: {
+				users: [SYNTH_AUTHOR],
+				tweets: [
+					{
+						id: "880013",
+						text: "quoted without author",
+						created_at: "2026-03-01T11:00:00.000Z",
+					},
+				],
+			},
+		};
+		const result = importXJsonText(db, JSON.stringify(payload));
+		expect(result.errors).toEqual([]);
+		expect(result.imported).toBe(1);
+		expect(result.skipped).toBe(1);
+		expect(result.warnings).toEqual([
+			"Skipped includes.tweets 880013: tweet.author_id must be a non-empty string",
+		]);
+		expect(
+			db
+				.prepare("select id, quoted_tweet_id from tweets where id = ?")
+				.get("880012"),
+		).toEqual({ id: "880012", quoted_tweet_id: "880013" });
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880013"),
+		).toBeUndefined();
+	});
+
+	it("imports primary data when an included tweet has a non-numeric author_id", () => {
+		const db = testHome().db;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880014",
+					author_id: SYNTH_AUTHOR.id,
+					text: "synth parent",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [SYNTH_AUTHOR],
+					tweets: [
+						{
+							id: "880015",
+							author_id: "not-numeric",
+							text: "bad included author",
+							created_at: "2026-03-01T11:00:00.000Z",
+						},
+					],
+				},
+			}),
+		);
+		expect(result).toMatchObject({
+			imported: 1,
+			skipped: 1,
+			errors: [],
+			warnings: [
+				"Skipped includes.tweets 880015: tweet.author_id must be a numeric string",
+			],
+		});
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880014"),
+		).toEqual({ id: "880014" });
+	});
+
 	it("imports array data with includes users, media, tweets, and note_tweet", () => {
 		const home = testHome();
 		const db = home.db;

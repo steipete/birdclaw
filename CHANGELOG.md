@@ -2,6 +2,8 @@
 
 ## 0.17.2 - Unreleased
 
+- Skip invalid `includes.tweets` entries during `import x-json` with warnings instead of rejecting the whole document; primary `data` tweets keep strict validation.
+
 ## 0.17.1 - 2026-11-15
 
 **Highlights:** Restore native web DM verification and account-scoped archive reads, and harden backup publication against unsafe Git index permissions.

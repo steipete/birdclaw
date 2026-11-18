@@ -25,6 +25,7 @@ export interface XJsonImportResult {
 	imported: number;
 	skipped: number;
 	errors: XJsonImportError[];
+	warnings?: string[];
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -373,14 +374,39 @@ function validateTweetRecord(
 	return { sourceUrl };
 }
 
+function formatIncludedTweetSkipWarning(
+	tweet: JsonRecord,
+	reason: string,
+): string {
+	const id =
+		typeof tweet.id === "string" || typeof tweet.id === "number"
+			? String(tweet.id).trim()
+			: "unknown";
+	return `Skipped includes.tweets ${id}: ${reason}`;
+}
+
+function skipReasonFromImportFieldError(error: ImportFieldError): string {
+	const prefix = error.error.match(/^Line \d+: (.+)$/u);
+	return prefix?.[1] ?? error.error;
+}
+
 function validateAndForwardIncludes(
 	value: unknown,
 	line: number,
-): XurlTweetsResponse["includes"] | ImportFieldError | undefined {
+):
+	| {
+			includes: XurlTweetsResponse["includes"];
+			skippedIncludes: number;
+			warnings: string[];
+	  }
+	| ImportFieldError
+	| undefined {
 	if (value === undefined) return undefined;
 	if (!isRecord(value)) {
 		return validationError(line, "includes must be an object");
 	}
+	const warnings: string[] = [];
+	let skippedIncludes = 0;
 	const includes: XurlTweetsResponse["includes"] = {};
 	if (value.users !== undefined) {
 		if (!Array.isArray(value.users)) {
@@ -404,10 +430,21 @@ function validateAndForwardIncludes(
 				return validationError(line, "includes.tweets entries must be objects");
 			}
 			const validated = validateTweetRecord(tweet, line);
-			if (isImportFieldError(validated)) return validated;
+			if (isImportFieldError(validated)) {
+				skippedIncludes += 1;
+				warnings.push(
+					formatIncludedTweetSkipWarning(
+						tweet,
+						skipReasonFromImportFieldError(validated),
+					),
+				);
+				continue;
+			}
 			tweets.push(forwardTweetFromRecord(tweet));
 		}
-		includes.tweets = tweets;
+		if (tweets.length > 0) {
+			includes.tweets = tweets;
+		}
 	}
 	if (value.media !== undefined) {
 		if (!Array.isArray(value.media)) {
@@ -424,14 +461,19 @@ function validateAndForwardIncludes(
 		}
 		includes.media = mediaItems;
 	}
-	return includes;
+	return { includes, skippedIncludes, warnings };
 }
 
 function normalizeDocument(
 	raw: unknown,
 	line: number,
 ):
-	| { payload: XurlTweetsResponse; sourceUrlByTweetId: Map<string, string> }
+	| {
+			payload: XurlTweetsResponse;
+			sourceUrlByTweetId: Map<string, string>;
+			skippedIncludes: number;
+			warnings: string[];
+	  }
 	| { error: string } {
 	if (!isRecord(raw)) {
 		return { error: `Line ${String(line)}: expected a JSON object` };
@@ -459,15 +501,24 @@ function normalizeDocument(
 			sourceUrlByTweetId.set(tweet.id, validated.sourceUrl);
 		}
 	}
-	const includes = validateAndForwardIncludes(raw.includes, line);
-	if (isImportFieldError(includes)) return includes;
+	const forwardedIncludes = validateAndForwardIncludes(raw.includes, line);
+	if (isImportFieldError(forwardedIncludes)) return forwardedIncludes;
+	const skippedIncludes = forwardedIncludes?.skippedIncludes ?? 0;
+	const warnings = forwardedIncludes?.warnings ?? [];
+	const includePayload = forwardedIncludes?.includes;
+	const hasIncludes =
+		Boolean(includePayload?.users?.length) ||
+		Boolean(includePayload?.tweets?.length) ||
+		Boolean(includePayload?.media?.length);
 	return {
 		payload: {
 			data,
-			...(includes ? { includes } : {}),
+			...(hasIncludes && includePayload ? { includes: includePayload } : {}),
 			...(raw.meta && isRecord(raw.meta) ? { meta: raw.meta } : {}),
 		},
 		sourceUrlByTweetId,
+		skippedIncludes,
+		warnings,
 	};
 }
 
@@ -641,6 +692,10 @@ export function importXJsonText(
 			result.errors.push({ line: document.line, message: normalized.error });
 			continue;
 		}
+		if (normalized.warnings.length > 0) {
+			result.warnings = [...(result.warnings ?? []), ...normalized.warnings];
+		}
+		result.skipped += normalized.skippedIncludes;
 		const primaryIds = [
 			...new Set(normalized.payload.data.map((tweet) => tweet.id)),
 		];
