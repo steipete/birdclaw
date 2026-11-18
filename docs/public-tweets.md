@@ -58,6 +58,6 @@ The import path itself does not call X or FxTwitter. Like other data-changing co
 BIRDCLAW_BACKUP_AUTO_SYNC=0 birdclaw import x-json ./exports/tweets.jsonl --json
 ```
 
-The command prints `{ imported, skipped, errors }`. Malformed JSONL lines are rejected whole; re-importing the same tweet ids is idempotent.
+The command prints `{ imported, skipped, skippedIncludes, errors, warnings }`. Malformed JSONL lines are rejected whole; re-importing the same tweet ids is idempotent (`skipped`). Invalid `includes.tweets` rows are dropped with warnings (`skippedIncludes`).
 
 Imported primary tweets receive a `home` edge on the `public` import account and appear in default `search tweets` results. Tweets included only as quoted or referenced context do not receive that edge. Re-importing earlier saved files also adds missing search membership without duplicating tweets. Empty included-user display names fall back to the username, matching shared ingestion.

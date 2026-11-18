@@ -24,8 +24,9 @@ export interface XJsonImportError {
 export interface XJsonImportResult {
 	imported: number;
 	skipped: number;
+	skippedIncludes: number;
 	errors: XJsonImportError[];
-	warnings?: string[];
+	warnings: string[];
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -506,14 +507,12 @@ function normalizeDocument(
 	const skippedIncludes = forwardedIncludes?.skippedIncludes ?? 0;
 	const warnings = forwardedIncludes?.warnings ?? [];
 	const includePayload = forwardedIncludes?.includes;
-	const hasIncludes =
-		Boolean(includePayload?.users?.length) ||
-		Boolean(includePayload?.tweets?.length) ||
-		Boolean(includePayload?.media?.length);
+	const attachIncludes =
+		raw.includes !== undefined && forwardedIncludes !== undefined;
 	return {
 		payload: {
 			data,
-			...(hasIncludes && includePayload ? { includes: includePayload } : {}),
+			...(attachIncludes && includePayload ? { includes: includePayload } : {}),
 			...(raw.meta && isRecord(raw.meta) ? { meta: raw.meta } : {}),
 		},
 		sourceUrlByTweetId,
@@ -670,7 +669,13 @@ export function importXJsonText(
 	db: Database,
 	input: string,
 ): XJsonImportResult {
-	const result: XJsonImportResult = { imported: 0, skipped: 0, errors: [] };
+	const result: XJsonImportResult = {
+		imported: 0,
+		skipped: 0,
+		skippedIncludes: 0,
+		errors: [],
+		warnings: [],
+	};
 	let documents: Array<{ line: number; raw: unknown }>;
 	try {
 		const split = splitInputDocuments(input);
@@ -681,7 +686,11 @@ export function importXJsonText(
 			line: 1,
 			message: error instanceof Error ? error.message : String(error),
 		});
-		return result;
+		return {
+			...result,
+			warnings: [],
+			skippedIncludes: 0,
+		};
 	}
 
 	ensurePublicImportAccount(db);
@@ -692,10 +701,8 @@ export function importXJsonText(
 			result.errors.push({ line: document.line, message: normalized.error });
 			continue;
 		}
-		if (normalized.warnings.length > 0) {
-			result.warnings = [...(result.warnings ?? []), ...normalized.warnings];
-		}
-		result.skipped += normalized.skippedIncludes;
+		result.warnings.push(...normalized.warnings);
+		result.skippedIncludes += normalized.skippedIncludes;
 		const primaryIds = [
 			...new Set(normalized.payload.data.map((tweet) => tweet.id)),
 		];
