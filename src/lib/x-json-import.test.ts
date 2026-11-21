@@ -22,6 +22,25 @@ const SYNTH_AUTHOR = {
 	name: "Synth Lab",
 };
 
+function expectImportCounts(
+	result: ReturnType<typeof importXJsonText>,
+	expected: {
+		imported: number;
+		skipped?: number;
+		skippedIncludes?: number;
+		errors?: typeof result.errors;
+		warnings?: string[];
+	},
+) {
+	expect(result).toEqual({
+		imported: expected.imported,
+		skipped: expected.skipped ?? 0,
+		skippedIncludes: expected.skippedIncludes ?? 0,
+		errors: expected.errors ?? [],
+		warnings: expected.warnings ?? [],
+	});
+}
+
 function singleTweetResponse(
 	overrides: { id?: string; text?: string; url?: string } = {},
 ) {
@@ -173,7 +192,7 @@ describe("importXJsonText", () => {
 					},
 				}),
 			);
-			expect(result).toEqual({ imported: 1, skipped: 0, errors: [] });
+			expectImportCounts(result, { imported: 1 });
 			expect(
 				db.prepare("select like_count from tweets where id = ?").get("880001"),
 			).toEqual({ like_count: Number(value) });
@@ -196,7 +215,7 @@ describe("importXJsonText", () => {
 				}),
 			),
 		);
-		expect(result).toEqual({ imported: 1, skipped: 0, errors: [] });
+		expectImportCounts(result, { imported: 1 });
 		expect(
 			db.prepare("select id, text from tweets where id = ?").get("880001"),
 		).toMatchObject({ id: "880001", text: "synth needle alpha" });
@@ -222,6 +241,251 @@ describe("importXJsonText", () => {
 				)
 				.all(),
 		).toEqual([{ tweet_id: "880001" }]);
+	});
+
+	it("imports primary data when an included tweet lacks author_id", () => {
+		const home = testHome();
+		const db = home.db;
+		const payload = {
+			data: {
+				id: "880012",
+				author_id: SYNTH_AUTHOR.id,
+				text: "synth quote parent needle",
+				created_at: "2026-03-01T12:00:00.000Z",
+				referenced_tweets: [{ type: "quoted", id: "880013" }],
+			},
+			includes: {
+				users: [SYNTH_AUTHOR],
+				tweets: [
+					{
+						id: "880013",
+						text: "quoted without author",
+						created_at: "2026-03-01T11:00:00.000Z",
+					},
+				],
+			},
+		};
+		const result = importXJsonText(db, JSON.stringify(payload));
+		expectImportCounts(result, {
+			imported: 1,
+			skippedIncludes: 1,
+			warnings: [
+				"Skipped includes.tweets 880013: tweet.author_id must be a non-empty string",
+			],
+		});
+		expect(
+			db
+				.prepare("select id, quoted_tweet_id from tweets where id = ?")
+				.get("880012"),
+		).toEqual({ id: "880012", quoted_tweet_id: "880013" });
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880013"),
+		).toBeUndefined();
+	});
+
+	it("imports primary data when an included tweet has a non-numeric author_id", () => {
+		const db = testHome().db;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880014",
+					author_id: SYNTH_AUTHOR.id,
+					text: "synth parent",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {
+					users: [SYNTH_AUTHOR],
+					tweets: [
+						{
+							id: "880015",
+							author_id: "not-numeric",
+							text: "bad included author",
+							created_at: "2026-03-01T11:00:00.000Z",
+						},
+					],
+				},
+			}),
+		);
+		expectImportCounts(result, {
+			imported: 1,
+			skippedIncludes: 1,
+			warnings: [
+				"Skipped includes.tweets 880015: tweet.author_id must be a numeric string",
+			],
+		});
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880014"),
+		).toEqual({ id: "880014" });
+	});
+
+	it("ingests valid includes.tweets when another include in the same document is invalid", () => {
+		const db = testHome().db;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880016",
+					author_id: SYNTH_AUTHOR.id,
+					text: "synth mixed includes needle",
+					created_at: "2026-03-01T12:00:00.000Z",
+					referenced_tweets: [
+						{ type: "quoted", id: "880017" },
+						{ type: "quoted", id: "880018" },
+					],
+				},
+				includes: {
+					users: [SYNTH_AUTHOR],
+					tweets: [
+						{
+							id: "880017",
+							author_id: SYNTH_AUTHOR.id,
+							text: "valid quoted include",
+							created_at: "2026-03-01T11:00:00.000Z",
+						},
+						{
+							id: "880018",
+							text: "invalid quoted include",
+							created_at: "2026-03-01T10:00:00.000Z",
+						},
+					],
+				},
+			}),
+		);
+		expectImportCounts(result, {
+			imported: 1,
+			skippedIncludes: 1,
+			warnings: [
+				"Skipped includes.tweets 880018: tweet.author_id must be a non-empty string",
+			],
+		});
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880017"),
+		).toEqual({ id: "880017" });
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880018"),
+		).toBeUndefined();
+	});
+
+	it("rejects the document when includes is not an object", () => {
+		const db = testHome().db;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880019",
+					author_id: SYNTH_AUTHOR.id,
+					text: "bad includes shape",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: ["not-an-object"],
+			}),
+		);
+		expectImportCounts(result, {
+			imported: 0,
+			errors: [
+				{
+					line: 1,
+					message: "Line 1: includes must be an object",
+				},
+			],
+		});
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880019"),
+		).toBeUndefined();
+	});
+
+	it("rejects the document when includes.tweets is not an array", () => {
+		const db = testHome().db;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880230",
+					author_id: SYNTH_AUTHOR.id,
+					text: "bad include tweets shape",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: { users: [SYNTH_AUTHOR], tweets: {} },
+			}),
+		);
+		expectImportCounts(result, {
+			imported: 0,
+			errors: [
+				{
+					line: 1,
+					message: "Line 1: includes.tweets must be an array",
+				},
+			],
+		});
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880230"),
+		).toBeUndefined();
+	});
+
+	it.each([null, "invalid", 42, []])(
+		"skips a non-object included tweet %j without losing primary data",
+		(tweet) => {
+			const db = testHome().db;
+			const payload = singleTweetResponse();
+			const result = importXJsonText(
+				db,
+				JSON.stringify({
+					...payload,
+					includes: { ...payload.includes, tweets: [tweet] },
+				}),
+			);
+			expectImportCounts(result, {
+				imported: 1,
+				skippedIncludes: 1,
+				warnings: ["Skipped includes.tweets unknown: tweet must be an object"],
+			});
+			expect(db.prepare("select id from tweets").all()).toEqual([
+				{ id: "880001" },
+			]);
+		},
+	);
+
+	it("imports with an empty includes object when the key is present", () => {
+		const db = testHome().db;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880231",
+					author_id: SYNTH_AUTHOR.id,
+					text: "empty includes object",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+				includes: {},
+			}),
+		);
+		expectImportCounts(result, { imported: 1 });
+		expect(
+			db.prepare("select id, text from tweets where id = ?").get("880231"),
+		).toMatchObject({
+			id: "880231",
+			text: "empty includes object",
+		});
+	});
+
+	it("imports when the includes key is omitted", () => {
+		const db = testHome().db;
+		const result = importXJsonText(
+			db,
+			JSON.stringify({
+				data: {
+					id: "880232",
+					author_id: SYNTH_AUTHOR.id,
+					text: "no includes key",
+					created_at: "2026-03-01T12:00:00.000Z",
+				},
+			}),
+		);
+		expectImportCounts(result, { imported: 1 });
+		expect(
+			db.prepare("select id from tweets where id = ?").get("880232"),
+		).toEqual({ id: "880232" });
 	});
 
 	it("imports array data with includes users, media, tweets, and note_tweet", () => {
@@ -323,15 +587,21 @@ describe("importXJsonText", () => {
 		const home = testHome();
 		const db = home.db;
 		const input = JSON.stringify(singleTweetResponse({ id: "880040" }));
-		expect(importXJsonText(db, input)).toEqual({
+		const first = importXJsonText(db, input);
+		const second = importXJsonText(db, input);
+		expect(first).toEqual({
 			imported: 1,
 			skipped: 0,
+			skippedIncludes: 0,
 			errors: [],
+			warnings: [],
 		});
-		expect(importXJsonText(db, input)).toEqual({
+		expect(second).toEqual({
 			imported: 0,
 			skipped: 1,
+			skippedIncludes: 0,
 			errors: [],
+			warnings: [],
 		});
 	});
 
@@ -340,10 +610,9 @@ describe("importXJsonText", () => {
 		const input = JSON.stringify(singleTweetResponse({ id: "880041" }));
 		importXJsonText(db, input);
 		db.prepare("update tweets set like_count = 42 where id = ?").run("880041");
-		expect(importXJsonText(db, input)).toEqual({
+		expectImportCounts(importXJsonText(db, input), {
 			imported: 0,
 			skipped: 1,
-			errors: [],
 		});
 		expect(
 			db.prepare("select like_count from tweets where id = ?").get("880041"),
@@ -471,7 +740,7 @@ describe("importXJsonText", () => {
 				includes: { users: [SYNTH_AUTHOR] },
 			}),
 		);
-		expect(result).toMatchObject({ imported: 1, skipped: 0, errors: [] });
+		expectImportCounts(result, { imported: 1 });
 		expect(db.prepare("select count(*) as count from tweets").get()).toEqual({
 			count: 1,
 		});
@@ -503,7 +772,12 @@ describe("importXJsonText", () => {
 		});
 		const good = JSON.stringify(singleTweetResponse({ id: "880117" }));
 		const result = importXJsonText(db, `${bad}\n${good}`);
-		expect(result).toMatchObject({ imported: 1, skipped: 0 });
+		expect(result).toMatchObject({
+			imported: 1,
+			skipped: 0,
+			skippedIncludes: 0,
+			warnings: [],
+		});
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0]?.message).toContain(
 			"entities.urls must be an array",
@@ -527,7 +801,12 @@ describe("importXJsonText", () => {
 		});
 		const good = JSON.stringify(singleTweetResponse({ id: "880119" }));
 		const result = importXJsonText(db, `${bad}\n${good}`);
-		expect(result).toMatchObject({ imported: 1, skipped: 0 });
+		expect(result).toMatchObject({
+			imported: 1,
+			skipped: 0,
+			skippedIncludes: 0,
+			warnings: [],
+		});
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0]?.message).toContain(
 			"public_metrics.like_count must be a non-negative integer",
@@ -954,7 +1233,7 @@ describe("importXJsonText", () => {
 				},
 			}),
 		);
-		expect(result).toEqual({ imported: 1, skipped: 0, errors: [] });
+		expectImportCounts(result, { imported: 1 });
 		expect(
 			db.prepare("select id, text from tweets where id = ?").get(tweetId),
 		).toEqual({ id: tweetId, text: "synth empty name needle" });
@@ -1001,7 +1280,7 @@ describe("importXJsonText", () => {
 				},
 			}),
 		);
-		expect(result).toEqual({ imported: 1, skipped: 0, errors: [] });
+		expectImportCounts(result, { imported: 1 });
 		expect(
 			db.prepare("select id, text from tweets where id = ?").get(tweetId),
 		).toEqual({ id: tweetId, text: "synth blank update needle" });
@@ -1135,7 +1414,9 @@ describe("import x-json CLI", () => {
 			expect(JSON.parse(String(log.mock.calls.at(-1)?.[0]))).toEqual({
 				imported: 1,
 				skipped: 0,
+				skippedIncludes: 0,
 				errors: [],
+				warnings: [],
 			});
 			expect(
 				home.db
@@ -1179,6 +1460,8 @@ describe("import x-json CLI", () => {
 			expect(payload).toMatchObject({
 				imported: 0,
 				skipped: 0,
+				skippedIncludes: 0,
+				warnings: [],
 			});
 			expect(process.exitCode).toBe(1);
 		} finally {
