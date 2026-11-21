@@ -2,6 +2,7 @@
 
 ## 0.17.2 - Unreleased
 
+- Refresh compatible query, map, icon, Effect 3, TanStack Start, lint, and test dependencies while preserving the Bun canary, Node floor, and security overrides.
 - Skip invalid `includes.tweets` entries during `import x-json` with warnings and `skippedIncludes` instead of rejecting the whole document; primary `data` tweets keep strict validation and `skipped` still counts idempotent primary rows only. Thanks @TheAngryPit (#270).
 
 ## 0.17.1 - 2026-11-15
