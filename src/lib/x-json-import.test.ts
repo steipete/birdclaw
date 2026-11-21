@@ -423,6 +423,29 @@ describe("importXJsonText", () => {
 		).toBeUndefined();
 	});
 
+	it.each([null, "invalid", 42, []])(
+		"skips a non-object included tweet %j without losing primary data",
+		(tweet) => {
+			const db = testHome().db;
+			const payload = singleTweetResponse();
+			const result = importXJsonText(
+				db,
+				JSON.stringify({
+					...payload,
+					includes: { ...payload.includes, tweets: [tweet] },
+				}),
+			);
+			expectImportCounts(result, {
+				imported: 1,
+				skippedIncludes: 1,
+				warnings: ["Skipped includes.tweets unknown: tweet must be an object"],
+			});
+			expect(db.prepare("select id from tweets").all()).toEqual([
+				{ id: "880001" },
+			]);
+		},
+	);
+
 	it("imports with an empty includes object when the key is present", () => {
 		const db = testHome().db;
 		const result = importXJsonText(

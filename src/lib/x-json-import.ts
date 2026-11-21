@@ -428,7 +428,11 @@ function validateAndForwardIncludes(
 		const tweets: XurlTweetData[] = [];
 		for (const tweet of value.tweets) {
 			if (!isRecord(tweet)) {
-				return validationError(line, "includes.tweets entries must be objects");
+				skippedIncludes += 1;
+				warnings.push(
+					"Skipped includes.tweets unknown: tweet must be an object",
+				);
+				continue;
 			}
 			const validated = validateTweetRecord(tweet, line);
 			if (isImportFieldError(validated)) {
